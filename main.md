@@ -1,0 +1,94 @@
+
+- todo:
+    - basic prototype:
+        - parser.
+        - compiler.
+        - functions.
+            - current function (code).
+            - stack frames.
+            - function objects.
+        - meta tables.
+            - get rid of hardcoded list/table ops, for now ~ IC.
+
+    - define semantics.
+        - values.
+        - environments.
+        - ast & operational semantics.
+
+
+- goals:
+    - lua, but less error prone.
+    - clean api.
+        - return value based error handling.
+        - well-defined byte code.
+    - zero dependencies.
+    - highly introspective.
+    - fast.
+
+
+- what i want to do differently:
+    - zero based indexing.
+    - snake_case.
+    - arbitrary precision integers (optional, but default enabled).
+    - floats & integers as separate types.
+        - python style: with auto conversion to float but errors on int too large.
+        - perhaps strict mode, where conversions have to be explicit.
+    - native lists?
+        - not as separate types, don't want to break uniformity.
+        - but maybe do it like js. so with a "List" meta table, `[]` syntax, contiguous storage (length determines buffer size, nils are valid values ~ equiv to table, but take up storage).
+        - thinking js-like is the way to go. `[]` syntax, special `len` field, `append` method. apart from spec simplicity, i don't see why we should hack regular tables to be efficient as arrays, if we can just have arrays directly. (still behaving like a regular table, in that they can have other attrs).
+        - though, i've never used the fact that you can put properties on arrays in js.
+        - maybe just go with python style lists? distinct type. no props.
+    - computed table entries?
+        - possible with `__index` & `__new_index`.
+        - but better performance with native support. don't need to index twice, don't need to chain meta tables when have another use case for `__index`.
+    - string: immutable utf8. buffer: byte array.
+    - vector types.
+    - missing key errors on index.
+        - `nil` is a valid table value.
+        - `get` method that takes an alternative value, default is nil.
+    - missing key errors on write?
+        - `table.key := value` as infallible version.
+        - `__get`, `__set`, `__def`.
+    - arity errors.
+        - then also default args, cause otherwise have to explicitly pass nil for optional args.
+        - and prob named args too, cause that lets you specify any one of multiple default args.
+        - default args as upvalues.
+    - globals have to be declared.
+        - analogous to: key error in environment table.
+        - `global name` -> `_ENV._G.name = nil`.
+        - `local name` in top level -> `_ENV.name = nil`.
+    - native table freezing.
+    - require boolean for conditional & loop?
+        - seems consistent with the "more strict" changes.
+
+- what stays the same:
+    - pcall based exception handling.
+    - metatables.
+    - method semantics `obj:method(arg)` -> `obj.method(obj, arg)`.
+
+- study lua:
+    - concepts:
+        - values & types.
+        - environments.
+        - execution context.
+        - error handling.
+        - meta tables.
+        - garbage collection.
+        - coroutines.
+        - syntax.
+        - c api.
+        - libraries.
+    - values & types:
+        - dynamically typed.
+        - values have types, not value holders.
+        - all values are first class (can be stored in variables, passed around).
+        - basic types: nil, boolean, number, string, function, userdata, thread, table.
+        - falsy values: false, nil. everything else, truthy.
+        - nil value in table means absence of a value. assigning nil removes the table entry.
+        - numbers: integers & floats. converted automatically.
+        - value vs reference types.
+            - Tables, functions, threads, and (full) userdata values are objects: variables do not actually contain these values, only references to them. Assignment, parameter passing, and function returns always manipulate references to such values; these operations do not imply any kind of copy. 
+        - length of string must fit in lua integer.
+        - tables: associative array. keys can be any lua value, except nil & nan.
+
