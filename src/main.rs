@@ -1,12 +1,12 @@
 #![allow(dead_code)]
 
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 enum Value {
     Nil,
     Bool   { value: bool   },
     Number { value: f64    },
-    String { value: String },
+    String { index: usize  },
     List   { index: usize  },
     Table  { index: usize  },
     // Function
@@ -14,12 +14,15 @@ enum Value {
 }
 
 impl Value {
-    fn print(&self) {
+    fn print(&self, vm: &Vm) {
         match self {
             Value::Nil              => print!("nil"),
             Value::Bool   { value } => print!("{}", value),
             Value::Number { value } => print!("{}", value),
-            Value::String { value } => print!("{}", value),
+            Value::String { index } => {
+                let GcObjectData::String { value } = &vm.heap[*index].data else { unreachable!() };
+                print!("{}", value);
+            }
             Value::List   { index } => print!("<List {}>", index),
             Value::Table  { index } => print!("<Table {}>", index),
         }
@@ -39,6 +42,7 @@ enum GcObjectData {
     Free  { next:  Option<usize> },
     List  { values: Vec<Value> },
     Table { values: Vec<(Value, Value)> },
+    String { value: String },
 }
 
 
@@ -136,7 +140,7 @@ impl Vm {
     }
 
     fn heap_free(&mut self, index: usize) {
-        println!("free {}", index);
+        println!("free {} ({:?})", index, self.heap[index].data);
         self.heap[index].data = GcObjectData::Free { next: self.first_free };
         self.first_free = Some(index);
     }
@@ -144,6 +148,7 @@ impl Vm {
     fn gc(&mut self) {
         fn mark_value(heap: &mut Vec<GcObject>, value: &Value) {
             match value {
+                Value::String { index } |
                 Value::List { index } |
                 Value::Table { index } => {
                     mark_object(heap, *index);
@@ -177,6 +182,8 @@ impl Vm {
                         mark_value(heap, v);
                     }
                 }
+
+                GcObjectData::String { value: _ } => {}
 
                 _ => unreachable!()
             }
@@ -219,7 +226,7 @@ impl Vm {
                 let index =
                     if index < 0 { -index as usize }
                     else         { self.stack.len() - 1 - index as usize };
-                let value = self.stack[index].clone();
+                let value = self.stack[index];
                 self.stack.push(value);
             }
 
@@ -254,7 +261,9 @@ impl Vm {
             }
 
             Op::PushString (value) => {
-                self.stack.push(Value::String { value: value.into() })
+                let index = self.heap_alloc();
+                self.heap[index].data = GcObjectData::String { value: value.into() };
+                self.stack.push(Value::String { index })
             }
 
             Op::PushList => {
@@ -303,7 +312,7 @@ impl Vm {
                 let Value::Number { value: index } = index else { unimplemented!() };
 
                 // @todo-robust: error.
-                let value = values[index as usize].clone();
+                let value = values[index as usize];
 
                 self.stack.push(value);
             }
@@ -577,7 +586,7 @@ impl Vm {
             Op::Print => {
                 // @todo-robust: error.
                 let top = self.stack.pop().unwrap();
-                top.print();
+                top.print(self);
                 println!();
             }
 
