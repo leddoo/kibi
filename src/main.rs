@@ -63,14 +63,16 @@ enum Op {
     PushList,
     PushTable,
 
-    ListPush,
-    ListRead,
-    ListWrite,
+    ListAppend,
+    //ListDef? ~ pads with nil.
+    ListGet,
+    ListSet,
     ListLen,
 
-    TableInsert,
-    TableRead,
-    TableWrite,
+    TableDef,
+    TableGet,
+    TableSet,
+    TableLen,
 
     Add,
     Sub,
@@ -279,7 +281,7 @@ impl Vm {
             }
 
 
-            Op::ListPush => {
+            Op::ListAppend => {
                 // @todo-robust: error.
                 let value = self.stack.pop().unwrap();
 
@@ -295,7 +297,7 @@ impl Vm {
                 values.push(value);
             }
 
-            Op::ListRead => {
+            Op::ListGet => {
                 // @todo-robust: error.
                 let index = self.stack.pop().unwrap();
 
@@ -317,7 +319,7 @@ impl Vm {
                 self.stack.push(value);
             }
 
-            Op::ListWrite => {
+            Op::ListSet => {
                 // @todo-robust: error.
                 let value = self.stack.pop().unwrap();
 
@@ -357,15 +359,19 @@ impl Vm {
             }
 
 
-            Op::TableInsert => {
+            Op::TableDef => {
                 unimplemented!()
             }
 
-            Op::TableRead => {
+            Op::TableGet => {
                 unimplemented!()
             }
 
-            Op::TableWrite => {
+            Op::TableSet => {
+                unimplemented!()
+            }
+
+            Op::TableLen => {
                 unimplemented!()
             }
 
@@ -611,15 +617,15 @@ fn main() {
 
         Op::Copy(0),
         Op::PushString("hi"),
-        Op::ListPush,
+        Op::ListAppend,
 
         Op::Copy(0),
         Op::PushNumber(69.0),
-        Op::ListPush,
+        Op::ListAppend,
 
         Op::Copy(0),
         Op::PushBool(false),
-        Op::ListPush,
+        Op::ListAppend,
 
         Op::PushString("list contents:"),
         Op::Print,
@@ -635,7 +641,7 @@ fn main() {
         Op::JumpFalse(24),
         Op::Copy(1), // push list
         Op::Copy(1), // push i
-        Op::ListRead,
+        Op::ListGet,
         Op::Print,
         Op::Inc,
         Op::Jump(13),
@@ -649,6 +655,43 @@ fn main() {
     vm.run();
     println!("{:?}", t0.elapsed());
 
-    //println!("{:?}", vm);
+    /*
+        var l := [ "hi", 69, false ]
+        var i := 0
+        while i < l:len() do
+            print l[i]
+            i = i + 1
+        end
+
+        constants:
+            0: "hi"
+
+        registers:
+            0: l
+            1: i
+            2: t0
+
+        instructions:
+            list_new        l
+            load_const      t0, "hi"(0)
+            list_append     l, t0
+            load_int        t0, 69
+            list_append     l, t0
+            load_bool       t0, false
+            list_append     l, t0
+
+            load_int        i, 0
+            block $loop
+                list_len        t0, l
+                exit_nlt        i, t0, $loop(0)
+                list_get        t0, l, i
+                print           t0
+                load_int        t0, 1
+                add             i, i, temp0
+                repeat          $loop(0)
+            end
+            return
+
+    */
 }
 
