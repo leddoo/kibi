@@ -1,8 +1,6 @@
 
 - todo:
     - basic prototype:
-        - byte code builder: blocks.
-        - generic ops.
         - functions.
             - current function (code).
             - call (info) stack.
@@ -23,6 +21,7 @@
                   this becomes the base of the callee's stack frame.
                 - to return, callee places return values starting at the start of its stack frame (`fn :: args ...`). for multi-ret, this may adjust (increase) the caller's stack top.
             - upvalues.
+        - generic ops.
         - meta tables.
 
     - define semantics.

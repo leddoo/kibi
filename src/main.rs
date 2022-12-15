@@ -34,12 +34,19 @@ enum GcObjectData {
 
 
 
+///
+/// encoding stuff:
+/// - the opcode is always in the low byte.
+/// - `extra` always has the low byte 0xff, which is an invalid opcode.
+/// - jumps with `extra` store their target in `extra`.
+/// 
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[repr(u32)]
 enum Opcode {
-    Invalid = 0,
+    Invalid0 = 0,
     Halt,
     Nop,
+    Unreachable,
 
     Copy,
 
@@ -88,6 +95,31 @@ enum Opcode {
     Print,
 
     Gc,
+
+    Invalid255 = 255,
+}
+
+impl Opcode {
+    #[inline]
+    fn is_jump(self) -> bool {
+        use Opcode::*;
+        match self {
+            Jump    | JumpTrue | JumpFalse |
+            JumpEq  | JumpLe   | JumpLt    |
+            JumpNEq | JumpNLe  | JumpNLt   => true,
+            _ => false
+        }
+    }
+
+    #[inline]
+    fn has_extra(self) -> bool {
+        use Opcode::*;
+        match self {
+            JumpEq  | JumpLe   | JumpLt    |
+            JumpNEq | JumpNLe  | JumpNLt   => true,
+            _ => false
+        }
+    }
 }
 
 
@@ -104,6 +136,12 @@ impl Instruction {
         let opcode = self.0 & 0xff;
         debug_assert!(opcode <= Opcode::Gc as u32);
         core::mem::transmute(opcode)
+    }
+
+    #[inline]
+    fn patch_opcode(&mut self, new_op: Opcode) {
+        self.0 &= !0xff;
+        self.0 |= new_op as u32;
     }
 
     #[inline(always)]
@@ -129,6 +167,12 @@ impl Instruction {
     #[inline(always)]
     fn _u16(self) -> u32 {
         (self.0 >> 16) & 0xffff
+    }
+
+    #[inline(always)]
+    fn patch_u16(&mut self, new_u16: u16) {
+        self.0 &= 0xffff;
+        self.0 |= (new_u16 as u32) << 16;
     }
 
 
@@ -204,18 +248,34 @@ impl Instruction {
     fn u16(self) -> u32 {
         self._u16()
     }
+
+    #[inline(always)]
+    fn encode_extra(v: u32) -> Instruction {
+        assert!(v < (1 << 24));
+        Instruction(v << 8 | 0xff)
+    }
+
+    #[inline]
+    fn extra(self) -> u32 {
+        self.0 >> 8
+    }
 }
 
 
 
 struct ByteCodeBuilder {
     buffer: Vec<Instruction>,
+
+    block_stack: Vec<usize>,
+    blocks:      Vec<(u16, u16)>,
 }
 
 impl ByteCodeBuilder {
     fn new() -> Self {
         ByteCodeBuilder {
             buffer: vec![],
+            block_stack: vec![],
+            blocks:      vec![],
         }
     }
 
@@ -225,6 +285,10 @@ impl ByteCodeBuilder {
 
     fn nop(&mut self) {
         self.buffer.push(Instruction::encode_op(Opcode::Nop));
+    }
+
+    fn unreachable(&mut self) {
+        self.buffer.push(Instruction::encode_op(Opcode::Unreachable));
     }
 
     fn copy(&mut self, dst: Reg, src: Reg) {
@@ -331,32 +395,32 @@ impl ByteCodeBuilder {
 
     fn jump_eq(&mut self, src1: Reg, src2: Reg, target: u16) {
         self.buffer.push(Instruction::encode_r2(Opcode::JumpEq, src1, src2));
-        self.buffer.push(Instruction(target as u32));
+        self.buffer.push(Instruction::encode_extra(target as u32));
     }
 
     fn jump_le(&mut self, src1: Reg, src2: Reg, target: u16) {
         self.buffer.push(Instruction::encode_r2(Opcode::JumpLe, src1, src2));
-        self.buffer.push(Instruction(target as u32));
+        self.buffer.push(Instruction::encode_extra(target as u32));
     }
 
     fn jump_lt(&mut self, src1: Reg, src2: Reg, target: u16) {
         self.buffer.push(Instruction::encode_r2(Opcode::JumpLt, src1, src2));
-        self.buffer.push(Instruction(target as u32));
+        self.buffer.push(Instruction::encode_extra(target as u32));
     }
 
     fn jump_neq(&mut self, src1: Reg, src2: Reg, target: u16) {
         self.buffer.push(Instruction::encode_r2(Opcode::JumpNEq, src1, src2));
-        self.buffer.push(Instruction(target as u32));
+        self.buffer.push(Instruction::encode_extra(target as u32));
     }
 
     fn jump_nle(&mut self, src1: Reg, src2: Reg, target: u16) {
         self.buffer.push(Instruction::encode_r2(Opcode::JumpNLe, src1, src2));
-        self.buffer.push(Instruction(target as u32));
+        self.buffer.push(Instruction::encode_extra(target as u32));
     }
 
     fn jump_nlt(&mut self, src1: Reg, src2: Reg, target: u16) {
         self.buffer.push(Instruction::encode_r2(Opcode::JumpNLt, src1, src2));
-        self.buffer.push(Instruction(target as u32));
+        self.buffer.push(Instruction::encode_extra(target as u32));
     }
 
     fn print(&mut self, reg: Reg) {
@@ -367,9 +431,136 @@ impl ByteCodeBuilder {
         self.buffer.push(Instruction::encode_op(Opcode::Gc));
     }
 
-    // TODO: blocks.
 
-    fn build(self) -> Vec<Instruction> {
+    fn begin_block(&mut self) {
+        let block = self.blocks.len();
+        let begin = self.buffer.len() as u16;
+        self.block_stack.push(block);
+        self.blocks.push((begin, u16::MAX));
+    }
+
+    fn end_block(&mut self) {
+        let block = self.block_stack.pop().unwrap();
+        let end = self.buffer.len() as u16;
+        self.blocks[block].1 = end;
+    }
+
+    fn block<F: FnOnce(&mut ByteCodeBuilder)>(&mut self, f: F) {
+        self.begin_block();
+        f(self);
+        self.end_block();
+    }
+
+    #[inline]
+    fn _block_begin(&self, index: usize) -> u16 {
+        assert!(index < self.block_stack.len());
+        let block = self.block_stack[self.block_stack.len() - 1 - index];
+        self.blocks[block].0
+    }
+
+    const JUMP_BLOCK_END_BIT: usize = 1 << 15;
+
+    #[inline]
+    fn _block_end(&self, index: usize) -> u16 {
+        assert!(index < self.block_stack.len());
+        let block = self.block_stack[self.block_stack.len() - 1 - index];
+        (block | Self::JUMP_BLOCK_END_BIT) as u16
+    }
+
+
+    fn exit_block(&mut self, index: usize) {
+        self.jump(self._block_end(index));
+    }
+
+    fn exit_eq(&mut self, src1: Reg, src2: Reg, index: usize) {
+        self.jump_eq(src1, src2, self._block_end(index));
+    }
+
+    fn exit_le(&mut self, src1: Reg, src2: Reg, index: usize) {
+        self.jump_le(src1, src2, self._block_end(index));
+    }
+
+    fn exit_lt(&mut self, src1: Reg, src2: Reg, index: usize) {
+        self.jump_lt(src1, src2, self._block_end(index));
+    }
+
+    fn exit_neq(&mut self, src1: Reg, src2: Reg, index: usize) {
+        self.jump_neq(src1, src2, self._block_end(index));
+    }
+
+    fn exit_nle(&mut self, src1: Reg, src2: Reg, index: usize) {
+        self.jump_nle(src1, src2, self._block_end(index));
+    }
+
+    fn exit_nlt(&mut self, src1: Reg, src2: Reg, index: usize) {
+        self.jump_nlt(src1, src2, self._block_end(index));
+    }
+
+    fn repeat_block(&mut self, index: usize) {
+        self.jump(self._block_begin(index));
+    }
+
+    fn repeat_eq(&mut self, src1: Reg, src2: Reg, index: usize) {
+        self.jump_eq(src1, src2, self._block_begin(index));
+    }
+
+    fn repeat_le(&mut self, src1: Reg, src2: Reg, index: usize) {
+        self.jump_le(src1, src2, self._block_begin(index));
+    }
+
+    fn repeat_lt(&mut self, src1: Reg, src2: Reg, index: usize) {
+        self.jump_lt(src1, src2, self._block_begin(index));
+    }
+
+    fn repeat_neq(&mut self, src1: Reg, src2: Reg, index: usize) {
+        self.jump_neq(src1, src2, self._block_begin(index));
+    }
+
+    fn repeat_nle(&mut self, src1: Reg, src2: Reg, index: usize) {
+        self.jump_nle(src1, src2, self._block_begin(index));
+    }
+
+    fn repeat_nlt(&mut self, src1: Reg, src2: Reg, index: usize) {
+        self.jump_nlt(src1, src2, self._block_begin(index));
+    }
+
+
+    fn build(mut self) -> Vec<Instruction> {
+        assert!(self.buffer.len() < (1 << 16));
+        assert!(self.blocks.len() < (1 << 12));
+
+        assert!(self.block_stack.len() == 0);
+
+        let mut i = 0;
+        while i < self.buffer.len() {
+            let instr = &mut self.buffer[i];
+            i += 1;
+
+            let op = unsafe { instr.opcode() };
+
+            if op.has_extra() {
+                let extra = &mut self.buffer[i];
+                i += 1;
+
+                if op.is_jump() {
+                    let target = extra.extra() as usize;
+                    if target & Self::JUMP_BLOCK_END_BIT != 0 {
+                        let block = target & !Self::JUMP_BLOCK_END_BIT;
+                        let end = self.blocks[block].1;
+                        *extra = Instruction::encode_extra(end as u32);
+                    }
+                }
+            }
+            else if op.is_jump() {
+                let target = instr.u16() as usize;
+                if target & Self::JUMP_BLOCK_END_BIT != 0 {
+                    let block = target & !Self::JUMP_BLOCK_END_BIT;
+                    let end = self.blocks[block].1;
+                    instr.patch_u16(end);
+                }
+            }
+        }
+
         self.buffer
     }
 }
@@ -646,9 +837,11 @@ impl Vm {
 
             let op = unsafe { instr.opcode() };
             match op {
-                Opcode::Invalid => unreachable!(),
+                Opcode::Invalid0 | Opcode::Invalid255 => unreachable!(),
 
                 Opcode::Nop => (),
+
+                Opcode::Unreachable => unimplemented!(),
 
                 Opcode::Halt => {
                     self.pc -= 1;
@@ -934,7 +1127,7 @@ impl Vm {
 
                 Opcode::JumpEq => {
                     let (src1, src2) = instr.r2();
-                    let target = self.next_instr().0;
+                    let target = self.next_instr().extra();
 
                     // @todo-speed: remove checks.
                     let src1 = self.stack[src1 as usize];
@@ -946,7 +1139,7 @@ impl Vm {
 
                 Opcode::JumpLe => {
                     let (src1, src2) = instr.r2();
-                    let target = self.next_instr().0;
+                    let target = self.next_instr().extra();
 
                     // @todo-speed: remove checks.
                     let src1 = self.stack[src1 as usize];
@@ -958,7 +1151,7 @@ impl Vm {
 
                 Opcode::JumpLt => {
                     let (src1, src2) = instr.r2();
-                    let target = self.next_instr().0;
+                    let target = self.next_instr().extra();
 
                     // @todo-speed: remove checks.
                     let src1 = self.stack[src1 as usize];
@@ -970,7 +1163,7 @@ impl Vm {
 
                 Opcode::JumpNEq => {
                     let (src1, src2) = instr.r2();
-                    let target = self.next_instr().0;
+                    let target = self.next_instr().extra();
 
                     // @todo-speed: remove checks.
                     let src1 = self.stack[src1 as usize];
@@ -982,7 +1175,7 @@ impl Vm {
 
                 Opcode::JumpNLe => {
                     let (src1, src2) = instr.r2();
-                    let target = self.next_instr().0;
+                    let target = self.next_instr().extra();
 
                     // @todo-speed: remove checks.
                     let src1 = self.stack[src1 as usize];
@@ -994,7 +1187,7 @@ impl Vm {
 
                 Opcode::JumpNLt => {
                     let (src1, src2) = instr.r2();
-                    let target = self.next_instr().0;
+                    let target = self.next_instr().extra();
 
                     // @todo-speed: remove checks.
                     let src1 = self.stack[src1 as usize];
@@ -1034,21 +1227,30 @@ fn main() {
     b.list_append(0, 2);
 
     b.set_nil(2); //Opcode::SetString   { dst: 2, value: "list contents:" },
-    b.print(2); //Opcode::Print       { value: 2 },
+    b.print(2);
 
     // i = 0
     b.set_int(1, 0);
 
-    // 10, loop:
-    b.list_len(2, 0);
-    b.jump_nlt(1, 2, 18);
-    b.list_get(2, 0, 1);
-    b.print(2);
-    b.set_int(2, 1);
-    b.add(1, 1, 2);
-    b.jump(10);
+    b.block(|b| {
+        b.list_len(2, 0);
+        b.exit_nlt(1, 2, 0);
+        b.list_get(2, 0, 1);
+        b.print(2);
+        b.set_int(2, 1);
+        b.add(1, 1, 2);
+        b.repeat_block(0);
+    });
 
-    // 18, done:
+    b.block(|b| {
+        b.block(|b| {
+            b.exit_block(1);
+            b.unreachable();
+        });
+        b.unreachable();
+    });
+    b.print(0);
+
     b.halt();
 
 
