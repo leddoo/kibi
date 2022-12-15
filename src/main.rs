@@ -35,57 +35,350 @@ enum GcObjectData {
 
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum Op {
-    Nop,
+#[repr(u32)]
+enum Opcode {
+    Invalid = 0,
     Halt,
+    Nop,
 
-    Copy        { to: u32, from: u32 },
+    Copy,
 
-    Jump        { target: u32 },
-    JumpTrue    { src: u32, target: u32 },
-    JumpFalse   { src: u32, target: u32 },
-    JumpEq      { src1: u32, src2: u32, target: u32 },
-    JumpLe      { src1: u32, src2: u32, target: u32 },
-    JumpLt      { src1: u32, src2: u32, target: u32 },
-    JumpNEq     { src1: u32, src2: u32, target: u32 },
-    JumpNLe     { src1: u32, src2: u32, target: u32 },
-    JumpNLt     { src1: u32, src2: u32, target: u32 },
+    SetNil,
+    SetBool,
+    SetInt,
+    // TODO: constants.
+    //SetNumber,
+    //SetString,
 
-    SetNil      { dst: u32 },
-    SetBool     { dst: u32, value: bool },
-    SetNumber   { dst: u32, value: f64 },
-    SetString   { dst: u32, value: &'static str },
+    ListNew,
+    ListAppend,
+    ListDef,
+    ListSet,
+    ListGet,
+    ListLen,
 
-    ListNew     { dst: u32 },
-    ListAppend  { list: u32, value: u32 },
-    ListDef     { list: u32, index: u32, value: u32 },
-    ListSet     { list: u32, index: u32, value: u32 },
-    ListGet     { dst: u32, list: u32, index: u32 },
-    ListLen     { dst: u32, list: u32 },
+    //Def,
+    //Set,
+    //Get,
 
-    Add         { dst: u32, src1: u32, src2: u32 },
-    Sub         { dst: u32, src1: u32, src2: u32 },
-    Mul         { dst: u32, src1: u32, src2: u32 },
-    Div         { dst: u32, src1: u32, src2: u32 },
-    IDiv        { dst: u32, src1: u32, src2: u32 },
-    IMod        { dst: u32, src1: u32, src2: u32 },
-    Inc         { reg: u32 },
+    Add,
+    Sub,
+    Mul,
+    Div,
+    //IDiv,
+    //IMod,
+    //Inc,
 
-    CmpEq       { dst: u32, src1: u32, src2: u32 },
-    CmpLe       { dst: u32, src1: u32, src2: u32 },
-    CmpLt       { dst: u32, src1: u32, src2: u32 },
-    CmpGe       { dst: u32, src1: u32, src2: u32 },
-    CmpGt       { dst: u32, src1: u32, src2: u32 },
+    CmpEq,
+    CmpLe,
+    CmpLt,
+    CmpGe,
+    CmpGt,
 
-    Print       { value: u32 },
+    Jump,
+    JumpTrue,
+    JumpFalse,
+    JumpEq,
+    JumpLe,
+    JumpLt,
+    JumpNEq,
+    JumpNLe,
+    JumpNLt,
+
+    Print,
 
     Gc,
 }
 
 
+type Reg = u32;
+
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[repr(transparent)]
+struct Instruction (u32);
+
+impl Instruction {
+    #[inline(always)]
+    unsafe fn opcode(self) -> Opcode {
+        let opcode = self.0 & 0xff;
+        debug_assert!(opcode <= Opcode::Gc as u32);
+        core::mem::transmute(opcode)
+    }
+
+    #[inline(always)]
+    fn _r1(self) -> Reg {
+        (self.0 >> 8) & 0xff
+    }
+
+    #[inline(always)]
+    fn _r2(self) -> Reg {
+        (self.0 >> 16) & 0xff
+    }
+
+    #[inline(always)]
+    fn _r3(self) -> Reg {
+        (self.0 >> 24) & 0xff
+    }
+
+    #[inline(always)]
+    fn _bool(self) -> bool {
+        unsafe { core::mem::transmute(((self.0 >> 16) & 1) as u8) }
+    }
+
+    #[inline(always)]
+    fn _u16(self) -> u32 {
+        (self.0 >> 16) & 0xffff
+    }
+
+
+    #[inline(always)]
+    fn encode_op(op: Opcode) -> Instruction {
+        Instruction(op as u32)
+    }
+
+    #[inline(always)]
+    fn encode_r1(op: Opcode, r1: Reg) -> Instruction {
+        debug_assert!(r1 & 0xff == r1);
+        Instruction(op as u32 | r1 << 8)
+    }
+
+    #[inline]
+    fn r1(self) -> Reg {
+        self._r1()
+    }
+
+    #[inline(always)]
+    fn encode_r2(op: Opcode, r1: Reg, r2: Reg) -> Instruction {
+        debug_assert!(r1 & 0xff == r1);
+        debug_assert!(r2 & 0xff == r2);
+        Instruction(op as u32 | r1 << 8 | r2 << 16)
+    }
+
+    #[inline]
+    fn r2(self) -> (Reg, Reg) {
+        (self._r1(), self._r2())
+    }
+
+    #[inline(always)]
+    fn encode_r3(op: Opcode, r1: Reg, r2: Reg, r3: Reg) -> Instruction {
+        debug_assert!(r1 & 0xff == r1);
+        debug_assert!(r2 & 0xff == r2);
+        debug_assert!(r3 & 0xff == r3);
+        Instruction(op as u32 | r1 << 8 | r2 << 16 | r3 << 24)
+    }
+
+    #[inline]
+    fn r3(self) -> (Reg, Reg, Reg) {
+        (self._r1(), self._r2(), self._r3())
+    }
+
+    #[inline(always)]
+    fn encode_r1b(op: Opcode, r1: Reg, v: bool) -> Instruction {
+        debug_assert!(r1 & 0xff == r1);
+        Instruction(op as u32 | r1 << 8 | (v as u32) << 16)
+    }
+
+    #[inline]
+    fn r1b(self) -> (Reg, bool) {
+        (self._r1(), self._bool())
+    }
+
+    #[inline(always)]
+    fn encode_r1u16(op: Opcode, r1: Reg, v: u16) -> Instruction {
+        debug_assert!(r1 & 0xff == r1);
+        Instruction(op as u32 | r1 << 8 | (v as u32) << 16)
+    }
+
+    #[inline]
+    fn r1u16(self) -> (Reg, u32) {
+        (self._r1(), self._u16())
+    }
+
+    #[inline(always)]
+    fn encode_u16(op: Opcode, v: u16) -> Instruction {
+        Instruction(op as u32 | (v as u32) << 16)
+    }
+
+    #[inline]
+    fn u16(self) -> u32 {
+        self._u16()
+    }
+}
+
+
+
+struct ByteCodeBuilder {
+    buffer: Vec<Instruction>,
+}
+
+impl ByteCodeBuilder {
+    fn new() -> Self {
+        ByteCodeBuilder {
+            buffer: vec![],
+        }
+    }
+
+    fn halt(&mut self) {
+        self.buffer.push(Instruction::encode_op(Opcode::Halt));
+    }
+
+    fn nop(&mut self) {
+        self.buffer.push(Instruction::encode_op(Opcode::Nop));
+    }
+
+    fn copy(&mut self, dst: Reg, src: Reg) {
+        self.buffer.push(Instruction::encode_r2(Opcode::Copy, dst, src));
+    }
+
+    fn set_nil(&mut self, dst: Reg) {
+        self.buffer.push(Instruction::encode_r1(Opcode::SetNil, dst));
+    }
+
+    fn set_bool(&mut self, dst: Reg, value: bool) {
+        self.buffer.push(Instruction::encode_r1b(Opcode::SetBool, dst, value));
+    }
+
+    fn set_int(&mut self, dst: Reg, value: i16) {
+        self.buffer.push(Instruction::encode_r1u16(Opcode::SetInt, dst, value as u16));
+    }
+
+    fn list_new(&mut self, dst: Reg) {
+        self.buffer.push(Instruction::encode_r1(Opcode::ListNew, dst));
+    }
+
+    fn list_append(&mut self, list: Reg, value: Reg) {
+        self.buffer.push(Instruction::encode_r2(Opcode::ListAppend, list, value));
+    }
+
+    fn list_def(&mut self, list: Reg, index: Reg, value: Reg) {
+        self.buffer.push(Instruction::encode_r3(Opcode::ListDef, list, index, value));
+    }
+
+    fn list_set(&mut self, list: Reg, index: Reg, value: Reg) {
+        self.buffer.push(Instruction::encode_r3(Opcode::ListSet, list, index, value));
+    }
+
+    fn list_get(&mut self, dst: Reg, list: Reg, index: Reg) {
+        self.buffer.push(Instruction::encode_r3(Opcode::ListGet, dst, list, index));
+    }
+
+    fn list_len(&mut self, dst: Reg, list: Reg) {
+        self.buffer.push(Instruction::encode_r2(Opcode::ListLen, dst, list));
+    }
+
+    /*
+    fn def(&mut self, obj: Reg, index: Reg, value: Reg) {
+        self.buffer.push(Instruction::encode_r3(Opcode::Def, obj, index, value));
+    }
+
+    fn set(&mut self, obj: Reg, index: Reg, value: Reg) {
+        self.buffer.push(Instruction::encode_r3(Opcode::Set, obj, index, value));
+    }
+
+    fn get(&mut self, obj: Reg, list: Reg, index: Reg) {
+        self.buffer.push(Instruction::encode_r3(Opcode::Get, obj, list, index));
+    }
+    */
+
+    fn add(&mut self, dst: Reg, src1: Reg, src2: Reg) {
+        self.buffer.push(Instruction::encode_r3(Opcode::Add, dst, src1, src2));
+    }
+
+    fn sub(&mut self, dst: Reg, src1: Reg, src2: Reg) {
+        self.buffer.push(Instruction::encode_r3(Opcode::Sub, dst, src1, src2));
+    }
+
+    fn mul(&mut self, dst: Reg, src1: Reg, src2: Reg) {
+        self.buffer.push(Instruction::encode_r3(Opcode::Mul, dst, src1, src2));
+    }
+
+    fn div(&mut self, dst: Reg, src1: Reg, src2: Reg) {
+        self.buffer.push(Instruction::encode_r3(Opcode::Div, dst, src1, src2));
+    }
+
+    fn cmp_eq(&mut self, dst: Reg, src1: Reg, src2: Reg) {
+        self.buffer.push(Instruction::encode_r3(Opcode::CmpEq, dst, src1, src2));
+    }
+
+    fn cmp_le(&mut self, dst: Reg, src1: Reg, src2: Reg) {
+        self.buffer.push(Instruction::encode_r3(Opcode::CmpLe, dst, src1, src2));
+    }
+
+    fn cmp_lt(&mut self, dst: Reg, src1: Reg, src2: Reg) {
+        self.buffer.push(Instruction::encode_r3(Opcode::CmpLt, dst, src1, src2));
+    }
+
+    fn cmp_ge(&mut self, dst: Reg, src1: Reg, src2: Reg) {
+        self.buffer.push(Instruction::encode_r3(Opcode::CmpGe, dst, src1, src2));
+    }
+
+    fn cmp_gt(&mut self, dst: Reg, src1: Reg, src2: Reg) {
+        self.buffer.push(Instruction::encode_r3(Opcode::CmpGt, dst, src1, src2));
+    }
+
+    fn jump(&mut self, target: u16) {
+        self.buffer.push(Instruction::encode_u16(Opcode::Jump, target));
+    }
+
+    fn jump_true(&mut self, src: Reg, target: u16) {
+        self.buffer.push(Instruction::encode_r1u16(Opcode::JumpTrue, src, target));
+    }
+
+    fn jump_false(&mut self, src: Reg, target: u16) {
+        self.buffer.push(Instruction::encode_r1u16(Opcode::JumpFalse, src, target));
+    }
+
+    fn jump_eq(&mut self, src1: Reg, src2: Reg, target: u16) {
+        self.buffer.push(Instruction::encode_r2(Opcode::JumpEq, src1, src2));
+        self.buffer.push(Instruction(target as u32));
+    }
+
+    fn jump_le(&mut self, src1: Reg, src2: Reg, target: u16) {
+        self.buffer.push(Instruction::encode_r2(Opcode::JumpLe, src1, src2));
+        self.buffer.push(Instruction(target as u32));
+    }
+
+    fn jump_lt(&mut self, src1: Reg, src2: Reg, target: u16) {
+        self.buffer.push(Instruction::encode_r2(Opcode::JumpLt, src1, src2));
+        self.buffer.push(Instruction(target as u32));
+    }
+
+    fn jump_neq(&mut self, src1: Reg, src2: Reg, target: u16) {
+        self.buffer.push(Instruction::encode_r2(Opcode::JumpNEq, src1, src2));
+        self.buffer.push(Instruction(target as u32));
+    }
+
+    fn jump_nle(&mut self, src1: Reg, src2: Reg, target: u16) {
+        self.buffer.push(Instruction::encode_r2(Opcode::JumpNLe, src1, src2));
+        self.buffer.push(Instruction(target as u32));
+    }
+
+    fn jump_nlt(&mut self, src1: Reg, src2: Reg, target: u16) {
+        self.buffer.push(Instruction::encode_r2(Opcode::JumpNLt, src1, src2));
+        self.buffer.push(Instruction(target as u32));
+    }
+
+    fn print(&mut self, reg: Reg) {
+        self.buffer.push(Instruction::encode_r1(Opcode::Print, reg));
+    }
+
+    fn gc(&mut self) {
+        self.buffer.push(Instruction::encode_op(Opcode::Gc));
+    }
+
+    // TODO: blocks.
+
+    fn build(self) -> Vec<Instruction> {
+        self.buffer
+    }
+}
+
+
+
 #[derive(Debug)]
 struct Vm {
-    code: Vec<Op>,
+    code: Vec<Instruction>,
     pc:   usize,
 
     stack: Vec<Value>,
@@ -96,7 +389,7 @@ struct Vm {
 }
 
 impl Vm {
-    fn new(code: Vec<Op>, stack_size: usize) -> Self {
+    fn new(code: Vec<Instruction>, stack_size: usize) -> Self {
         Vm {
             code,
             pc: 0,
@@ -336,386 +629,430 @@ impl Vm {
         }
     }
 
-
-    fn step(&mut self) -> bool {
-        //println!("{} {:?} {:?}", self.pc, self.code[self.pc], self);
-
-        let op = self.code[self.pc];
+    #[inline(always)]
+    fn next_instr(&mut self) -> Instruction {
+        debug_assert!(self.pc < self.code.len());
+        let result = unsafe { *self.code.get_unchecked(self.pc) };
         self.pc += 1;
-
-        match op {
-            Op::Nop => (),
-
-            Op::Halt => {
-                self.pc -= 1;
-                return false
-            },
-
-
-            Op::Copy { to, from } => {
-                // @todo-speed: remove checks.
-                self.stack[to as usize] = self.stack[from as usize];
-            }
-
-
-            Op::Jump { target } => {
-                self.pc = target as usize;
-            }
-
-            Op::JumpTrue { src, target } => {
-                // @todo-speed: remove checks.
-                let condition = self.stack[src as usize];
-
-                // @todo-robust: error.
-                // @todo-cleanup: value utils.
-                let Value::Bool { value } = condition else { unimplemented!() };
-
-                if value {
-                    self.pc = target as usize;
-                }
-            }
-
-            Op::JumpFalse { src, target } => {
-                // @todo-speed: remove checks.
-                let condition = self.stack[src as usize];
-
-                // @todo-robust: error.
-                // @todo-cleanup: value utils.
-                let Value::Bool { value } = condition else { unimplemented!() };
-
-                if !value {
-                    self.pc = target as usize;
-                }
-            }
-
-            Op::JumpEq { src1, src2, target } => {
-                // @todo-speed: remove checks.
-                let src1 = self.stack[src1 as usize];
-                let src2 = self.stack[src2 as usize];
-                if self.value_eq(src1, src2) {
-                    self.pc = target as usize;
-                }
-            }
-
-            Op::JumpLe { src1, src2, target } => {
-                // @todo-speed: remove checks.
-                let src1 = self.stack[src1 as usize];
-                let src2 = self.stack[src2 as usize];
-                if self.value_le(src1, src2) {
-                    self.pc = target as usize;
-                }
-            }
-
-            Op::JumpLt { src1, src2, target } => {
-                // @todo-speed: remove checks.
-                let src1 = self.stack[src1 as usize];
-                let src2 = self.stack[src2 as usize];
-                if self.value_lt(src1, src2) {
-                    self.pc = target as usize;
-                }
-            }
-
-            Op::JumpNEq { src1, src2, target } => {
-                // @todo-speed: remove checks.
-                let src1 = self.stack[src1 as usize];
-                let src2 = self.stack[src2 as usize];
-                if !self.value_eq(src1, src2) {
-                    self.pc = target as usize;
-                }
-            }
-
-            Op::JumpNLe { src1, src2, target } => {
-                // @todo-speed: remove checks.
-                let src1 = self.stack[src1 as usize];
-                let src2 = self.stack[src2 as usize];
-                if !self.value_le(src1, src2) {
-                    self.pc = target as usize;
-                }
-            }
-
-            Op::JumpNLt { src1, src2, target } => {
-                // @todo-speed: remove checks.
-                let src1 = self.stack[src1 as usize];
-                let src2 = self.stack[src2 as usize];
-                if !self.value_lt(src1, src2) {
-                    self.pc = target as usize;
-                }
-            }
-
-
-            Op::SetNil { dst } => {
-                // @todo-speed: remove checks.
-                self.stack[dst as usize] = Value::Nil;
-            }
-
-            Op::SetBool { dst, value } => {
-                // @todo-speed: remove checks.
-                self.stack[dst as usize] = Value::Bool { value };
-            }
-
-            Op::SetNumber { dst, value } => {
-                // @todo-speed: remove checks.
-                self.stack[dst as usize] = Value::Number { value };
-            }
-
-            Op::SetString { dst, value } => {
-                let index = self.heap_alloc();
-                // @todo-speed: constant table.
-                self.heap[index].data = GcObjectData::String { value: value.into() };
-
-                // @todo-speed: remove checks.
-                self.stack[dst as usize] = Value::String { index };
-            }
-
-
-            Op::ListNew { dst } => {
-                let index = self.heap_alloc();
-                self.heap[index].data = GcObjectData::List { values: vec![] };
-
-                // @todo-speed: remove checks.
-                self.stack[dst as usize] = Value::List { index };
-            }
-
-            Op::ListAppend { list, value } => {
-                // @todo-speed: remove checks.
-                let list  = self.stack[list  as usize];
-                let value = self.stack[value as usize];
-
-                // @todo-robust: error.
-                let Value::List { index: list_index } = list else { unimplemented!() };
-
-                let object = &mut self.heap[list_index];
-                let GcObjectData::List { values } = &mut object.data else { unreachable!() };
-
-                values.push(value);
-            }
-
-            Op::ListDef { list, index, value } => {
-                // @todo-speed: remove checks.
-                let list  = self.stack[list  as usize];
-                let index = self.stack[index as usize];
-                let value = self.stack[value as usize];
-
-                // @todo-robust: error.
-                let Value::List { index: list_index } = list else { unimplemented!() };
-
-                // @todo-cleanup: value utils.
-                let object = &mut self.heap[list_index];
-                let GcObjectData::List { values } = &mut object.data else { unreachable!() };
-
-                // @todo-robust: error.
-                let Value::Number { value: index } = index else { unimplemented!() };
-                let index = index as usize;
-
-                if index >= values.len() {
-                    values.resize(index + 1, Value::Nil);
-                }
-                values[index] = value;
-            }
-
-            Op::ListSet { list, index, value } => {
-                // @todo-speed: remove checks.
-                let list  = self.stack[list  as usize];
-                let index = self.stack[index as usize];
-                let value = self.stack[value as usize];
-
-                // @todo-robust: error.
-                let Value::List { index: list_index } = list else { unimplemented!() };
-
-                // @todo-cleanup: value utils.
-                let object = &mut self.heap[list_index];
-                let GcObjectData::List { values } = &mut object.data else { unreachable!() };
-
-                // @todo-robust: error.
-                let Value::Number { value: index } = index else { unimplemented!() };
-
-                // @todo-robust: error.
-                let slot = &mut values[index as usize];
-                *slot = value;
-            }
-
-            Op::ListGet { dst, list, index } => {
-                // @todo-speed: remove checks.
-                let list  = self.stack[list  as usize];
-                let index = self.stack[index as usize];
-
-                // @todo-robust: error.
-                let Value::List { index: list_index } = list else { unimplemented!() };
-
-                // @todo-cleanup: value utils.
-                let object = &mut self.heap[list_index];
-                let GcObjectData::List { values } = &mut object.data else { unreachable!() };
-
-                // @todo-robust: error.
-                let Value::Number { value: index } = index else { unimplemented!() };
-
-                // @todo-robust: error.
-                let value = values[index as usize];
-
-                self.stack[dst as usize] = value;
-            }
-
-            Op::ListLen { dst, list } => {
-                // @todo-speed: remove checks.
-                let list = self.stack[list  as usize];
-
-                // @todo-robust: error.
-                let Value::List { index: list_index } = list else { unimplemented!() };
-
-                // @todo-cleanup: value utils.
-                let object = &mut self.heap[list_index];
-                let GcObjectData::List { values } = &mut object.data else { unreachable!() };
-
-                let len = Value::Number { value: values.len() as f64 };
-                self.stack[dst as usize] = len;
-            }
-
-
-            Op::Add { dst, src1, src2 } => {
-                // @todo-speed: remove checks.
-                let src1 = self.stack[src1 as usize];
-                let src2 = self.stack[src2 as usize];
-                let result = self.value_add(src1, src2);
-                self.stack[dst as usize] = result;
-            }
-
-            Op::Sub { dst, src1, src2 } => {
-                // @todo-speed: remove checks.
-                let src1 = self.stack[src1 as usize];
-                let src2 = self.stack[src2 as usize];
-                let result = self.value_sub(src1, src2);
-                self.stack[dst as usize] = result;
-            }
-
-            Op::Mul { dst, src1, src2 } => {
-                // @todo-speed: remove checks.
-                let src1 = self.stack[src1 as usize];
-                let src2 = self.stack[src2 as usize];
-                let result = self.value_mul(src1, src2);
-                self.stack[dst as usize] = result;
-            }
-
-            Op::Div { dst, src1, src2 } => {
-                // @todo-speed: remove checks.
-                let src1 = self.stack[src1 as usize];
-                let src2 = self.stack[src2 as usize];
-                let result = self.value_div(src1, src2);
-                self.stack[dst as usize] = result;
-            }
-
-            Op::IDiv { dst: _, src1: _, src2: _ } => {
-                unimplemented!()
-            }
-
-            Op::IMod { dst: _, src1: _, src2: _ } => {
-                unimplemented!()
-            }
-
-            Op::Inc { reg: dst } => {
-                // @todo-speed: remove checks.
-                let value = &mut self.stack[dst as usize];
-
-                // @todo-robust: error.
-                let Value::Number { value } = value else { unimplemented!() };
-
-                *value += 1.0;
-            }
-
-
-            Op::CmpEq { dst, src1, src2 } => {
-                // @todo-speed: remove checks.
-                let src1 = self.stack[src1 as usize];
-                let src2 = self.stack[src2 as usize];
-                let result = self.value_eq(src1, src2);
-                self.stack[dst as usize] = Value::Bool { value: result };
-            }
-
-            Op::CmpLe { dst, src1, src2 } => {
-                // @todo-speed: remove checks.
-                let src1 = self.stack[src1 as usize];
-                let src2 = self.stack[src2 as usize];
-                let result = self.value_le(src1, src2);
-                self.stack[dst as usize] = Value::Bool { value: result };
-            }
-
-            Op::CmpLt { dst, src1, src2 } => {
-                // @todo-speed: remove checks.
-                let src1 = self.stack[src1 as usize];
-                let src2 = self.stack[src2 as usize];
-                let result = self.value_lt(src1, src2);
-                self.stack[dst as usize] = Value::Bool { value: result };
-            }
-
-            Op::CmpGe { dst, src1, src2 } => {
-                // @todo-speed: remove checks.
-                let src1 = self.stack[src1 as usize];
-                let src2 = self.stack[src2 as usize];
-                let result = self.value_ge(src1, src2);
-                self.stack[dst as usize] = Value::Bool { value: result };
-            }
-
-            Op::CmpGt { dst, src1, src2 } => {
-                // @todo-speed: remove checks.
-                let src1 = self.stack[src1 as usize];
-                let src2 = self.stack[src2 as usize];
-                let result = self.value_gt(src1, src2);
-                self.stack[dst as usize] = Value::Bool { value: result };
-            }
-
-
-            Op::Print { value } => {
-                // @todo-speed: remove checks.
-                let value = self.stack[value as usize];
-                self.value_print(value);
-                println!();
-            }
-
-
-            Op::Gc => {
-                self.gc();
-            }
-        }
-
-        true
+        result
     }
 
+    #[inline(never)]
     fn run(&mut self) {
-        while self.step() {}
+        loop {
+            //println!("{} {:?} {:?}", self.pc, self.code[self.pc], self);
+
+            let instr = self.next_instr();
+
+            let op = unsafe { instr.opcode() };
+            match op {
+                Opcode::Invalid => unreachable!(),
+
+                Opcode::Nop => (),
+
+                Opcode::Halt => {
+                    self.pc -= 1;
+                    return;
+                },
+
+
+                Opcode::Copy => {
+                    let (dst, src) = instr.r2();
+                    // @todo-speed: remove checks.
+                    self.stack[dst as usize] = self.stack[src as usize];
+                }
+
+
+                Opcode::SetNil => {
+                    let dst = instr.r1();
+                    // @todo-speed: remove checks.
+                    self.stack[dst as usize] = Value::Nil;
+                }
+
+                Opcode::SetBool => {
+                    let (dst, value) = instr.r1b();
+                    // @todo-speed: remove checks.
+                    self.stack[dst as usize] = Value::Bool { value };
+                }
+
+                Opcode::SetInt => {
+                    let (dst, value) = instr.r1u16();
+                    let value = value as u16 as i16 as f64;
+                    // @todo-speed: remove checks.
+                    self.stack[dst as usize] = Value::Number { value };
+                }
+
+                /*
+                Opcode::SetNumber { dst, value } => {
+                    // @todo-speed: remove checks.
+                    self.stack[dst as usize] = Value::Number { value };
+                }
+
+                Opcode::SetString { dst, value } => {
+                    let index = self.heap_alloc();
+                    // @todo-speed: constant table.
+                    self.heap[index].data = GcObjectData::String { value: value.into() };
+
+                    // @todo-speed: remove checks.
+                    self.stack[dst as usize] = Value::String { index };
+                }
+                */
+
+
+                Opcode::ListNew => {
+                    let dst = instr.r1();
+
+                    let index = self.heap_alloc();
+                    self.heap[index].data = GcObjectData::List { values: vec![] };
+
+                    // @todo-speed: remove checks.
+                    self.stack[dst as usize] = Value::List { index };
+                }
+
+                Opcode::ListAppend => {
+                    let (list, value) = instr.r2();
+
+                    // @todo-speed: remove checks.
+                    let list  = self.stack[list  as usize];
+                    let value = self.stack[value as usize];
+
+                    // @todo-robust: error.
+                    let Value::List { index: list_index } = list else { unimplemented!() };
+
+                    let object = &mut self.heap[list_index];
+                    let GcObjectData::List { values } = &mut object.data else { unreachable!() };
+
+                    values.push(value);
+                }
+
+                Opcode::ListDef => {
+                    let (list, index, value) = instr.r3();
+
+                    // @todo-speed: remove checks.
+                    let list  = self.stack[list  as usize];
+                    let index = self.stack[index as usize];
+                    let value = self.stack[value as usize];
+
+                    // @todo-robust: error.
+                    let Value::List { index: list_index } = list else { unimplemented!() };
+
+                    // @todo-cleanup: value utils.
+                    let object = &mut self.heap[list_index];
+                    let GcObjectData::List { values } = &mut object.data else { unreachable!() };
+
+                    // @todo-robust: error.
+                    let Value::Number { value: index } = index else { unimplemented!() };
+                    let index = index as usize;
+
+                    if index >= values.len() {
+                        values.resize(index + 1, Value::Nil);
+                    }
+                    values[index] = value;
+                }
+
+                Opcode::ListSet => {
+                    let (list, index, value) = instr.r3();
+
+                    // @todo-speed: remove checks.
+                    let list  = self.stack[list  as usize];
+                    let index = self.stack[index as usize];
+                    let value = self.stack[value as usize];
+
+                    // @todo-robust: error.
+                    let Value::List { index: list_index } = list else { unimplemented!() };
+
+                    // @todo-cleanup: value utils.
+                    let object = &mut self.heap[list_index];
+                    let GcObjectData::List { values } = &mut object.data else { unreachable!() };
+
+                    // @todo-robust: error.
+                    let Value::Number { value: index } = index else { unimplemented!() };
+
+                    // @todo-robust: error.
+                    let slot = &mut values[index as usize];
+                    *slot = value;
+                }
+
+                Opcode::ListGet => {
+                    let (dst, list, index) = instr.r3();
+
+                    // @todo-speed: remove checks.
+                    let list  = self.stack[list  as usize];
+                    let index = self.stack[index as usize];
+
+                    // @todo-robust: error.
+                    let Value::List { index: list_index } = list else { unimplemented!() };
+
+                    // @todo-cleanup: value utils.
+                    let object = &mut self.heap[list_index];
+                    let GcObjectData::List { values } = &mut object.data else { unreachable!() };
+
+                    // @todo-robust: error.
+                    let Value::Number { value: index } = index else { unimplemented!() };
+
+                    // @todo-robust: error.
+                    let value = values[index as usize];
+
+                    self.stack[dst as usize] = value;
+                }
+
+                Opcode::ListLen => {
+                    let (dst, list) = instr.r2();
+
+                    // @todo-speed: remove checks.
+                    let list = self.stack[list  as usize];
+
+                    // @todo-robust: error.
+                    let Value::List { index: list_index } = list else { unimplemented!() };
+
+                    // @todo-cleanup: value utils.
+                    let object = &mut self.heap[list_index];
+                    let GcObjectData::List { values } = &mut object.data else { unreachable!() };
+
+                    let len = Value::Number { value: values.len() as f64 };
+                    self.stack[dst as usize] = len;
+                }
+
+
+                Opcode::Add => {
+                    let (dst, src1, src2) = instr.r3();
+                    // @todo-speed: remove checks.
+                    let src1 = self.stack[src1 as usize];
+                    let src2 = self.stack[src2 as usize];
+                    let result = self.value_add(src1, src2);
+                    self.stack[dst as usize] = result;
+                }
+
+                Opcode::Sub => {
+                    let (dst, src1, src2) = instr.r3();
+                    // @todo-speed: remove checks.
+                    let src1 = self.stack[src1 as usize];
+                    let src2 = self.stack[src2 as usize];
+                    let result = self.value_sub(src1, src2);
+                    self.stack[dst as usize] = result;
+                }
+
+                Opcode::Mul => {
+                    let (dst, src1, src2) = instr.r3();
+                    // @todo-speed: remove checks.
+                    let src1 = self.stack[src1 as usize];
+                    let src2 = self.stack[src2 as usize];
+                    let result = self.value_mul(src1, src2);
+                    self.stack[dst as usize] = result;
+                }
+
+                Opcode::Div => {
+                    let (dst, src1, src2) = instr.r3();
+                    // @todo-speed: remove checks.
+                    let src1 = self.stack[src1 as usize];
+                    let src2 = self.stack[src2 as usize];
+                    let result = self.value_div(src1, src2);
+                    self.stack[dst as usize] = result;
+                }
+
+
+                Opcode::CmpEq => {
+                    let (dst, src1, src2) = instr.r3();
+                    // @todo-speed: remove checks.
+                    let src1 = self.stack[src1 as usize];
+                    let src2 = self.stack[src2 as usize];
+                    let result = self.value_eq(src1, src2);
+                    self.stack[dst as usize] = Value::Bool { value: result };
+                }
+
+                Opcode::CmpLe => {
+                    let (dst, src1, src2) = instr.r3();
+                    // @todo-speed: remove checks.
+                    let src1 = self.stack[src1 as usize];
+                    let src2 = self.stack[src2 as usize];
+                    let result = self.value_le(src1, src2);
+                    self.stack[dst as usize] = Value::Bool { value: result };
+                }
+
+                Opcode::CmpLt => {
+                    let (dst, src1, src2) = instr.r3();
+                    // @todo-speed: remove checks.
+                    let src1 = self.stack[src1 as usize];
+                    let src2 = self.stack[src2 as usize];
+                    let result = self.value_lt(src1, src2);
+                    self.stack[dst as usize] = Value::Bool { value: result };
+                }
+
+                Opcode::CmpGe => {
+                    let (dst, src1, src2) = instr.r3();
+                    // @todo-speed: remove checks.
+                    let src1 = self.stack[src1 as usize];
+                    let src2 = self.stack[src2 as usize];
+                    let result = self.value_ge(src1, src2);
+                    self.stack[dst as usize] = Value::Bool { value: result };
+                }
+
+                Opcode::CmpGt => {
+                    let (dst, src1, src2) = instr.r3();
+                    // @todo-speed: remove checks.
+                    let src1 = self.stack[src1 as usize];
+                    let src2 = self.stack[src2 as usize];
+                    let result = self.value_gt(src1, src2);
+                    self.stack[dst as usize] = Value::Bool { value: result };
+                }
+
+
+                Opcode::Jump => {
+                    let target = instr.u16();
+                    self.pc = target as usize;
+                }
+
+                Opcode::JumpTrue => {
+                    let (src, target) = instr.r1u16();
+
+                    // @todo-speed: remove checks.
+                    let condition = self.stack[src as usize];
+
+                    // @todo-robust: error.
+                    // @todo-cleanup: value utils.
+                    let Value::Bool { value } = condition else { unimplemented!() };
+
+                    if value {
+                        self.pc = target as usize;
+                    }
+                }
+
+                Opcode::JumpFalse => {
+                    let (src, target) = instr.r1u16();
+
+                    // @todo-speed: remove checks.
+                    let condition = self.stack[src as usize];
+
+                    // @todo-robust: error.
+                    // @todo-cleanup: value utils.
+                    let Value::Bool { value } = condition else { unimplemented!() };
+
+                    if !value {
+                        self.pc = target as usize;
+                    }
+                }
+
+                Opcode::JumpEq => {
+                    let (src1, src2) = instr.r2();
+                    let target = self.next_instr().0;
+
+                    // @todo-speed: remove checks.
+                    let src1 = self.stack[src1 as usize];
+                    let src2 = self.stack[src2 as usize];
+                    if self.value_eq(src1, src2) {
+                        self.pc = target as usize;
+                    }
+                }
+
+                Opcode::JumpLe => {
+                    let (src1, src2) = instr.r2();
+                    let target = self.next_instr().0;
+
+                    // @todo-speed: remove checks.
+                    let src1 = self.stack[src1 as usize];
+                    let src2 = self.stack[src2 as usize];
+                    if self.value_le(src1, src2) {
+                        self.pc = target as usize;
+                    }
+                }
+
+                Opcode::JumpLt => {
+                    let (src1, src2) = instr.r2();
+                    let target = self.next_instr().0;
+
+                    // @todo-speed: remove checks.
+                    let src1 = self.stack[src1 as usize];
+                    let src2 = self.stack[src2 as usize];
+                    if self.value_lt(src1, src2) {
+                        self.pc = target as usize;
+                    }
+                }
+
+                Opcode::JumpNEq => {
+                    let (src1, src2) = instr.r2();
+                    let target = self.next_instr().0;
+
+                    // @todo-speed: remove checks.
+                    let src1 = self.stack[src1 as usize];
+                    let src2 = self.stack[src2 as usize];
+                    if !self.value_eq(src1, src2) {
+                        self.pc = target as usize;
+                    }
+                }
+
+                Opcode::JumpNLe => {
+                    let (src1, src2) = instr.r2();
+                    let target = self.next_instr().0;
+
+                    // @todo-speed: remove checks.
+                    let src1 = self.stack[src1 as usize];
+                    let src2 = self.stack[src2 as usize];
+                    if !self.value_le(src1, src2) {
+                        self.pc = target as usize;
+                    }
+                }
+
+                Opcode::JumpNLt => {
+                    let (src1, src2) = instr.r2();
+                    let target = self.next_instr().0;
+
+                    // @todo-speed: remove checks.
+                    let src1 = self.stack[src1 as usize];
+                    let src2 = self.stack[src2 as usize];
+                    if !self.value_lt(src1, src2) {
+                        self.pc = target as usize;
+                    }
+                }
+
+
+                Opcode::Print => {
+                    let reg = instr.r1();
+                    // @todo-speed: remove checks.
+                    let value = self.stack[reg as usize];
+                    self.value_print(value);
+                    println!();
+                }
+
+
+                Opcode::Gc => {
+                    self.gc();
+                }
+            }
+        }
     }
 }
 
 
 fn main() {
-    let mut vm = Vm::new(vec![
-        Op::ListNew     { dst: 0 },
+    let mut b = ByteCodeBuilder::new();
+    b.list_new(0);
+    b.set_nil(2); //Opcode::SetString   { dst: 2, value: "hi" },
+    b.list_append(0, 2);
+    b.set_int(2, 69);
+    b.list_append(0, 2);
+    b.set_bool(2, false);
+    b.list_append(0, 2);
 
-        Op::SetString   { dst: 2, value: "hi" },
-        Op::ListAppend  { list: 0, value: 2 },
+    b.set_nil(2); //Opcode::SetString   { dst: 2, value: "list contents:" },
+    b.print(2); //Opcode::Print       { value: 2 },
 
-        Op::SetNumber   { dst: 2, value: 69.0 },
-        Op::ListAppend  { list: 0, value: 2 },
+    // i = 0
+    b.set_int(1, 0);
 
-        Op::SetBool     { dst: 2, value: false },
-        Op::ListAppend  { list: 0, value: 2 },
+    // 10, loop:
+    b.list_len(2, 0);
+    b.jump_nlt(1, 2, 18);
+    b.list_get(2, 0, 1);
+    b.print(2);
+    b.set_int(2, 1);
+    b.add(1, 1, 2);
+    b.jump(10);
 
-        Op::SetString   { dst: 2, value: "list contents:" },
-        Op::Print       { value: 2 },
+    // 18, done:
+    b.halt();
 
-        // i = 0
-        Op::SetNumber   { dst: 1, value: 0.0 },
 
-        // 10, loop:
-        Op::ListLen     { dst: 2, list: 0 },
-        Op::JumpNLt     { src1: 1, src2: 2, target: 16 },
-        Op::ListGet     { dst: 2, list: 0, index: 1 },
-        Op::Print       { value: 2 },
-        Op::Inc         { reg: 1 },
-        Op::Jump        { target: 10 },
-
-        // 16, done:
-
-        Op::Halt,
-    ], 3);
+    let mut vm = Vm::new(b.build(), 3);
 
     let t0 = std::time::Instant::now();
     vm.run();

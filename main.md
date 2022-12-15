@@ -1,16 +1,7 @@
 
 - todo:
     - basic prototype:
-        - "bytecode" builder.
-            - mostly for computing jumps.
-            - write with lztf in mind!
-                - blocks, exit & repeat.
-        - lztf.
-            - text repr & ad-hoc parser.
-                - skip encoding for now. don't need it yet.
-            - implement "compiler".
-                - determine jump kinds.
-                - compute jump offsets.
+        - byte code builder: blocks.
         - generic ops.
         - functions.
             - current function (code).
