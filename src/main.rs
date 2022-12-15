@@ -14,19 +14,6 @@ enum Value {
 }
 
 impl Value {
-    fn print(&self, vm: &Vm) {
-        match self {
-            Value::Nil              => print!("nil"),
-            Value::Bool   { value } => print!("{}", value),
-            Value::Number { value } => print!("{}", value),
-            Value::String { index } => {
-                let GcObjectData::String { value } = &vm.heap[*index].data else { unreachable!() };
-                print!("{}", value);
-            }
-            Value::List   { index } => print!("<List {}>", index),
-            Value::Table  { index } => print!("<Table {}>", index),
-        }
-    }
 }
 
 
@@ -49,46 +36,48 @@ enum GcObjectData {
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Op {
+    Nop,
     Halt,
 
-    Copy (i32),
+    Copy        { to: u32, from: u32 },
 
-    Jump      (u32),
-    JumpFalse (u32),
+    Jump        { target: u32 },
+    JumpTrue    { src: u32, target: u32 },
+    JumpFalse   { src: u32, target: u32 },
+    JumpEq      { src1: u32, src2: u32, target: u32 },
+    JumpLe      { src1: u32, src2: u32, target: u32 },
+    JumpLt      { src1: u32, src2: u32, target: u32 },
+    JumpNEq     { src1: u32, src2: u32, target: u32 },
+    JumpNLe     { src1: u32, src2: u32, target: u32 },
+    JumpNLt     { src1: u32, src2: u32, target: u32 },
 
-    PushNil,
-    PushBool   (bool),
-    PushNumber (f64),
-    PushString (&'static str),
-    PushList,
-    PushTable,
+    SetNil      { dst: u32 },
+    SetBool     { dst: u32, value: bool },
+    SetNumber   { dst: u32, value: f64 },
+    SetString   { dst: u32, value: &'static str },
 
-    ListAppend,
-    //ListDef? ~ pads with nil.
-    ListGet,
-    ListSet,
-    ListLen,
+    ListNew     { dst: u32 },
+    ListAppend  { list: u32, value: u32 },
+    ListDef     { list: u32, index: u32, value: u32 },
+    ListSet     { list: u32, index: u32, value: u32 },
+    ListGet     { dst: u32, list: u32, index: u32 },
+    ListLen     { dst: u32, list: u32 },
 
-    TableDef,
-    TableGet,
-    TableSet,
-    TableLen,
+    Add         { dst: u32, src1: u32, src2: u32 },
+    Sub         { dst: u32, src1: u32, src2: u32 },
+    Mul         { dst: u32, src1: u32, src2: u32 },
+    Div         { dst: u32, src1: u32, src2: u32 },
+    IDiv        { dst: u32, src1: u32, src2: u32 },
+    IMod        { dst: u32, src1: u32, src2: u32 },
+    Inc         { reg: u32 },
 
-    Add,
-    Sub,
-    Mul,
-    Div,
-    IDiv,
-    IMod,
-    Inc,
+    CmpEq       { dst: u32, src1: u32, src2: u32 },
+    CmpLe       { dst: u32, src1: u32, src2: u32 },
+    CmpLt       { dst: u32, src1: u32, src2: u32 },
+    CmpGe       { dst: u32, src1: u32, src2: u32 },
+    CmpGt       { dst: u32, src1: u32, src2: u32 },
 
-    CmpEq,
-    CmpLe,
-    CmpLt,
-    CmpGe,
-    CmpGt,
-
-    Print,
+    Print       { value: u32 },
 
     Gc,
 }
@@ -107,11 +96,11 @@ struct Vm {
 }
 
 impl Vm {
-    fn new(code: Vec<Op>) -> Self {
+    fn new(code: Vec<Op>, stack_size: usize) -> Self {
         Vm {
             code,
             pc: 0,
-            stack: vec![],
+            stack: vec![Value::Nil; stack_size],
             heap:  vec![],
 
             first_free: None,
@@ -210,6 +199,144 @@ impl Vm {
         }
     }
 
+    #[inline]
+    fn string_value(&self, object: usize) -> &str {
+        if let GcObjectData::String { value } = &self.heap[object].data {
+            value
+        }
+        else { unreachable!() }
+    }
+
+    #[inline]
+    fn value_eq(&mut self, v1: Value, v2: Value) -> bool {
+        use Value::*;
+        match (v1, v2) {
+            (Nil, Nil) => true,
+
+            (Bool { value: v1 }, Bool { value: v2 }) =>
+                v1 == v2,
+
+            (Number { value: v1 }, Number { value: v2 }) =>
+                v1 == v2,
+
+            (String { index: i1 }, String { index: i2 }) => {
+                self.string_value(i1) == self.string_value(i2)
+            }
+
+            (List { index: i1 }, List { index: i2 }) =>
+                i1 == i2,
+
+            (Table { index: _i1 }, Table { index: _i2 }) =>
+                unimplemented!(),
+
+            _ => false,
+        }
+    }
+
+    #[inline]
+    fn value_le(&mut self, v1: Value, v2: Value) -> bool {
+        use Value::*;
+        match (v1, v2) {
+            (Number { value: v1 }, Number { value: v2 }) =>
+                v1 <= v2,
+
+            _ => unimplemented!(),
+        }
+    }
+
+    #[inline]
+    fn value_lt(&mut self, v1: Value, v2: Value) -> bool {
+        use Value::*;
+        match (v1, v2) {
+            (Number { value: v1 }, Number { value: v2 }) =>
+                v1 < v2,
+
+            _ => unimplemented!(),
+        }
+    }
+
+    #[inline]
+    fn value_ge(&mut self, v1: Value, v2: Value) -> bool {
+        use Value::*;
+        match (v1, v2) {
+            (Number { value: v1 }, Number { value: v2 }) =>
+                v1 >= v2,
+
+            _ => unimplemented!(),
+        }
+    }
+
+    #[inline]
+    fn value_gt(&mut self, v1: Value, v2: Value) -> bool {
+        use Value::*;
+        match (v1, v2) {
+            (Number { value: v1 }, Number { value: v2 }) =>
+                v1 > v2,
+
+            _ => unimplemented!(),
+        }
+    }
+
+    #[inline]
+    fn value_add(&mut self, v1: Value, v2: Value) -> Value {
+        use Value::*;
+        match (v1, v2) {
+            (Number { value: v1 }, Number { value: v2 }) =>
+                Number { value: v1 + v2 },
+
+            _ => unimplemented!(),
+        }
+    }
+
+    #[inline]
+    fn value_sub(&mut self, v1: Value, v2: Value) -> Value {
+        use Value::*;
+        match (v1, v2) {
+            (Number { value: v1 }, Number { value: v2 }) =>
+                Number { value: v1 - v2 },
+
+            _ => unimplemented!(),
+        }
+    }
+
+    #[inline]
+    fn value_mul(&mut self, v1: Value, v2: Value) -> Value {
+        use Value::*;
+        match (v1, v2) {
+            (Number { value: v1 }, Number { value: v2 }) =>
+                Number { value: v1 * v2 },
+
+            _ => unimplemented!(),
+        }
+    }
+
+    #[inline]
+    fn value_div(&mut self, v1: Value, v2: Value) -> Value {
+        use Value::*;
+        match (v1, v2) {
+            (Number { value: v1 }, Number { value: v2 }) =>
+                Number { value: v1 / v2 },
+
+            _ => unimplemented!(),
+        }
+    }
+
+    #[inline]
+    fn value_print(&self, value: Value) {
+        match value {
+            Value::Nil              => print!("nil"),
+            Value::Bool   { value } => print!("{}", value),
+            Value::Number { value } => print!("{}", value),
+            Value::String { index } => {
+                let GcObjectData::String { value } = &self.heap[index].data else { unreachable!() };
+                print!("{}", value);
+            }
+            Value::List   { index } => print!("<List {}>", index),
+            Value::Table  { index } => print!("<Table {}>", index),
+        }
+    }
+
+
     fn step(&mut self) -> bool {
         //println!("{} {:?} {:?}", self.pc, self.code[self.pc], self);
 
@@ -217,31 +344,43 @@ impl Vm {
         self.pc += 1;
 
         match op {
+            Op::Nop => (),
+
             Op::Halt => {
                 self.pc -= 1;
                 return false
             },
 
 
-            Op::Copy (index) => {
-                // @todo-robust: error.
-                let index =
-                    if index < 0 { -index as usize }
-                    else         { self.stack.len() - 1 - index as usize };
-                let value = self.stack[index];
-                self.stack.push(value);
+            Op::Copy { to, from } => {
+                // @todo-speed: remove checks.
+                self.stack[to as usize] = self.stack[from as usize];
             }
 
 
-            Op::Jump (target) => {
+            Op::Jump { target } => {
                 self.pc = target as usize;
             }
 
-            Op::JumpFalse (target) => {
-                // @todo-robust: error.
-                let condition = self.stack.pop().unwrap();
+            Op::JumpTrue { src, target } => {
+                // @todo-speed: remove checks.
+                let condition = self.stack[src as usize];
 
                 // @todo-robust: error.
+                // @todo-cleanup: value utils.
+                let Value::Bool { value } = condition else { unimplemented!() };
+
+                if value {
+                    self.pc = target as usize;
+                }
+            }
+
+            Op::JumpFalse { src, target } => {
+                // @todo-speed: remove checks.
+                let condition = self.stack[src as usize];
+
+                // @todo-robust: error.
+                // @todo-cleanup: value utils.
                 let Value::Bool { value } = condition else { unimplemented!() };
 
                 if !value {
@@ -249,44 +388,98 @@ impl Vm {
                 }
             }
 
-
-            Op::PushNil => {
-                self.stack.push(Value::Nil);
+            Op::JumpEq { src1, src2, target } => {
+                // @todo-speed: remove checks.
+                let src1 = self.stack[src1 as usize];
+                let src2 = self.stack[src2 as usize];
+                if self.value_eq(src1, src2) {
+                    self.pc = target as usize;
+                }
             }
 
-            Op::PushBool (value) => {
-                self.stack.push(Value::Bool { value });
+            Op::JumpLe { src1, src2, target } => {
+                // @todo-speed: remove checks.
+                let src1 = self.stack[src1 as usize];
+                let src2 = self.stack[src2 as usize];
+                if self.value_le(src1, src2) {
+                    self.pc = target as usize;
+                }
             }
 
-            Op::PushNumber (value) => {
-                self.stack.push(Value::Number { value });
+            Op::JumpLt { src1, src2, target } => {
+                // @todo-speed: remove checks.
+                let src1 = self.stack[src1 as usize];
+                let src2 = self.stack[src2 as usize];
+                if self.value_lt(src1, src2) {
+                    self.pc = target as usize;
+                }
             }
 
-            Op::PushString (value) => {
+            Op::JumpNEq { src1, src2, target } => {
+                // @todo-speed: remove checks.
+                let src1 = self.stack[src1 as usize];
+                let src2 = self.stack[src2 as usize];
+                if !self.value_eq(src1, src2) {
+                    self.pc = target as usize;
+                }
+            }
+
+            Op::JumpNLe { src1, src2, target } => {
+                // @todo-speed: remove checks.
+                let src1 = self.stack[src1 as usize];
+                let src2 = self.stack[src2 as usize];
+                if !self.value_le(src1, src2) {
+                    self.pc = target as usize;
+                }
+            }
+
+            Op::JumpNLt { src1, src2, target } => {
+                // @todo-speed: remove checks.
+                let src1 = self.stack[src1 as usize];
+                let src2 = self.stack[src2 as usize];
+                if !self.value_lt(src1, src2) {
+                    self.pc = target as usize;
+                }
+            }
+
+
+            Op::SetNil { dst } => {
+                // @todo-speed: remove checks.
+                self.stack[dst as usize] = Value::Nil;
+            }
+
+            Op::SetBool { dst, value } => {
+                // @todo-speed: remove checks.
+                self.stack[dst as usize] = Value::Bool { value };
+            }
+
+            Op::SetNumber { dst, value } => {
+                // @todo-speed: remove checks.
+                self.stack[dst as usize] = Value::Number { value };
+            }
+
+            Op::SetString { dst, value } => {
                 let index = self.heap_alloc();
+                // @todo-speed: constant table.
                 self.heap[index].data = GcObjectData::String { value: value.into() };
-                self.stack.push(Value::String { index })
+
+                // @todo-speed: remove checks.
+                self.stack[dst as usize] = Value::String { index };
             }
 
-            Op::PushList => {
+
+            Op::ListNew { dst } => {
                 let index = self.heap_alloc();
                 self.heap[index].data = GcObjectData::List { values: vec![] };
-                self.stack.push(Value::List { index });
+
+                // @todo-speed: remove checks.
+                self.stack[dst as usize] = Value::List { index };
             }
 
-            Op::PushTable => {
-                let index = self.heap_alloc();
-                self.heap[index].data = GcObjectData::Table { values: vec![] };
-                self.stack.push(Value::List { index });
-            }
-
-
-            Op::ListAppend => {
-                // @todo-robust: error.
-                let value = self.stack.pop().unwrap();
-
-                // @todo-robust: error.
-                let list = self.stack.pop().unwrap();
+            Op::ListAppend { list, value } => {
+                // @todo-speed: remove checks.
+                let list  = self.stack[list  as usize];
+                let value = self.stack[value as usize];
 
                 // @todo-robust: error.
                 let Value::List { index: list_index } = list else { unimplemented!() };
@@ -297,16 +490,59 @@ impl Vm {
                 values.push(value);
             }
 
-            Op::ListGet => {
-                // @todo-robust: error.
-                let index = self.stack.pop().unwrap();
-
-                // @todo-robust: error.
-                let list = self.stack.pop().unwrap();
+            Op::ListDef { list, index, value } => {
+                // @todo-speed: remove checks.
+                let list  = self.stack[list  as usize];
+                let index = self.stack[index as usize];
+                let value = self.stack[value as usize];
 
                 // @todo-robust: error.
                 let Value::List { index: list_index } = list else { unimplemented!() };
 
+                // @todo-cleanup: value utils.
+                let object = &mut self.heap[list_index];
+                let GcObjectData::List { values } = &mut object.data else { unreachable!() };
+
+                // @todo-robust: error.
+                let Value::Number { value: index } = index else { unimplemented!() };
+                let index = index as usize;
+
+                if index >= values.len() {
+                    values.resize(index + 1, Value::Nil);
+                }
+                values[index] = value;
+            }
+
+            Op::ListSet { list, index, value } => {
+                // @todo-speed: remove checks.
+                let list  = self.stack[list  as usize];
+                let index = self.stack[index as usize];
+                let value = self.stack[value as usize];
+
+                // @todo-robust: error.
+                let Value::List { index: list_index } = list else { unimplemented!() };
+
+                // @todo-cleanup: value utils.
+                let object = &mut self.heap[list_index];
+                let GcObjectData::List { values } = &mut object.data else { unreachable!() };
+
+                // @todo-robust: error.
+                let Value::Number { value: index } = index else { unimplemented!() };
+
+                // @todo-robust: error.
+                let slot = &mut values[index as usize];
+                *slot = value;
+            }
+
+            Op::ListGet { dst, list, index } => {
+                // @todo-speed: remove checks.
+                let list  = self.stack[list  as usize];
+                let index = self.stack[index as usize];
+
+                // @todo-robust: error.
+                let Value::List { index: list_index } = list else { unimplemented!() };
+
+                // @todo-cleanup: value utils.
                 let object = &mut self.heap[list_index];
                 let GcObjectData::List { values } = &mut object.data else { unreachable!() };
 
@@ -316,283 +552,121 @@ impl Vm {
                 // @todo-robust: error.
                 let value = values[index as usize];
 
-                self.stack.push(value);
+                self.stack[dst as usize] = value;
             }
 
-            Op::ListSet => {
-                // @todo-robust: error.
-                let value = self.stack.pop().unwrap();
-
-                // @todo-robust: error.
-                let index = self.stack.pop().unwrap();
-
-                // @todo-robust: error.
-                let list = self.stack.pop().unwrap();
+            Op::ListLen { dst, list } => {
+                // @todo-speed: remove checks.
+                let list = self.stack[list  as usize];
 
                 // @todo-robust: error.
                 let Value::List { index: list_index } = list else { unimplemented!() };
 
+                // @todo-cleanup: value utils.
                 let object = &mut self.heap[list_index];
                 let GcObjectData::List { values } = &mut object.data else { unreachable!() };
 
-                // @todo-robust: error.
-                let Value::Number { value: index } = index else { unimplemented!() };
-
-                // @todo-robust: error.
-                let slot = &mut values[index as usize];
-
-                *slot = value;
-            }
-
-            Op::ListLen => {
-                // @todo-robust: error.
-                let list = self.stack.pop().unwrap();
-
-                // @todo-robust: error.
-                let Value::List { index: list_index } = list else { unimplemented!() };
-
-                let object = &mut self.heap[list_index];
-                let GcObjectData::List { values } = &mut object.data else { unreachable!() };
-
-                let result = Value::Number { value: values.len() as f64 };
-                self.stack.push(result);
+                let len = Value::Number { value: values.len() as f64 };
+                self.stack[dst as usize] = len;
             }
 
 
-            Op::TableDef => {
+            Op::Add { dst, src1, src2 } => {
+                // @todo-speed: remove checks.
+                let src1 = self.stack[src1 as usize];
+                let src2 = self.stack[src2 as usize];
+                let result = self.value_add(src1, src2);
+                self.stack[dst as usize] = result;
+            }
+
+            Op::Sub { dst, src1, src2 } => {
+                // @todo-speed: remove checks.
+                let src1 = self.stack[src1 as usize];
+                let src2 = self.stack[src2 as usize];
+                let result = self.value_sub(src1, src2);
+                self.stack[dst as usize] = result;
+            }
+
+            Op::Mul { dst, src1, src2 } => {
+                // @todo-speed: remove checks.
+                let src1 = self.stack[src1 as usize];
+                let src2 = self.stack[src2 as usize];
+                let result = self.value_mul(src1, src2);
+                self.stack[dst as usize] = result;
+            }
+
+            Op::Div { dst, src1, src2 } => {
+                // @todo-speed: remove checks.
+                let src1 = self.stack[src1 as usize];
+                let src2 = self.stack[src2 as usize];
+                let result = self.value_div(src1, src2);
+                self.stack[dst as usize] = result;
+            }
+
+            Op::IDiv { dst: _, src1: _, src2: _ } => {
                 unimplemented!()
             }
 
-            Op::TableGet => {
+            Op::IMod { dst: _, src1: _, src2: _ } => {
                 unimplemented!()
             }
 
-            Op::TableSet => {
-                unimplemented!()
-            }
-
-            Op::TableLen => {
-                unimplemented!()
-            }
-
-
-            Op::Add => {
-                // @todo-robust: error.
-                let b = self.stack.pop().unwrap();
+            Op::Inc { reg: dst } => {
+                // @todo-speed: remove checks.
+                let value = &mut self.stack[dst as usize];
 
                 // @todo-robust: error.
-                let a = self.stack.pop().unwrap();
+                let Value::Number { value } = value else { unimplemented!() };
 
-                // @todo-robust: error.
-                let Value::Number { value: a } = a else { unimplemented!() };
-
-                // @todo-robust: error.
-                let Value::Number { value: b } = b else { unimplemented!() };
-
-                let result = Value::Number { value: a + b };
-                self.stack.push(result);
-            }
-
-            Op::Sub => {
-                // @todo-robust: error.
-                let b = self.stack.pop().unwrap();
-
-                // @todo-robust: error.
-                let a = self.stack.pop().unwrap();
-
-                // @todo-robust: error.
-                let Value::Number { value: a } = a else { unimplemented!() };
-
-                // @todo-robust: error.
-                let Value::Number { value: b } = b else { unimplemented!() };
-
-                let result = Value::Number { value: a - b };
-                self.stack.push(result);
-            }
-
-            Op::Mul => {
-                // @todo-robust: error.
-                let b = self.stack.pop().unwrap();
-
-                // @todo-robust: error.
-                let a = self.stack.pop().unwrap();
-
-                // @todo-robust: error.
-                let Value::Number { value: a } = a else { unimplemented!() };
-
-                // @todo-robust: error.
-                let Value::Number { value: b } = b else { unimplemented!() };
-
-                let result = Value::Number { value: a * b };
-                self.stack.push(result);
-            }
-
-            Op::Div => {
-                // @todo-robust: error.
-                let b = self.stack.pop().unwrap();
-
-                // @todo-robust: error.
-                let a = self.stack.pop().unwrap();
-
-                // @todo-robust: error.
-                let Value::Number { value: a } = a else { unimplemented!() };
-
-                // @todo-robust: error.
-                let Value::Number { value: b } = b else { unimplemented!() };
-
-                let result = Value::Number { value: a / b };
-                self.stack.push(result);
-            }
-
-            Op::IDiv => {
-                // @todo-robust: error.
-                let b = self.stack.pop().unwrap();
-
-                // @todo-robust: error.
-                let a = self.stack.pop().unwrap();
-
-                // @todo-robust: error.
-                let Value::Number { value: a } = a else { unimplemented!() };
-                let a = a as i64;
-
-                // @todo-robust: error.
-                let Value::Number { value: b } = b else { unimplemented!() };
-                let b = b as i64;
-
-                let result = Value::Number { value: (a / b) as f64 };
-                self.stack.push(result);
-            }
-
-            Op::IMod => {
-                // @todo-robust: error.
-                let b = self.stack.pop().unwrap();
-
-                // @todo-robust: error.
-                let a = self.stack.pop().unwrap();
-
-                // @todo-robust: error.
-                let Value::Number { value: a } = a else { unimplemented!() };
-                let a = a as i64;
-
-                // @todo-robust: error.
-                let Value::Number { value: b } = b else { unimplemented!() };
-                let b = b as i64;
-
-                let result = Value::Number { value: (a % b) as f64 };
-                self.stack.push(result);
-            }
-
-            Op::Inc => {
-                // @todo-robust: error.
-                let a = self.stack.last_mut().unwrap();
-
-                // @todo-robust: error.
-                let Value::Number { value: a } = a else { unimplemented!() };
-
-                *a += 1.0;
+                *value += 1.0;
             }
 
 
-            Op::CmpEq => {
-                // @todo-robust: error.
-                let b = self.stack.pop().unwrap();
-
-                // @todo-robust: error.
-                let a = self.stack.pop().unwrap();
-
-                // @todo-feature: polymorphic.
-
-                // @todo-robust: error.
-                let Value::Number { value: a } = a else { unimplemented!() };
-
-                // @todo-robust: error.
-                let Value::Number { value: b } = b else { unimplemented!() };
-
-                let result = Value::Bool { value: a == b };
-                self.stack.push(result);
+            Op::CmpEq { dst, src1, src2 } => {
+                // @todo-speed: remove checks.
+                let src1 = self.stack[src1 as usize];
+                let src2 = self.stack[src2 as usize];
+                let result = self.value_eq(src1, src2);
+                self.stack[dst as usize] = Value::Bool { value: result };
             }
 
-            Op::CmpLe => {
-                // @todo-robust: error.
-                let b = self.stack.pop().unwrap();
-
-                // @todo-robust: error.
-                let a = self.stack.pop().unwrap();
-
-                // @todo-feature: polymorphic.
-
-                // @todo-robust: error.
-                let Value::Number { value: a } = a else { unimplemented!() };
-
-                // @todo-robust: error.
-                let Value::Number { value: b } = b else { unimplemented!() };
-
-                let result = Value::Bool { value: a <= b };
-                self.stack.push(result);
+            Op::CmpLe { dst, src1, src2 } => {
+                // @todo-speed: remove checks.
+                let src1 = self.stack[src1 as usize];
+                let src2 = self.stack[src2 as usize];
+                let result = self.value_le(src1, src2);
+                self.stack[dst as usize] = Value::Bool { value: result };
             }
 
-            Op::CmpLt => {
-                // @todo-robust: error.
-                let b = self.stack.pop().unwrap();
-
-                // @todo-robust: error.
-                let a = self.stack.pop().unwrap();
-
-                // @todo-feature: polymorphic.
-
-                // @todo-robust: error.
-                let Value::Number { value: a } = a else { unimplemented!() };
-
-                // @todo-robust: error.
-                let Value::Number { value: b } = b else { unimplemented!() };
-
-                let result = Value::Bool { value: a < b };
-                self.stack.push(result);
+            Op::CmpLt { dst, src1, src2 } => {
+                // @todo-speed: remove checks.
+                let src1 = self.stack[src1 as usize];
+                let src2 = self.stack[src2 as usize];
+                let result = self.value_lt(src1, src2);
+                self.stack[dst as usize] = Value::Bool { value: result };
             }
 
-            Op::CmpGe => {
-                // @todo-robust: error.
-                let b = self.stack.pop().unwrap();
-
-                // @todo-robust: error.
-                let a = self.stack.pop().unwrap();
-
-                // @todo-feature: polymorphic.
-
-                // @todo-robust: error.
-                let Value::Number { value: a } = a else { unimplemented!() };
-
-                // @todo-robust: error.
-                let Value::Number { value: b } = b else { unimplemented!() };
-
-                let result = Value::Bool { value: a >= b };
-                self.stack.push(result);
+            Op::CmpGe { dst, src1, src2 } => {
+                // @todo-speed: remove checks.
+                let src1 = self.stack[src1 as usize];
+                let src2 = self.stack[src2 as usize];
+                let result = self.value_ge(src1, src2);
+                self.stack[dst as usize] = Value::Bool { value: result };
             }
 
-            Op::CmpGt => {
-                // @todo-robust: error.
-                let b = self.stack.pop().unwrap();
-
-                // @todo-robust: error.
-                let a = self.stack.pop().unwrap();
-
-                // @todo-feature: polymorphic.
-
-                // @todo-robust: error.
-                let Value::Number { value: a } = a else { unimplemented!() };
-
-                // @todo-robust: error.
-                let Value::Number { value: b } = b else { unimplemented!() };
-
-                let result = Value::Bool { value: a > b };
-                self.stack.push(result);
+            Op::CmpGt { dst, src1, src2 } => {
+                // @todo-speed: remove checks.
+                let src1 = self.stack[src1 as usize];
+                let src2 = self.stack[src2 as usize];
+                let result = self.value_gt(src1, src2);
+                self.stack[dst as usize] = Value::Bool { value: result };
             }
 
 
-            Op::Print => {
-                // @todo-robust: error.
-                let top = self.stack.pop().unwrap();
-                top.print(self);
+            Op::Print { value } => {
+                // @todo-speed: remove checks.
+                let value = self.stack[value as usize];
+                self.value_print(value);
                 println!();
             }
 
@@ -613,43 +687,35 @@ impl Vm {
 
 fn main() {
     let mut vm = Vm::new(vec![
-        Op::PushList,
+        Op::ListNew     { dst: 0 },
 
-        Op::Copy(0),
-        Op::PushString("hi"),
-        Op::ListAppend,
+        Op::SetString   { dst: 2, value: "hi" },
+        Op::ListAppend  { list: 0, value: 2 },
 
-        Op::Copy(0),
-        Op::PushNumber(69.0),
-        Op::ListAppend,
+        Op::SetNumber   { dst: 2, value: 69.0 },
+        Op::ListAppend  { list: 0, value: 2 },
 
-        Op::Copy(0),
-        Op::PushBool(false),
-        Op::ListAppend,
+        Op::SetBool     { dst: 2, value: false },
+        Op::ListAppend  { list: 0, value: 2 },
 
-        Op::PushString("list contents:"),
-        Op::Print,
+        Op::SetString   { dst: 2, value: "list contents:" },
+        Op::Print       { value: 2 },
 
         // i = 0
-        Op::PushNumber(0.0),
+        Op::SetNumber   { dst: 1, value: 0.0 },
 
-        // 13, loop:
-        Op::Copy(0), // push i
-        Op::Copy(2), // push list
-        Op::ListLen,
-        Op::CmpLt,
-        Op::JumpFalse(24),
-        Op::Copy(1), // push list
-        Op::Copy(1), // push i
-        Op::ListGet,
-        Op::Print,
-        Op::Inc,
-        Op::Jump(13),
+        // 10, loop:
+        Op::ListLen     { dst: 2, list: 0 },
+        Op::JumpNLt     { src1: 1, src2: 2, target: 16 },
+        Op::ListGet     { dst: 2, list: 0, index: 1 },
+        Op::Print       { value: 2 },
+        Op::Inc         { reg: 1 },
+        Op::Jump        { target: 10 },
 
-        // 24, done:
+        // 16, done:
 
         Op::Halt,
-    ]);
+    ], 3);
 
     let t0 = std::time::Instant::now();
     vm.run();

@@ -1,12 +1,10 @@
 
 - todo:
     - basic prototype:
-        - improved vm instructions.
-            - still fat enum, for now.
-            - base pointer & stack pointer.
-            - 3 address code.
-            - conditional jumps.
-            - interruptible jump.
+        - "bytecode" builder.
+            - mostly for computing jumps.
+            - write with lztf in mind!
+                - blocks, exit & repeat.
         - lztf.
             - text repr & ad-hoc parser.
                 - skip encoding for now. don't need it yet.
@@ -106,6 +104,7 @@
         - `nil` is a valid table value. it signifies the absence of a field's *value*. this is different from the field *itself* being absent. accessing absent table fields raises an error.
         - similarly, there's a difference between a variable being undefined (raising an error, if accessed), and holding a `nil` value.
         - "optional parameters" are parameters that default to `nil`, if not specified by the user. however, the user can also explicitly pass a `nil` value, and the callee cannot detect this. initially, this may seem inconsistent with the behavior of absent table fields and undefined variables. but it actually isn't, because it doesn't make sense for parameters to be "absent" (or "undefined"). if optional parameters, that were given no value by the caller, were "absent", the callee would trigger an error, if they tried accessing those parameters. clearly this is undesirable, hence the default state of optional parameters is `nil` and not absent/undefined. this has another nice property: if a function takes multiple optional parameters, the caller can provide a value for one of the later optional parameters by simply passing `nil` for all optional parameters preceding it. if explicitly passing `nil` had different behavior than not passing a value, the virtual machine would have to implement named parameters for this use case. this way however, named parameters can be implemented entirely by the language front-ends.
+        - there is no `Option<Option>`; `nil` can only represent absence once. in particular, optional parameters cannot have optional types, they already add one level of optionality.
 
 
 
