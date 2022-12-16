@@ -1,33 +1,98 @@
 
 - todo:
     - basic prototype:
-        - functions.
-            - current function (code).
-            - call (info) stack.
-            - function objects.
-            - varargs & multi-ret?
-                - useful for:
-                    - dynamic wrapper/decorator functions.
-                    - returning multiple values without allocating a temporary list.
-            - optional params - aka default to `nil` params.
-                - `fn f1(a, b)`:            = 2
-                - `fn f2(a, b, c...)`:     >= 2. `c` may contain no values.
-                - `fn f3(a?, b?)`:         <= 2.
-                - `fn f4(a, b, c?, d?)`:   >= 2 && <= 4
-                - `fn f5(a, b, c?, d...)`: >= 2. but `c` always has a value.
-            - stack frames.
-                - `fn :: args :: locals :: temporaries`
-                - to call, caller puts the fn value & the args at the end of `temporaries`.
-                  this becomes the base of the callee's stack frame.
-                - to return, callee places return values starting at the start of its stack frame (`fn :: args ...`). for multi-ret, this may adjust (increase) the caller's stack top.
-            - upvalues.
+        - environment.
+        - tables.
         - generic ops.
+        - constants.
+    - basic front-end.
+        - lisp syntax - easy to parse.
+        - point is to just mess around a bit.
+    - more features.
         - meta tables.
+        - upvalues.
 
     - define semantics.
         - values.
         - environments.
         - ast & operational semantics.
+
+- function calls.
+    - would be dope if you could specify where the return value should go.
+        - already use all 3 bytes.
+        - could use convention that args & function need to be at top of stack.
+          then only need to know number of args. function is at `top - #args`.
+    - varargs/multret:
+        - don't love the idea of adjusting top.
+        - varargs are fine. function knows how many args it passes.
+        - interesting cases:
+            - passing own varargs to another function.
+            - passing multret as varargs to another function.
+    - thinking layout:
+        ```
+            | func | params? | varargs | params | locals & temps |   multret   |
+                                       |--------- regs ----------|
+                                                   | func | args |--- args? ---|
+                                                   | func | params? |  varargs | params | ... |
+        ```
+        - to call, place func & args at end of regs.
+            - option to include multret in args.
+        - but multret: maybe just store those in a separate array.
+            - multret can only ever be at the end of the stack (cause we don't adjust top).
+            - benefit of being at end of stack is that are in place for forwarding to another function.
+    - thinking ops:
+        - call: #args, dest, #rets.
+            - `#args = -1` -> include multret in args.
+            - `#rets = -1` -> store in multret.
+        - ret: #rets.
+            - `#rets = -1` -> return multret.
+        - varargs_to_multret:
+            - copies the current function's varargs into the multret section.
+            - can be used for varargs forwarding (`#args = -1`).
+                - if passed to `List.new`, collects varags into list.
+                - although, you'd probably want a special instruction for that.
+                  to avoid the double copy.
+                - maybe this could be a property of the varargs param.
+                    - something like `fn foo(a, b, c[])`.
+                    - meaning, the varargs are collected into a list & removed from the stack on entry.
+        - select_varags:
+            - copies fixed number of varargs to register(s).
+        - select_multret:
+            - copies fixed number of multret to register(s).
+    - compound ops:
+        - multret to list: call list ctor with multret.
+        - varargs to list: varargs to multret + call list ctor with multret.
+        - list to multret: built-in function (call with results in multret).
+    - on errors:
+        - issue: non-call operations can fail.
+            - perhaps, we should have try/catch/finally?
+            - function doesn't return the expected number of values.
+                - this could be implemented as an error in the callee.
+                - pcall would forward the expected number of values (minus one).
+                  and return the bool + the values or `nil`s.
+            - selecting too many values from varargs/multret.
+                - seems this is now the only thing that can't be done by creating a wrapper function + pcall.
+                - so i guess these should just have fallibility baked in.
+                - `ok, x, y = c...`.
+                - meaning, require n+1 register, where the first one indicates success.
+                - and like pcall, return a bunch of nils on error.
+                - or maybe: return number of selected values. fill rest with nil.
+    - multret collapsing:
+        - need ability to call any function, but only require one argument.
+        - hmm, i guess requiring *fewer* values than were actually returned is fine actually.
+          so shouldn't be an error.
+        - `x = 1, 2` is fine (`x = 1`).
+        - `x, y = 1` is an error.
+        - is a bit weird, but seems fine. this isn't unpacking/pattern matching like in python.
+    - native functions:
+        - native function value.
+            - just a function pointer store in `Value`.
+            - used for the built-ins & other stateless native functions.
+            - are passed the vm state & stuff.
+        - native closure object.
+            - basically wraps `Box<dyn Fn(&mut Vm)>`.
+            - but with inline storage (of state + vtable ptr),
+              assuming we can do that on stable rust.
 
 - lztf (luazero transfer format).
     - similar to wasm/llvm-ir.
@@ -87,6 +152,10 @@
               cause the memory must not be borrowed.
     - typed user data.
     - assert meta table instruction.
+    - `coverage` instruction.
+        - with inline hit counter.
+        - have to walk code to reset/collect data.
+        - but has really low overhead & don't need to allocate counter indices.
 
 
 - idioms:
