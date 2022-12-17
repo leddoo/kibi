@@ -2,14 +2,21 @@
 - todo:
     - basic prototype:
         - environment.
-        - tables.
-        - generic ops.
-        - constants.
+            - one global env for now.
+            - it's just a table.
+            - make table ops usable outside of the vm loop.
+        - basic constants.
+            - just an array on the vm for now.
+        - built-ins:
+            - native function + env.
+            - native fn calling convention: base..top are the args.
+            - get global + table get.
     - basic front-end.
         - lisp syntax - easy to parse.
         - point is to just mess around a bit.
     - more features.
         - meta tables.
+            - should table indexing use raw_eq?
         - upvalues.
 
     - define semantics.
@@ -18,6 +25,9 @@
         - ast & operational semantics.
 
 - function calls.
+    - todo: how does lua/u implement `lua_call` in the c api?
+        - the logic seems to be in the vm loop.
+        - does it create a temp byte code buffer?
     - would be dope if you could specify where the return value should go.
         - already use all 3 bytes.
         - could use convention that args & function need to be at top of stack.
