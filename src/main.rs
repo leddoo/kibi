@@ -192,7 +192,7 @@ impl Instruction {
         core::mem::transmute(opcode)
     }
 
-    #[inline]
+    #[inline(always)]
     fn patch_opcode(&mut self, new_op: Opcode) {
         self.0 &= !0xff;
         self.0 |= new_op as u32;
@@ -269,8 +269,8 @@ impl Instruction {
     }
 
     #[inline(always)]
-    fn r2(self) -> [Reg; 2] {
-        [self._r1(), self._r2()]
+    fn r2(self) -> (Reg, Reg) {
+        (self._r1(), self._r2())
     }
 
     #[inline(always)]
@@ -282,8 +282,8 @@ impl Instruction {
     }
 
     #[inline(always)]
-    fn r3(self) -> [Reg; 3] {
-        [self._r1(), self._r2(), self._r3()]
+    fn r3(self) -> (Reg, Reg, Reg) {
+        (self._r1(), self._r2(), self._r3())
     }
 
     #[inline(always)]
@@ -585,7 +585,6 @@ impl ByteCodeBuilder {
         self.end_block();
     }
 
-    #[inline]
     fn _block_begin(&self, index: usize) -> u16 {
         assert!(index < self.block_stack.len());
         let block = self.block_stack[self.block_stack.len() - 1 - index];
@@ -594,7 +593,6 @@ impl ByteCodeBuilder {
 
     const JUMP_BLOCK_END_BIT: usize = 1 << 15;
 
-    #[inline]
     fn _block_end(&self, index: usize) -> u16 {
         assert!(index < self.block_stack.len());
         let block = self.block_stack[self.block_stack.len() - 1 - index];
@@ -1168,8 +1166,23 @@ impl Vm {
     }
 
     #[inline(always)]
-    fn regs<const N: usize>(&mut self, regs: [Reg; N]) -> [Value; N] {
-        regs.map(|r| *self.reg(r))
+    fn reg2(&mut self, regs: (Reg, Reg)) -> (Value, Value) {
+        (*self.reg(regs.0), *self.reg(regs.1))
+    }
+
+    #[inline(always)]
+    fn reg2_dest(&mut self, regs: (Reg, Reg)) -> (Reg, Value) {
+        (regs.0, *self.reg(regs.1))
+    }
+
+    #[inline(always)]
+    fn reg3(&mut self, regs: (Reg, Reg, Reg)) -> (Value, Value, Value) {
+        (*self.reg(regs.0), *self.reg(regs.1), *self.reg(regs.2))
+    }
+
+    #[inline(always)]
+    fn reg3_dst(&mut self, regs: (Reg, Reg, Reg)) -> (Reg, Value, Value) {
+        (regs.0, *self.reg(regs.1), *self.reg(regs.2))
     }
 
     #[inline(always)]
@@ -1202,7 +1215,7 @@ impl Vm {
 
 
                 Opcode::Copy => {
-                    let [dst, src] = instr.r2();
+                    let (dst, src) = instr.r2();
                     // @todo-speed: remove checks.
                     *self.reg(dst) = *self.reg(src);
                 }
@@ -1236,33 +1249,31 @@ impl Vm {
 
                 Opcode::ListAppend => {
                     // @todo-speed: remove checks.
-                    let [list, value] = self.regs(instr.r2());
+                    let (list, value) = self.reg2(instr.r2());
                     self.list_append(list, value);
                 }
 
                 Opcode::ListDef => {
                     // @todo-speed: remove checks.
-                    let [list, index, value] = self.regs(instr.r3());
+                    let (list, index, value) = self.reg3(instr.r3());
                     self.list_def(list, index, value);
                 }
 
                 Opcode::ListSet => {
                     // @todo-speed: remove checks.
-                    let [list, index, value] = self.regs(instr.r3());
+                    let (list, index, value) = self.reg3(instr.r3());
                     self.list_set(list, index, value);
                 }
 
                 Opcode::ListGet => {
-                    let [dst, list, index] = instr.r3();
                     // @todo-speed: remove checks.
-                    let [list, index] = self.regs([list, index]);
+                    let (dst, list, index) = self.reg3_dst(instr.r3());
                     *self.reg(dst) = self.list_get(list, index);
                 }
 
                 Opcode::ListLen => {
-                    let [dst, list] = instr.r2();
                     // @todo-speed: remove checks.
-                    let list = *self.reg(list);
+                    let (dst, list) = self.reg2_dest(instr.r2());
                     *self.reg(dst) = self.list_len(list);
                 }
 
@@ -1275,83 +1286,75 @@ impl Vm {
 
                 Opcode::TableDef => {
                     // @todo-speed: remove checks.
-                    let [table, key, value] = self.regs(instr.r3());
+                    let (table, key, value) = self.reg3(instr.r3());
                     self.table_def(table, key, value);
                 }
 
                 Opcode::TableSet => {
                     // @todo-speed: remove checks.
-                    let [table, key, value] = self.regs(instr.r3());
+                    let (table, key, value) = self.reg3(instr.r3());
                     self.table_set(table, key, value);
                 }
 
                 Opcode::TableGet => {
                     // @todo-speed: remove checks.
-                    let [dst, table, key] = instr.r3();
-                    let [table, key] = self.regs([table, key]);
+                    let (dst, table, key) = self.reg3_dst(instr.r3());
                     *self.reg(dst) = self.table_get(table, key);
                 }
 
                 Opcode::TableLen => {
                     // @todo-speed: remove checks.
-                    let [dst, table] = instr.r2();
-                    let table = *self.reg(table);
+                    let (dst, table) = self.reg2_dest(instr.r2());
                     *self.reg(dst) = self.table_len(table);
                 }
 
 
                 Opcode::Def => {
                     // @todo-speed: remove checks.
-                    let [obj, key, value] = self.regs(instr.r3());
+                    let (obj, key, value) = self.reg3(instr.r3());
                     self.generic_def(obj, key, value);
                 }
 
                 Opcode::Set => {
                     // @todo-speed: remove checks.
-                    let [obj, key, value] = self.regs(instr.r3());
+                    let (obj, key, value) = self.reg3(instr.r3());
                     self.generic_set(obj, key, value);
                 }
 
                 Opcode::Get => {
                     // @todo-speed: remove checks.
-                    let [dst, obj, key] = instr.r3();
-                    let [obj, key] = self.regs([obj, key]);
+                    let (dst, obj, key) = self.reg3_dst(instr.r3());
                     *self.reg(dst) = self.generic_get(obj, key);
                 }
 
                 Opcode::Len => {
                     // @todo-speed: remove checks.
-                    let [dst, obj] = instr.r2();
-                    let obj = *self.reg(obj);
+                    let (dst, obj) = self.reg2_dest(instr.r2());
                     *self.reg(dst) = self.generic_len(obj);
                 }
 
 
                 Opcode::Add => {
-                    let [dst, src1, src2] = instr.r3();
                     // @todo-speed: remove checks.
-                    let [src1, src2] = self.regs([src1, src2]);
+                    let (dst, src1, src2) = self.reg3_dst(instr.r3());
                     *self.reg(dst) = self.generic_add(src1, src2);
                 }
 
                 Opcode::Sub => {
-                    let [dst, src1, src2] = instr.r3();
                     // @todo-speed: remove checks.
-                    let [src1, src2] = self.regs([src1, src2]);
+                    let (dst, src1, src2) = self.reg3_dst(instr.r3());
                     *self.reg(dst) = self.generic_sub(src1, src2);
                 }
 
                 Opcode::Mul => {
-                    let [dst, src1, src2] = instr.r3();
                     // @todo-speed: remove checks.
-                    let [src1, src2] = self.regs([src1, src2]);
+                    let (dst, src1, src2) = self.reg3_dst(instr.r3());
                     *self.reg(dst) = self.generic_mul(src1, src2);
                 }
 
                 Opcode::Div => {
-                    let [dst, src1, src2] = instr.r3();
                     // @todo-speed: remove checks.
-                    let [src1, src2] = self.regs([src1, src2]);
+                    let (dst, src1, src2) = self.reg3_dst(instr.r3());
                     *self.reg(dst) = self.generic_div(src1, src2);
                 }
 
@@ -1369,37 +1372,32 @@ impl Vm {
 
 
                 Opcode::CmpEq => {
-                    let [dst, src1, src2] = instr.r3();
                     // @todo-speed: remove checks.
-                    let [src1, src2] = self.regs([src1, src2]);
+                    let (dst, src1, src2) = self.reg3_dst(instr.r3());
                     *self.reg(dst) = self.generic_eq(src1, src2).into();
                 }
 
                 Opcode::CmpLe => {
-                    let [dst, src1, src2] = instr.r3();
                     // @todo-speed: remove checks.
-                    let [src1, src2] = self.regs([src1, src2]);
+                    let (dst, src1, src2) = self.reg3_dst(instr.r3());
                     *self.reg(dst) = self.generic_le(src1, src2).into();
                 }
 
                 Opcode::CmpLt => {
-                    let [dst, src1, src2] = instr.r3();
                     // @todo-speed: remove checks.
-                    let [src1, src2] = self.regs([src1, src2]);
+                    let (dst, src1, src2) = self.reg3_dst(instr.r3());
                     *self.reg(dst) = self.generic_lt(src1, src2).into();
                 }
 
                 Opcode::CmpGe => {
-                    let [dst, src1, src2] = instr.r3();
                     // @todo-speed: remove checks.
-                    let [src1, src2] = self.regs([src1, src2]);
+                    let (dst, src1, src2) = self.reg3_dst(instr.r3());
                     *self.reg(dst) = self.generic_ge(src1, src2).into();
                 }
 
                 Opcode::CmpGt => {
-                    let [dst, src1, src2] = instr.r3();
                     // @todo-speed: remove checks.
-                    let [src1, src2] = self.regs([src1, src2]);
+                    let (dst, src1, src2) = self.reg3_dst(instr.r3());
                     *self.reg(dst) = self.generic_gt(src1, src2).into();
                 }
 
@@ -1441,7 +1439,7 @@ impl Vm {
 
                 Opcode::JumpEq => {
                     // @todo-speed: remove checks.
-                    let [src1, src2] = self.regs(instr.r2());
+                    let (src1, src2) = self.reg2(instr.r2());
                     let target = self.next_instr().extra();
 
                     if self.generic_eq(src1, src2) {
@@ -1451,7 +1449,7 @@ impl Vm {
 
                 Opcode::JumpLe => {
                     // @todo-speed: remove checks.
-                    let [src1, src2] = self.regs(instr.r2());
+                    let (src1, src2) = self.reg2(instr.r2());
                     let target = self.next_instr().extra();
 
                     if self.generic_le(src1, src2) {
@@ -1461,7 +1459,7 @@ impl Vm {
 
                 Opcode::JumpLt => {
                     // @todo-speed: remove checks.
-                    let [src1, src2] = self.regs(instr.r2());
+                    let (src1, src2) = self.reg2(instr.r2());
                     let target = self.next_instr().extra();
 
                     if self.generic_lt(src1, src2) {
@@ -1471,7 +1469,7 @@ impl Vm {
 
                 Opcode::JumpNEq => {
                     // @todo-speed: remove checks.
-                    let [src1, src2] = self.regs(instr.r2());
+                    let (src1, src2) = self.reg2(instr.r2());
                     let target = self.next_instr().extra();
 
                     if !self.generic_eq(src1, src2) {
@@ -1481,7 +1479,7 @@ impl Vm {
 
                 Opcode::JumpNLe => {
                     // @todo-speed: remove checks.
-                    let [src1, src2] = self.regs(instr.r2());
+                    let (src1, src2) = self.reg2(instr.r2());
                     let target = self.next_instr().extra();
 
                     if !self.generic_le(src1, src2) {
@@ -1491,7 +1489,7 @@ impl Vm {
 
                 Opcode::JumpNLt => {
                     // @todo-speed: remove checks.
-                    let [src1, src2] = self.regs(instr.r2());
+                    let (src1, src2) = self.reg2(instr.r2());
                     let target = self.next_instr().extra();
 
                     if !self.generic_lt(src1, src2) {
