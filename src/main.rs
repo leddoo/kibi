@@ -69,6 +69,7 @@ impl TableData {
 #[derive(Debug)]
 struct FuncProto {
     code: Vec<Instruction>,
+    constants: Vec<Value>,
     num_params: u32,
     num_regs:   u32,
     //is_varargs: bool,
@@ -91,12 +92,11 @@ enum Opcode {
 
     Copy,
 
-    SetNil,
-    SetBool,
-    SetInt,
-    // TODO: constants.
-    //SetNumber,
-    //SetString,
+    LoadNil,
+    LoadBool,
+    LoadInt,
+    LoadConst,
+    LoadEnv,
 
     ListNew,
     ListAppend,
@@ -140,7 +140,6 @@ enum Opcode {
     JumpNEq,
     JumpNLe,
     JumpNLt,
-
 
     Call,
     Ret,
@@ -383,16 +382,24 @@ impl ByteCodeBuilder {
     }
 
 
-    fn set_nil(&mut self, dst: Reg) {
-        self.buffer.push(Instruction::encode_r1(Opcode::SetNil, dst));
+    fn load_nil(&mut self, dst: Reg) {
+        self.buffer.push(Instruction::encode_r1(Opcode::LoadNil, dst));
     }
 
-    fn set_bool(&mut self, dst: Reg, value: bool) {
-        self.buffer.push(Instruction::encode_r1b(Opcode::SetBool, dst, value));
+    fn load_bool(&mut self, dst: Reg, value: bool) {
+        self.buffer.push(Instruction::encode_r1b(Opcode::LoadBool, dst, value));
     }
 
-    fn set_int(&mut self, dst: Reg, value: i16) {
-        self.buffer.push(Instruction::encode_r1u16(Opcode::SetInt, dst, value as u16));
+    fn load_int(&mut self, dst: Reg, value: i16) {
+        self.buffer.push(Instruction::encode_r1u16(Opcode::LoadInt, dst, value as u16));
+    }
+
+    fn load_const(&mut self, dst: Reg, index: u16) {
+        self.buffer.push(Instruction::encode_r1u16(Opcode::LoadConst, dst, index));
+    }
+
+    fn load_env(&mut self, dst: Reg) {
+        self.buffer.push(Instruction::encode_r1(Opcode::LoadEnv, dst));
     }
 
 
@@ -731,13 +738,15 @@ struct Vm {
     stack:  Vec<Value>, // @todo-speed: don't use a vec.
     heap:   Vec<GcObject>,
 
+    env: Value,
+
     first_free: Option<usize>,
     gc_timer:   u32,
 }
 
 impl Vm {
     fn new() -> Self {
-        Vm {
+        let mut vm = Vm {
             func_protos: vec![],
 
             pc:     usize::MAX,
@@ -745,9 +754,15 @@ impl Vm {
             stack:  vec![],
             heap:   vec![],
 
+            env: Value::Nil,
+
             first_free: None,
             gc_timer:   0,
-        }
+        };
+
+        vm.env = vm.table_new();
+
+        vm
     }
 
     fn heap_alloc(&mut self) -> usize {
@@ -975,6 +990,14 @@ impl Vm {
     }
 
 
+    fn string_new(&mut self, value: &str) -> Value {
+        // @todo-cleanup: alloc utils.
+        let index = self.heap_alloc();
+        self.heap[index].data = GcObjectData::String { value: value.into() };
+        Value::String { index }
+    }
+
+
     fn list_new(&mut self) -> Value {
         // @todo-cleanup: alloc utils.
         let index = self.heap_alloc();
@@ -1196,6 +1219,14 @@ impl Vm {
         result
     }
 
+    #[inline(always)]
+    fn load_const(&mut self, index: usize) -> Value {
+        // @todo-speed: obviously don't do this.
+        let frame = self.frames.last().unwrap();
+        let proto = &self.func_protos[frame.func_proto as usize];
+        proto.constants[index]
+    }
+
     #[inline(never)]
     fn run(&mut self) {
         if self.frames.len() == 1 {
@@ -1221,23 +1252,35 @@ impl Vm {
                 }
 
 
-                Opcode::SetNil => {
+                Opcode::LoadNil => {
                     let dst = instr.r1();
                     // @todo-speed: remove checks.
                     *self.reg(dst) = Value::Nil;
                 }
 
-                Opcode::SetBool => {
+                Opcode::LoadBool => {
                     let (dst, value) = instr.r1b();
                     // @todo-speed: remove checks.
                     *self.reg(dst) = value.into();
                 }
 
-                Opcode::SetInt => {
+                Opcode::LoadInt => {
                     let (dst, value) = instr.r1u16();
                     let value = value as u16 as i16 as f64;
                     // @todo-speed: remove checks.
                     *self.reg(dst) = value.into();
+                }
+
+                Opcode::LoadConst => {
+                    let (dst, index) = instr.r1u16();
+                    // @todo-speed: remove checks.
+                    *self.reg(dst) = self.load_const(index as usize);
+                }
+
+                Opcode::LoadEnv => {
+                    let dst = instr.r1();
+                    // @todo-speed: remove checks.
+                    *self.reg(dst) = self.env;
                 }
 
 
@@ -1592,6 +1635,14 @@ impl Vm {
         self.push(value.into());
     }
 
+    // @todo-#api: unsafe version that doesn't copy the string.
+    //  for stuff like looking up constants in native functions.
+    //  needs to be unsafe; can't guarantee the user won't insert it into a table.
+    fn push_str(&mut self, value: &str) {
+        let v = self.string_new(value);
+        self.push(v);
+    }
+
     // @todo-speed: maybe parameters should be immutable.
     //  that would enable compilers to optimize repeated function calls.
     //  but not sure that's really all that common.
@@ -1655,7 +1706,7 @@ fn mk_fib() -> FuncProto {
             b.block(|b| {
                 // if
                 b.block(|b| {
-                    b.set_int(2, 2);
+                    b.load_int(2, 2);
                     b.exit_nlt(0, 2, 0);
                     b.ret(0, 1);
                 });
@@ -1666,7 +1717,7 @@ fn mk_fib() -> FuncProto {
                 b.call(2, 2, 1);
 
                 b.copy(4, 1);
-                b.set_int(3, 1);
+                b.load_int(3, 1);
                 b.sub(5, 0, 3);
                 b.copy(6, 1);
                 b.call(3, 2, 1);
@@ -1676,6 +1727,7 @@ fn mk_fib() -> FuncProto {
             });
             b.build()
         },
+        constants: vec![],
         num_params: 2,
         num_regs:   7,
         //is_varargs: false,
@@ -1712,7 +1764,7 @@ mod tests {
 
 
     #[test]
-    pub fn list_to_table() {
+    fn list_to_table() {
         let mut vm = Vm::new();
 
         vm.func_protos.push(FuncProto {
@@ -1720,7 +1772,7 @@ mod tests {
                 let mut b = ByteCodeBuilder::new();
                 b.table_new(1);
                 b.len(2, 0);
-                b.set_int(3, 0);
+                b.load_int(3, 0);
                 b.block(|b| {
                     b.exit_nlt(3, 2, 0);
                     b.get(4, 0, 3);
@@ -1733,6 +1785,7 @@ mod tests {
                 b.ret(1, 1);
                 b.build()
             },
+            constants: vec![],
             num_params: 1, 
             num_regs: 6,
         });
@@ -1762,6 +1815,56 @@ mod tests {
             assert!(vm.raw_eq(tv, v));
         }
     }
+
+    #[test]
+    fn env() {
+        let mut vm = Vm::new();
+
+        let foo = vm.string_new("foo");
+        let bar = vm.string_new("bar");
+
+        // `_ENV.foo := "bar"`
+        vm.func_protos.push(FuncProto {
+            code: {
+                let mut b = ByteCodeBuilder::new();
+                b.load_env(0);
+                b.load_const(1, 0);
+                b.load_const(2, 1);
+                b.def(0, 1, 2);
+                b.ret(0, 0);
+                b.build()
+            },
+            constants: vec![foo, bar],
+            num_params: 0, 
+            num_regs: 3,
+        });
+
+        // `return _ENV.foo`
+        vm.func_protos.push(FuncProto {
+            code: {
+                let mut b = ByteCodeBuilder::new();
+                b.load_env(0);
+                b.load_const(1, 0);
+                b.get(0, 0, 1);
+                b.ret(0, 1);
+                b.build()
+            },
+            constants: vec![foo],
+            num_params: 0, 
+            num_regs: 2,
+        });
+
+        vm.push_func(0);
+        vm.call(0, 0, 0);
+
+        vm.push(Value::Nil);
+        vm.push_func(1);
+        vm.call(0, 0, 1);
+        assert_eq!(vm.stack.len(), 1);
+
+        let result = vm.stack[0];
+        assert!(vm.generic_eq(result, bar));
+    }
 }
 
 
@@ -1774,7 +1877,7 @@ fn main() {
     vm.func_protos.push(FuncProto {
         code: {
             let mut b = ByteCodeBuilder::new();
-            b.set_int(2, 0);
+            b.load_int(2, 0);
             b.block(|b| {
                 b.exit_nlt(2, 1, 0);
                 b.copy(4, 0);
@@ -1782,13 +1885,14 @@ fn main() {
                 b.copy(6, 0);
                 b.call(3, 2, 1);
                 b.print(3);
-                b.set_int(3, 1);
+                b.load_int(3, 1);
                 b.add(2, 2, 3);
                 b.repeat_block(0);
             });
             b.ret(0, 0);
             b.build()
         },
+        constants: vec![],
         num_params: 2,
         num_regs:   7,
         //is_varargs: false,

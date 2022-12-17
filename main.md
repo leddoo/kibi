@@ -1,28 +1,28 @@
 
 - todo:
-    - basic prototype:
-        - environment.
-            - one global env for now.
-            - it's just a table.
-            - make table ops usable outside of the vm loop.
-        - basic constants.
-            - just an array on the vm for now.
-        - built-ins:
-            - native function + env.
-            - native fn calling convention: base..top are the args.
-            - get global + table get.
+    - native functions.
+        - calling convention: base..top are the args.
+        - `print` & `gc` as built-ins.
+
+- horizon:
+    - errors.
     - basic front-end.
         - lisp syntax - easy to parse.
         - point is to just mess around a bit.
-    - more features.
-        - meta tables.
-            - should table indexing use raw_eq?
-        - upvalues.
+        - for now, generate byte code directly.
+    - meta tables.
+        - should table indexing use raw_eq?
+        - start thinking about proper memory management & pointer safety.
+    - closures & upvalues.
+        - per-function env.
 
-    - define semantics.
-        - values.
-        - environments.
-        - ast & operational semantics.
+- later:
+    - proper memory allocation.
+    - vm api.
+    - lztf.
+        - run validations on lztf.
+        - remove (release mode) checks of register & constant use.
+
 
 - function calls.
     - todo: how does lua/u implement `lua_call` in the c api?
@@ -146,6 +146,21 @@
         - loop prep & loop step (the trailing condition trick thing).
         - inline caching.
 
+
+- performance:
+    - inline generic ops into `Vm::run`.
+        - eg: get/set/add.
+        - to call these from native code, call `Vm::run` in single step mode.
+        - these should not be called from native code, so the overhead is fine.
+        - similar situation for `prep_call` (get rid of it, inline into `Vm::run`).
+          a `call` from native code leads to `Vm::run` anyway.
+    - don't copy `Value`s out of the stack.
+        - use raw pointers instead.
+        - the don't fit into registers, so they have to be copied onto the stack.
+          the compiler may try to store them in registers, but that would still require 2x the registers.
+          and the results would have to be written back.
+        - basically, using pointers guarantees good performance.
+          trusting the compiler never works with these things.
 
 - cool stuff:
     - interruptible jump.
