@@ -611,6 +611,14 @@ impl ByteCodeBuilder {
         self.jump(self._block_end(index));
     }
 
+    fn exit_true(&mut self, src: Reg, index: usize) {
+        self.jump_true(src, self._block_end(index));
+    }
+
+    fn exit_false(&mut self, src: Reg, index: usize) {
+        self.jump_false(src, self._block_end(index));
+    }
+
     fn exit_eq(&mut self, src1: Reg, src2: Reg, index: usize) {
         self.jump_eq(src1, src2, self._block_end(index));
     }
@@ -637,6 +645,14 @@ impl ByteCodeBuilder {
 
     fn repeat_block(&mut self, index: usize) {
         self.jump(self._block_begin(index));
+    }
+
+    fn repeat_true(&mut self, src: Reg, index: usize) {
+        self.jump_true(src, self._block_begin(index));
+    }
+
+    fn repeat_false(&mut self, src: Reg, index: usize) {
+        self.jump_false(src, self._block_begin(index));
     }
 
     fn repeat_eq(&mut self, src1: Reg, src2: Reg, index: usize) {
@@ -1893,7 +1909,7 @@ impl<'i> Parser<'i> {
         #[inline]
         fn is_operator(at: char) -> bool {
             match at {
-                '+' | '-' | '*' | '/' => true,
+                '+' | '-' | '*' | '/' | '=' | '<' | '>' => true,
                 _ => false,
             }
         }
@@ -1903,7 +1919,7 @@ impl<'i> Parser<'i> {
             self.cursor += 1;
 
             while let Ok(at) = self.peek() {
-                if !(at.is_ascii_alphanumeric() || at == '_') {
+                if !(at.is_ascii_alphanumeric() || at == '_' || is_operator(at)) {
                     break;
                 }
                 self.cursor += 1;
@@ -2201,6 +2217,8 @@ impl Compiler {
     fn compile<'a>(&mut self, f: &mut FuncBuilder<'a>, ast: &Ast<'a>, vm: &mut Vm, dst: Reg, num_rets: u8) -> Result<(), ()> {
         match ast {
             Ast::Number(value) => {
+                if num_rets == 0 { return Err(()) }
+
                 let value = *value;
                 if value as i16 as f64 == value {
                     f.b.load_int(dst, value as i16);
@@ -2212,12 +2230,16 @@ impl Compiler {
                 Ok(())
             }
             Ast::String (value) => {
+                if num_rets == 0 { return Err(()) }
+
                 let s = vm.string_new(*value);
                 let c = f.add_constant(s)?;
                 f.b.load_const(dst, c);
                 Ok(())
             }
             Ast::Atom (value) => {
+                if num_rets == 0 { return Err(()) }
+
                 f.get(value, dst, vm)?;
                 Ok(())
             }
@@ -2263,6 +2285,7 @@ impl Compiler {
 
                     if op == "do" {
                         // TEMP
+                        // TODO: pass dst & num_rets to the last stmt.
                         if num_rets > 0 { return Err(()) };
 
                         f.push_scope();
@@ -2270,6 +2293,55 @@ impl Compiler {
                             self.compile(f, stmt, vm, 0, 0)?;
                         }
                         f.pop_scope();
+
+                        return Ok(());
+                    }
+
+                    if op == "if" {
+                        if args.len() < 2 || args.len() > 3 { return Err(()) }
+
+                        let cond = &args[0];
+                        let then = &args[1];
+
+                        f.b.begin_block(); {
+                            f.b.begin_block(); {
+                                let c = f.next_reg()?;
+                                self.compile(f, cond, vm, c, 1)?;
+
+                                f.b.exit_false(c, 0);
+
+                                self.compile(f, then, vm, dst, num_rets)?;
+                                f.b.exit_block(1);
+                            } f.b.end_block();
+
+                            if args.len() == 3 {
+                                let els = &args[2];
+                                self.compile(f, els, vm, dst, num_rets)?;
+                            }
+                            else {
+                                f.b.load_nil(dst);
+                            }
+                        } f.b.end_block();
+
+                        return Ok(());
+                    }
+
+                    if op == "while" {
+                        if args.len() != 2 { return Err(()) }
+
+                        let cond = &args[0];
+                        let body = &args[1];
+
+                        f.b.begin_block(); {
+                            let c = f.next_reg()?;
+                            self.compile(f, cond, vm, c, 1)?;
+
+                            f.b.exit_false(c, 0);
+
+                            self.compile(f, body, vm, 0, 0)?;
+
+                            f.b.repeat_block(0);
+                        }f.b.end_block();
 
                         return Ok(());
                     }
@@ -2287,26 +2359,65 @@ impl Compiler {
                     let op = *op;
 
                     if op == "+" {
+                        if num_rets != 1 { return Err(()) }
                         if arg_regs.len() != 2 { return Err(()) }
                         f.b.add(dst, arg_regs[0], arg_regs[1]);
                         return Ok(());
                     }
 
                     if op == "-" {
+                        if num_rets != 1 { return Err(()) }
                         if arg_regs.len() != 2 { return Err(()) }
                         f.b.sub(dst, arg_regs[0], arg_regs[1]);
                         return Ok(());
                     }
 
                     if op == "*" {
+                        if num_rets != 1 { return Err(()) }
                         if arg_regs.len() != 2 { return Err(()) }
                         f.b.mul(dst, arg_regs[0], arg_regs[1]);
                         return Ok(());
                     }
 
                     if op == "/" {
+                        if num_rets != 1 { return Err(()) }
                         if arg_regs.len() != 2 { return Err(()) }
                         f.b.div(dst, arg_regs[0], arg_regs[1]);
+                        return Ok(());
+                    }
+
+                    if op == "==" {
+                        if num_rets != 1 { return Err(()) }
+                        if arg_regs.len() != 2 { return Err(()) }
+                        f.b.cmp_eq(dst, arg_regs[0], arg_regs[1]);
+                        return Ok(());
+                    }
+
+                    if op == "<=" {
+                        if num_rets != 1 { return Err(()) }
+                        if arg_regs.len() != 2 { return Err(()) }
+                        f.b.cmp_le(dst, arg_regs[0], arg_regs[1]);
+                        return Ok(());
+                    }
+ 
+                    if op == "<" {
+                        if num_rets != 1 { return Err(()) }
+                        if arg_regs.len() != 2 { return Err(()) }
+                        f.b.cmp_lt(dst, arg_regs[0], arg_regs[1]);
+                        return Ok(());
+                    }
+
+                    if op == ">=" {
+                        if num_rets != 1 { return Err(()) }
+                        if arg_regs.len() != 2 { return Err(()) }
+                        f.b.cmp_ge(dst, arg_regs[0], arg_regs[1]);
+                        return Ok(());
+                    }
+ 
+                    if op == ">" {
+                        if num_rets != 1 { return Err(()) }
+                        if arg_regs.len() != 2 { return Err(()) }
+                        f.b.cmp_gt(dst, arg_regs[0], arg_regs[1]);
                         return Ok(());
                     }
                 }
@@ -2320,6 +2431,8 @@ impl Compiler {
                 Ok(())
             }
             Ast::Array (values) => {
+                if num_rets == 0 { return Err(()) }
+
                 f.b.list_new(dst);
                 if values.len() == 0 { return Ok(()) }
 
@@ -2332,6 +2445,8 @@ impl Compiler {
                 Ok(())
             }
             Ast::Table (values) => {
+                if num_rets == 0 { return Err(()) }
+
                 f.b.table_new(dst);
                 if values.len() == 0 { return Ok(()) }
 
@@ -2681,6 +2796,37 @@ mod tests {
         vm.call(0, 0, 0);
         assert_eq!(vm.stack.len(), 0);
     }
+
+    #[test]
+    fn control_flow() {
+        let mut vm = Vm::new();
+
+        let code = r#"
+            (var i 0)
+            (var j 0)
+            (var k 1)
+            (while (< i 100) (do
+                (set j (+ j (if (> k 0) 1 2)))
+                (set k (- 0 k))
+                (set i (+ i 1))))
+        "#;
+
+        let ast = parse_many(code).unwrap();
+        compile_chunk(&ast, &mut vm).unwrap();
+        vm.call(0, 0, 0);
+        assert_eq!(vm.stack.len(), 0);
+
+        let env = vm.env;
+        let i = vm.string_new("i");
+        let i = vm.generic_get(env, i);
+        println!("i: {:?}", i);
+        let j = vm.string_new("j");
+        let j = vm.generic_get(env, j);
+        println!("j: {:?}", j);
+
+        assert!(vm.raw_eq(i, 100.0.into()));
+        assert!(vm.raw_eq(j, 150.0.into()));
+    }
 }
 
 
@@ -2699,7 +2845,7 @@ fn main() {
 
     loop {
         if buffer.len() > 0 {
-            print!("... ");
+            print!("    ");
         }
         else {
             print!(">>> ");

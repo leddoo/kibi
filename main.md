@@ -1,9 +1,13 @@
 
 - todo:
     - expose more vm features:
-        - control flow.
+        - 
         - functions.
-        - errors.
+    - errors.
+    - booleans.
+        - literals.
+        - (logical) and, or, not.
+    - env def/get/set instructions.
     - migrate to "fast calls"
         - has some nice benefits:
             - vm does the copying (faster than dispatching each copy individually).
