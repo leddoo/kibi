@@ -2270,15 +2270,64 @@ impl Compiler {
                         return Ok(());
                     }
 
+                    if op == "def" {
+                        if num_rets > 0 { return Err(()) }
+                        if args.len() != 3 { return Err(()) }
+
+                        let obj = f.next_reg()?;
+                        let key = f.next_reg()?;
+                        let val = f.next_reg()?;
+
+                        self.compile(f, &args[0], vm, obj, 1)?;
+                        self.compile(f, &args[1], vm, key, 1)?;
+                        self.compile(f, &args[2], vm, val, 1)?;
+
+                        f.b.def(obj, key, val);
+
+                        return Ok(());
+                    }
+
                     if op == "set" {
                         if num_rets > 0 { return Err(()) }
+
+                        if args.len() == 2 {
+                            let Ast::Atom(name) = args[0] else { return Err(()) };
+
+                            let value = f.next_reg()?;
+                            self.compile(f, &args[1], vm, value, 1)?;
+                            f.set(name, value, vm)?;
+
+                            return Ok(());
+                        }
+
+                        if args.len() == 3 {
+                            let obj = f.next_reg()?;
+                            let key = f.next_reg()?;
+                            let val = f.next_reg()?;
+
+                            self.compile(f, &args[0], vm, obj, 1)?;
+                            self.compile(f, &args[1], vm, key, 1)?;
+                            self.compile(f, &args[2], vm, val, 1)?;
+
+                            f.b.set(obj, key, val);
+
+                            return Ok(());
+                        }
+
+                        return Err(());
+                    }
+
+                    if op == "get" {
+                        if num_rets != 1 { return Err(()) }
                         if args.len() != 2 { return Err(()) }
 
-                        let Ast::Atom(name) = args[0] else { return Err(()) };
+                        let obj = f.next_reg()?;
+                        let key = f.next_reg()?;
 
-                        let value = f.next_reg()?;
-                        self.compile(f, &args[1], vm, value, 1)?;
-                        f.set(name, value, vm)?;
+                        self.compile(f, &args[0], vm, obj, 1)?;
+                        self.compile(f, &args[1], vm, key, 1)?;
+
+                        f.b.get(dst, obj, key);
 
                         return Ok(());
                     }

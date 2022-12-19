@@ -1,12 +1,12 @@
 
 - todo:
     - expose more vm features:
-        - 
         - functions.
     - errors.
     - booleans.
         - literals.
         - (logical) and, or, not.
+    - del.
     - env def/get/set instructions.
     - migrate to "fast calls"
         - has some nice benefits:
@@ -33,6 +33,21 @@
         - a simple incremental 3-color gc for now.
         - walk func protos.
     - document & validate invariants.
+
+- issues:
+    - should functions return `nil` by default?
+        - doesn't seem like the right decision for this vm.
+        - front-ends *can* do that though.
+        - `nil` is `Option::None`, which is different from `()`.
+            - `()` is the empty tuple.
+            - in the lzvm, functions always return "tuples".
+        - `var foo = f(...)` doesn't work for all `f`.
+            - it is *consistent*, but may not be practical.
+                - the syntax means, `f` has to return at least one value.
+                - `var a, b = f(...)` means `f` has to return at least two.
+            - time will tell how bad this is.
+                - it is compatible with varargs though.
+                - `print(f(...))` does always work.
 
 - horizon:
     - meta tables.
