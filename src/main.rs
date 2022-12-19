@@ -1804,6 +1804,7 @@ enum Ast<'i> {
     Table (Vec<(Ast<'i>, Ast<'i>)>),
 }
 
+#[derive(Debug)]
 enum ParseError {
     Eoi,
     Error,
@@ -1976,7 +1977,7 @@ impl<'i> Parser<'i> {
     }
 }
 
-fn parse(input: &str) -> ParseResult<Ast> {
+fn parse_single(input: &str) -> ParseResult<Ast> {
     let mut p = Parser::new(input);
     let result = p.parse()?;
     p.skip_whitespace();
@@ -1986,14 +1987,30 @@ fn parse(input: &str) -> ParseResult<Ast> {
     return Ok(result);
 }
 
+fn parse_many(input: &str) -> ParseResult<Vec<Ast>> {
+    let mut p = Parser::new(input);
+    let mut result = vec![];
+    while p.cursor < p.input.len() {
+        p.skip_whitespace();
+        result.push(p.parse()?);
+        p.skip_whitespace();
+    }
+    Ok(result)
+}
 
-struct FuncBuilder {
+
+struct FuncBuilder<'a> {
     b: ByteCodeBuilder,
-    next_reg: u32,
     num_params: u32,
+    next_reg: u32,
+
     constants: Vec<Value>,
+
     calls: Vec<CallBuilder>,
     max_call_params: u32,
+
+    locals: Vec<LocalDecl<'a>>,
+    scope: u32,
 }
 
 struct CallBuilder {
@@ -2002,15 +2019,26 @@ struct CallBuilder {
     code_pos: usize,
 }
 
-impl FuncBuilder {
-    fn new(num_params: u32) -> FuncBuilder {
+struct LocalDecl<'a> {
+    scope: u32,
+    name: &'a str,
+    reg: Reg,
+}
+
+impl<'a> FuncBuilder<'a> {
+    fn new(num_params: u32, is_chunk: bool) -> FuncBuilder<'a> {
+        // TODO: create locals for params.
+        let locals = vec![];
+        let scope = if is_chunk { 0 } else { 1 };
         FuncBuilder {
             b: ByteCodeBuilder::new(),
-            next_reg: num_params,
             num_params,
+            next_reg: num_params,
             constants: vec![],
             calls: vec![],
             max_call_params: 0,
+            locals,
+            scope,
         }
     }
 
@@ -2025,6 +2053,92 @@ impl FuncBuilder {
 
         self.max_call_params = self.max_call_params.max(args.len() as u32);
         self.calls.push(CallBuilder { func, args, code_pos });
+    }
+
+    fn push_scope(&mut self) {
+        self.scope += 1;
+    }
+
+    fn pop_scope(&mut self) {
+        let scope = self.scope;
+        self.locals.retain(|l| l.scope < scope);
+        self.scope -= 1;
+    }
+
+    fn def(&mut self, name: &'a str, value: Option<Reg>, vm: &mut Vm) -> Result<(), ()> {
+        if self.scope == 0 {
+            let name = vm.string_new(name);
+            let name = self.add_constant(name)?;
+
+            let env = self.next_reg()?;
+            let key = self.next_reg()?;
+            self.b.load_env(env);
+            self.b.load_const(key, name);
+            if let Some(value) = value {
+                self.b.def(env, key, value);
+            }
+            else {
+                let nil = self.next_reg()?;
+                self.b.load_nil(nil);
+                self.b.def(env, key, nil);
+            }
+            Ok(())
+        }
+        else {
+            let reg = self.next_reg()?;
+            self.locals.push(LocalDecl { scope: self.scope, name, reg });
+            if let Some(value) = value {
+                self.b.copy(reg, value);
+            }
+            Ok(())
+        }
+    }
+
+    fn set(&mut self, name: &'a str, value: Reg, vm: &mut Vm) -> Result<(), ()> {
+        if let Some(var) = self.lookup_var(name) {
+            self.b.copy(var, value);
+            Ok(())
+        }
+        else {
+            let name = vm.string_new(name);
+            let name = self.add_constant(name)?;
+
+            let env = self.next_reg()?;
+            let key = self.next_reg()?;
+            self.b.load_env(env);
+            self.b.load_const(key, name);
+            self.b.set(env, key, value);
+
+            Ok(())
+        }
+    }
+
+    fn get(&mut self, name: &'a str, dst: Reg, vm: &mut Vm) -> Result<(), ()> {
+        if let Some(var) = self.lookup_var(name) {
+            self.b.copy(dst, var);
+            Ok(())
+        }
+        else {
+            let name = vm.string_new(name);
+            let name = self.add_constant(name)?;
+
+            let env = self.next_reg()?;
+            let key = self.next_reg()?;
+            self.b.load_env(env);
+            self.b.load_const(key, name);
+            self.b.get(dst, env, key);
+
+            Ok(())
+        }
+    }
+
+    fn lookup_var(&self, name: &str) -> Option<Reg> {
+        for local in self.locals.iter().rev() {
+            if local.name == name {
+                return Some(local.reg);
+            }
+        }
+        None
     }
 
     fn next_reg(&mut self) -> Result<Reg, ()> {
@@ -2084,7 +2198,7 @@ impl Compiler {
         }
     }
 
-    fn compile(&mut self, f: &mut FuncBuilder, ast: &Ast, vm: &mut Vm, dst: Reg, num_rets: u8) -> Result<(), ()> {
+    fn compile<'a>(&mut self, f: &mut FuncBuilder<'a>, ast: &Ast<'a>, vm: &mut Vm, dst: Reg, num_rets: u8) -> Result<(), ()> {
         match ast {
             Ast::Number(value) => {
                 let value = *value;
@@ -2104,26 +2218,71 @@ impl Compiler {
                 Ok(())
             }
             Ast::Atom (value) => {
-                let s = vm.string_new(*value);
-                let c = f.add_constant(s)?;
-
-                let key = f.next_reg()?;
-                f.b.load_env(dst);
-                f.b.load_const(key, c);
-                f.b.get(dst, dst, key);
+                f.get(value, dst, vm)?;
                 Ok(())
             }
             Ast::List (values) => {
                 let func = values.get(0).ok_or(())?;
+                let args = &values[1..];
+
+                // try special forms.
+                if let Ast::Atom(op) = func {
+                    let op = *op;
+
+                    if op == "var" {
+                        if num_rets > 0 { return Err(()) }
+                        if args.len() == 0 { return Err(()) }
+                        if args.len() > 2 { return Err(()) }
+
+                        let Ast::Atom(name) = args[0] else { return Err(()) };
+
+                        if args.len() == 1 {
+                            f.def(name, None, vm)?;
+                        }
+                        else {
+                            let value = f.next_reg()?;
+                            self.compile(f, &args[1], vm, value, 1)?;
+                            f.def(name, Some(value), vm)?;
+                        }
+
+                        return Ok(());
+                    }
+
+                    if op == "set" {
+                        if num_rets > 0 { return Err(()) }
+                        if args.len() != 2 { return Err(()) }
+
+                        let Ast::Atom(name) = args[0] else { return Err(()) };
+
+                        let value = f.next_reg()?;
+                        self.compile(f, &args[1], vm, value, 1)?;
+                        f.set(name, value, vm)?;
+
+                        return Ok(());
+                    }
+
+                    if op == "do" {
+                        // TEMP
+                        if num_rets > 0 { return Err(()) };
+
+                        f.push_scope();
+                        for stmt in args {
+                            self.compile(f, stmt, vm, 0, 0)?;
+                        }
+                        f.pop_scope();
+
+                        return Ok(());
+                    }
+                }
 
                 let mut arg_regs = vec![];
-                for arg in &values[1..] {
+                for arg in args {
                     let r = f.next_reg()?;
                     self.compile(f, arg, vm, r, 1)?;
                     arg_regs.push(r);
                 }
 
-                // try operators & keywords.
+                // try operators.
                 if let Ast::Atom(op) = func {
                     let op = *op;
 
@@ -2188,6 +2347,23 @@ impl Compiler {
             }
         }
     }
+}
+
+fn compile_chunk(ast: &[Ast], vm: &mut Vm) -> Result<(), ()> {
+    let mut c = Compiler::new();
+    let mut f = FuncBuilder::new(0, true);
+
+    for node in ast {
+        c.compile(&mut f, node, vm, 0, 0)?;
+    }
+
+    let proto = f.build();
+
+    let func = vm.func_protos.len();
+    vm.func_protos.push(proto);
+
+    vm.push_func(func as u32);
+    Ok(())
 }
 
 
@@ -2456,6 +2632,55 @@ mod tests {
             assert_eq!(value, fib_rs(i as f64));
         }
     }
+
+    #[test]
+    fn lexical_scoping() {
+        let mut vm = Vm::new();
+
+        use core::sync::atomic::{AtomicUsize, Ordering};
+
+        const RESULTS: &[f64] = &[ 42.0, 12.0, 69.0, 70.0, 8.0, 70.0, 71.0, 12.0, 24.0 ];
+
+        static INDEX: AtomicUsize = AtomicUsize::new(0);
+        INDEX.store(0, Ordering::Relaxed);
+
+        vm.add_host_func("yield", HostFuncProto {
+            code: HostFuncPtrEx(|vm| {
+                let i = INDEX.fetch_add(1, Ordering::Relaxed);
+
+                let expected = RESULTS[i];
+
+                let v = *vm.reg(0);
+                print!("yield: ");
+                vm.generic_print(v);
+                println!();
+
+                assert!(vm.raw_eq(v, expected.into()));
+
+                return 0;
+            }),
+            num_params: 1,
+        });
+
+        let chunk = r#"
+            (var foo 42) (yield foo)
+            (do
+                (set foo 12) (yield foo)
+                (var foo 69) (yield foo)
+                (do
+                    (set foo 70) (yield foo)
+                    (var foo  8) (yield foo))
+                (yield foo)
+                (set foo 71) (yield foo))
+            (yield foo)
+            (set foo (* foo 2)) (yield foo)
+        "#;
+
+        let ast = parse_many(chunk).unwrap();
+        compile_chunk(&ast, &mut vm).unwrap();
+        vm.call(0, 0, 0);
+        assert_eq!(vm.stack.len(), 0);
+    }
 }
 
 
@@ -2484,7 +2709,7 @@ fn main() {
         std::io::stdin().read_line(&mut buffer).unwrap();
 
         let ast = {
-            match parse(&buffer) {
+            match parse_single(&buffer) {
                 Ok(ast) => { ast }
                 Err(e) => {
                     match e {
@@ -2501,16 +2726,12 @@ fn main() {
             }
         };
 
-        let mut c = Compiler::new();
-        let mut f = FuncBuilder::new(0);
-        let result = f.next_reg().unwrap();
-        c.compile(&mut f, &ast, &mut vm, result, 0).unwrap();
-        let proto = f.build();
-        let func = vm.func_protos.len();
-        vm.func_protos.push(proto);
+        if let Err(_) = compile_chunk(&[ast], &mut vm) {
+            println!("compile error");
+            buffer.clear();
+            continue;
+        };
 
-        // todo: print (multret) result.
-        vm.push_func(func as u32);
         vm.call(0, 0, 0);
 
         buffer.clear();

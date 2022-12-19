@@ -1,9 +1,7 @@
 
 - todo:
     - expose more vm features:
-        - variables.
-            - block scoping.
-            - but top level variables in the repl are globals.
+        - control flow.
         - functions.
         - errors.
     - migrate to "fast calls"
