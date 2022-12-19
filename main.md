@@ -1,12 +1,38 @@
 
 - todo:
-    - basic front-end.
-        - lisp syntax - easy to parse.
-        - point is to just mess around a bit.
-        - for now, generate byte code directly.
+    - expose more vm features:
+        - variables.
+            - block scoping.
+            - but top level variables in the repl are globals.
+        - functions.
+        - errors.
+    - migrate to "fast calls"
+        - has some nice benefits:
+            - vm does the copying (faster than dispatching each copy individually).
+            - don't need to patch calls (in a simple compiler).
+        - could then also migrate to disjoint stack frames.
+            - gets rid of "max_call_args".
+            - callee can use registers however they like.
+            - native functions an pop until `top = base`.
+            - multret forwarding (eg: `print(f(x))`) requires no copying.
+        - impl:
+            - 1) contiguous call: `func: Reg, dst: Reg, num_rets; args: Reg, num_args`
+                - if want to keep `dst`, need two words.
+                    - definitely want to keep `dst` for now.
+                        - seems useful, cause register allocator has more control.
+                        - and enables single pass compiler.
+                            - alternative to writing to end of stack would be writing to args, but that seems nasty.
+                    - get more bits than need for `dst`, so can also take `args` for more flexible `func` placement.
+            - 2) gathering call: `func: Reg, dst: Reg, num_rets; num_args, args: Reg[]`
+                - extra words specify one register for each arg.
+                - but thinking 3 registers per word, cause might as well.
+    - multret.
+    - proper memory allocation.
+        - a simple incremental 3-color gc for now.
+        - walk func protos.
+    - document & validate invariants.
 
 - horizon:
-    - errors.
     - meta tables.
         - should table indexing use raw_eq?
         - start thinking about proper memory management & pointer safety.
@@ -15,11 +41,19 @@
         - per-function env.
 
 - later:
-    - proper memory allocation.
     - vm api.
     - lztf.
         - run validations on lztf.
         - remove (release mode) checks of register & constant use.
+        - consider "infinite" registers.
+            - the 256 registers thing is technically a vm impl detail.
+                - can support more stack values by having special copy instruction.
+                - and may change a lot, when adding value types.
+            - only downside: vm has to allocate registers ~ perf.
+                - hmm is probably a good idea actually: typed bytecode.
+                - much simpler (for analysis) if registers have constant types.
+                - but that would prevent cross type register allocation.
+                - so would want vm to do reg-alloc anyway, once go typed.
 
 
 - function calls.
@@ -153,6 +187,7 @@
         - similar situation for `prep_call` (get rid of it, inline into `Vm::run`).
           a `call` from native code leads to `Vm::run` anyway.
           idk, maybe not.
+    - `pc: *mut Instruction`.
     - don't copy `Value`s out of the stack.
         - use raw pointers instead.
         - the don't fit into registers, so they have to be copied onto the stack.
@@ -168,6 +203,28 @@
         - should then be fine for parameters to be mutable.
             - cause reused fns & args can be kept in non-volatile part of stack & copying is fast.
             - allow host functions to consume their params; fill up with nils on ret.
+    - value types.
+        - a lot of code will be typed. (eg: most people are moving towards typescript).
+        - can significantly improve memory locality & reduce gc overhead by storing data inline.
+        - the idea: along with gradual typing, have "gradual memory layout" or something :D
+            - basically, pointers are tagged with their types.
+            - host extensions can add arbitrary types through userdata.
+            - why shouldn't the vm also use this mechanism to implement (nested) records?
+        - these types can still be compatible with tables:
+            - since the pointers are tagged, the generic get can look up the fields of the type in the type registry.
+            - and since the pointers themselves are tagged, it should be possible to create pointers into structures/arrays. but not sure how to make the gc figure out where the allocation root is.
+                - could have type + location info on pointer. (have 7 bytes)
+                - the type of the struct it's inside of. could align structs to their size (mimalloc style pool).
+                - large arrays & deep nesting make this a bit harder, though could split into multiple allocations if necessary.
+                - breaking up arrays kinda sucks. but could think about storing the index on the pointer.
+                - or just use a slower searching strategy for large objects.
+            - and the typed code can use typed operations. the vm inserts type checks at the start of these functions, but skipts them when calling from checked code.
+            - typed code can use escape analysis & stack allocation.
+            - these types can still be implemented as tables by a vm.
+            - they could help with wasm interop.
+    - allocation:
+        - concurrent garbage collector (like go).
+        - paged size class heap (like mimalloc/tcmalloc).
 
 - cool stuff:
     - interruptible jump.

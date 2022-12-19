@@ -1794,6 +1794,403 @@ mod builtin {
 }
 
 
+#[derive(Debug)]
+enum Ast<'i> {
+    Number (f64),
+    String (&'i str),
+    Atom (&'i str),
+    List (Vec<Ast<'i>>),
+    Array (Vec<Ast<'i>>),
+    Table (Vec<(Ast<'i>, Ast<'i>)>),
+}
+
+enum ParseError {
+    Eoi,
+    Error,
+}
+
+type ParseResult<T> = Result<T, ParseError>;
+
+struct Parser<'i> {
+    input: &'i str,
+    cursor: usize,
+}
+
+impl<'i> Parser<'i> {
+    fn new(input: &str) -> Parser {
+        Parser {
+            input,
+            cursor: 0,
+        }
+    }
+
+    #[inline]
+    fn peek(&self) -> ParseResult<char> {
+        if self.cursor < self.input.len() {
+            let c = self.input.as_bytes()[self.cursor];
+            return unsafe { Ok(char::from_u32_unchecked(c as u32)) };
+        }
+        Err(ParseError::Eoi)
+    }
+
+    fn skip_whitespace(&mut self) {
+        while let Ok(at) = self.peek() {
+            if !at.is_ascii_whitespace() {
+                break;
+            }
+            self.cursor += 1;
+        }
+    }
+
+    fn consume(&mut self, expected: char) -> ParseResult<()> {
+        let at = self.peek()?;
+        self.cursor += 1;
+        if at != expected {
+            return Err(ParseError::Error);
+        }
+        Ok(())
+    }
+
+    fn parse(&mut self) -> ParseResult<Ast<'i>> {
+        let at = self.peek()?;
+
+        if at.is_ascii_digit() {
+            let begin = self.cursor;
+            self.cursor += 1;
+
+            while let Ok(at) = self.peek() {
+                if !(at.is_ascii_digit() || at == '.') {
+                    break;
+                }
+                self.cursor += 1;
+            }
+
+            let end = self.cursor;
+            let value = &self.input[begin..end];
+            let value = value.parse::<f64>().map_err(|_| ParseError::Error)?;
+            return Ok(Ast::Number(value));
+        }
+
+        if at == '"' {
+            self.cursor += 1;
+            let begin = self.cursor;
+
+            while let Ok(at) = self.peek() {
+                if at == '"' {
+                    let end = self.cursor;
+                    self.cursor += 1;
+
+                    let value = &self.input[begin..end];
+                    return Ok(Ast::String(value));
+                }
+
+                self.cursor += 1;
+            }
+            return Err(ParseError::Eoi);
+        }
+
+        #[inline]
+        fn is_operator(at: char) -> bool {
+            match at {
+                '+' | '-' | '*' | '/' => true,
+                _ => false,
+            }
+        }
+
+        if at.is_ascii_alphabetic() || at == '_' || is_operator(at) {
+            let begin = self.cursor;
+            self.cursor += 1;
+
+            while let Ok(at) = self.peek() {
+                if !(at.is_ascii_alphanumeric() || at == '_') {
+                    break;
+                }
+                self.cursor += 1;
+            }
+
+            let end = self.cursor;
+            let value = &self.input[begin..end];
+            return Ok(Ast::Atom(value));
+        }
+
+        if at == '(' {
+            self.cursor += 1;
+            self.skip_whitespace();
+
+            let mut values = vec![];
+            while let Ok(at) = self.peek() {
+                if at == ')' {
+                    self.cursor += 1;
+                    return Ok(Ast::List(values));
+                }
+
+                values.push(self.parse()?);
+                self.skip_whitespace();
+            }
+            return Err(ParseError::Eoi);
+        }
+
+        if at == '[' {
+            self.cursor += 1;
+            self.skip_whitespace();
+
+            let mut values = vec![];
+            while let Ok(at) = self.peek() {
+                if at == ']' {
+                    self.cursor += 1;
+                    return Ok(Ast::Array(values));
+                }
+
+                values.push(self.parse()?);
+                self.skip_whitespace();
+            }
+            return Err(ParseError::Eoi);
+        }
+
+        if at == '{' {
+            self.cursor += 1;
+            self.skip_whitespace();
+
+            let mut values = vec![];
+            while let Ok(at) = self.peek() {
+                if at == '}' {
+                    self.cursor += 1;
+                    return Ok(Ast::Table(values));
+                }
+
+                self.consume('(')?;
+                self.skip_whitespace();
+                let key = self.parse()?;
+                self.skip_whitespace();
+                let value = self.parse()?;
+                self.skip_whitespace();
+                self.consume(')')?;
+                self.skip_whitespace();
+
+                values.push((key, value));
+            }
+            return Err(ParseError::Eoi);
+        }
+
+        Err(ParseError::Error)
+    }
+}
+
+fn parse(input: &str) -> ParseResult<Ast> {
+    let mut p = Parser::new(input);
+    let result = p.parse()?;
+    p.skip_whitespace();
+    if p.cursor != p.input.len() {
+        return Err(ParseError::Error);
+    }
+    return Ok(result);
+}
+
+
+struct FuncBuilder {
+    b: ByteCodeBuilder,
+    next_reg: u32,
+    num_params: u32,
+    constants: Vec<Value>,
+    calls: Vec<CallBuilder>,
+    max_call_params: u32,
+}
+
+struct CallBuilder {
+    func: Reg,
+    args: Vec<Reg>,
+    code_pos: usize,
+}
+
+impl FuncBuilder {
+    fn new(num_params: u32) -> FuncBuilder {
+        FuncBuilder {
+            b: ByteCodeBuilder::new(),
+            next_reg: num_params,
+            num_params,
+            constants: vec![],
+            calls: vec![],
+            max_call_params: 0,
+        }
+    }
+
+    fn call(&mut self, dst: Reg, num_rets: u8, func: Reg, args: Vec<Reg>) {
+        let code_pos = self.b.buffer.len();
+
+        self.b.unreachable();
+        for _ in 0..args.len() {
+            self.b.unreachable();
+        }
+        self.b.call(dst, args.len() as u8, num_rets);
+
+        self.max_call_params = self.max_call_params.max(args.len() as u32);
+        self.calls.push(CallBuilder { func, args, code_pos });
+    }
+
+    fn next_reg(&mut self) -> Result<Reg, ()> {
+        if self.next_reg < Reg::MAX as u32 {
+            let result = self.next_reg;
+            self.next_reg += 1;
+            return Ok(result);
+        }
+        Err(())
+    }
+
+    fn add_constant(&mut self, value: Value) -> Result<u16, ()> {
+        let result = self.constants.len();
+        if result < u16::MAX as usize {
+            self.constants.push(value);
+            return Ok(result as u16);
+        }
+        Err(())
+    }
+
+    fn build(mut self) -> FuncProto {
+        let top = self.next_reg + self.max_call_params;
+
+        // patch calls.
+        for call in &self.calls {
+            let begin = call.code_pos;
+            let end   = begin + 1 + call.args.len();
+
+            let ops = &mut self.b.buffer[begin..end];
+
+            let func = top - call.args.len() as u32 - 1;
+            ops[0] = Instruction::encode_r2(Opcode::Copy, func, call.func);
+
+            let base = func + 1;
+            for (i, arg) in call.args.iter().enumerate() {
+                ops[1 + i] = Instruction::encode_r2(Opcode::Copy, base + i as u32, *arg);
+            }
+        }
+
+        self.b.ret(0, 0);
+
+        FuncProto {
+            code: self.b.build(),
+            constants: self.constants,
+            num_params: self.num_params,
+            num_regs: top,
+        }
+    }
+}
+
+struct Compiler {
+}
+
+impl Compiler {
+    fn new() -> Compiler {
+        Compiler {
+        }
+    }
+
+    fn compile(&mut self, f: &mut FuncBuilder, ast: &Ast, vm: &mut Vm, dst: Reg, num_rets: u8) -> Result<(), ()> {
+        match ast {
+            Ast::Number(value) => {
+                let value = *value;
+                if value as i16 as f64 == value {
+                    f.b.load_int(dst, value as i16);
+                }
+                else {
+                    let c = f.add_constant(Value::Number { value })?;
+                    f.b.load_const(dst, c);
+                }
+                Ok(())
+            }
+            Ast::String (value) => {
+                let s = vm.string_new(*value);
+                let c = f.add_constant(s)?;
+                f.b.load_const(dst, c);
+                Ok(())
+            }
+            Ast::Atom (value) => {
+                let s = vm.string_new(*value);
+                let c = f.add_constant(s)?;
+
+                let key = f.next_reg()?;
+                f.b.load_env(dst);
+                f.b.load_const(key, c);
+                f.b.get(dst, dst, key);
+                Ok(())
+            }
+            Ast::List (values) => {
+                let func = values.get(0).ok_or(())?;
+
+                let mut arg_regs = vec![];
+                for arg in &values[1..] {
+                    let r = f.next_reg()?;
+                    self.compile(f, arg, vm, r, 1)?;
+                    arg_regs.push(r);
+                }
+
+                // try operators & keywords.
+                if let Ast::Atom(op) = func {
+                    let op = *op;
+
+                    if op == "+" {
+                        if arg_regs.len() != 2 { return Err(()) }
+                        f.b.add(dst, arg_regs[0], arg_regs[1]);
+                        return Ok(());
+                    }
+
+                    if op == "-" {
+                        if arg_regs.len() != 2 { return Err(()) }
+                        f.b.sub(dst, arg_regs[0], arg_regs[1]);
+                        return Ok(());
+                    }
+
+                    if op == "*" {
+                        if arg_regs.len() != 2 { return Err(()) }
+                        f.b.mul(dst, arg_regs[0], arg_regs[1]);
+                        return Ok(());
+                    }
+
+                    if op == "/" {
+                        if arg_regs.len() != 2 { return Err(()) }
+                        f.b.div(dst, arg_regs[0], arg_regs[1]);
+                        return Ok(());
+                    }
+                }
+
+                // function call.
+                let func_reg = f.next_reg()?;
+                self.compile(f, func, vm, func_reg, 1)?;
+
+                f.call(dst, num_rets, func_reg, arg_regs);
+
+                Ok(())
+            }
+            Ast::Array (values) => {
+                f.b.list_new(dst);
+                if values.len() == 0 { return Ok(()) }
+
+                let reg = f.next_reg()?;
+                for value in values {
+                    self.compile(f, value, vm, reg, 1)?;
+                    f.b.list_append(dst, reg);
+                }
+
+                Ok(())
+            }
+            Ast::Table (values) => {
+                f.b.table_new(dst);
+                if values.len() == 0 { return Ok(()) }
+
+                let k = f.next_reg()?;
+                let v = f.next_reg()?;
+                for (key, value) in values {
+                    self.compile(f, key,   vm, k, 1)?;
+                    self.compile(f, value, vm, v, 1)?;
+                    f.b.table_def(dst, k, v);
+                }
+
+                Ok(())
+            }
+        }
+    }
+}
+
+
 
 fn mk_fib() -> FuncProto {
     // fib(n, f) = if n < 2 then n else f(n-2) + f(n-1) end
@@ -2067,43 +2464,56 @@ fn main() {
 
     vm.add_host_func("print", builtin::PRINT);
 
-    vm.func_protos.push(mk_fib());
-
-    let print = vm.string_new("print");
-
-    // run(f, n): for i in 0..n do print(f(i)) end
-    vm.func_protos.push(FuncProto {
-        code: {
-            let mut b = ByteCodeBuilder::new();
-            b.load_int(2, 0);
-            b.block(|b| {
-                b.exit_nlt(2, 1, 0);
-                b.copy(4, 0);
-                b.copy(5, 2);
-                b.copy(6, 0);
-                b.call(3, 2, 1);
-                b.copy(6, 3);
-                b.load_env(4);
-                b.load_const(5, 0);
-                b.get(5, 4, 5);
-                b.call(0, 1, 0);
-                b.load_int(3, 1);
-                b.add(2, 2, 3);
-                b.repeat_block(0);
-            });
-            b.ret(0, 0);
-            b.build()
-        },
-        constants: vec![print],
-        num_params: 2,
-        num_regs:   7,
+    vm.add_host_func("quit", HostFuncProto {
+        code: HostFuncPtrEx(|_vm| std::process::exit(0)),
+        num_params: 0,
     });
 
-    let t0 = std::time::Instant::now();
-    vm.push_func(1);
-    vm.push_func(0);
-    vm.push_number(25.0);
-    vm.call(0, 2, 0);
-    println!("{:?}", t0.elapsed());
+
+    let mut buffer = String::new();
+
+    loop {
+        if buffer.len() > 0 {
+            print!("... ");
+        }
+        else {
+            print!(">>> ");
+        }
+        use std::io::Write;
+        std::io::stdout().lock().flush().unwrap();
+        std::io::stdin().read_line(&mut buffer).unwrap();
+
+        let ast = {
+            match parse(&buffer) {
+                Ok(ast) => { ast }
+                Err(e) => {
+                    match e {
+                        ParseError::Eoi => {
+                            continue;
+                        }
+                        ParseError::Error => {
+                            println!("parse error");
+                            buffer.clear();
+                            continue;
+                        }
+                    }
+                }
+            }
+        };
+
+        let mut c = Compiler::new();
+        let mut f = FuncBuilder::new(0);
+        let result = f.next_reg().unwrap();
+        c.compile(&mut f, &ast, &mut vm, result, 0).unwrap();
+        let proto = f.build();
+        let func = vm.func_protos.len();
+        vm.func_protos.push(proto);
+
+        // todo: print (multret) result.
+        vm.push_func(func as u32);
+        vm.call(0, 0, 0);
+
+        buffer.clear();
+    }
 }
 
