@@ -2042,14 +2042,26 @@ struct LocalDecl<'a> {
 }
 
 impl<'a> FuncBuilder<'a> {
-    fn new(num_params: u32, is_chunk: bool) -> FuncBuilder<'a> {
-        // TODO: create locals for params.
-        let locals = vec![];
+    fn new(params: &[&'a str], is_chunk: bool) -> FuncBuilder<'a> {
+        if is_chunk {
+            assert_eq!(params.len(), 0);
+        }
+
+        let mut next_reg = 0;
+
+        let mut locals = vec![];
+        for name in params {
+            let reg = next_reg;
+            next_reg += 1;
+            locals.push(LocalDecl { scope: 1, name, reg })
+        }
+
         let scope = if is_chunk { 0 } else { 1 };
+
         FuncBuilder {
             b: ByteCodeBuilder::new(),
-            num_params,
-            next_reg: num_params,
+            num_params: params.len() as u32,
+            next_reg,
             constants: vec![],
             calls: vec![],
             max_call_params: 0,
@@ -2205,6 +2217,7 @@ impl<'a> FuncBuilder<'a> {
     }
 }
 
+// oops, didn't need this to be a struct, lol.
 struct Compiler {
 }
 
@@ -2394,6 +2407,42 @@ impl Compiler {
 
                         return Ok(());
                     }
+
+                    if op == "fn" {
+                        if num_rets != 1 { return Err(()) }
+                        if args.len() != 2 { return Err(()) }
+
+                        let proto = compile_function(&args[0], &args[1], vm)?;
+                        let func = vm.func_new(proto);
+
+                        let constant = f.add_constant(func)?;
+                        f.b.load_const(dst, constant);
+
+                        return Ok(());
+                    }
+
+                    if op == "return" {
+                        if num_rets != 0 { return Err(()) }
+                        if args.len() > 255 { return Err(()) }
+
+                        if args.len() > 0 {
+                            let mut regs = vec![];
+                            for _ in args {
+                                regs.push(f.next_reg()?);
+                            }
+
+                            for (i, arg) in args.iter().enumerate() {
+                                self.compile(f, arg, vm, regs[i], 1)?;
+                            }
+
+                            f.b.ret(regs[0], regs.len() as u8);
+                        }
+                        else {
+                            f.b.ret(0, 0);
+                        }
+
+                        return Ok(());
+                    }
                 }
 
                 let mut arg_regs = vec![];
@@ -2448,7 +2497,7 @@ impl Compiler {
                         f.b.cmp_le(dst, arg_regs[0], arg_regs[1]);
                         return Ok(());
                     }
- 
+
                     if op == "<" {
                         if num_rets != 1 { return Err(()) }
                         if arg_regs.len() != 2 { return Err(()) }
@@ -2462,7 +2511,7 @@ impl Compiler {
                         f.b.cmp_ge(dst, arg_regs[0], arg_regs[1]);
                         return Ok(());
                     }
- 
+
                     if op == ">" {
                         if num_rets != 1 { return Err(()) }
                         if arg_regs.len() != 2 { return Err(()) }
@@ -2513,9 +2562,31 @@ impl Compiler {
     }
 }
 
+fn compile_function(params: &Ast, body: &Ast, vm: &mut Vm) -> Result<u32, ()> {
+    let Ast::List(params) = params else { return Err(()) };
+
+    let mut param_names = vec![];
+    for param in params {
+        let Ast::Atom(name) = param else { return Err(()) };
+        param_names.push(*name);
+    }
+
+    let mut c = Compiler::new();
+    let mut f = FuncBuilder::new(&param_names, false);
+
+    c.compile(&mut f, body, vm, 0, 0)?;
+
+    let proto = f.build();
+
+    let proto_index = vm.func_protos.len() as u32;
+    vm.func_protos.push(proto);
+
+    Ok(proto_index)
+}
+
 fn compile_chunk(ast: &[Ast], vm: &mut Vm) -> Result<(), ()> {
     let mut c = Compiler::new();
-    let mut f = FuncBuilder::new(0, true);
+    let mut f = FuncBuilder::new(&[], true);
 
     for node in ast {
         c.compile(&mut f, node, vm, 0, 0)?;
@@ -2523,10 +2594,10 @@ fn compile_chunk(ast: &[Ast], vm: &mut Vm) -> Result<(), ()> {
 
     let proto = f.build();
 
-    let func = vm.func_protos.len();
+    let proto_index = vm.func_protos.len() as u32;
     vm.func_protos.push(proto);
 
-    vm.push_func(func as u32);
+    vm.push_func(proto_index);
     Ok(())
 }
 

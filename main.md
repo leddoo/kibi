@@ -1,8 +1,8 @@
 
 - todo:
-    - expose more vm features:
-        - functions.
     - errors.
+        - return to host.
+        - pcall.
     - booleans.
         - literals.
         - (logical) and, or, not.
