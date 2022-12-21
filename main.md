@@ -1,7 +1,5 @@
 
 - todo:
-    - generate better byte code.
-        - try: callee chooses & returns register.
     - fix runtime errors: unwind stack, pop stack frames.
     - pcall.
     - booleans.

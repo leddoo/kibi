@@ -2108,33 +2108,27 @@ impl<'a> FuncBuilder<'a> {
         self.scope -= 1;
     }
 
-    fn def(&mut self, name: &'a str, value: Option<Reg>, vm: &mut Vm) -> Result<(), ()> {
-        if self.scope == 0 {
-            let name = vm.string_new(name);
-            let name = self.add_constant(name)?;
+    fn def_global(&mut self, name: &'a str, value: Option<Reg>, vm: &mut Vm) -> Result<(), ()> {
+        let name = vm.string_new(name);
+        let name = self.add_constant(name)?;
 
-            let env = self.next_reg()?;
-            let key = self.next_reg()?;
-            self.b.load_env(env);
-            self.b.load_const(key, name);
-            if let Some(value) = value {
-                self.b.def(env, key, value);
-            }
-            else {
-                let nil = self.next_reg()?;
-                self.b.load_nil(nil);
-                self.b.def(env, key, nil);
-            }
-            Ok(())
+        let env = self.next_reg()?;
+        let key = self.next_reg()?;
+        self.b.load_env(env);
+        self.b.load_const(key, name);
+        if let Some(value) = value {
+            self.b.def(env, key, value);
         }
         else {
-            let reg = self.next_reg()?;
-            self.locals.push(LocalDecl { scope: self.scope, name, reg });
-            if let Some(value) = value {
-                self.b.copy(reg, value);
-            }
-            Ok(())
+            let nil = self.next_reg()?;
+            self.b.load_nil(nil);
+            self.b.def(env, key, nil);
         }
+        Ok(())
+    }
+
+    fn def_local(&mut self, name: &'a str, reg: Reg) {
+        self.locals.push(LocalDecl { scope: self.scope, name, reg });
     }
 
     fn set(&mut self, name: &'a str, value: Reg, vm: &mut Vm) -> Result<(), ()> {
@@ -2156,25 +2150,6 @@ impl<'a> FuncBuilder<'a> {
         }
     }
 
-    fn get(&mut self, name: &'a str, dst: Reg, vm: &mut Vm) -> Result<(), ()> {
-        if let Some(var) = self.lookup_var(name) {
-            self.b.copy(dst, var);
-            Ok(())
-        }
-        else {
-            let name = vm.string_new(name);
-            let name = self.add_constant(name)?;
-
-            let env = self.next_reg()?;
-            let key = self.next_reg()?;
-            self.b.load_env(env);
-            self.b.load_const(key, name);
-            self.b.get(dst, env, key);
-
-            Ok(())
-        }
-    }
-
     fn lookup_var(&self, name: &str) -> Option<Reg> {
         for local in self.locals.iter().rev() {
             if local.name == name {
@@ -2191,6 +2166,13 @@ impl<'a> FuncBuilder<'a> {
             return Ok(result);
         }
         Err(())
+    }
+
+    fn reg_or_next_reg(&mut self, reg: Option<Reg>) -> Result<Reg, ()> {
+        if let Some(reg) = reg {
+            return Ok(reg);
+        }
+        return self.next_reg();
     }
 
     fn add_constant(&mut self, value: Value) -> Result<u16, ()> {
@@ -2242,10 +2224,22 @@ impl Compiler {
         }
     }
 
-    fn compile<'a>(&mut self, f: &mut FuncBuilder<'a>, ast: &Ast<'a>, vm: &mut Vm, dst: Reg, num_rets: u8) -> Result<(), ()> {
+    // on `dst`:
+    //  - optional to avoid needless copies (eg of locals).
+    //  - if the caller only needs read access, they can pass `None`.
+    //    this lets the callee choose the register.
+    //  - if the caller may write to the resulting register,
+    //    or request another value in the same register,
+    //    they must allocate a register and pass it as `Some`.
+    //  - if `dst` is `Some`, the callee must ensure the value ends up in that register,
+    //    and return `dst` from this function.
+    //  - when passing `num_rets = 0`, `dst` must be `None`.
+    //  - eventually, this convention should be replaced by some more formal
+    //    register allocation scheme.
+    fn compile<'a>(&mut self, f: &mut FuncBuilder<'a>, ast: &Ast<'a>, vm: &mut Vm, dst: Option<Reg>, num_rets: u8) -> Result<Reg, ()> {
         match ast {
             Ast::Number(value) => {
-                if num_rets == 0 { return Err(()) }
+                let dst = f.reg_or_next_reg(dst)?;
 
                 let value = *value;
                 if value as i16 as f64 == value {
@@ -2255,21 +2249,44 @@ impl Compiler {
                     let c = f.add_constant(Value::Number { value })?;
                     f.b.load_const(dst, c);
                 }
-                Ok(())
+
+                Ok(dst)
             }
             Ast::String (value) => {
-                if num_rets == 0 { return Err(()) }
+                let dst = f.reg_or_next_reg(dst)?;
 
                 let s = vm.string_new(*value);
                 let c = f.add_constant(s)?;
                 f.b.load_const(dst, c);
-                Ok(())
+
+                Ok(dst)
             }
             Ast::Atom (value) => {
-                if num_rets == 0 { return Err(()) }
+                let name = *value;
 
-                f.get(value, dst, vm)?;
-                Ok(())
+                if let Some(var) = f.lookup_var(name) {
+                    if let Some(dst) = dst {
+                        f.b.copy(dst, var);
+                        Ok(dst)
+                    }
+                    else {
+                        Ok(var)
+                    }
+                }
+                else {
+                    let dst = f.reg_or_next_reg(dst)?;
+
+                    let name = vm.string_new(name);
+                    let name = f.add_constant(name)?;
+
+                    let env = f.next_reg()?;
+                    let key = f.next_reg()?;
+                    f.b.load_env(env);
+                    f.b.load_const(key, name);
+                    f.b.get(dst, env, key);
+
+                    Ok(dst)
+                }
             }
             Ast::List (values) => {
                 let func = values.get(0).ok_or(())?;
@@ -2286,33 +2303,35 @@ impl Compiler {
 
                         let Ast::Atom(name) = args[0] else { return Err(()) };
 
-                        if args.len() == 1 {
-                            f.def(name, None, vm)?;
+                        if f.scope == 0 {
+                            if args.len() == 1 {
+                                f.def_global(name, None, vm)?;
+                            }
+                            else {
+                                let value = self.compile(f, &args[1], vm, None, 1)?;
+                                f.def_global(name, Some(value), vm)?;
+                            }
                         }
                         else {
-                            let value = f.next_reg()?;
-                            self.compile(f, &args[1], vm, value, 1)?;
-                            f.def(name, Some(value), vm)?;
+                            let reg = f.next_reg()?;
+                            self.compile(f, &args[1], vm, Some(reg), 1)?;
+                            f.def_local(name, reg);
                         }
 
-                        return Ok(());
+                        return Ok(0); // num_rets = 0
                     }
 
                     if op == "def" {
                         if num_rets > 0 { return Err(()) }
                         if args.len() != 3 { return Err(()) }
 
-                        let obj = f.next_reg()?;
-                        let key = f.next_reg()?;
-                        let val = f.next_reg()?;
-
-                        self.compile(f, &args[0], vm, obj, 1)?;
-                        self.compile(f, &args[1], vm, key, 1)?;
-                        self.compile(f, &args[2], vm, val, 1)?;
+                        let obj = self.compile(f, &args[0], vm, None, 1)?;
+                        let key = self.compile(f, &args[1], vm, None, 1)?;
+                        let val = self.compile(f, &args[2], vm, None, 1)?;
 
                         f.b.def(obj, key, val);
 
-                        return Ok(());
+                        return Ok(0); // num_rets = 0
                     }
 
                     if op == "set" {
@@ -2321,25 +2340,33 @@ impl Compiler {
                         if args.len() == 2 {
                             let Ast::Atom(name) = args[0] else { return Err(()) };
 
-                            let value = f.next_reg()?;
-                            self.compile(f, &args[1], vm, value, 1)?;
-                            f.set(name, value, vm)?;
+                            if let Some(var) = f.lookup_var(name) {
+                                self.compile(f, &args[1], vm, Some(var), 1)?;
+                            }
+                            else {
+                                let value = self.compile(f, &args[1], vm, None, 1)?;
 
-                            return Ok(());
+                                let name = vm.string_new(name);
+                                let name = f.add_constant(name)?;
+
+                                let env = f.next_reg()?;
+                                let key = f.next_reg()?;
+                                f.b.load_env(env);
+                                f.b.load_const(key, name);
+                                f.b.set(env, key, value);
+                            }
+
+                            return Ok(0); // num_rets = 0
                         }
 
                         if args.len() == 3 {
-                            let obj = f.next_reg()?;
-                            let key = f.next_reg()?;
-                            let val = f.next_reg()?;
-
-                            self.compile(f, &args[0], vm, obj, 1)?;
-                            self.compile(f, &args[1], vm, key, 1)?;
-                            self.compile(f, &args[2], vm, val, 1)?;
+                            let obj = self.compile(f, &args[0], vm, None, 1)?;
+                            let key = self.compile(f, &args[1], vm, None, 1)?;
+                            let val = self.compile(f, &args[2], vm, None, 1)?;
 
                             f.b.set(obj, key, val);
 
-                            return Ok(());
+                            return Ok(0); // num_rets = 0
                         }
 
                         return Err(());
@@ -2349,15 +2376,13 @@ impl Compiler {
                         if num_rets != 1 { return Err(()) }
                         if args.len() != 2 { return Err(()) }
 
-                        let obj = f.next_reg()?;
-                        let key = f.next_reg()?;
+                        let obj = self.compile(f, &args[0], vm, None, 1)?;
+                        let key = self.compile(f, &args[1], vm, None, 1)?;
 
-                        self.compile(f, &args[0], vm, obj, 1)?;
-                        self.compile(f, &args[1], vm, key, 1)?;
-
+                        let dst = f.reg_or_next_reg(dst)?;
                         f.b.get(dst, obj, key);
 
-                        return Ok(());
+                        return Ok(dst);
                     }
 
                     if op == "do" {
@@ -2367,57 +2392,58 @@ impl Compiler {
 
                         f.push_scope();
                         for stmt in args {
-                            self.compile(f, stmt, vm, 0, 0)?;
+                            self.compile(f, stmt, vm, None, 0)?;
                         }
                         f.pop_scope();
 
-                        return Ok(());
+                        return Ok(0); // num_rets = 0
                     }
 
                     if op == "if" {
                         if args.len() < 2 || args.len() > 3 { return Err(()) }
+
+                        let dst = f.reg_or_next_reg(dst)?;
 
                         let cond = &args[0];
                         let then = &args[1];
 
                         f.b.begin_block(); {
                             f.b.begin_block(); {
-                                let c = f.next_reg()?;
-                                self.compile(f, cond, vm, c, 1)?;
+                                let c = self.compile(f, cond, vm, None, 1)?;
 
                                 f.b.exit_false(c, 0);
 
-                                self.compile(f, then, vm, dst, num_rets)?;
+                                self.compile(f, then, vm, Some(dst), num_rets)?;
                                 f.b.exit_block(1);
                             } f.b.end_block();
 
                             if args.len() == 3 {
                                 let els = &args[2];
-                                self.compile(f, els, vm, dst, num_rets)?;
+                                self.compile(f, els, vm, Some(dst), num_rets)?;
                             }
                         } f.b.end_block();
 
-                        return Ok(());
+                        return Ok(dst);
                     }
 
                     if op == "while" {
+                        if num_rets > 0 { return Err(()) };
                         if args.len() != 2 { return Err(()) }
 
                         let cond = &args[0];
                         let body = &args[1];
 
                         f.b.begin_block(); {
-                            let c = f.next_reg()?;
-                            self.compile(f, cond, vm, c, 1)?;
+                            let c = self.compile(f, cond, vm, None, 1)?;
 
                             f.b.exit_false(c, 0);
 
-                            self.compile(f, body, vm, 0, 0)?;
+                            self.compile(f, body, vm, None, 0)?;
 
                             f.b.repeat_block(0);
                         }f.b.end_block();
 
-                        return Ok(());
+                        return Ok(0); // num_rets = 0
                     }
 
                     if op == "fn" {
@@ -2427,14 +2453,16 @@ impl Compiler {
                         let proto = compile_function(&args[0], &args[1], vm)?;
                         let func = vm.func_new(proto);
 
+                        let dst = f.reg_or_next_reg(dst)?;
+
                         let constant = f.add_constant(func)?;
                         f.b.load_const(dst, constant);
 
-                        return Ok(());
+                        return Ok(dst);
                     }
 
                     if op == "return" {
-                        if num_rets != 0 { return Err(()) }
+                        if num_rets > 0 { return Err(()) }
                         if args.len() > 255 { return Err(()) }
 
                         if args.len() > 0 {
@@ -2444,7 +2472,7 @@ impl Compiler {
                             }
 
                             for (i, arg) in args.iter().enumerate() {
-                                self.compile(f, arg, vm, regs[i], 1)?;
+                                self.compile(f, arg, vm, Some(regs[i]), 1)?;
                             }
 
                             f.b.ret(regs[0], regs.len() as u8);
@@ -2453,14 +2481,15 @@ impl Compiler {
                             f.b.ret(0, 0);
                         }
 
-                        return Ok(());
+                        return Ok(0); // num_rets = 0
                     }
                 }
 
+                let dst = f.reg_or_next_reg(dst)?;
+
                 let mut arg_regs = vec![];
                 for arg in args {
-                    let r = f.next_reg()?;
-                    self.compile(f, arg, vm, r, 1)?;
+                    let r = self.compile(f, arg, vm, None, 1)?;
                     arg_regs.push(r);
                 }
 
@@ -2472,103 +2501,100 @@ impl Compiler {
                         if num_rets != 1 { return Err(()) }
                         if arg_regs.len() != 2 { return Err(()) }
                         f.b.add(dst, arg_regs[0], arg_regs[1]);
-                        return Ok(());
+                        return Ok(dst);
                     }
 
                     if op == "-" {
                         if num_rets != 1 { return Err(()) }
                         if arg_regs.len() != 2 { return Err(()) }
                         f.b.sub(dst, arg_regs[0], arg_regs[1]);
-                        return Ok(());
+                        return Ok(dst);
                     }
 
                     if op == "*" {
                         if num_rets != 1 { return Err(()) }
                         if arg_regs.len() != 2 { return Err(()) }
                         f.b.mul(dst, arg_regs[0], arg_regs[1]);
-                        return Ok(());
+                        return Ok(dst);
                     }
 
                     if op == "/" {
                         if num_rets != 1 { return Err(()) }
                         if arg_regs.len() != 2 { return Err(()) }
                         f.b.div(dst, arg_regs[0], arg_regs[1]);
-                        return Ok(());
+                        return Ok(dst);
                     }
 
                     if op == "==" {
                         if num_rets != 1 { return Err(()) }
                         if arg_regs.len() != 2 { return Err(()) }
                         f.b.cmp_eq(dst, arg_regs[0], arg_regs[1]);
-                        return Ok(());
+                        return Ok(dst);
                     }
 
                     if op == "<=" {
                         if num_rets != 1 { return Err(()) }
                         if arg_regs.len() != 2 { return Err(()) }
                         f.b.cmp_le(dst, arg_regs[0], arg_regs[1]);
-                        return Ok(());
+                        return Ok(dst);
                     }
 
                     if op == "<" {
                         if num_rets != 1 { return Err(()) }
                         if arg_regs.len() != 2 { return Err(()) }
                         f.b.cmp_lt(dst, arg_regs[0], arg_regs[1]);
-                        return Ok(());
+                        return Ok(dst);
                     }
 
                     if op == ">=" {
                         if num_rets != 1 { return Err(()) }
                         if arg_regs.len() != 2 { return Err(()) }
                         f.b.cmp_ge(dst, arg_regs[0], arg_regs[1]);
-                        return Ok(());
+                        return Ok(dst);
                     }
 
                     if op == ">" {
                         if num_rets != 1 { return Err(()) }
                         if arg_regs.len() != 2 { return Err(()) }
                         f.b.cmp_gt(dst, arg_regs[0], arg_regs[1]);
-                        return Ok(());
+                        return Ok(dst);
                     }
                 }
 
                 // function call.
-                let func_reg = f.next_reg()?;
-                self.compile(f, func, vm, func_reg, 1)?;
-
+                let func_reg = self.compile(f, func, vm, None, 1)?;
                 f.call(dst, num_rets, func_reg, arg_regs);
 
-                Ok(())
+                Ok(dst)
             }
             Ast::Array (values) => {
                 if num_rets == 0 { return Err(()) }
 
-                f.b.list_new(dst);
-                if values.len() == 0 { return Ok(()) }
+                let dst = f.reg_or_next_reg(dst)?;
 
-                let reg = f.next_reg()?;
+                f.b.list_new(dst);
+
                 for value in values {
-                    self.compile(f, value, vm, reg, 1)?;
+                    let reg = self.compile(f, value, vm, None, 1)?;
                     f.b.list_append(dst, reg);
                 }
 
-                Ok(())
+                Ok(dst)
             }
             Ast::Table (values) => {
                 if num_rets == 0 { return Err(()) }
 
-                f.b.table_new(dst);
-                if values.len() == 0 { return Ok(()) }
+                let dst = f.reg_or_next_reg(dst)?;
 
-                let k = f.next_reg()?;
-                let v = f.next_reg()?;
+                f.b.table_new(dst);
+
                 for (key, value) in values {
-                    self.compile(f, key,   vm, k, 1)?;
-                    self.compile(f, value, vm, v, 1)?;
+                    let k = self.compile(f, key,   vm, None, 1)?;
+                    let v = self.compile(f, value, vm, None, 1)?;
                     f.b.table_def(dst, k, v);
                 }
 
-                Ok(())
+                Ok(dst)
             }
         }
     }
@@ -2586,7 +2612,7 @@ fn compile_function(params: &Ast, body: &Ast, vm: &mut Vm) -> Result<u32, ()> {
     let mut c = Compiler::new();
     let mut f = FuncBuilder::new(&param_names, false);
 
-    c.compile(&mut f, body, vm, 0, 0)?;
+    c.compile(&mut f, body, vm, None, 0)?;
 
     let proto = f.build();
 
@@ -2601,7 +2627,7 @@ fn compile_chunk(ast: &[Ast], vm: &mut Vm) -> Result<(), ()> {
     let mut f = FuncBuilder::new(&[], true);
 
     for node in ast {
-        c.compile(&mut f, node, vm, 0, 0)?;
+        c.compile(&mut f, node, vm, None, 0)?;
     }
 
     let proto = f.build();
