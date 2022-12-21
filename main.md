@@ -1,8 +1,9 @@
 
 - todo:
-    - errors.
-        - return to host.
-        - pcall.
+    - generate better byte code.
+        - try: callee chooses & returns register.
+    - fix runtime errors: unwind stack, pop stack frames.
+    - pcall.
     - booleans.
         - literals.
         - (logical) and, or, not.
@@ -58,6 +59,11 @@
         - per-function env.
 
 - later:
+    - consider kw args.
+        - python seems to have a pretty neat solution.
+        - something like:
+            - pass an extra tuple with names.
+            - the last `len(name_tuple)` args are kw args.
     - vm api.
     - lztf.
         - run validations on lztf.
