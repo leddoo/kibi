@@ -1,33 +1,36 @@
 
 - todo:
+    - new calling convention:
+        - call impl:
+            - check num_args.
+            - push stack frame (copy args).
+            - execute.
+            - check num_rets.
+            - pop stack frame.
+            - return.
+        - change regular call (2 words: `func, args, num_args | rets, num_rets`).
+        - gathering call (`func, rets, num_rets | num_args, args[]`).
+            - really dumb encoding for now, one word per arg.
+        - use gathering call in compiler.
     - fix runtime errors: unwind stack, pop stack frames.
+        - well, what should actually happen?
+        - put vm into error state, so accidental call/run crashes?
     - pcall.
+    - multret.
+    - varargs.
     - booleans.
         - literals.
         - (logical) and, or, not.
     - del.
     - env def/get/set instructions.
-    - migrate to "fast calls"
-        - has some nice benefits:
-            - vm does the copying (faster than dispatching each copy individually).
-            - don't need to patch calls (in a simple compiler).
-        - could then also migrate to disjoint stack frames.
-            - gets rid of "max_call_args".
-            - callee can use registers however they like.
-            - native functions an pop until `top = base`.
-            - multret forwarding (eg: `print(f(x))`) requires no copying.
-        - impl:
-            - 1) contiguous call: `func: Reg, dst: Reg, num_rets; args: Reg, num_args`
-                - if want to keep `dst`, need two words.
-                    - definitely want to keep `dst` for now.
-                        - seems useful, cause register allocator has more control.
-                        - and enables single pass compiler.
-                            - alternative to writing to end of stack would be writing to args, but that seems nasty.
-                    - get more bits than need for `dst`, so can also take `args` for more flexible `func` placement.
-            - 2) gathering call: `func: Reg, dst: Reg, num_rets; num_args, args: Reg[]`
-                - extra words specify one register for each arg.
-                - but thinking 3 registers per word, cause might as well.
-    - multret.
+
+    - lztf compiler:
+        - source locations.
+        - validation.
+        - relative jumps.
+        - unchecked pc/sp usage in (non-hardened) release builds.
+    - libify.
+
     - proper memory allocation.
         - a simple incremental 3-color gc for now.
         - walk func protos.

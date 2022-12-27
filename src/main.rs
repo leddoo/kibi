@@ -9,8 +9,7 @@ enum Value {
     String { index: usize  },
     List   { index: usize  },
     Table  { index: usize  },
-    Func   { index: usize  },
-    HostFunc { index: usize },
+    Func   { proto: usize  },
     // Fiber
 }
 
@@ -31,7 +30,6 @@ enum GcObjectData {
     List  { values: Vec<Value> },
     Table  (TableData),
     String { value: String },
-    Func   { proto: u32 },
 }
 
 
@@ -67,26 +65,36 @@ impl TableData {
 
 
 
+type NativeFuncPtr = fn(&mut Vm) -> Result<u32, ()>;
+
+struct NativeFuncPtrEx(NativeFuncPtr);
+impl core::fmt::Debug for NativeFuncPtrEx { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { (self.0 as *const u8).fmt(f) } }
+
+
 #[derive(Debug)]
 struct FuncProto {
-    code: Vec<Instruction>,
-    constants: Vec<Value>,
+    code:       FuncCode,
+    constants:  Vec<Value>,
     num_params: u32,
-    num_regs:   u32,
+    stack_size: u32,
 }
-
-
-
-type HostFuncPtr = fn(&mut Vm) -> Result<u32, ()>;
-
-struct HostFuncPtrEx(HostFuncPtr);
-impl core::fmt::Debug for HostFuncPtrEx { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { (self.0 as *const u8).fmt(f) } }
 
 #[derive(Debug)]
-struct HostFuncProto {
-    code: HostFuncPtrEx,
-    num_params: u32,
+enum FuncCode {
+    ByteCode (Vec<Instruction>),
+    Native   (NativeFuncPtrEx),
 }
+
+impl FuncCode {
+    #[inline(always)]
+    fn is_native(&self) -> bool {
+        match self {
+            FuncCode::ByteCode(_) => false,
+            FuncCode::Native(_)   => true,
+        }
+    }
+}
+
 
 
 ///
@@ -724,13 +732,11 @@ impl ByteCodeBuilder {
 
 #[derive(Debug)]
 struct StackFrame {
-    // TEMP @u32max_is_host.
-    // @todo-#inspect: store host function info.
-    func_proto: u32,
+    func_proto: usize,
+    is_native: bool,
 
-    num_params: u32,
-    dest_reg:   u32,
-    num_rets:   u32,
+    dest_reg: u32,
+    num_rets: u32,
 
     pc:   u32,
     func: u32,
@@ -740,9 +746,9 @@ struct StackFrame {
 
 impl StackFrame {
     const ROOT: StackFrame = StackFrame {
-        // TEMP @u32max_is_host.
-        func_proto: u32::MAX,
-        num_params: 0, dest_reg: 0, num_rets: 0,
+        func_proto: usize::MAX,
+        is_native: true,
+        dest_reg: 0, num_rets: 0,
         pc: 0, func: 0, base: 0, top: 0,
     };
 }
@@ -751,7 +757,6 @@ impl StackFrame {
 #[derive(Debug)]
 struct Vm {
     func_protos: Vec<FuncProto>,
-    host_func_protos: Vec<HostFuncProto>,
 
     pc:     usize,
     frames: Vec<StackFrame>,
@@ -768,7 +773,6 @@ impl Vm {
     fn new() -> Self {
         let mut vm = Vm {
             func_protos: vec![],
-            host_func_protos: vec![],
 
             pc:     usize::MAX,
             frames: vec![StackFrame::ROOT],
@@ -786,14 +790,14 @@ impl Vm {
         vm
     }
 
-    fn add_host_func(&mut self, name: &str, proto: HostFuncProto) {
-        let index = self.host_func_protos.len();
-        self.host_func_protos.push(proto);
+    fn add_func(&mut self, name: &str, proto: FuncProto) {
+        let proto_index = self.func_protos.len();
+        self.func_protos.push(proto);
 
         let name = self.string_new(name);
         let env = self.env;
         // @todo-robust: error.
-        self.table_def(env, name, Value::HostFunc { index }).unwrap();
+        self.table_def(env, name, Value::Func { proto: proto_index }).unwrap();
     }
 
     fn heap_alloc(&mut self) -> usize {
@@ -1022,8 +1026,7 @@ impl Vm {
             }
             Value::List   { index } => print!("<List {}>", index),
             Value::Table  { index } => print!("<Table {}>", index),
-            Value::Func   { index } => print!("<Func {}>", index),
-            Value::HostFunc { index } => print!("<Func h{}>", index),
+            Value::Func   { proto } => print!("<Func {}>", proto),
         }
     }
 
@@ -1247,9 +1250,11 @@ impl Vm {
     fn next_instr(&mut self) -> Instruction {
         // @todo-speed: obviously don't do this.
         let frame = self.frames.last().unwrap();
-        let proto = &self.func_protos[frame.func_proto as usize];
+        let proto = &self.func_protos[frame.func_proto];
 
-        let result = proto.code[self.pc];
+        let FuncCode::ByteCode(code) = &proto.code else { unreachable!() };
+
+        let result = code[self.pc];
         self.pc += 1;
         result
     }
@@ -1258,7 +1263,7 @@ impl Vm {
     fn load_const(&mut self, index: usize) -> Value {
         // @todo-speed: obviously don't do this.
         let frame = self.frames.last().unwrap();
-        let proto = &self.func_protos[frame.func_proto as usize];
+        let proto = &self.func_protos[frame.func_proto];
         proto.constants[index]
     }
 
@@ -1584,39 +1589,7 @@ impl Vm {
                 Opcode::Ret => {
                     let (rets, actual_rets) = instr.r1c1();
 
-                    let frame = self.frames.pop().unwrap();
-                    debug_assert!(frame.base + rets + actual_rets <= frame.top);
-
-                    if actual_rets < frame.num_rets {
-                        return Err(());
-                    }
-
-                    let prev_frame = self.frames.last_mut().unwrap();
-
-                    // copy rets to their destination.
-                    let dst_base = prev_frame.base + frame.dest_reg;
-                    debug_assert!(dst_base + frame.num_rets <= prev_frame.top);
-                    let src_base = frame.base + rets;
-                    // @todo-correct: copy ltr vs copy rtl?
-                    debug_assert!(dst_base + frame.num_rets <= src_base);
-                    // @todo-decide: allow writing results into args?
-                    //  if not, could make also args immutable. might help with repeated calls.
-                    //  also depends on how the rust api will work.
-                    debug_assert!(dst_base + frame.num_rets <= frame.func);
-                    // @todo-speed: special cases for n < 4.
-                    for i in 0..frame.num_rets {
-                        self.stack[(dst_base + i) as usize] = self.stack[(src_base + i) as usize];
-                    }
-
-                    // reset vm state.
-                    self.pc = prev_frame.pc as usize;
-                    self.stack.truncate(prev_frame.top as usize);
-
-                    // @todo-speed: debug only.
-                    prev_frame.pc = u32::MAX;
-
-                    // TEMP @u32max_is_host.
-                    if prev_frame.func_proto == u32::MAX {
+                    if self.post_call(rets, actual_rets)? {
                         return Ok(());
                     }
                 }
@@ -1632,14 +1605,14 @@ impl Vm {
 
     fn pop(&mut self) -> Value {
         let frame = self.frames.last_mut().unwrap();
-        assert!(frame.top > frame.base + frame.num_params);
+        assert!(frame.top > frame.base);
         frame.top -= 1;
         self.stack.pop().unwrap()
     }
 
     fn pop_n(&mut self, n: u32) {
         let frame = self.frames.last_mut().unwrap();
-        assert!(frame.top >= frame.base + frame.num_params + n);
+        assert!(frame.top >= frame.base + n);
         frame.top -= n as u32;
         self.stack.truncate(frame.top as usize);
     }
@@ -1648,12 +1621,10 @@ impl Vm {
     // that wraps `&mut Vm`.
     // cause calling them while execution is suspended is ub.
     // TEMP: don't expose protos.
-    fn func_new(&mut self, proto: u32) -> Value {
-        let index = self.heap_alloc();
-        self.heap[index].data = GcObjectData::Func { proto };
-        Value::Func { index }
+    fn func_new(&mut self, proto: usize) -> Value {
+        Value::Func { proto }
     }
-    fn push_func(&mut self, proto: u32) {
+    fn push_func(&mut self, proto: usize) {
         let f = self.func_new(proto);
         self.push(f);
     }
@@ -1679,11 +1650,6 @@ impl Vm {
         Ok(())
     }
 
-    // @todo-speed: maybe parameters should be immutable.
-    //  that would enable compilers to optimize repeated function calls.
-    //  but not sure that's really all that common.
-    // @todo-speed: inline(always).
-    #[inline]
     fn prep_call(&mut self, dst: u32, num_args: u32, num_rets: u32) -> Result<bool, ()> {
         assert!(num_args < 128);
         assert!(num_rets < 128);
@@ -1698,76 +1664,19 @@ impl Vm {
 
         let func_value = self.stack[func as usize];
 
-        if let Value::HostFunc { index } = func_value {
-            let proto = &self.host_func_protos[index];
-
-            if num_args != proto.num_params {
-                return Err(());
-            }
-
-            let base = func + 1;
-            let top  = base + proto.num_params;
-
-            self.frames.push(StackFrame {
-                func_proto: u32::MAX,
-                num_params: num_args,
-                dest_reg: dst,
-                num_rets,
-                pc: u32::MAX,
-                func,
-                base,
-                top,
-            });
-            self.pc = usize::MAX;
-            debug_assert_eq!(self.stack.len(), top as usize);
-
-            // call host function.
-            let actual_rets = proto.code.0(self)?;
-
-            let frame = self.frames.pop().unwrap();
-            debug_assert!(frame.top >= top); // pop handles this.
-            assert!(frame.base + actual_rets <= frame.top);
-
-            if actual_rets < num_rets {
-                return Err(());
-            }
-
-            let prev_frame = self.frames.last_mut().unwrap();
-
-            // copy rets to their destination.
-            let dst_base = prev_frame.base + dst;
-            let src_base = frame.top - actual_rets;
-            // @todo-decide: allow writing results into args?
-            debug_assert!(dst_base + num_rets <= func);
-            for i in 0..num_rets {
-                self.stack[(dst_base + i) as usize] = self.stack[(src_base + i) as usize];
-            }
-
-            // reset vm state.
-            self.pc = prev_frame.pc as usize;
-            self.stack.truncate(prev_frame.top as usize);
-
-            // @todo-speed: debug only.
-            prev_frame.pc = u32::MAX;
-
-            return Ok(false);
-        }
-
-        let Value::Func { index: func_index } = func_value else { return Err(()); };
-        // @todo-cleanup: value utils.
-        let GcObjectData::Func { proto: func_proto } = self.heap[func_index].data else { unreachable!() };
-        let proto = &self.func_protos[func_proto as usize];
+        let Value::Func { proto: func_proto } = func_value else { return Err(()); };
+        let proto = &self.func_protos[func_proto];
 
         if num_args != proto.num_params {
             return Err(());
         }
 
         let base = func + 1;
-        let top  = base + proto.num_regs;
+        let top  = base + proto.stack_size;
 
         self.frames.push(StackFrame {
             func_proto,
-            num_params: num_args,
+            is_native: proto.code.is_native(),
             dest_reg: dst,
             num_rets,
             pc: u32::MAX,
@@ -1778,7 +1687,57 @@ impl Vm {
         self.pc = 0;
         self.stack.resize(top as usize, Value::Nil);
 
-        Ok(true)
+        match &proto.code {
+            FuncCode::ByteCode(_code) => {
+                Ok(true)
+            }
+
+            FuncCode::Native(code) => {
+                self.pc = usize::MAX;
+
+                // call host function.
+                let actual_rets = code.0(self)?;
+
+                let frame = self.frames.last().unwrap();
+                debug_assert!(frame.top >= top); // pop handles this.
+                assert!(frame.base + actual_rets <= frame.top);
+
+                self.post_call(frame.top - frame.base - actual_rets, actual_rets)?;
+
+                Ok(false)
+            }
+        }
+    }
+
+    fn post_call(&mut self, rets: u32, actual_rets: u32) -> Result<bool, ()> {
+        let frame = self.frames.pop().unwrap();
+        debug_assert!(frame.base + rets + actual_rets <= frame.top);
+        // @todo-speed: validate in host api & compiler.
+        assert!(frame.base + rets + actual_rets <= frame.top);
+
+        let num_rets = frame.num_rets;
+        if actual_rets < frame.num_rets {
+            return Err(());
+        }
+
+        let prev_frame = self.frames.last_mut().unwrap();
+
+        // @todo-correct: add asserts for new calling convention.
+        // copy rets to their destination.
+        let dst_base = (prev_frame.base + frame.dest_reg) as usize;
+        let src_base = (frame.base + rets) as usize;
+        for i in 0..num_rets as usize {
+            self.stack[dst_base + i] = self.stack[src_base + i];
+        }
+
+        // reset vm state.
+        self.pc = prev_frame.pc as usize;
+        self.stack.truncate(prev_frame.top as usize);
+
+        // @todo-speed: debug only.
+        prev_frame.pc = u32::MAX;
+
+        Ok(prev_frame.is_native)
     }
 
     fn call_perserve_args(&mut self, dst: u32, num_args: u8, num_rets: u8) -> Result<(), ()> {
@@ -1805,9 +1764,11 @@ mod builtin {
         vm.generic_print(value);
         return Ok(0);
     }
-    pub(crate) const PRINT: HostFuncProto = HostFuncProto {
-        code: HostFuncPtrEx(print),
+    pub(crate) const PRINT: FuncProto = FuncProto {
+        code: FuncCode::Native(NativeFuncPtrEx(print)),
+        constants: vec![],
         num_params: 1,
+        stack_size: 1,
     };
 
     pub(crate) fn println(vm: &mut Vm) -> Result<u32, ()> {
@@ -1817,9 +1778,11 @@ mod builtin {
         println!();
         return Ok(0);
     }
-    pub(crate) const PRINTLN: HostFuncProto = HostFuncProto {
-        code: HostFuncPtrEx(println),
+    pub(crate) const PRINTLN: FuncProto = FuncProto {
+        code: FuncCode::Native(NativeFuncPtrEx(println)),
+        constants: vec![],
         num_params: 1,
+        stack_size: 1,
     };
 
 }
@@ -2206,10 +2169,10 @@ impl<'a> FuncBuilder<'a> {
         self.b.ret(0, 0);
 
         FuncProto {
-            code: self.b.build(),
+            code: FuncCode::ByteCode(self.b.build()),
             constants: self.constants,
             num_params: self.num_params,
-            num_regs: top,
+            stack_size: top,
         }
     }
 }
@@ -2600,7 +2563,7 @@ impl Compiler {
     }
 }
 
-fn compile_function(params: &Ast, body: &Ast, vm: &mut Vm) -> Result<u32, ()> {
+fn compile_function(params: &Ast, body: &Ast, vm: &mut Vm) -> Result<usize, ()> {
     let Ast::List(params) = params else { return Err(()) };
 
     let mut param_names = vec![];
@@ -2616,7 +2579,7 @@ fn compile_function(params: &Ast, body: &Ast, vm: &mut Vm) -> Result<u32, ()> {
 
     let proto = f.build();
 
-    let proto_index = vm.func_protos.len() as u32;
+    let proto_index = vm.func_protos.len();
     vm.func_protos.push(proto);
 
     Ok(proto_index)
@@ -2632,7 +2595,7 @@ fn compile_chunk(ast: &[Ast], vm: &mut Vm) -> Result<(), ()> {
 
     let proto = f.build();
 
-    let proto_index = vm.func_protos.len() as u32;
+    let proto_index = vm.func_protos.len();
     vm.func_protos.push(proto);
 
     vm.push_func(proto_index);
@@ -2644,7 +2607,7 @@ fn compile_chunk(ast: &[Ast], vm: &mut Vm) -> Result<(), ()> {
 fn mk_fib() -> FuncProto {
     // fib(n, f) = if n < 2 then n else f(n-2) + f(n-1) end
     FuncProto {
-        code: {
+        code: FuncCode::ByteCode({
             let mut b = ByteCodeBuilder::new();
             b.block(|b| {
                 // if
@@ -2669,10 +2632,10 @@ fn mk_fib() -> FuncProto {
                 b.ret(2, 1);
             });
             b.build()
-        },
+        }),
         constants: vec![],
         num_params: 2,
-        num_regs:   7,
+        stack_size: 7,
     }
 }
 
@@ -2710,7 +2673,7 @@ mod tests {
         let mut vm = Vm::new();
 
         vm.func_protos.push(FuncProto {
-            code: {
+            code: FuncCode::ByteCode({
                 let mut b = ByteCodeBuilder::new();
                 b.table_new(1);
                 b.len(2, 0);
@@ -2726,10 +2689,10 @@ mod tests {
                 });
                 b.ret(1, 1);
                 b.build()
-            },
+            }),
             constants: vec![],
             num_params: 1,
-            num_regs: 6,
+            stack_size: 6,
         });
 
         vm.push(Value::Nil);
@@ -2767,7 +2730,7 @@ mod tests {
 
         // `_ENV.foo := "bar"`
         vm.func_protos.push(FuncProto {
-            code: {
+            code: FuncCode::ByteCode({
                 let mut b = ByteCodeBuilder::new();
                 b.load_env(0);
                 b.load_const(1, 0);
@@ -2775,25 +2738,25 @@ mod tests {
                 b.def(0, 1, 2);
                 b.ret(0, 0);
                 b.build()
-            },
+            }),
             constants: vec![foo, bar],
             num_params: 0,
-            num_regs: 3,
+            stack_size: 3,
         });
 
         // `return _ENV.foo`
         vm.func_protos.push(FuncProto {
-            code: {
+            code: FuncCode::ByteCode({
                 let mut b = ByteCodeBuilder::new();
                 b.load_env(0);
                 b.load_const(1, 0);
                 b.get(0, 0, 1);
                 b.ret(0, 1);
                 b.build()
-            },
+            }),
             constants: vec![foo],
             num_params: 0,
-            num_regs: 2,
+            stack_size: 2,
         });
 
         vm.push_func(0);
@@ -2819,7 +2782,7 @@ mod tests {
 
         // (if n <= 2 { host_base } else { host_rec })(n)
         vm.func_protos.push(FuncProto {
-            code: {
+            code: FuncCode::ByteCode({
                 let mut b = ByteCodeBuilder::new();
                 b.block(|b| {
                     b.block(|b|{
@@ -2836,10 +2799,10 @@ mod tests {
                 b.call(0, 1, 1);
                 b.ret(0, 1);
                 b.build()
-            },
+            }),
             constants: vec![host_base, host_rec],
             num_params: 1,
-            num_regs: 3,
+            stack_size: 3,
         });
 
         fn host_fib_fn(vm: &mut Vm) -> Result<u32, ()> {
@@ -2849,17 +2812,21 @@ mod tests {
             vm.call(0, 1, 1)?;
             return Ok(1);
         }
-        vm.host_func_protos.push(HostFuncProto {
-            code: HostFuncPtrEx(host_fib_fn),
+        vm.func_protos.push(FuncProto {
+            code: FuncCode::Native(NativeFuncPtrEx(host_fib_fn)),
+            constants: vec![],
             num_params: 1,
+            stack_size: 1,
         });
 
         fn host_base_fn(_vm: &mut Vm) -> Result<u32, ()> {
             return Ok(1);
         }
-        vm.host_func_protos.push(HostFuncProto {
-            code: HostFuncPtrEx(host_base_fn),
+        vm.func_protos.push(FuncProto {
+            code: FuncCode::Native(NativeFuncPtrEx(host_base_fn)),
+            constants: vec![],
             num_params: 1,
+            stack_size: 1,
         });
 
         fn host_rec_fn(vm: &mut Vm) -> Result<u32, ()> {
@@ -2879,17 +2846,18 @@ mod tests {
             vm.push(r);
             return Ok(1);
         }
-        vm.host_func_protos.push(HostFuncProto {
-            code: HostFuncPtrEx(host_rec_fn),
+        vm.func_protos.push(FuncProto {
+            code: FuncCode::Native(NativeFuncPtrEx(host_rec_fn)),
+            constants: vec![],
             num_params: 1,
+            stack_size: 1,
         });
 
         let env = vm.env;
-        let f = vm.func_new(0);
-        vm.generic_def(env, lua_branch, f).unwrap();
-        vm.generic_def(env, host_fib,  Value::HostFunc { index: 0 }).unwrap();
-        vm.generic_def(env, host_base, Value::HostFunc { index: 1 }).unwrap();
-        vm.generic_def(env, host_rec,  Value::HostFunc { index: 2 }).unwrap();
+        vm.generic_def(env, lua_branch, Value::Func { proto: 0 }).unwrap();
+        vm.generic_def(env, host_fib,   Value::Func { proto: 1 }).unwrap();
+        vm.generic_def(env, host_base,  Value::Func { proto: 2 }).unwrap();
+        vm.generic_def(env, host_rec,   Value::Func { proto: 3 }).unwrap();
 
         fn fib_rs(i: f64) -> f64 {
             if i < 2.0 { i }
@@ -2917,8 +2885,8 @@ mod tests {
         static INDEX: AtomicUsize = AtomicUsize::new(0);
         INDEX.store(0, Ordering::Relaxed);
 
-        vm.add_host_func("yield", HostFuncProto {
-            code: HostFuncPtrEx(|vm| {
+        vm.add_func("yield", FuncProto {
+            code: FuncCode::Native(NativeFuncPtrEx(|vm| {
                 let i = INDEX.fetch_add(1, Ordering::Relaxed);
 
                 let expected = RESULTS[i];
@@ -2931,8 +2899,10 @@ mod tests {
                 assert!(vm.raw_eq(v, expected.into()));
 
                 return Ok(0);
-            }),
+            })),
+            constants: vec![],
             num_params: 1,
+            stack_size: 1,
         });
 
         let chunk = r#"
@@ -2991,12 +2961,14 @@ mod tests {
 fn main() {
     let mut vm = Vm::new();
 
-    vm.add_host_func("print", builtin::PRINT);
-    vm.add_host_func("println", builtin::PRINTLN);
+    vm.add_func("print", builtin::PRINT);
+    vm.add_func("println", builtin::PRINTLN);
 
-    vm.add_host_func("quit", HostFuncProto {
-        code: HostFuncPtrEx(|_vm| std::process::exit(0)),
+    vm.add_func("quit", FuncProto {
+        code: FuncCode::Native(NativeFuncPtrEx(|_vm| std::process::exit(0))),
+        constants: vec![],
         num_params: 0,
+        stack_size: 0,
     });
 
 
