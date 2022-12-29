@@ -140,8 +140,6 @@ enum Opcode {
     Sub,
     Mul,
     Div,
-    //IDiv,
-    //IMod,
     Inc,
     Dec,
 
@@ -167,29 +165,6 @@ enum Opcode {
 
     END,
     EXTRA = 255,
-}
-
-impl Opcode {
-    #[inline]
-    fn is_jump(self) -> bool {
-        use Opcode::*;
-        match self {
-            Jump    | JumpTrue | JumpFalse |
-            JumpEq  | JumpLe   | JumpLt    |
-            JumpNEq | JumpNLe  | JumpNLt   => true,
-            _ => false
-        }
-    }
-
-    #[inline]
-    fn has_extra(self) -> bool {
-        use Opcode::*;
-        match self {
-            JumpEq  | JumpLe   | JumpLt    |
-            JumpNEq | JumpNLe  | JumpNLt   => true,
-            _ => false
-        }
-    }
 }
 
 
@@ -305,17 +280,6 @@ impl Instruction {
     #[inline(always)]
     fn u16(self) -> u32 {
         self._u16()
-    }
-
-    #[inline(always)]
-    fn encode_extra(v: u32) -> Instruction {
-        assert!(v < (1 << 24));
-        Instruction(0xff | v << 8)
-    }
-
-    #[inline(always)]
-    fn extra(self) -> u32 {
-        self.0 >> 8
     }
 }
 
@@ -494,38 +458,47 @@ impl ByteCodeBuilder {
 
     fn jump_eq(&mut self, src1: Reg, src2: Reg, target: u16) {
         self.buffer.push(Instruction::encode_c2(Opcode::JumpEq, src1, src2));
-        self.buffer.push(Instruction::encode_extra(target as u32));
+        self.buffer.push(Instruction::encode_u16(Opcode::EXTRA, target));
     }
 
     fn jump_le(&mut self, src1: Reg, src2: Reg, target: u16) {
         self.buffer.push(Instruction::encode_c2(Opcode::JumpLe, src1, src2));
-        self.buffer.push(Instruction::encode_extra(target as u32));
+        self.buffer.push(Instruction::encode_u16(Opcode::EXTRA, target));
     }
 
     fn jump_lt(&mut self, src1: Reg, src2: Reg, target: u16) {
         self.buffer.push(Instruction::encode_c2(Opcode::JumpLt, src1, src2));
-        self.buffer.push(Instruction::encode_extra(target as u32));
+        self.buffer.push(Instruction::encode_u16(Opcode::EXTRA, target));
     }
 
     fn jump_neq(&mut self, src1: Reg, src2: Reg, target: u16) {
         self.buffer.push(Instruction::encode_c2(Opcode::JumpNEq, src1, src2));
-        self.buffer.push(Instruction::encode_extra(target as u32));
+        self.buffer.push(Instruction::encode_u16(Opcode::EXTRA, target));
     }
 
     fn jump_nle(&mut self, src1: Reg, src2: Reg, target: u16) {
         self.buffer.push(Instruction::encode_c2(Opcode::JumpNLe, src1, src2));
-        self.buffer.push(Instruction::encode_extra(target as u32));
+        self.buffer.push(Instruction::encode_u16(Opcode::EXTRA, target));
     }
 
     fn jump_nlt(&mut self, src1: Reg, src2: Reg, target: u16) {
         self.buffer.push(Instruction::encode_c2(Opcode::JumpNLt, src1, src2));
-        self.buffer.push(Instruction::encode_extra(target as u32));
+        self.buffer.push(Instruction::encode_u16(Opcode::EXTRA, target));
     }
 
 
     fn packed_call(&mut self, func: Reg, args: Reg, num_args: u8, rets: Reg, num_rets: u8) {
         self.buffer.push(Instruction::encode_c3(Opcode::PackedCall, func, rets, num_rets));
         self.buffer.push(Instruction::encode_c2(Opcode::EXTRA, args, num_args));
+    }
+
+    fn gather_call(&mut self, func: Reg, args: &[Reg], rets: Reg, num_rets: u8) {
+        assert!(args.len() < 128);
+        self.buffer.push(Instruction::encode_c3(Opcode::GatherCall, func, rets, num_rets));
+        self.buffer.push(Instruction::encode_u16(Opcode::EXTRA, args.len() as u16));
+        for arg in args {
+            self.buffer.push(Instruction::encode_u16(Opcode::EXTRA, *arg as u16));
+        }
     }
 
     fn ret(&mut self, rets: Reg, num_rets: u8) {
@@ -651,28 +624,45 @@ impl ByteCodeBuilder {
             let instr = &mut self.buffer[i];
             i += 1;
 
-            let op = unsafe { instr.opcode() };
+            use Opcode::*;
+            match unsafe { instr.opcode() } {
+                JumpEq  | JumpLe  | JumpLt |
+                JumpNEq | JumpNLe | JumpNLt => {
+                    let extra = &mut self.buffer[i];
+                    i += 1;
 
-            if op.has_extra() {
-                let extra = &mut self.buffer[i];
-                i += 1;
+                    assert_eq!(unsafe { extra.opcode() }, EXTRA);
 
-                if op.is_jump() {
-                    let target = extra.extra() as usize;
+                    let target = extra.u16() as usize;
                     if target & Self::JUMP_BLOCK_END_BIT != 0 {
                         let block = target & !Self::JUMP_BLOCK_END_BIT;
                         let end = self.blocks[block].1;
-                        *extra = Instruction::encode_extra(end as u32);
+                        extra.patch_u16(end);
                     }
                 }
-            }
-            else if op.is_jump() {
-                let target = instr.u16() as usize;
-                if target & Self::JUMP_BLOCK_END_BIT != 0 {
-                    let block = target & !Self::JUMP_BLOCK_END_BIT;
-                    let end = self.blocks[block].1;
-                    instr.patch_u16(end);
+
+                Jump | JumpTrue | JumpFalse => {
+                    let target = instr.u16() as usize;
+                    if target & Self::JUMP_BLOCK_END_BIT != 0 {
+                        let block = target & !Self::JUMP_BLOCK_END_BIT;
+                        let end = self.blocks[block].1;
+                        instr.patch_u16(end);
+                    }
                 }
+
+                BEGIN |
+                Nop | Unreachable | Copy |
+                LoadNil | LoadBool | LoadInt | LoadConst | LoadEnv |
+                ListNew | ListAppend | ListDef | ListSet | ListGet | ListLen |
+                TableNew | TableDef | TableSet | TableGet | TableLen |
+                Def | Set | Get | Len |
+                Add | Sub | Mul | Div | Inc | Dec |
+                CmpEq | CmpLe | CmpLt | CmpGe | CmpGt |
+                PackedCall | GatherCall | Ret |
+                EXTRA
+                => (),
+
+                END => unreachable!()
             }
         }
 
@@ -1212,6 +1202,13 @@ impl Vm {
     }
 
     #[inline(always)]
+    fn next_instr_extra(&mut self) -> Instruction {
+        let result = self.next_instr();
+        debug_assert_eq!(unsafe { result.opcode() }, Opcode::EXTRA);
+        result
+    }
+
+    #[inline(always)]
     fn load_const(&mut self, index: usize) -> Value {
         // @todo-speed: obviously don't do this.
         let frame = self.frames.last().unwrap();
@@ -1475,7 +1472,7 @@ impl Vm {
                 Opcode::JumpEq => {
                     // @todo-speed: remove checks.
                     let (src1, src2) = self.reg2(instr.c2());
-                    let target = self.next_instr().extra();
+                    let target = self.next_instr_extra().u16();
 
                     if self.generic_eq(src1, src2) {
                         self.pc = target as usize;
@@ -1485,7 +1482,7 @@ impl Vm {
                 Opcode::JumpLe => {
                     // @todo-speed: remove checks.
                     let (src1, src2) = self.reg2(instr.c2());
-                    let target = self.next_instr().extra();
+                    let target = self.next_instr_extra().u16();
 
                     if self.generic_le(src1, src2)? {
                         self.pc = target as usize;
@@ -1495,7 +1492,7 @@ impl Vm {
                 Opcode::JumpLt => {
                     // @todo-speed: remove checks.
                     let (src1, src2) = self.reg2(instr.c2());
-                    let target = self.next_instr().extra();
+                    let target = self.next_instr_extra().u16();
 
                     if self.generic_lt(src1, src2)? {
                         self.pc = target as usize;
@@ -1505,7 +1502,7 @@ impl Vm {
                 Opcode::JumpNEq => {
                     // @todo-speed: remove checks.
                     let (src1, src2) = self.reg2(instr.c2());
-                    let target = self.next_instr().extra();
+                    let target = self.next_instr_extra().u16();
 
                     if !self.generic_eq(src1, src2) {
                         self.pc = target as usize;
@@ -1515,7 +1512,7 @@ impl Vm {
                 Opcode::JumpNLe => {
                     // @todo-speed: remove checks.
                     let (src1, src2) = self.reg2(instr.c2());
-                    let target = self.next_instr().extra();
+                    let target = self.next_instr_extra().u16();
 
                     if !self.generic_le(src1, src2)? {
                         self.pc = target as usize;
@@ -1525,7 +1522,7 @@ impl Vm {
                 Opcode::JumpNLt => {
                     // @todo-speed: remove checks.
                     let (src1, src2) = self.reg2(instr.c2());
-                    let target = self.next_instr().extra();
+                    let target = self.next_instr_extra().u16();
 
                     if !self.generic_lt(src1, src2)? {
                         self.pc = target as usize;
@@ -1540,7 +1537,39 @@ impl Vm {
                 }
 
                 Opcode::GatherCall => {
-                    unimplemented!()
+                    let (func, rets, num_rets) = instr.c3();
+                    let num_args = self.next_instr();
+                    debug_assert_eq!(unsafe { num_args.opcode() }, Opcode::EXTRA);
+                    let num_args = num_args.u16();
+
+                    let args = {
+                        // @todo-speed: obviously don't do this.
+                        let frame = self.frames.last().unwrap();
+                        let proto = &self.func_protos[frame.func_proto];
+
+                        let FuncCode::ByteCode(code) = &proto.code else { unreachable!() };
+
+                        // TEMP: this is safe, as code is (currently) immutable.
+                        // and doesn't get collected, as the function is on the stack.
+                        let code = unsafe { &*(code as *const Vec<Instruction>) };
+
+                        let result = &code[self.pc .. self.pc + num_args as usize];
+                        self.pc += num_args as usize;
+                        result
+                    };
+
+                    let frame = self.frames.last().unwrap();
+                    let abs_func = frame.base + func;
+                    let src_base = frame.base as usize;
+
+                    self.pre_call(abs_func, num_args, rets, num_rets, |vm, dst_base| {
+                        for (i, arg) in args.iter().enumerate() {
+                            debug_assert_eq!(unsafe { arg.opcode() }, Opcode::EXTRA);
+
+                            let arg = arg.u16() as usize;
+                            vm.stack[dst_base + i] = vm.stack[src_base + arg];
+                        }
+                    })?;
                 }
 
                 Opcode::Ret => {
@@ -2466,19 +2495,10 @@ impl Compiler {
                     }
                 }
 
-                // TEMP: use gathering call.
-                let args = f.next_reg()?;
-                for _ in 1..arg_regs.len() {
-                    f.next_reg()?;
-                }
-                for i in 0..arg_regs.len() {
-                    f.b.copy(args + i as u8, arg_regs[i]);
-                }
-                let num_args = arg_regs.len() as u8;
-
+                // @todo-#code_size: detect packed call? (don't think they're common)
                 // function call.
                 let func_reg = self.compile(f, func, vm, None, 1)?;
-                f.b.packed_call(func_reg, args, num_args, dst, num_rets);
+                f.b.gather_call(func_reg, &arg_regs, dst, num_rets);
 
                 Ok(dst)
             }

@@ -1,9 +1,5 @@
 
 - todo:
-    - new calling convention:
-        - gathering call (`func, rets, num_rets | num_args, args[]`).
-            - really dumb encoding for now, one word per arg.
-        - use gathering call in compiler.
     - fix runtime errors: unwind stack, pop stack frames.
         - well, what should actually happen?
         - put vm into error state, so accidental call/run crashes?
