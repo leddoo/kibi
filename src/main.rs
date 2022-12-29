@@ -1583,7 +1583,11 @@ impl Vm {
 
                 Opcode::Call => {
                     let (dst, num_args, num_rets) = instr.r1c2();
-                    self.prep_call(dst, num_args, num_rets)?;
+
+                    let frame = self.frames.last().unwrap();
+                    let args = frame.top - num_args;
+                    let func = args - 1;
+                    self.packed_call(func, args, num_args, dst, num_rets)?;
                 }
 
                 Opcode::Ret => {
@@ -1650,43 +1654,48 @@ impl Vm {
         Ok(())
     }
 
-    fn prep_call(&mut self, dst: u32, num_args: u32, num_rets: u32) -> Result<bool, ()> {
+    fn pre_call<CopyArgs: FnOnce(&mut Vm, usize)>(&mut self,
+        abs_func: u32, num_args: u32,
+        dst: u32, num_rets: u32,
+        copy_args: CopyArgs) -> Result<bool, ()>
+    {
         assert!(num_args < 128);
         assert!(num_rets < 128);
+        
+        let func_value = self.stack[abs_func as usize];
 
-        let frame = self.frames.last_mut().unwrap();
-        frame.pc = self.pc as u32;
-
-        // @todo-safety: need to verify this for host code.
-        //  in the host api.
-        debug_assert!(frame.top >= frame.base + num_args + 1);
-        let func = frame.top - num_args - 1;
-
-        let func_value = self.stack[func as usize];
-
-        let Value::Func { proto: func_proto } = func_value else { return Err(()); };
+        let Value::Func { proto: func_proto } = func_value else {
+            return Err(());
+        };
         let proto = &self.func_protos[func_proto];
 
+        // check args.
         if num_args != proto.num_params {
             return Err(());
         }
 
-        let base = func + 1;
-        let top  = base + proto.stack_size;
+        // save vm state.
+        let frame = self.frames.last_mut().unwrap();
+        frame.pc = self.pc as u32;
 
+        // push frame.
+        let base = frame.top;
+        let top  = base + proto.stack_size;
         self.frames.push(StackFrame {
             func_proto,
             is_native: proto.code.is_native(),
-            dest_reg: dst,
-            num_rets,
+            dest_reg: dst, num_rets,
             pc: u32::MAX,
-            func,
-            base,
-            top,
+            func: abs_func, base, top,
         });
         self.pc = 0;
         self.stack.resize(top as usize, Value::Nil);
 
+        // copy args.
+        copy_args(self, base as usize);
+
+        // execute (if native)
+        let proto = &self.func_protos[func_proto];
         match &proto.code {
             FuncCode::ByteCode(_code) => {
                 Ok(true)
@@ -1699,7 +1708,6 @@ impl Vm {
                 let actual_rets = code.0(self)?;
 
                 let frame = self.frames.last().unwrap();
-                debug_assert!(frame.top >= top); // pop handles this.
                 assert!(frame.base + actual_rets <= frame.top);
 
                 self.post_call(frame.top - frame.base - actual_rets, actual_rets)?;
@@ -1710,20 +1718,22 @@ impl Vm {
     }
 
     fn post_call(&mut self, rets: u32, actual_rets: u32) -> Result<bool, ()> {
-        let frame = self.frames.pop().unwrap();
-        debug_assert!(frame.base + rets + actual_rets <= frame.top);
+        let frame = self.frames.last().unwrap();
         // @todo-speed: validate in host api & compiler.
         assert!(frame.base + rets + actual_rets <= frame.top);
 
+        // check num_rets.
         let num_rets = frame.num_rets;
         if actual_rets < frame.num_rets {
             return Err(());
         }
 
-        let prev_frame = self.frames.last_mut().unwrap();
+        // pop frame.
+        let frame = self.frames.pop().unwrap();
 
-        // @todo-correct: add asserts for new calling convention.
-        // copy rets to their destination.
+        // copy rets.
+        let prev_frame = self.frames.last_mut().unwrap();
+        debug_assert!(prev_frame.base + frame.dest_reg + num_rets <= prev_frame.top);
         let dst_base = (prev_frame.base + frame.dest_reg) as usize;
         let src_base = (frame.base + rets) as usize;
         for i in 0..num_rets as usize {
@@ -1740,14 +1750,28 @@ impl Vm {
         Ok(prev_frame.is_native)
     }
 
-    fn call_perserve_args(&mut self, dst: u32, num_args: u8, num_rets: u8) -> Result<(), ()> {
-        if self.prep_call(dst, num_args as u32, num_rets as u32)? {
+    fn packed_call(&mut self, abs_func: u32, abs_args: u32, num_args: u32, dst: u32, num_rets: u32) -> Result<bool, ()> {
+        self.pre_call(abs_func, num_args, dst, num_rets, |vm, dst_base| {
+            let src_base = abs_args as usize;
+            for i in 0..num_args as usize {
+                vm.stack[dst_base + i] = vm.stack[src_base + i];
+            }
+        })
+    }
+
+    // TEMP: change arg order.
+    fn call_perserve_args(&mut self, dst: u32, num_args: u32, num_rets: u32) -> Result<(), ()> {
+        let frame = self.frames.last().unwrap();
+        let args = frame.top - num_args;
+        let func = args - 1;
+        if self.packed_call(func, args, num_args as u32, dst, num_rets as u32)? {
             self.run()?;
         }
         Ok(())
     }
 
-    fn call(&mut self, dst: u32, num_args: u8, num_rets: u8) -> Result<(), ()> {
+    // TEMP: change arg order.
+    fn call(&mut self, dst: u32, num_args: u32, num_rets: u32) -> Result<(), ()> {
         self.call_perserve_args(dst, num_args, num_rets)?;
         self.pop_n(num_args as u32 + 1);
         Ok(())

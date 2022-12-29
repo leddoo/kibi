@@ -1,14 +1,7 @@
 
 - todo:
     - new calling convention:
-        - call impl:
-            - check num_args.
-            - push stack frame (copy args).
-            - execute.
-            - check num_rets.
-            - pop stack frame.
-            - return.
-        - change regular call (2 words: `func, args, num_args | rets, num_rets`).
+        - packed call (2 words: `func, args, num_args | rets, num_rets`).
         - gathering call (`func, rets, num_rets | num_args, args[]`).
             - really dumb encoding for now, one word per arg.
         - use gathering call in compiler.
@@ -16,6 +9,7 @@
         - well, what should actually happen?
         - put vm into error state, so accidental call/run crashes?
     - pcall.
+    - opt-params.
     - multret.
     - varargs.
     - booleans.
@@ -25,9 +19,41 @@
     - env def/get/set instructions.
 
     - lztf compiler:
+        - what: the whole thing without the actual encoding.
+            - so, once have the encoding, parser would just feed the tables,
+              then walk code once, calling the opcode visitor functions.
         - source locations.
         - validation.
         - relative jumps.
+        - register allocation:
+            - consider stack machine as repr for temporaries.
+                - easy to generate code for.
+                - vm can do impl dependent register allocation.
+            - only issue: values have to be pushed in-order.
+                - so `f(a, b + c)` requires `f` & `a` to be evaluated (and stored in registers) before the addition of `b` and `c`.
+                - optimizations that change evaluation order should be done by the front-end.
+                - i.e. the front-end should be able to specify the shortest "valid" lifetimes for temporaries.
+            - lifetime on stack determines reg alloc/free.
+            - only allow popping values pushed in current block.
+              implicit discard of remaining values at end of block.
+            - locals are reprd explicitly. cause they need meta data (source info).
+            - well, actually, would be nice if temporaries could also have meta data.
+        - consider infinite register machine.
+            - not ssa; don't need that.
+            - but: how to avoid data flow analysis in vm at load time?
+                - would prefer if front-end did that.
+                - and vm doing only the format specific consistency checks. (eg: non-live register used)
+            - how to repr register lifetimes?
+            - wait, how bad is liveness analysis?
+                - it's structured control flow, remember?
+                - maybe we can just walk the source code once,
+                  record the first def & the last use.
+        - back to the stack:
+            - could also allow duplicating values to the top.
+            - all values in the stack are read-only, so this is just a use, not a def.
+            - actually, probably want push/pop across block barriers:
+                - eg: `a + (b if c else d)`.
+                - will make type stack analysis a bit more annoying, but it's not common, so hopefully fine.
         - unchecked pc/sp usage in (non-hardened) release builds.
     - libify.
 
@@ -55,7 +81,6 @@
     - meta tables.
         - should table indexing use raw_eq?
         - start thinking about proper memory management & pointer safety.
-    - opt-params, varargs, multret.
     - closures & upvalues.
         - per-function env.
 
