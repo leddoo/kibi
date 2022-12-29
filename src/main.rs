@@ -106,7 +106,7 @@ impl FuncCode {
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[repr(u32)]
 enum Opcode {
-    Invalid0 = 0,
+    BEGIN = 0,
     Nop,
     Unreachable,
 
@@ -161,11 +161,12 @@ enum Opcode {
     JumpNLe,
     JumpNLt,
 
-    Call,
+    PackedCall,
+    GatherCall,
     Ret,
 
     END,
-    Invalid255 = 255,
+    EXTRA = 255,
 }
 
 impl Opcode {
@@ -193,7 +194,7 @@ impl Opcode {
 
 
 // TODO: u8. & Reg32 for decode.
-type Reg = u32;
+type Reg = u8;
 
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -204,7 +205,7 @@ impl Instruction {
     #[inline(always)]
     unsafe fn opcode(self) -> Opcode {
         let opcode = self.0 & 0xff;
-        debug_assert!(opcode < Opcode::END as u32);
+        debug_assert!(opcode < Opcode::END as u32 || opcode == Opcode::EXTRA as u32);
         core::mem::transmute(opcode)
     }
 
@@ -215,37 +216,22 @@ impl Instruction {
     }
 
     #[inline(always)]
-    fn _r1(self) -> Reg {
-        (self.0 >> 8) & 0xff
-    }
-
-    #[inline(always)]
-    fn _r2(self) -> Reg {
-        (self.0 >> 16) & 0xff
-    }
-
-    #[inline(always)]
-    fn _r3(self) -> Reg {
-        (self.0 >> 24) & 0xff
-    }
-
-    #[inline(always)]
     fn _b2(self) -> bool {
         unsafe { core::mem::transmute(((self.0 >> 16) & 1) as u8) }
     }
 
     #[inline(always)]
-    fn _u8_1(self) -> u32 {
+    fn _c1(self) -> u32 {
         (self.0 >> 8) & 0xff
     }
 
     #[inline(always)]
-    fn _u8_2(self) -> u32 {
+    fn _c2(self) -> u32 {
         (self.0 >> 16) & 0xff
     }
 
     #[inline(always)]
-    fn _u8_3(self) -> u32 {
+    fn _c3(self) -> u32 {
         (self.0 >> 24) & 0xff
     }
 
@@ -267,83 +253,48 @@ impl Instruction {
     }
 
     #[inline(always)]
-    fn encode_r1(op: Opcode, r1: Reg) -> Instruction {
-        debug_assert!(r1 & 0xff == r1);
-        Instruction(op as u32 | r1 << 8)
+    fn encode_c1(op: Opcode, c1: u8) -> Instruction {
+        Instruction(op as u32 | (c1 as u32) << 8)
     }
 
     #[inline(always)]
-    fn r1(self) -> Reg {
-        self._r1()
+    fn c1(self) -> u32 {
+        self._c1()
     }
 
     #[inline(always)]
-    fn encode_r2(op: Opcode, r1: Reg, r2: Reg) -> Instruction {
-        debug_assert!(r1 & 0xff == r1);
-        debug_assert!(r2 & 0xff == r2);
-        Instruction(op as u32 | r1 << 8 | r2 << 16)
+    fn encode_c2(op: Opcode, c1: u8, c2: u8) -> Instruction {
+        Instruction(op as u32 | (c1 as u32) << 8 | (c2 as u32) << 16)
     }
 
     #[inline(always)]
-    fn r2(self) -> (Reg, Reg) {
-        (self._r1(), self._r2())
+    fn c2(self) -> (u32, u32) {
+        (self._c1(), self._c2())
     }
 
     #[inline(always)]
-    fn encode_r3(op: Opcode, r1: Reg, r2: Reg, r3: Reg) -> Instruction {
-        debug_assert!(r1 & 0xff == r1);
-        debug_assert!(r2 & 0xff == r2);
-        debug_assert!(r3 & 0xff == r3);
-        Instruction(op as u32 | r1 << 8 | r2 << 16 | r3 << 24)
+    fn c1b(self) -> (u32, bool) {
+        (self._c1(), self._b2())
     }
 
     #[inline(always)]
-    fn r3(self) -> (Reg, Reg, Reg) {
-        (self._r1(), self._r2(), self._r3())
+    fn encode_c3(op: Opcode, c1: u8, c2: u8, c3: u8) -> Instruction {
+        Instruction(op as u32 | (c1 as u32) << 8 | (c2 as u32) << 16 | (c3 as u32) << 24)
     }
 
     #[inline(always)]
-    fn encode_r1b(op: Opcode, r1: Reg, v: bool) -> Instruction {
-        debug_assert!(r1 & 0xff == r1);
-        Instruction(op as u32 | r1 << 8 | (v as u32) << 16)
+    fn c3(self) -> (u32, u32, u32) {
+        (self._c1(), self._c2(), self._c3())
     }
 
     #[inline(always)]
-    fn r1b(self) -> (Reg, bool) {
-        (self._r1(), self._b2())
+    fn encode_c1u16(op: Opcode, c1: u8, v: u16) -> Instruction {
+        Instruction(op as u32 | (c1 as u32) << 8 | (v as u32) << 16)
     }
 
     #[inline(always)]
-    fn encode_r1c1(op: Opcode, r1: Reg, c1: u8) -> Instruction {
-        debug_assert!(r1 & 0xff == r1);
-        Instruction(op as u32 | r1 << 8 | (c1 as u32) << 16)
-    }
-
-    #[inline(always)]
-    fn r1c1(self) -> (Reg, u32) {
-        (self._r1(), self._u8_2())
-    }
-
-    #[inline(always)]
-    fn encode_r1c2(op: Opcode, r1: Reg, c1: u8, c2: u8) -> Instruction {
-        debug_assert!(r1 & 0xff == r1);
-        Instruction(op as u32 | r1 << 8 | (c1 as u32) << 16 | (c2 as u32) << 24)
-    }
-
-    #[inline(always)]
-    fn r1c2(self) -> (Reg, u32, u32) {
-        (self._r1(), self._u8_2(), self._u8_3())
-    }
-
-    #[inline(always)]
-    fn encode_r1u16(op: Opcode, r1: Reg, v: u16) -> Instruction {
-        debug_assert!(r1 & 0xff == r1);
-        Instruction(op as u32 | r1 << 8 | (v as u32) << 16)
-    }
-
-    #[inline(always)]
-    fn r1u16(self) -> (Reg, u32) {
-        (self._r1(), self._u16())
+    fn c1u16(self) -> (u32, u32) {
+        (self._c1(), self._u16())
     }
 
     #[inline(always)]
@@ -359,7 +310,7 @@ impl Instruction {
     #[inline(always)]
     fn encode_extra(v: u32) -> Instruction {
         assert!(v < (1 << 24));
-        Instruction(v << 8 | 0xff)
+        Instruction(0xff | v << 8)
     }
 
     #[inline(always)]
@@ -395,137 +346,137 @@ impl ByteCodeBuilder {
     }
 
     fn copy(&mut self, dst: Reg, src: Reg) {
-        self.buffer.push(Instruction::encode_r2(Opcode::Copy, dst, src));
+        self.buffer.push(Instruction::encode_c2(Opcode::Copy, dst, src));
     }
 
 
     fn load_nil(&mut self, dst: Reg) {
-        self.buffer.push(Instruction::encode_r1(Opcode::LoadNil, dst));
+        self.buffer.push(Instruction::encode_c1(Opcode::LoadNil, dst));
     }
 
     fn load_bool(&mut self, dst: Reg, value: bool) {
-        self.buffer.push(Instruction::encode_r1b(Opcode::LoadBool, dst, value));
+        self.buffer.push(Instruction::encode_c2(Opcode::LoadBool, dst, value as u8));
     }
 
     fn load_int(&mut self, dst: Reg, value: i16) {
-        self.buffer.push(Instruction::encode_r1u16(Opcode::LoadInt, dst, value as u16));
+        self.buffer.push(Instruction::encode_c1u16(Opcode::LoadInt, dst, value as u16));
     }
 
     fn load_const(&mut self, dst: Reg, index: u16) {
-        self.buffer.push(Instruction::encode_r1u16(Opcode::LoadConst, dst, index));
+        self.buffer.push(Instruction::encode_c1u16(Opcode::LoadConst, dst, index));
     }
 
     fn load_env(&mut self, dst: Reg) {
-        self.buffer.push(Instruction::encode_r1(Opcode::LoadEnv, dst));
+        self.buffer.push(Instruction::encode_c1(Opcode::LoadEnv, dst));
     }
 
 
     fn list_new(&mut self, dst: Reg) {
-        self.buffer.push(Instruction::encode_r1(Opcode::ListNew, dst));
+        self.buffer.push(Instruction::encode_c1(Opcode::ListNew, dst));
     }
 
     fn list_append(&mut self, list: Reg, value: Reg) {
-        self.buffer.push(Instruction::encode_r2(Opcode::ListAppend, list, value));
+        self.buffer.push(Instruction::encode_c2(Opcode::ListAppend, list, value));
     }
 
     fn list_def(&mut self, list: Reg, index: Reg, value: Reg) {
-        self.buffer.push(Instruction::encode_r3(Opcode::ListDef, list, index, value));
+        self.buffer.push(Instruction::encode_c3(Opcode::ListDef, list, index, value));
     }
 
     fn list_set(&mut self, list: Reg, index: Reg, value: Reg) {
-        self.buffer.push(Instruction::encode_r3(Opcode::ListSet, list, index, value));
+        self.buffer.push(Instruction::encode_c3(Opcode::ListSet, list, index, value));
     }
 
     fn list_get(&mut self, dst: Reg, list: Reg, index: Reg) {
-        self.buffer.push(Instruction::encode_r3(Opcode::ListGet, dst, list, index));
+        self.buffer.push(Instruction::encode_c3(Opcode::ListGet, dst, list, index));
     }
 
     fn list_len(&mut self, dst: Reg, list: Reg) {
-        self.buffer.push(Instruction::encode_r2(Opcode::ListLen, dst, list));
+        self.buffer.push(Instruction::encode_c2(Opcode::ListLen, dst, list));
     }
 
 
     fn table_new(&mut self, dst: Reg) {
-        self.buffer.push(Instruction::encode_r1(Opcode::TableNew, dst));
+        self.buffer.push(Instruction::encode_c1(Opcode::TableNew, dst));
     }
 
     fn table_def(&mut self, table: Reg, key: Reg, value: Reg) {
-        self.buffer.push(Instruction::encode_r3(Opcode::TableDef, table, key, value));
+        self.buffer.push(Instruction::encode_c3(Opcode::TableDef, table, key, value));
     }
 
     fn table_set(&mut self, table: Reg, key: Reg, value: Reg) {
-        self.buffer.push(Instruction::encode_r3(Opcode::TableSet, table, key, value));
+        self.buffer.push(Instruction::encode_c3(Opcode::TableSet, table, key, value));
     }
 
     fn table_get(&mut self, dst: Reg, table: Reg, key: Reg) {
-        self.buffer.push(Instruction::encode_r3(Opcode::TableGet, dst, table, key));
+        self.buffer.push(Instruction::encode_c3(Opcode::TableGet, dst, table, key));
     }
 
     fn table_len(&mut self, dst: Reg, table: Reg) {
-        self.buffer.push(Instruction::encode_r2(Opcode::TableLen, dst, table));
+        self.buffer.push(Instruction::encode_c2(Opcode::TableLen, dst, table));
     }
 
 
     fn def(&mut self, obj: Reg, key: Reg, value: Reg) {
-        self.buffer.push(Instruction::encode_r3(Opcode::Def, obj, key, value));
+        self.buffer.push(Instruction::encode_c3(Opcode::Def, obj, key, value));
     }
 
     fn set(&mut self, obj: Reg, key: Reg, value: Reg) {
-        self.buffer.push(Instruction::encode_r3(Opcode::Set, obj, key, value));
+        self.buffer.push(Instruction::encode_c3(Opcode::Set, obj, key, value));
     }
 
     fn get(&mut self, dst: Reg, obj: Reg, key: Reg) {
-        self.buffer.push(Instruction::encode_r3(Opcode::Get, dst, obj, key));
+        self.buffer.push(Instruction::encode_c3(Opcode::Get, dst, obj, key));
     }
 
     fn len(&mut self, dst: Reg, obj: Reg) {
-        self.buffer.push(Instruction::encode_r2(Opcode::Len, dst, obj));
+        self.buffer.push(Instruction::encode_c2(Opcode::Len, dst, obj));
     }
 
 
     fn add(&mut self, dst: Reg, src1: Reg, src2: Reg) {
-        self.buffer.push(Instruction::encode_r3(Opcode::Add, dst, src1, src2));
+        self.buffer.push(Instruction::encode_c3(Opcode::Add, dst, src1, src2));
     }
 
     fn sub(&mut self, dst: Reg, src1: Reg, src2: Reg) {
-        self.buffer.push(Instruction::encode_r3(Opcode::Sub, dst, src1, src2));
+        self.buffer.push(Instruction::encode_c3(Opcode::Sub, dst, src1, src2));
     }
 
     fn mul(&mut self, dst: Reg, src1: Reg, src2: Reg) {
-        self.buffer.push(Instruction::encode_r3(Opcode::Mul, dst, src1, src2));
+        self.buffer.push(Instruction::encode_c3(Opcode::Mul, dst, src1, src2));
     }
 
     fn div(&mut self, dst: Reg, src1: Reg, src2: Reg) {
-        self.buffer.push(Instruction::encode_r3(Opcode::Div, dst, src1, src2));
+        self.buffer.push(Instruction::encode_c3(Opcode::Div, dst, src1, src2));
     }
 
     fn inc(&mut self, dst: Reg) {
-        self.buffer.push(Instruction::encode_r1(Opcode::Inc, dst));
+        self.buffer.push(Instruction::encode_c1(Opcode::Inc, dst));
     }
 
     fn dec(&mut self, dst: Reg) {
-        self.buffer.push(Instruction::encode_r1(Opcode::Dec, dst));
+        self.buffer.push(Instruction::encode_c1(Opcode::Dec, dst));
     }
 
 
     fn cmp_eq(&mut self, dst: Reg, src1: Reg, src2: Reg) {
-        self.buffer.push(Instruction::encode_r3(Opcode::CmpEq, dst, src1, src2));
+        self.buffer.push(Instruction::encode_c3(Opcode::CmpEq, dst, src1, src2));
     }
 
     fn cmp_le(&mut self, dst: Reg, src1: Reg, src2: Reg) {
-        self.buffer.push(Instruction::encode_r3(Opcode::CmpLe, dst, src1, src2));
+        self.buffer.push(Instruction::encode_c3(Opcode::CmpLe, dst, src1, src2));
     }
 
     fn cmp_lt(&mut self, dst: Reg, src1: Reg, src2: Reg) {
-        self.buffer.push(Instruction::encode_r3(Opcode::CmpLt, dst, src1, src2));
+        self.buffer.push(Instruction::encode_c3(Opcode::CmpLt, dst, src1, src2));
     }
 
     fn cmp_ge(&mut self, dst: Reg, src1: Reg, src2: Reg) {
-        self.buffer.push(Instruction::encode_r3(Opcode::CmpGe, dst, src1, src2));
+        self.buffer.push(Instruction::encode_c3(Opcode::CmpGe, dst, src1, src2));
     }
 
     fn cmp_gt(&mut self, dst: Reg, src1: Reg, src2: Reg) {
-        self.buffer.push(Instruction::encode_r3(Opcode::CmpGt, dst, src1, src2));
+        self.buffer.push(Instruction::encode_c3(Opcode::CmpGt, dst, src1, src2));
     }
 
 
@@ -534,50 +485,51 @@ impl ByteCodeBuilder {
     }
 
     fn jump_true(&mut self, src: Reg, target: u16) {
-        self.buffer.push(Instruction::encode_r1u16(Opcode::JumpTrue, src, target));
+        self.buffer.push(Instruction::encode_c1u16(Opcode::JumpTrue, src, target));
     }
 
     fn jump_false(&mut self, src: Reg, target: u16) {
-        self.buffer.push(Instruction::encode_r1u16(Opcode::JumpFalse, src, target));
+        self.buffer.push(Instruction::encode_c1u16(Opcode::JumpFalse, src, target));
     }
 
     fn jump_eq(&mut self, src1: Reg, src2: Reg, target: u16) {
-        self.buffer.push(Instruction::encode_r2(Opcode::JumpEq, src1, src2));
+        self.buffer.push(Instruction::encode_c2(Opcode::JumpEq, src1, src2));
         self.buffer.push(Instruction::encode_extra(target as u32));
     }
 
     fn jump_le(&mut self, src1: Reg, src2: Reg, target: u16) {
-        self.buffer.push(Instruction::encode_r2(Opcode::JumpLe, src1, src2));
+        self.buffer.push(Instruction::encode_c2(Opcode::JumpLe, src1, src2));
         self.buffer.push(Instruction::encode_extra(target as u32));
     }
 
     fn jump_lt(&mut self, src1: Reg, src2: Reg, target: u16) {
-        self.buffer.push(Instruction::encode_r2(Opcode::JumpLt, src1, src2));
+        self.buffer.push(Instruction::encode_c2(Opcode::JumpLt, src1, src2));
         self.buffer.push(Instruction::encode_extra(target as u32));
     }
 
     fn jump_neq(&mut self, src1: Reg, src2: Reg, target: u16) {
-        self.buffer.push(Instruction::encode_r2(Opcode::JumpNEq, src1, src2));
+        self.buffer.push(Instruction::encode_c2(Opcode::JumpNEq, src1, src2));
         self.buffer.push(Instruction::encode_extra(target as u32));
     }
 
     fn jump_nle(&mut self, src1: Reg, src2: Reg, target: u16) {
-        self.buffer.push(Instruction::encode_r2(Opcode::JumpNLe, src1, src2));
+        self.buffer.push(Instruction::encode_c2(Opcode::JumpNLe, src1, src2));
         self.buffer.push(Instruction::encode_extra(target as u32));
     }
 
     fn jump_nlt(&mut self, src1: Reg, src2: Reg, target: u16) {
-        self.buffer.push(Instruction::encode_r2(Opcode::JumpNLt, src1, src2));
+        self.buffer.push(Instruction::encode_c2(Opcode::JumpNLt, src1, src2));
         self.buffer.push(Instruction::encode_extra(target as u32));
     }
 
 
-    fn call(&mut self, dst: Reg, num_args: u8, num_rets: u8) {
-        self.buffer.push(Instruction::encode_r1c2(Opcode::Call, dst, num_args, num_rets));
+    fn packed_call(&mut self, func: Reg, args: Reg, num_args: u8, rets: Reg, num_rets: u8) {
+        self.buffer.push(Instruction::encode_c3(Opcode::PackedCall, func, rets, num_rets));
+        self.buffer.push(Instruction::encode_c2(Opcode::EXTRA, args, num_args));
     }
 
     fn ret(&mut self, rets: Reg, num_rets: u8) {
-        self.buffer.push(Instruction::encode_r1c1(Opcode::Ret, rets, num_rets));
+        self.buffer.push(Instruction::encode_c2(Opcode::Ret, rets, num_rets));
     }
 
 
@@ -1219,7 +1171,7 @@ impl Vm {
 
 
     #[inline(always)]
-    fn reg(&mut self, reg: Reg) -> &mut Value {
+    fn reg(&mut self, reg: u32) -> &mut Value {
         // @todo-speed: obviously don't do this.
         let frame = self.frames.last().unwrap();
         debug_assert!(frame.base + reg < frame.top);
@@ -1227,22 +1179,22 @@ impl Vm {
     }
 
     #[inline(always)]
-    fn reg2(&mut self, regs: (Reg, Reg)) -> (Value, Value) {
+    fn reg2(&mut self, regs: (u32, u32)) -> (Value, Value) {
         (*self.reg(regs.0), *self.reg(regs.1))
     }
 
     #[inline(always)]
-    fn reg2_dest(&mut self, regs: (Reg, Reg)) -> (Reg, Value) {
+    fn reg2_dst(&mut self, regs: (u32, u32)) -> (u32, Value) {
         (regs.0, *self.reg(regs.1))
     }
 
     #[inline(always)]
-    fn reg3(&mut self, regs: (Reg, Reg, Reg)) -> (Value, Value, Value) {
+    fn reg3(&mut self, regs: (u32, u32, u32)) -> (Value, Value, Value) {
         (*self.reg(regs.0), *self.reg(regs.1), *self.reg(regs.2))
     }
 
     #[inline(always)]
-    fn reg3_dst(&mut self, regs: (Reg, Reg, Reg)) -> (Reg, Value, Value) {
+    fn reg3_dst(&mut self, regs: (u32, u32, u32)) -> (u32, Value, Value) {
         (regs.0, *self.reg(regs.1), *self.reg(regs.2))
     }
 
@@ -1280,7 +1232,7 @@ impl Vm {
             // @todo-robust: handle all byte values?
             let op = unsafe { instr.opcode() };
             match op {
-                Opcode::Invalid0 | Opcode::Invalid255 | Opcode::END => unreachable!(),
+                Opcode::BEGIN | Opcode::END | Opcode::EXTRA => unreachable!(),
 
                 Opcode::Nop => (),
 
@@ -1288,169 +1240,169 @@ impl Vm {
 
 
                 Opcode::Copy => {
-                    let (dst, src) = instr.r2();
+                    let (dst, src) = instr.c2();
                     // @todo-speed: remove checks.
                     *self.reg(dst) = *self.reg(src);
                 }
 
 
                 Opcode::LoadNil => {
-                    let dst = instr.r1();
+                    let dst = instr.c1();
                     // @todo-speed: remove checks.
                     *self.reg(dst) = Value::Nil;
                 }
 
                 Opcode::LoadBool => {
-                    let (dst, value) = instr.r1b();
+                    let (dst, value) = instr.c1b();
                     // @todo-speed: remove checks.
                     *self.reg(dst) = value.into();
                 }
 
                 Opcode::LoadInt => {
-                    let (dst, value) = instr.r1u16();
+                    let (dst, value) = instr.c1u16();
                     let value = value as u16 as i16 as f64;
                     // @todo-speed: remove checks.
                     *self.reg(dst) = value.into();
                 }
 
                 Opcode::LoadConst => {
-                    let (dst, index) = instr.r1u16();
+                    let (dst, index) = instr.c1u16();
                     // @todo-speed: remove checks.
                     *self.reg(dst) = self.load_const(index as usize);
                 }
 
                 Opcode::LoadEnv => {
-                    let dst = instr.r1();
+                    let dst = instr.c1();
                     // @todo-speed: remove checks.
                     *self.reg(dst) = self.env;
                 }
 
 
                 Opcode::ListNew => {
-                    let dst = instr.r1();
+                    let dst = instr.c1();
                     // @todo-speed: remove checks.
                     *self.reg(dst) = self.list_new();
                 }
 
                 Opcode::ListAppend => {
                     // @todo-speed: remove checks.
-                    let (list, value) = self.reg2(instr.r2());
+                    let (list, value) = self.reg2(instr.c2());
                     self.list_append(list, value)?;
                 }
 
                 Opcode::ListDef => {
                     // @todo-speed: remove checks.
-                    let (list, index, value) = self.reg3(instr.r3());
+                    let (list, index, value) = self.reg3(instr.c3());
                     self.list_def(list, index, value)?;
                 }
 
                 Opcode::ListSet => {
                     // @todo-speed: remove checks.
-                    let (list, index, value) = self.reg3(instr.r3());
+                    let (list, index, value) = self.reg3(instr.c3());
                     self.list_set(list, index, value)?;
                 }
 
                 Opcode::ListGet => {
                     // @todo-speed: remove checks.
-                    let (dst, list, index) = self.reg3_dst(instr.r3());
+                    let (dst, list, index) = self.reg3_dst(instr.c3());
                     *self.reg(dst) = self.list_get(list, index)?;
                 }
 
                 Opcode::ListLen => {
                     // @todo-speed: remove checks.
-                    let (dst, list) = self.reg2_dest(instr.r2());
+                    let (dst, list) = self.reg2_dst(instr.c2());
                     *self.reg(dst) = self.list_len(list)?;
                 }
 
 
                 Opcode::TableNew => {
-                    let dst = instr.r1();
+                    let dst = instr.c1();
                     // @todo-speed: remove checks.
                     *self.reg(dst) = self.table_new();
                 }
 
                 Opcode::TableDef => {
                     // @todo-speed: remove checks.
-                    let (table, key, value) = self.reg3(instr.r3());
+                    let (table, key, value) = self.reg3(instr.c3());
                     self.table_def(table, key, value)?;
                 }
 
                 Opcode::TableSet => {
                     // @todo-speed: remove checks.
-                    let (table, key, value) = self.reg3(instr.r3());
+                    let (table, key, value) = self.reg3(instr.c3());
                     self.table_set(table, key, value)?;
                 }
 
                 Opcode::TableGet => {
                     // @todo-speed: remove checks.
-                    let (dst, table, key) = self.reg3_dst(instr.r3());
+                    let (dst, table, key) = self.reg3_dst(instr.c3());
                     *self.reg(dst) = self.table_get(table, key)?;
                 }
 
                 Opcode::TableLen => {
                     // @todo-speed: remove checks.
-                    let (dst, table) = self.reg2_dest(instr.r2());
+                    let (dst, table) = self.reg2_dst(instr.c2());
                     *self.reg(dst) = self.table_len(table)?;
                 }
 
 
                 Opcode::Def => {
                     // @todo-speed: remove checks.
-                    let (obj, key, value) = self.reg3(instr.r3());
+                    let (obj, key, value) = self.reg3(instr.c3());
                     self.generic_def(obj, key, value)?;
                 }
 
                 Opcode::Set => {
                     // @todo-speed: remove checks.
-                    let (obj, key, value) = self.reg3(instr.r3());
+                    let (obj, key, value) = self.reg3(instr.c3());
                     self.generic_set(obj, key, value)?;
                 }
 
                 Opcode::Get => {
                     // @todo-speed: remove checks.
-                    let (dst, obj, key) = self.reg3_dst(instr.r3());
+                    let (dst, obj, key) = self.reg3_dst(instr.c3());
                     *self.reg(dst) = self.generic_get(obj, key)?;
                 }
 
                 Opcode::Len => {
                     // @todo-speed: remove checks.
-                    let (dst, obj) = self.reg2_dest(instr.r2());
+                    let (dst, obj) = self.reg2_dst(instr.c2());
                     *self.reg(dst) = self.generic_len(obj)?;
                 }
 
 
                 Opcode::Add => {
                     // @todo-speed: remove checks.
-                    let (dst, src1, src2) = self.reg3_dst(instr.r3());
+                    let (dst, src1, src2) = self.reg3_dst(instr.c3());
                     *self.reg(dst) = self.generic_add(src1, src2)?;
                 }
 
                 Opcode::Sub => {
                     // @todo-speed: remove checks.
-                    let (dst, src1, src2) = self.reg3_dst(instr.r3());
+                    let (dst, src1, src2) = self.reg3_dst(instr.c3());
                     *self.reg(dst) = self.generic_sub(src1, src2)?;
                 }
 
                 Opcode::Mul => {
                     // @todo-speed: remove checks.
-                    let (dst, src1, src2) = self.reg3_dst(instr.r3());
+                    let (dst, src1, src2) = self.reg3_dst(instr.c3());
                     *self.reg(dst) = self.generic_mul(src1, src2)?;
                 }
 
                 Opcode::Div => {
                     // @todo-speed: remove checks.
-                    let (dst, src1, src2) = self.reg3_dst(instr.r3());
+                    let (dst, src1, src2) = self.reg3_dst(instr.c3());
                     *self.reg(dst) = self.generic_div(src1, src2)?;
                 }
 
                 Opcode::Inc => {
-                    let dst = instr.r1();
+                    let dst = instr.c1();
                     let Value::Number { value } = self.reg(dst) else { return Err(()) };
                     *value += 1.0;
                 }
 
                 Opcode::Dec => {
-                    let dst = instr.r1();
+                    let dst = instr.c1();
                     let Value::Number { value } = self.reg(dst) else { return Err(()) };
                     *value -= 1.0;
                 }
@@ -1458,31 +1410,31 @@ impl Vm {
 
                 Opcode::CmpEq => {
                     // @todo-speed: remove checks.
-                    let (dst, src1, src2) = self.reg3_dst(instr.r3());
+                    let (dst, src1, src2) = self.reg3_dst(instr.c3());
                     *self.reg(dst) = self.generic_eq(src1, src2).into();
                 }
 
                 Opcode::CmpLe => {
                     // @todo-speed: remove checks.
-                    let (dst, src1, src2) = self.reg3_dst(instr.r3());
+                    let (dst, src1, src2) = self.reg3_dst(instr.c3());
                     *self.reg(dst) = self.generic_le(src1, src2)?.into();
                 }
 
                 Opcode::CmpLt => {
                     // @todo-speed: remove checks.
-                    let (dst, src1, src2) = self.reg3_dst(instr.r3());
+                    let (dst, src1, src2) = self.reg3_dst(instr.c3());
                     *self.reg(dst) = self.generic_lt(src1, src2)?.into();
                 }
 
                 Opcode::CmpGe => {
                     // @todo-speed: remove checks.
-                    let (dst, src1, src2) = self.reg3_dst(instr.r3());
+                    let (dst, src1, src2) = self.reg3_dst(instr.c3());
                     *self.reg(dst) = self.generic_ge(src1, src2)?.into();
                 }
 
                 Opcode::CmpGt => {
                     // @todo-speed: remove checks.
-                    let (dst, src1, src2) = self.reg3_dst(instr.r3());
+                    let (dst, src1, src2) = self.reg3_dst(instr.c3());
                     *self.reg(dst) = self.generic_gt(src1, src2)?.into();
                 }
 
@@ -1493,7 +1445,7 @@ impl Vm {
                 }
 
                 Opcode::JumpTrue => {
-                    let (src, target) = instr.r1u16();
+                    let (src, target) = instr.c1u16();
 
                     // @todo-speed: remove checks.
                     let condition = *self.reg(src);
@@ -1507,7 +1459,7 @@ impl Vm {
                 }
 
                 Opcode::JumpFalse => {
-                    let (src, target) = instr.r1u16();
+                    let (src, target) = instr.c1u16();
 
                     // @todo-speed: remove checks.
                     let condition = *self.reg(src);
@@ -1522,7 +1474,7 @@ impl Vm {
 
                 Opcode::JumpEq => {
                     // @todo-speed: remove checks.
-                    let (src1, src2) = self.reg2(instr.r2());
+                    let (src1, src2) = self.reg2(instr.c2());
                     let target = self.next_instr().extra();
 
                     if self.generic_eq(src1, src2) {
@@ -1532,7 +1484,7 @@ impl Vm {
 
                 Opcode::JumpLe => {
                     // @todo-speed: remove checks.
-                    let (src1, src2) = self.reg2(instr.r2());
+                    let (src1, src2) = self.reg2(instr.c2());
                     let target = self.next_instr().extra();
 
                     if self.generic_le(src1, src2)? {
@@ -1542,7 +1494,7 @@ impl Vm {
 
                 Opcode::JumpLt => {
                     // @todo-speed: remove checks.
-                    let (src1, src2) = self.reg2(instr.r2());
+                    let (src1, src2) = self.reg2(instr.c2());
                     let target = self.next_instr().extra();
 
                     if self.generic_lt(src1, src2)? {
@@ -1552,7 +1504,7 @@ impl Vm {
 
                 Opcode::JumpNEq => {
                     // @todo-speed: remove checks.
-                    let (src1, src2) = self.reg2(instr.r2());
+                    let (src1, src2) = self.reg2(instr.c2());
                     let target = self.next_instr().extra();
 
                     if !self.generic_eq(src1, src2) {
@@ -1562,7 +1514,7 @@ impl Vm {
 
                 Opcode::JumpNLe => {
                     // @todo-speed: remove checks.
-                    let (src1, src2) = self.reg2(instr.r2());
+                    let (src1, src2) = self.reg2(instr.c2());
                     let target = self.next_instr().extra();
 
                     if !self.generic_le(src1, src2)? {
@@ -1572,7 +1524,7 @@ impl Vm {
 
                 Opcode::JumpNLt => {
                     // @todo-speed: remove checks.
-                    let (src1, src2) = self.reg2(instr.r2());
+                    let (src1, src2) = self.reg2(instr.c2());
                     let target = self.next_instr().extra();
 
                     if !self.generic_lt(src1, src2)? {
@@ -1581,17 +1533,18 @@ impl Vm {
                 }
 
 
-                Opcode::Call => {
-                    let (dst, num_args, num_rets) = instr.r1c2();
+                Opcode::PackedCall => {
+                    let (func, rets, num_rets) = instr.c3();
+                    let (args, num_args) = self.next_instr().c2();
+                    self.pre_packed_call(func, args, num_args, rets, num_rets)?;
+                }
 
-                    let frame = self.frames.last().unwrap();
-                    let args = frame.top - num_args;
-                    let func = args - 1;
-                    self.packed_call(func, args, num_args, dst, num_rets)?;
+                Opcode::GatherCall => {
+                    unimplemented!()
                 }
 
                 Opcode::Ret => {
-                    let (rets, actual_rets) = instr.r1c1();
+                    let (rets, actual_rets) = instr.c2();
 
                     if self.post_call(rets, actual_rets)? {
                         return Ok(());
@@ -1750,7 +1703,11 @@ impl Vm {
         Ok(prev_frame.is_native)
     }
 
-    fn packed_call(&mut self, abs_func: u32, abs_args: u32, num_args: u32, dst: u32, num_rets: u32) -> Result<bool, ()> {
+    fn pre_packed_call(&mut self, func: u32, args: u32, num_args: u32, dst: u32, num_rets: u32) -> Result<bool, ()> {
+        let frame = self.frames.last().unwrap();
+        let abs_func = frame.base + func;
+        let abs_args = frame.base + args;
+
         self.pre_call(abs_func, num_args, dst, num_rets, |vm, dst_base| {
             let src_base = abs_args as usize;
             for i in 0..num_args as usize {
@@ -1759,20 +1716,20 @@ impl Vm {
         })
     }
 
-    // TEMP: change arg order.
-    fn call_perserve_args(&mut self, dst: u32, num_args: u32, num_rets: u32) -> Result<(), ()> {
+    // @todo-#host_api: what's the function call api?
+    fn call_perserve_args(&mut self, rets: u32, num_args: u32, num_rets: u32) -> Result<(), ()> {
         let frame = self.frames.last().unwrap();
-        let args = frame.top - num_args;
+        let args = frame.top - num_args - frame.base;
         let func = args - 1;
-        if self.packed_call(func, args, num_args as u32, dst, num_rets as u32)? {
+        if self.pre_packed_call(func, args, num_args, rets, num_rets)? {
             self.run()?;
         }
         Ok(())
     }
 
-    // TEMP: change arg order.
-    fn call(&mut self, dst: u32, num_args: u32, num_rets: u32) -> Result<(), ()> {
-        self.call_perserve_args(dst, num_args, num_rets)?;
+    // @todo-#host_api: what's the function call api?
+    fn call(&mut self, rets: u32, num_args: u32, num_rets: u32) -> Result<(), ()> {
+        self.call_perserve_args(rets, num_args, num_rets)?;
         self.pop_n(num_args as u32 + 1);
         Ok(())
     }
@@ -2020,21 +1977,12 @@ fn parse_many(input: &str) -> ParseResult<Vec<Ast>> {
 struct FuncBuilder<'a> {
     b: ByteCodeBuilder,
     num_params: u32,
-    next_reg: u32,
+    next_reg: Reg,
 
     constants: Vec<Value>,
 
-    calls: Vec<CallBuilder>,
-    max_call_params: u32,
-
     locals: Vec<LocalDecl<'a>>,
     scope: u32,
-}
-
-struct CallBuilder {
-    func: Reg,
-    args: Vec<Reg>,
-    code_pos: usize,
 }
 
 struct LocalDecl<'a> {
@@ -2050,6 +1998,7 @@ impl<'a> FuncBuilder<'a> {
         }
 
         let mut next_reg = 0;
+        assert!(params.len() < 128);
 
         let mut locals = vec![];
         for name in params {
@@ -2065,24 +2014,9 @@ impl<'a> FuncBuilder<'a> {
             num_params: params.len() as u32,
             next_reg,
             constants: vec![],
-            calls: vec![],
-            max_call_params: 0,
             locals,
             scope,
         }
-    }
-
-    fn call(&mut self, dst: Reg, num_rets: u8, func: Reg, args: Vec<Reg>) {
-        let code_pos = self.b.buffer.len();
-
-        self.b.unreachable();
-        for _ in 0..args.len() {
-            self.b.unreachable();
-        }
-        self.b.call(dst, args.len() as u8, num_rets);
-
-        self.max_call_params = self.max_call_params.max(args.len() as u32);
-        self.calls.push(CallBuilder { func, args, code_pos });
     }
 
     fn push_scope(&mut self) {
@@ -2147,7 +2081,7 @@ impl<'a> FuncBuilder<'a> {
     }
 
     fn next_reg(&mut self) -> Result<Reg, ()> {
-        if self.next_reg < Reg::MAX as u32 {
+        if self.next_reg < Reg::MAX {
             let result = self.next_reg;
             self.next_reg += 1;
             return Ok(result);
@@ -2172,23 +2106,7 @@ impl<'a> FuncBuilder<'a> {
     }
 
     fn build(mut self) -> FuncProto {
-        let top = self.next_reg + self.max_call_params;
-
-        // patch calls.
-        for call in &self.calls {
-            let begin = call.code_pos;
-            let end   = begin + 1 + call.args.len();
-
-            let ops = &mut self.b.buffer[begin..end];
-
-            let func = top - call.args.len() as u32 - 1;
-            ops[0] = Instruction::encode_r2(Opcode::Copy, func, call.func);
-
-            let base = func + 1;
-            for (i, arg) in call.args.iter().enumerate() {
-                ops[1 + i] = Instruction::encode_r2(Opcode::Copy, base + i as u32, *arg);
-            }
-        }
+        let top = self.next_reg as u32;
 
         self.b.ret(0, 0);
 
@@ -2548,9 +2466,19 @@ impl Compiler {
                     }
                 }
 
+                // TEMP: use gathering call.
+                let args = f.next_reg()?;
+                for _ in 1..arg_regs.len() {
+                    f.next_reg()?;
+                }
+                for i in 0..arg_regs.len() {
+                    f.b.copy(args + i as u8, arg_regs[i]);
+                }
+                let num_args = arg_regs.len() as u8;
+
                 // function call.
                 let func_reg = self.compile(f, func, vm, None, 1)?;
-                f.call(dst, num_rets, func_reg, arg_regs);
+                f.b.packed_call(func_reg, args, num_args, dst, num_rets);
 
                 Ok(dst)
             }
@@ -2644,13 +2572,13 @@ fn mk_fib() -> FuncProto {
                 b.copy(4, 1);
                 b.sub(5, 0, 2);
                 b.copy(6, 1);
-                b.call(2, 2, 1);
+                b.packed_call(4, 5, 2, 2, 1);
 
                 b.copy(4, 1);
                 b.load_int(3, 1);
                 b.sub(5, 0, 3);
                 b.copy(6, 1);
-                b.call(3, 2, 1);
+                b.packed_call(4, 5, 2, 3, 1);
 
                 b.add(2, 2, 3);
                 b.ret(2, 1);
@@ -2820,7 +2748,7 @@ mod tests {
                 b.load_env(1);
                 b.get(1, 1, 2);
                 b.copy(2, 0);
-                b.call(0, 1, 1);
+                b.packed_call(1, 2, 1, 0, 1);
                 b.ret(0, 1);
                 b.build()
             }),

@@ -1,7 +1,6 @@
 
 - todo:
     - new calling convention:
-        - packed call (2 words: `func, args, num_args | rets, num_rets`).
         - gathering call (`func, rets, num_rets | num_args, args[]`).
             - really dumb encoding for now, one word per arg.
         - use gathering call in compiler.
