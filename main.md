@@ -1,15 +1,26 @@
 
 - todo:
-    - errors & interrupts.
-        - what should happen on error?
+    - start host api.
+        - register based api.
+        - hide `Value` & other internals.
+    - errors:
+        - centralized logic for "raising an error".
+            - for now, trigger immediate unwind.
+            - later, may have option to pause execution & return to host.
+        - unwind: clear stack frames until hit host code.
+            - leaves vm in valid state.
+            - host code is free to ignore the error (that's how pcall works).
         - pcall.
-        - async for host functions.
+    - interrupts:
+        - the counter.
+        - `check_interrupt` (for looping host code).
+        - handle `^C` in repl: cancel current function (raise "interrupted" error).
     - opt-params.
     - lztf.
         - serialization.
 
 
-- horizon:
+- stuff:
     - lztf:
         - arbitrary jumps.
         - register based.
@@ -35,7 +46,7 @@
             - how it collapses to a single value.
             - how unpacking requires `>=` instead of `=`.
         - vm can still optimize returning tuples.
-        - default is `return nil`.
+        - default is `return ()`.
     - varargs.
 
     - booleans.
@@ -43,8 +54,28 @@
         - (logical) and, or, not.
     - del.
     - env def/get/set instructions.
+    - 64-bit integers.
 
     - all lua functions are objects - env is first upvalue.
+
+    - resumable host code:
+        - approach: using `async` for host functions.
+        - enables pausing anywhere.
+        - issues:
+            - non-serializable. can't use for save/restore debugging.
+            - futures capture `&mut Vm` -> requires unsafe & extra checks.
+            - shouldn't be used for leaf functions, cause overhead.
+                - two native code variants: future based & plain function.
+        - how to continue exec:
+            - rebuild stack frames: `run` and futures.
+            - have a separate stack pointer for this.
+            - `run` consumes bytecode frames until hits native,
+              then polls. and if done, enters interp loop.
+            - there's only ever one native frame in a row (invariant).
+        - for now: avoid non-leaf native functions.
+            - save-restore debugging & replay are high priority.
+            - some non-leaf functions can be turned into generators.
+            - if really need non-leaf functions, first consider state machines, cause those can be serialized.
 
     - proper memory allocation.
         - a simple incremental 3-color gc for now.
@@ -63,7 +94,7 @@
         - something like:
             - pass an extra tuple with names.
             - the last `len(name_tuple)` args are kw args.
-    - vm api.
+    - jump tables.
 
 
 - function calls.
