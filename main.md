@@ -1,78 +1,59 @@
 
 - todo:
+    - match op as u8.
     - fix runtime errors: unwind stack, pop stack frames.
         - well, what should actually happen?
         - put vm into error state, so accidental call/run crashes?
     - pcall.
     - opt-params.
-    - multret.
+    - project structure.
+        - lztf.
+        - libify.
+        - compiler as separate crate.
+    - lztf serialization format.
+
+
+- horizon:
+    - lztf:
+        - arbitrary jumps.
+        - register based.
+            - for now: regs 128+ are reserved, later leb128 encoding.
+                - biggest con for reg based was exposing the vm's number of registers.
+                - this alleviates that concern.
+            - enables aot optimization.
+            - less analysis & translation overhead (from stack to regs).
+            - regs can later be assigned types.
+        - for now can actually have ltzf = bytecode.
+        - so the todo:
+            - flesh out the format.
+            - ltzf to bytecode converter.
+                - assert regs < 128 & valid.
+                - convert to native endian.
+                - validate jumps.
+                - ends with ret.
+                - convert absolute jumps to relative jumps.
+            - bytecode sanity check function.
+    - tuples
+        - really useful for compound table keys.
+        - multret is kinda weird & inflexible.
+            - how it collapses to a single value.
+            - how unpacking requires `>=` instead of `=`.
+        - vm can still optimize returning tuples.
+        - default is `return nil`.
     - varargs.
+
     - booleans.
         - literals.
         - (logical) and, or, not.
     - del.
     - env def/get/set instructions.
 
-    - lztf compiler:
-        - what: the whole thing without the actual encoding.
-            - so, once have the encoding, parser would just feed the tables,
-              then walk code once, calling the opcode visitor functions.
-        - source locations.
-        - validation.
-        - relative jumps.
-        - register allocation:
-            - consider stack machine as repr for temporaries.
-                - easy to generate code for.
-                - vm can do impl dependent register allocation.
-            - only issue: values have to be pushed in-order.
-                - so `f(a, b + c)` requires `f` & `a` to be evaluated (and stored in registers) before the addition of `b` and `c`.
-                - optimizations that change evaluation order should be done by the front-end.
-                - i.e. the front-end should be able to specify the shortest "valid" lifetimes for temporaries.
-            - lifetime on stack determines reg alloc/free.
-            - only allow popping values pushed in current block.
-              implicit discard of remaining values at end of block.
-            - locals are reprd explicitly. cause they need meta data (source info).
-            - well, actually, would be nice if temporaries could also have meta data.
-        - consider infinite register machine.
-            - not ssa; don't need that.
-            - but: how to avoid data flow analysis in vm at load time?
-                - would prefer if front-end did that.
-                - and vm doing only the format specific consistency checks. (eg: non-live register used)
-            - how to repr register lifetimes?
-            - wait, how bad is liveness analysis?
-                - it's structured control flow, remember?
-                - maybe we can just walk the source code once,
-                  record the first def & the last use.
-        - back to the stack:
-            - could also allow duplicating values to the top.
-            - all values in the stack are read-only, so this is just a use, not a def.
-            - actually, probably want push/pop across block barriers:
-                - eg: `a + (b if c else d)`.
-                - will make type stack analysis a bit more annoying, but it's not common, so hopefully fine.
-        - unchecked pc/sp usage in (non-hardened) release builds.
-    - libify.
+    - all lua functions are objects - env is first upvalue.
 
     - proper memory allocation.
         - a simple incremental 3-color gc for now.
         - walk func protos.
     - document & validate invariants.
-
-- issues:
-    - should functions return `nil` by default?
-        - doesn't seem like the right decision for this vm.
-        - front-ends *can* do that though.
-        - `nil` is `Option::None`, which is different from `()`.
-            - `()` is the empty tuple.
-            - in the lzvm, functions always return "tuples".
-        - `var foo = f(...)` doesn't work for all `f`.
-            - it is *consistent*, but may not be practical.
-                - the syntax means, `f` has to return at least one value.
-                - `var a, b = f(...)` means `f` has to return at least two.
-            - time will tell how bad this is.
-                - it is compatible with varargs though.
-                - `print(f(...))` does always work.
-
-- horizon:
     - meta tables.
         - should table indexing use raw_eq?
         - start thinking about proper memory management & pointer safety.
@@ -86,18 +67,6 @@
             - pass an extra tuple with names.
             - the last `len(name_tuple)` args are kw args.
     - vm api.
-    - lztf.
-        - run validations on lztf.
-        - remove (release mode) checks of register & constant use.
-        - consider "infinite" registers.
-            - the 256 registers thing is technically a vm impl detail.
-                - can support more stack values by having special copy instruction.
-                - and may change a lot, when adding value types.
-            - only downside: vm has to allocate registers ~ perf.
-                - hmm is probably a good idea actually: typed bytecode.
-                - much simpler (for analysis) if registers have constant types.
-                - but that would prevent cross type register allocation.
-                - so would want vm to do reg-alloc anyway, once go typed.
 
 
 - function calls.

@@ -1209,6 +1209,11 @@ impl Vm {
     }
 
     #[inline(always)]
+    fn jump(&mut self, target: u32) {
+        self.pc = target as usize;
+    }
+
+    #[inline(always)]
     fn load_const(&mut self, index: usize) -> Value {
         // @todo-speed: obviously don't do this.
         let frame = self.frames.last().unwrap();
@@ -1438,7 +1443,7 @@ impl Vm {
 
                 Opcode::Jump => {
                     let target = instr.u16();
-                    self.pc = target as usize;
+                    self.jump(target);
                 }
 
                 Opcode::JumpTrue => {
@@ -1451,7 +1456,7 @@ impl Vm {
                     let Value::Bool { value } = condition else { return Err(()) };
 
                     if value {
-                        self.pc = target as usize;
+                        self.jump(target);
                     }
                 }
 
@@ -1465,7 +1470,7 @@ impl Vm {
                     let Value::Bool { value } = condition else { return Err(()) };
 
                     if !value {
-                        self.pc = target as usize;
+                        self.jump(target);
                     }
                 }
 
@@ -1475,7 +1480,7 @@ impl Vm {
                     let target = self.next_instr_extra().u16();
 
                     if self.generic_eq(src1, src2) {
-                        self.pc = target as usize;
+                        self.jump(target);
                     }
                 }
 
@@ -1485,7 +1490,7 @@ impl Vm {
                     let target = self.next_instr_extra().u16();
 
                     if self.generic_le(src1, src2)? {
-                        self.pc = target as usize;
+                        self.jump(target);
                     }
                 }
 
@@ -1495,7 +1500,7 @@ impl Vm {
                     let target = self.next_instr_extra().u16();
 
                     if self.generic_lt(src1, src2)? {
-                        self.pc = target as usize;
+                        self.jump(target);
                     }
                 }
 
@@ -1505,7 +1510,7 @@ impl Vm {
                     let target = self.next_instr_extra().u16();
 
                     if !self.generic_eq(src1, src2) {
-                        self.pc = target as usize;
+                        self.jump(target);
                     }
                 }
 
@@ -1515,7 +1520,7 @@ impl Vm {
                     let target = self.next_instr_extra().u16();
 
                     if !self.generic_le(src1, src2)? {
-                        self.pc = target as usize;
+                        self.jump(target);
                     }
                 }
 
@@ -1525,7 +1530,7 @@ impl Vm {
                     let target = self.next_instr_extra().u16();
 
                     if !self.generic_lt(src1, src2)? {
-                        self.pc = target as usize;
+                        self.jump(target);
                     }
                 }
 
