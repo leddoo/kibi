@@ -1,15 +1,12 @@
 
 - todo:
-    - fix runtime errors: unwind stack, pop stack frames.
-        - well, what should actually happen?
-        - put vm into error state, so accidental call/run crashes?
-    - pcall.
+    - errors & interrupts.
+        - what should happen on error?
+        - pcall.
+        - async for host functions.
     - opt-params.
-    - project structure.
-        - lztf.
-        - libify.
-        - compiler as separate crate.
-    - lztf serialization format.
+    - lztf.
+        - serialization.
 
 
 - horizon:
@@ -60,6 +57,7 @@
         - per-function env.
 
 - later:
+    - fast strcmp: try ptr_eq first ~ interning.
     - consider kw args.
         - python seems to have a pretty neat solution.
         - something like:

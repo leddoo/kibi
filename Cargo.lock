@@ -5,3 +5,10 @@ version = 3
 [[package]]
 name = "luazero"
 version = "0.1.0"
+
+[[package]]
+name = "repl"
+version = "0.1.0"
+dependencies = [
+ "luazero",
+]
