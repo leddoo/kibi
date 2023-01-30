@@ -1,6 +1,5 @@
 
 - todo:
-    - match op as u8.
     - fix runtime errors: unwind stack, pop stack frames.
         - well, what should actually happen?
         - put vm into error state, so accidental call/run crashes?
