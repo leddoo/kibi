@@ -4,7 +4,7 @@ use luazero::*;
 mod builtin {
     use super::*;
 
-    pub(crate) fn print(vm: &mut Vm) -> Result<u32, ()> {
+    pub(crate) fn print(vm: &mut Vm) -> VmResult<u32> {
         vm.generic_print(0);
         return Ok(0);
     }
@@ -15,7 +15,7 @@ mod builtin {
         stack_size: 1,
     };
 
-    pub(crate) fn println(vm: &mut Vm) -> Result<u32, ()> {
+    pub(crate) fn println(vm: &mut Vm) -> VmResult<u32> {
         vm.generic_print(0);
         println!();
         return Ok(0);
@@ -57,6 +57,7 @@ fn main() {
         std::io::stdin().read_line(&mut buffer).unwrap();
 
         let t0 = std::time::Instant::now();
+        let ic = vm.instruction_counter();
 
         let ast = {
             let chunk = buffer.trim();
@@ -94,7 +95,9 @@ fn main() {
             continue;
         }
 
-        println!("{:?}", t0.elapsed());
+        let dt = t0.elapsed();
+        let di = vm.instruction_counter() - ic;
+        println!("{:?}, {}op/s", t0.elapsed(), (di as f64 / dt.as_secs_f64()) as u64);
     }
 }
 

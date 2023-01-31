@@ -52,8 +52,7 @@ impl TableData {
 
     pub fn index(&mut self, key: Value, vm: &mut VmImpl) -> Option<&mut Value> {
         for (k, v) in &mut self.values {
-            // @todo-decide: should this use `raw_eq`?
-            if vm.generic_eq(*k, key) {
+            if vm.raw_eq(*k, key) {
                 return Some(v);
             }
         }
@@ -67,7 +66,7 @@ impl TableData {
 
 
 
-pub type NativeFuncPtr = fn(&mut Vm) -> Result<u32, ()>;
+pub type NativeFuncPtr = fn(&mut Vm) -> VmResult<u32>;
 
 #[derive(Clone)]
 pub struct NativeFuncPtrEx(pub NativeFuncPtr);

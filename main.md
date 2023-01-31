@@ -1,5 +1,8 @@
 
 - todo:
+    - interrupts:
+        - `check_interrupt` (for looping host code).
+        - handle `^C` in repl: cancel current function (raise "interrupted" error).
     - errors:
         - centralized logic for "raising an error".
             - for now, trigger immediate unwind.
@@ -8,10 +11,7 @@
             - leaves vm in valid state.
             - host code is free to ignore the error (that's how pcall works).
         - pcall.
-    - interrupts:
-        - the counter.
-        - `check_interrupt` (for looping host code).
-        - handle `^C` in repl: cancel current function (raise "interrupted" error).
+    - register api for `add_func` & `call`.
     - opt-params.
     - lztf.
         - serialization.
@@ -92,6 +92,15 @@
             - pass an extra tuple with names.
             - the last `len(name_tuple)` args are kw args.
     - jump tables.
+    - value types.
+        - idea: enable inline storage of nested tables.
+        - issue: mutable aliasing is the default.
+        - need to expose the concept in the semantics.
+        - copy on write? well, that adds `inc_ref` to register copies.
+        - thinking this needs to be a compiler thing.
+            - i.e. for code with static types.
+            - vm then offers features for efficient impl, but need to be used correctly.
+            - incorrect usage must be safe, but may result in unexpected outcomes.
 
 
 - function calls.
