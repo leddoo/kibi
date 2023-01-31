@@ -5,12 +5,10 @@ mod builtin {
     use super::*;
 
     pub(crate) fn print(vm: &mut Vm) -> Result<u32, ()> {
-        // @todo-speed: remove check.
-        let value = *vm.reg(0);
-        vm.generic_print(value);
+        vm.generic_print(0);
         return Ok(0);
     }
-    pub(crate) const PRINT: FuncProto = FuncProto {
+    pub(crate) const PRINT: FuncDesc = FuncDesc {
         code: FuncCode::Native(NativeFuncPtrEx(print)),
         constants: vec![],
         num_params: 1,
@@ -18,13 +16,11 @@ mod builtin {
     };
 
     pub(crate) fn println(vm: &mut Vm) -> Result<u32, ()> {
-        // @todo-speed: remove check.
-        let value = *vm.reg(0);
-        vm.generic_print(value);
+        vm.generic_print(0);
         println!();
         return Ok(0);
     }
-    pub(crate) const PRINTLN: FuncProto = FuncProto {
+    pub(crate) const PRINTLN: FuncDesc = FuncDesc {
         code: FuncCode::Native(NativeFuncPtrEx(println)),
         constants: vec![],
         num_params: 1,
@@ -39,9 +35,8 @@ fn main() {
 
     vm.add_func("print", builtin::PRINT);
     vm.add_func("println", builtin::PRINTLN);
-
-    vm.add_func("quit", FuncProto {
-        code: FuncCode::Native(NativeFuncPtrEx(|_vm| std::process::exit(0))),
+    vm.add_func("quit", FuncDesc {
+        code: FuncCode::Native(NativeFuncPtrEx(|_| std::process::exit(0))),
         constants: vec![],
         num_params: 0,
         stack_size: 0,
@@ -94,7 +89,7 @@ fn main() {
         };
         buffer.clear();
 
-        if let Err(_) = vm.call(0, 0, 0) {
+        if let Err(_) = vm.call() {
             println!("runtime error");
             continue;
         }

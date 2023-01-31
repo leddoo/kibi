@@ -1,9 +1,9 @@
-use crate::vm::Vm;
-use crate::bytecode::Instruction;
+use crate::vm::*;
+use crate::bytecode::*;
 
 
 #[derive(Clone, Copy, Debug)]
-pub enum Value {
+pub(crate) enum Value {
     Nil,
     Bool   { value: bool   },
     Number { value: f64    },
@@ -20,13 +20,13 @@ impl From<f64>  for Value { #[inline(always)] fn from(value: f64)  -> Self { Val
 
 
 #[derive(Debug)]
-pub struct GcObject {
+pub(crate) struct GcObject {
     pub marked: bool,
     pub data: GcObjectData,
 }
 
 #[derive(Debug)]
-pub enum GcObjectData {
+pub(crate) enum GcObjectData {
     Nil,
     Free  { next:  Option<usize> },
     List  { values: Vec<Value> },
@@ -36,12 +36,12 @@ pub enum GcObjectData {
 
 
 #[derive(Debug)]
-pub struct TableData {
+pub(crate) struct TableData {
     pub values: Vec<(Value, Value)>,
 }
 
 impl TableData {
-    pub fn insert(&mut self, key: Value, value: Value, vm: &mut Vm) {
+    pub fn insert(&mut self, key: Value, value: Value, vm: &mut VmImpl) {
         if let Some(v) = self.index(key, vm) {
             *v = value;
         }
@@ -50,7 +50,7 @@ impl TableData {
         }
     }
 
-    pub fn index(&mut self, key: Value, vm: &mut Vm) -> Option<&mut Value> {
+    pub fn index(&mut self, key: Value, vm: &mut VmImpl) -> Option<&mut Value> {
         for (k, v) in &mut self.values {
             // @todo-decide: should this use `raw_eq`?
             if vm.generic_eq(*k, key) {
@@ -69,19 +69,20 @@ impl TableData {
 
 pub type NativeFuncPtr = fn(&mut Vm) -> Result<u32, ()>;
 
+#[derive(Clone)]
 pub struct NativeFuncPtrEx(pub NativeFuncPtr);
 impl core::fmt::Debug for NativeFuncPtrEx { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { (self.0 as *const u8).fmt(f) } }
 
 
 #[derive(Debug)]
-pub struct FuncProto {
+pub(crate) struct FuncProto {
     pub code:       FuncCode,
     pub constants:  Vec<Value>,
     pub num_params: u32,
     pub stack_size: u32,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum FuncCode {
     ByteCode (Vec<Instruction>),
     Native   (NativeFuncPtrEx),
@@ -97,4 +98,21 @@ impl FuncCode {
     }
 }
 
+
+
+#[derive(Clone, Debug)]
+pub enum Constant<'c> {
+    Nil,
+    Bool   { value: bool    },
+    Number { value: f64     },
+    String { value: &'c str },
+}
+
+#[derive(Clone, Debug)]
+pub struct FuncDesc<'c> {
+    pub code:       FuncCode,
+    pub constants:  Vec<Constant<'c>>,
+    pub num_params: u32,
+    pub stack_size: u32,
+}
 

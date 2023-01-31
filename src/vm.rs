@@ -2,6 +2,48 @@ use crate::bytecode::*;
 use crate::value::*;
 
 
+// @safety-#vm-transparent
+#[repr(transparent)]
+pub struct Vm {
+    pub(crate) inner: VmImpl,
+}
+
+impl Vm {
+    pub fn new() -> Vm {
+        Vm { inner: VmImpl::new() }
+    }
+
+
+    #[inline]
+    pub fn add_func(&mut self, name: &str, desc: FuncDesc) {
+        let constants = desc.constants.into_iter().map(|c| { match c {
+            Constant::Nil              => Value::Nil,
+            Constant::Bool   { value } => Value::Bool { value },
+            Constant::Number { value } => Value::Number { value },
+            Constant::String { value } => self.inner.string_new(value),
+        }}).collect();
+
+        self.inner.add_func(name, FuncProto {
+            code: desc.code,
+            constants,
+            num_params: desc.num_params,
+            stack_size: desc.stack_size,
+        });
+    }
+
+    #[inline]
+    pub fn call(&mut self) -> Result<(), ()> {
+        self.inner.call(0, 0, 0)
+    }
+
+    #[inline]
+    pub fn generic_print(&mut self, reg: u32) {
+        let value = *self.inner.reg(reg);
+        self.inner.generic_print(value);
+    }
+}
+
+
 #[derive(Debug)]
 struct StackFrame {
     func_proto: usize,
@@ -26,7 +68,7 @@ impl StackFrame {
 
 
 #[derive(Debug)]
-pub struct Vm {
+pub(crate) struct VmImpl {
     pub func_protos: Vec<FuncProto>,
 
     pc:     usize,
@@ -40,9 +82,9 @@ pub struct Vm {
     gc_timer:   u32,
 }
 
-impl Vm {
+impl VmImpl {
     pub fn new() -> Self {
-        let mut vm = Vm {
+        let mut vm = VmImpl {
             func_protos: vec![],
 
             pc:     usize::MAX,
@@ -876,6 +918,7 @@ impl Vm {
         self.frames.last_mut().unwrap().top += 1;
     }
 
+    #[allow(dead_code)] // @temp: used in tests.
     pub fn pop(&mut self) -> Value {
         let frame = self.frames.last_mut().unwrap();
         assert!(frame.top > frame.base);
@@ -902,10 +945,12 @@ impl Vm {
         self.push(f);
     }
 
+    #[allow(dead_code)] // @temp: used in tests.
     pub fn push_number(&mut self, value: f64) {
         self.push(value.into());
     }
 
+    #[allow(dead_code)] // @temp: used in tests.
     pub fn push_global(&mut self, name: &str) -> Result<(), ()> {
         // @todo-safety: keep alive.
         let n = self.string_new(name);
@@ -915,7 +960,7 @@ impl Vm {
         Ok(())
     }
 
-    fn pre_call<CopyArgs: FnOnce(&mut Vm, usize)>(&mut self,
+    fn pre_call<CopyArgs: FnOnce(&mut VmImpl, usize)>(&mut self,
         abs_func: u32, num_args: u32,
         dst: u32, num_rets: u32,
         copy_args: CopyArgs) -> Result<bool, ()>
@@ -966,7 +1011,9 @@ impl Vm {
                 self.pc = usize::MAX;
 
                 // call host function.
-                let actual_rets = code.0(self)?;
+                // @safety-#vm-transparent
+                // @todo-cleanup: can this be removed somehow?
+                let actual_rets = code.0(unsafe { core::mem::transmute_copy(&self) })?;
 
                 let frame = self.frames.last().unwrap();
                 assert!(frame.base + actual_rets <= frame.top);
@@ -1089,7 +1136,7 @@ mod tests {
     fn fib() {
         let mut vm = Vm::new();
 
-        vm.func_protos.push(mk_fib());
+        vm.inner.func_protos.push(mk_fib());
 
         fn fib_rs(i: f64) -> f64 {
             if i < 2.0 { i }
@@ -1097,12 +1144,12 @@ mod tests {
         }
 
         for i in 0..15 {
-            vm.push(Value::Nil);
-            vm.push_func(0);
-            vm.push_number(i as f64);
-            vm.push_func(0);
-            vm.call(0, 2, 1).unwrap();
-            let Value::Number { value } = vm.pop() else { panic!() };
+            vm.inner.push(Value::Nil);
+            vm.inner.push_func(0);
+            vm.inner.push_number(i as f64);
+            vm.inner.push_func(0);
+            vm.inner.call(0, 2, 1).unwrap();
+            let Value::Number { value } = vm.inner.pop() else { panic!() };
             assert_eq!(value, fib_rs(i as f64));
         }
     }
@@ -1112,7 +1159,7 @@ mod tests {
     fn list_to_table() {
         let mut vm = Vm::new();
 
-        vm.func_protos.push(FuncProto {
+        vm.inner.func_protos.push(FuncProto {
             code: FuncCode::ByteCode({
                 let mut b = ByteCodeBuilder::new();
                 b.table_new(1);
@@ -1135,8 +1182,8 @@ mod tests {
             stack_size: 6,
         });
 
-        vm.push(Value::Nil);
-        vm.push_func(0);
+        vm.inner.push(Value::Nil);
+        vm.inner.push_func(0);
 
         let entries: &[(Value, Value)] = &[
             (false.into(), 0.5.into()),
@@ -1144,20 +1191,20 @@ mod tests {
             (5.0.into(), 10.0.into()),
         ];
 
-        let list = vm.list_new();
-        vm.push(list);
+        let list = vm.inner.list_new();
+        vm.inner.push(list);
         for (k, v) in entries {
-            vm.list_append(list, *k).unwrap();
-            vm.list_append(list, *v).unwrap();
+            vm.inner.list_append(list, *k).unwrap();
+            vm.inner.list_append(list, *v).unwrap();
         }
 
-        vm.call(0, 1, 1).unwrap();
+        vm.inner.call(0, 1, 1).unwrap();
 
-        let table = *vm.reg(0);
+        let table = *vm.inner.reg(0);
         for e in entries {
             let (k, v) = *e;
-            let tv = vm.table_get(table, k).unwrap();
-            assert!(vm.raw_eq(tv, v));
+            let tv = vm.inner.table_get(table, k).unwrap();
+            assert!(vm.inner.raw_eq(tv, v));
         }
     }
 
@@ -1165,11 +1212,11 @@ mod tests {
     fn env() {
         let mut vm = Vm::new();
 
-        let foo = vm.string_new("foo");
-        let bar = vm.string_new("bar");
+        let foo = vm.inner.string_new("foo");
+        let bar = vm.inner.string_new("bar");
 
         // `_ENV.foo := "bar"`
-        vm.func_protos.push(FuncProto {
+        vm.inner.func_protos.push(FuncProto {
             code: FuncCode::ByteCode({
                 let mut b = ByteCodeBuilder::new();
                 b.load_env(0);
@@ -1185,7 +1232,7 @@ mod tests {
         });
 
         // `return _ENV.foo`
-        vm.func_protos.push(FuncProto {
+        vm.inner.func_protos.push(FuncProto {
             code: FuncCode::ByteCode({
                 let mut b = ByteCodeBuilder::new();
                 b.load_env(0);
@@ -1199,29 +1246,29 @@ mod tests {
             stack_size: 2,
         });
 
-        vm.push_func(0);
-        vm.call(0, 0, 0).unwrap();
+        vm.inner.push_func(0);
+        vm.inner.call(0, 0, 0).unwrap();
 
-        vm.push(Value::Nil);
-        vm.push_func(1);
-        vm.call(0, 0, 1).unwrap();
-        assert_eq!(vm.stack.len(), 1);
+        vm.inner.push(Value::Nil);
+        vm.inner.push_func(1);
+        vm.inner.call(0, 0, 1).unwrap();
+        assert_eq!(vm.inner.stack.len(), 1);
 
-        let result = vm.stack[0];
-        assert!(vm.generic_eq(result, bar));
+        let result = vm.inner.stack[0];
+        assert!(vm.inner.generic_eq(result, bar));
     }
 
     #[test]
     fn host_func() {
         let mut vm = Vm::new();
 
-        let lua_branch = vm.string_new("lua_branch");
-        let host_fib   = vm.string_new("host_fib");
-        let host_base  = vm.string_new("host_base");
-        let host_rec   = vm.string_new("host_rec");
+        let lua_branch = vm.inner.string_new("lua_branch");
+        let host_fib   = vm.inner.string_new("host_fib");
+        let host_base  = vm.inner.string_new("host_base");
+        let host_rec   = vm.inner.string_new("host_rec");
 
         // (if n <= 2 { host_base } else { host_rec })(n)
-        vm.func_protos.push(FuncProto {
+        vm.inner.func_protos.push(FuncProto {
             code: FuncCode::ByteCode({
                 let mut b = ByteCodeBuilder::new();
                 b.block(|b| {
@@ -1246,13 +1293,13 @@ mod tests {
         });
 
         fn host_fib_fn(vm: &mut Vm) -> Result<u32, ()> {
-            let n = *vm.reg(0);
-            vm.push_global("lua_branch")?;
-            vm.push(n);
-            vm.call(0, 1, 1)?;
+            let n = *vm.inner.reg(0);
+            vm.inner.push_global("lua_branch")?;
+            vm.inner.push(n);
+            vm.inner.call(0, 1, 1)?;
             return Ok(1);
         }
-        vm.func_protos.push(FuncProto {
+        vm.inner.func_protos.push(FuncProto {
             code: FuncCode::Native(NativeFuncPtrEx(host_fib_fn)),
             constants: vec![],
             num_params: 1,
@@ -1262,7 +1309,7 @@ mod tests {
         fn host_base_fn(_vm: &mut Vm) -> Result<u32, ()> {
             return Ok(1);
         }
-        vm.func_protos.push(FuncProto {
+        vm.inner.func_protos.push(FuncProto {
             code: FuncCode::Native(NativeFuncPtrEx(host_base_fn)),
             constants: vec![],
             num_params: 1,
@@ -1270,34 +1317,34 @@ mod tests {
         });
 
         fn host_rec_fn(vm: &mut Vm) -> Result<u32, ()> {
-            let n = *vm.reg(0);
-            vm.push(Value::Nil);
-            vm.push(Value::Nil);
+            let n = *vm.inner.reg(0);
+            vm.inner.push(Value::Nil);
+            vm.inner.push(Value::Nil);
             let Value::Number { value: n } = n else { return Err(()) };
-            vm.push_global("host_fib")?;
-            vm.push_number(n - 2.0);
-            vm.call(1, 1, 1)?;
-            vm.push_global("host_fib")?;
-            vm.push_number(n - 1.0);
-            vm.call(2, 1, 1)?;
-            let b = vm.pop();
-            let a = vm.pop();
-            let r = vm.generic_add(a, b)?;
-            vm.push(r);
+            vm.inner.push_global("host_fib")?;
+            vm.inner.push_number(n - 2.0);
+            vm.inner.call(1, 1, 1)?;
+            vm.inner.push_global("host_fib")?;
+            vm.inner.push_number(n - 1.0);
+            vm.inner.call(2, 1, 1)?;
+            let b = vm.inner.pop();
+            let a = vm.inner.pop();
+            let r = vm.inner.generic_add(a, b)?;
+            vm.inner.push(r);
             return Ok(1);
         }
-        vm.func_protos.push(FuncProto {
+        vm.inner.func_protos.push(FuncProto {
             code: FuncCode::Native(NativeFuncPtrEx(host_rec_fn)),
             constants: vec![],
             num_params: 1,
             stack_size: 1,
         });
 
-        let env = vm.env;
-        vm.generic_def(env, lua_branch, Value::Func { proto: 0 }).unwrap();
-        vm.generic_def(env, host_fib,   Value::Func { proto: 1 }).unwrap();
-        vm.generic_def(env, host_base,  Value::Func { proto: 2 }).unwrap();
-        vm.generic_def(env, host_rec,   Value::Func { proto: 3 }).unwrap();
+        let env = vm.inner.env;
+        vm.inner.generic_def(env, lua_branch, Value::Func { proto: 0 }).unwrap();
+        vm.inner.generic_def(env, host_fib,   Value::Func { proto: 1 }).unwrap();
+        vm.inner.generic_def(env, host_base,  Value::Func { proto: 2 }).unwrap();
+        vm.inner.generic_def(env, host_rec,   Value::Func { proto: 3 }).unwrap();
 
         fn fib_rs(i: f64) -> f64 {
             if i < 2.0 { i }
@@ -1305,11 +1352,11 @@ mod tests {
         }
 
         for i in 0..10 {
-            vm.push(Value::Nil);
-            vm.push_global("host_fib").unwrap();
-            vm.push_number(i as f64);
-            vm.call(0, 1, 1).unwrap();
-            let Value::Number { value } = vm.pop() else { panic!() };
+            vm.inner.push(Value::Nil);
+            vm.inner.push_global("host_fib").unwrap();
+            vm.inner.push_number(i as f64);
+            vm.inner.call(0, 1, 1).unwrap();
+            let Value::Number { value } = vm.inner.pop() else { panic!() };
             assert_eq!(value, fib_rs(i as f64));
         }
     }
@@ -1325,18 +1372,18 @@ mod tests {
         static INDEX: AtomicUsize = AtomicUsize::new(0);
         INDEX.store(0, Ordering::Relaxed);
 
-        vm.add_func("yield", FuncProto {
+        vm.inner.add_func("yield", FuncProto {
             code: FuncCode::Native(NativeFuncPtrEx(|vm| {
                 let i = INDEX.fetch_add(1, Ordering::Relaxed);
 
                 let expected = RESULTS[i];
 
-                let v = *vm.reg(0);
+                let v = *vm.inner.reg(0);
                 print!("yield: ");
-                vm.generic_print(v);
+                vm.inner.generic_print(v);
                 println!();
 
-                assert!(vm.raw_eq(v, expected.into()));
+                assert!(vm.inner.raw_eq(v, expected.into()));
 
                 return Ok(0);
             })),
@@ -1364,8 +1411,8 @@ mod tests {
 
         let ast = parse_many(chunk).unwrap();
         compile_chunk(&ast, &mut vm).unwrap();
-        vm.call(0, 0, 0).unwrap();
-        assert_eq!(vm.stack.len(), 0);
+        vm.inner.call(0, 0, 0).unwrap();
+        assert_eq!(vm.inner.stack.len(), 0);
     }
 
     #[test]
@@ -1387,19 +1434,19 @@ mod tests {
 
         let ast = parse_many(code).unwrap();
         compile_chunk(&ast, &mut vm).unwrap();
-        vm.call(0, 0, 0).unwrap();
-        assert_eq!(vm.stack.len(), 0);
+        vm.inner.call(0, 0, 0).unwrap();
+        assert_eq!(vm.inner.stack.len(), 0);
 
-        let env = vm.env;
-        let i = vm.string_new("i");
-        let i = vm.generic_get(env, i).unwrap();
+        let env = vm.inner.env;
+        let i = vm.inner.string_new("i");
+        let i = vm.inner.generic_get(env, i).unwrap();
         println!("i: {:?}", i);
-        let j = vm.string_new("j");
-        let j = vm.generic_get(env, j).unwrap();
+        let j = vm.inner.string_new("j");
+        let j = vm.inner.generic_get(env, j).unwrap();
         println!("j: {:?}", j);
 
-        assert!(vm.raw_eq(i, 100.0.into()));
-        assert!(vm.raw_eq(j, 150.0.into()));
+        assert!(vm.inner.raw_eq(i, 100.0.into()));
+        assert!(vm.inner.raw_eq(j, 150.0.into()));
     }
 }
 

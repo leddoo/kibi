@@ -60,7 +60,7 @@ impl<'a> FuncBuilder<'a> {
     }
 
     fn def_global(&mut self, name: &'a str, value: Option<u8>, vm: &mut Vm) -> Result<(), ()> {
-        let name = vm.string_new(name);
+        let name = vm.inner.string_new(name);
         let name = self.add_constant(name)?;
 
         let env = self.next_reg()?;
@@ -161,7 +161,7 @@ fn compile<'a>(f: &mut FuncBuilder<'a>, ast: &Ast<'a>, vm: &mut Vm, dst: Option<
         Ast::String (value) => {
             let dst = f.reg_or_next_reg(dst)?;
 
-            let s = vm.string_new(*value);
+            let s = vm.inner.string_new(*value);
             let c = f.add_constant(s)?;
             f.b.load_const(dst, c);
 
@@ -182,7 +182,7 @@ fn compile<'a>(f: &mut FuncBuilder<'a>, ast: &Ast<'a>, vm: &mut Vm, dst: Option<
             else {
                 let dst = f.reg_or_next_reg(dst)?;
 
-                let name = vm.string_new(name);
+                let name = vm.inner.string_new(name);
                 let name = f.add_constant(name)?;
 
                 let env = f.next_reg()?;
@@ -252,7 +252,7 @@ fn compile<'a>(f: &mut FuncBuilder<'a>, ast: &Ast<'a>, vm: &mut Vm, dst: Option<
                         else {
                             let value = compile(f, &args[1], vm, None, 1)?;
 
-                            let name = vm.string_new(name);
+                            let name = vm.inner.string_new(name);
                             let name = f.add_constant(name)?;
 
                             let env = f.next_reg()?;
@@ -357,7 +357,7 @@ fn compile<'a>(f: &mut FuncBuilder<'a>, ast: &Ast<'a>, vm: &mut Vm, dst: Option<
                     if args.len() != 2 { return Err(()) }
 
                     let proto = compile_function(&args[0], &args[1], vm)?;
-                    let func = vm.func_new(proto);
+                    let func = vm.inner.func_new(proto);
 
                     let dst = f.reg_or_next_reg(dst)?;
 
@@ -521,8 +521,8 @@ pub fn compile_function(params: &Ast, body: &Ast, vm: &mut Vm) -> Result<usize, 
 
     let proto = f.build();
 
-    let proto_index = vm.func_protos.len();
-    vm.func_protos.push(proto);
+    let proto_index = vm.inner.func_protos.len();
+    vm.inner.func_protos.push(proto);
 
     Ok(proto_index)
 }
@@ -535,10 +535,10 @@ pub fn compile_chunk(ast: &[Ast], vm: &mut Vm) -> Result<(), ()> {
 
     let proto = f.build();
 
-    let proto_index = vm.func_protos.len();
-    vm.func_protos.push(proto);
+    let proto_index = vm.inner.func_protos.len();
+    vm.inner.func_protos.push(proto);
 
-    vm.push_func(proto_index);
+    vm.inner.push_func(proto_index);
     Ok(())
 }
 

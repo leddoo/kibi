@@ -1,8 +1,5 @@
 
 - todo:
-    - start host api.
-        - register based api.
-        - hide `Value` & other internals.
     - errors:
         - centralized logic for "raising an error".
             - for now, trigger immediate unwind.
