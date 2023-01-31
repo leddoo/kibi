@@ -6,4 +6,5 @@ publish = false
 
 [dependencies]
 luazero = { path = "../.." }
+ctrlc = "3.2.4"
 

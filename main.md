@@ -1,12 +1,6 @@
 
 - todo:
-    - interrupts:
-        - `check_interrupt` (for looping host code).
-        - handle `^C` in repl: cancel current function (raise "interrupted" error).
     - errors:
-        - centralized logic for "raising an error".
-            - for now, trigger immediate unwind.
-            - later, may have option to pause execution & return to host.
         - unwind: clear stack frames until hit host code.
             - leaves vm in valid state.
             - host code is free to ignore the error (that's how pcall works).

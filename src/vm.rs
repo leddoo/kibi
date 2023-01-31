@@ -1,6 +1,8 @@
 use crate::bytecode::*;
 use crate::value::*;
 
+use core::cell::UnsafeCell;
+
 
 // @safety-#vm-transparent
 #[repr(transparent)]
@@ -47,6 +49,17 @@ impl Vm {
     pub fn instruction_counter(&self) -> u64 {
         let extra = self.inner.counter_target - self.inner.counter;
         self.inner.instruction_counter + extra as u64
+    }
+
+
+    #[inline]
+    pub fn interrupt_ptr(&self) -> *mut bool {
+        self.inner.interrupt.get()
+    }
+
+    #[inline(always)]
+    pub fn check_interrupt(&mut self) -> VmResult<()> {
+        self.inner.check_interrupt()
     }
 }
 
@@ -100,6 +113,8 @@ pub(crate) struct VmImpl {
     counter:        u32,
     counter_target: u32,
     instruction_counter: u64,
+
+    interrupt: UnsafeCell<bool>,
 }
 
 impl VmImpl {
@@ -120,6 +135,8 @@ impl VmImpl {
             counter: 0,
             counter_target: 10_000,
             instruction_counter: 0,
+
+            interrupt: UnsafeCell::new(false),
         };
 
         vm.env = vm.table_new();
@@ -556,6 +573,17 @@ impl VmImpl {
 
 
     #[inline(always)]
+    pub fn check_interrupt(&mut self) -> VmResult<()> {
+        let interrupt = unsafe { self.interrupt.get().read_volatile() };
+        if interrupt {
+            unsafe { self.interrupt.get().write_volatile(false) };
+            return Err(VmError::Interrupt);
+        }
+        Ok(())
+    }
+
+
+    #[inline(always)]
     pub fn reg(&mut self, reg: u32) -> &mut Value {
         // @todo-speed: obviously don't do this.
         let frame = self.frames.last().unwrap();
@@ -980,6 +1008,10 @@ impl VmImpl {
                     debug_assert_eq!(self.counter, 0);
                     self.instruction_counter += self.counter_target as u64;
                     self.counter = self.counter_target;
+
+                    if self.check_interrupt().is_err() {
+                        return (Err(VmError::Interrupt),);
+                    }
                 }
                 Err(e) => {
                     return (Err(e),);

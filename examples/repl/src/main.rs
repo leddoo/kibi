@@ -43,6 +43,20 @@ fn main() {
     });
 
 
+    let running = &*Box::leak(Box::new(core::sync::atomic::AtomicBool::new(false)));
+
+    let interrupt_ptr = vm.interrupt_ptr() as usize;
+    ctrlc::set_handler(move || {
+        if running.load(core::sync::atomic::Ordering::SeqCst) {
+            let ptr = interrupt_ptr as *mut bool;
+            unsafe { ptr.write_volatile(true) };
+        }
+        else {
+            std::process::exit(0);
+        }
+    }).unwrap();
+
+
     let mut buffer = String::new();
 
     loop {
@@ -90,7 +104,11 @@ fn main() {
         };
         buffer.clear();
 
-        if let Err(_) = vm.call() {
+        running.store(true, core::sync::atomic::Ordering::SeqCst);
+        let result = vm.call();
+        running.store(false, core::sync::atomic::Ordering::SeqCst);
+
+        if let Err(_) = result {
             println!("runtime error");
             continue;
         }
