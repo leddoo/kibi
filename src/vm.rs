@@ -582,6 +582,19 @@ impl VmImpl {
         Ok(())
     }
 
+    fn unwind_until_native(&mut self) {
+        loop {
+            let frame = self.frames.last().unwrap();
+            if frame.is_native {
+                // reset vm state.
+                self.pc = usize::MAX;
+                self.stack.truncate(frame.top as usize);
+                break;
+            }
+            self.frames.pop();
+        }
+    }
+
 
     #[inline(always)]
     pub fn reg(&mut self, reg: u32) -> &mut Value {
@@ -1004,16 +1017,20 @@ impl VmImpl {
                 Ok(v) => {
                     return (Ok(v),);
                 }
+
                 Err(VmError::Counter) => {
                     debug_assert_eq!(self.counter, 0);
                     self.instruction_counter += self.counter_target as u64;
                     self.counter = self.counter_target;
 
                     if self.check_interrupt().is_err() {
+                        self.unwind_until_native();
                         return (Err(VmError::Interrupt),);
                     }
                 }
+
                 Err(e) => {
+                    self.unwind_until_native();
                     return (Err(e),);
                 }
             }

@@ -1,14 +1,34 @@
 
 - todo:
-    - errors:
-        - unwind: clear stack frames until hit host code.
-            - leaves vm in valid state.
-            - host code is free to ignore the error (that's how pcall works).
-        - pcall.
-    - register api for `add_func` & `call`.
-    - opt-params.
-    - lztf.
-        - serialization.
+    - new parser.
+    - tuples
+        - really useful for compound table keys.
+        - multret is kinda weird & inflexible.
+            - how it collapses to a single value.
+            - how unpacking requires `>=` instead of `=`.
+        - all functions return exactly one value, default is `()`
+        - vm can still optimize returning tuples.
+            - these must be equivalent:
+                - `return a, b`
+                - `x = (a, b); return x`
+            - `a = foo()` does not unpack, `(a,) = foo()` does.
+            - "multret" becomes "tuple_ret".
+            - unpack_call variant: takes list of dst registers.
+                - if callee used tuple_ret, ensure matching number, copy.
+                - else, regular unpack operation.
+            - no longer expose "multret" in the bytecode,
+              only indirectly through `tuple_ret` and `unpack_call`.
+            - impl: put the logic in `ret` & `tuple_ret`.
+                - ret optionally unpacks.
+                - tuple_ret optionally packs.
+                - info for requested number & registers stored on stack frame.
+                    - can use slice into bytecode, as callee keeps code alive.
+        - unpack:
+            - takes list of registers.
+            - and option for `==`, `>=`.
+            - maybe also "any", which fills with `nil`
+        - get rid of `packed_call`.
+    - varargs.
 
 
 - stuff:
@@ -31,14 +51,19 @@
                 - ends with ret.
                 - convert absolute jumps to relative jumps.
             - bytecode sanity check function.
-    - tuples
-        - really useful for compound table keys.
-        - multret is kinda weird & inflexible.
-            - how it collapses to a single value.
-            - how unpacking requires `>=` instead of `=`.
-        - vm can still optimize returning tuples.
-        - default is `return ()`.
-    - varargs.
+        - serialization
+    - bytecode error handling:
+        - thinking `try` instead of `pcall`
+        - avoids closure & bound method overhead.
+        - how to implement the control flow?
+            - could have `on_error: (next_pc, err_reg) | null`
+            - compiler then generates instructions to configure that.
+            - no stack necessary, compiler can do it.
+            - on error:
+                - if handler registered, materialize error & continue there.
+                - else, unwind one level & try again.
+                - until hit native code.
+    - register api for `add_func` & `call`.
 
     - booleans.
         - literals.
