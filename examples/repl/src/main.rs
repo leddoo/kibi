@@ -31,6 +31,45 @@ mod builtin {
 
 
 fn main() {
+    {
+        let example = r#"
+            let foo = 42
+            print(foo)
+
+            let x = do
+                var i = 0
+                while i < 10:
+                    i += 1
+                    i *= 2
+                end
+                x
+            end
+
+            turtle
+                .forward()
+                .turn_left()
+                .place()
+
+            exit(0)
+        "#;
+
+        let mut line = 1;
+        let mut toker = new_parser::Tokenizer::new(example.as_bytes());
+        while let Some(tok) = toker.try_consume() {
+            if tok.range.begin.line != line {
+                line = tok.range.begin.line;
+                println!();
+            }
+            print!("{:?} ", tok.data);
+            if tok.range.is_collapsed() {
+                print!("<<< inserted ");
+            }
+        }
+        println!();
+
+        if 1==1 { return }
+    }
+
     let mut vm = Vm::new();
 
     vm.add_func("print", builtin::PRINT);

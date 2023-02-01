@@ -1,6 +1,13 @@
 
 - todo:
     - new parser.
+        - parse.
+            - with good error reporting.
+            - can stop on first error for now though.
+        - lexer errors.
+    - new compiler.
+        - smarter register allocation.
+        - don't use `Vm`.
     - tuples
         - really useful for compound table keys.
         - multret is kinda weird & inflexible.

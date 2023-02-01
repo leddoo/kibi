@@ -2,6 +2,7 @@ mod bytecode;
 mod value;
 mod vm;
 mod parser;
+pub mod new_parser;
 mod compiler;
 
 pub use bytecode::*;
