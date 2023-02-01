@@ -69,13 +69,13 @@ fn main() {
 
 
         let example = r#"
-            var bar = 42
-            bar
+            var bar = foo(1, 2+3) / 4
+            ( a + f ( x ) ( y ) ) ( z )
         "#;
 
         let mut p = new_parser::Parser::new(example.as_bytes());
         let chunk = p.parse_block().unwrap();
-        println!("parsed: {:?}", chunk);
+        println!("parsed: {:#?}", chunk);
 
 
         if 1==1 { return }

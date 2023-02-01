@@ -76,6 +76,9 @@ pub enum TokenData<'a> {
     KwContinue,
     KwReturn,
     KwFn,
+    KwAnd,
+    KwOr,
+    KwNot,
     OpPlus,
     OpPlusEq,
     OpMinus,
@@ -88,10 +91,10 @@ pub enum TokenData<'a> {
     OpSlashSlashEq,
     OpEq,
     OpEqEq,
-    OpNeq,
-    OpLeq,
+    OpNe,
+    OpLe,
     OpLt,
-    OpGeq,
+    OpGe,
     OpGt,
     OpNot,
 }
@@ -115,14 +118,15 @@ impl<'a> TokenData<'a> {
             KwIf | KwElif | KwElse |
             KwWhile | KwFor | KwIn |
             KwFn |
+            KwAnd | KwOr |
             OpPlus | OpPlusEq |
             OpMinus | OpMinusEq |
             OpStar | OpStarEq |
             OpSlash | OpSlashEq |
             OpSlashSlash | OpSlashSlashEq |
-            OpEq | OpEqEq | OpNeq |
-            OpLeq | OpLt | OpGeq | OpGt |
-            OpNot |
+            OpEq | OpEqEq | OpNe |
+            OpLe | OpLt | OpGe | OpGt |
+            OpNot | KwNot |
             Eof | Error
             => false,
         }
@@ -137,7 +141,7 @@ impl<'a> TokenData<'a> {
             KwDo | KwIf | KwWhile | KwFor |
             KwBreak | KwContinue | KwReturn |
             KwFn |
-            OpNot |
+            OpNot | KwNot |
             Eof
             => true,
 
@@ -150,13 +154,14 @@ impl<'a> TokenData<'a> {
             KwEnd |
             KwElif | KwElse |
             KwIn |
+            KwAnd | KwOr |
             OpPlus | OpPlusEq |
             OpMinus | OpMinusEq |
             OpStar | OpStarEq |
             OpSlash | OpSlashEq |
             OpSlashSlash | OpSlashSlashEq |
-            OpEq | OpEqEq | OpNeq |
-            OpLeq | OpLt | OpGeq | OpGt |
+            OpEq | OpEqEq | OpNe |
+            OpLe | OpLt | OpGe | OpGt |
             Error
             => false,
         }
@@ -373,9 +378,9 @@ impl<'i> Tokenizer<'i> {
             }
 
             '=' => single_or_double!(TokenData::OpEq,  '=', TokenData::OpEqEq),
-            '!' => single_or_double!(TokenData::OpNot, '=', TokenData::OpNeq),
-            '<' => single_or_double!(TokenData::OpLt,  '=', TokenData::OpLeq),
-            '>' => single_or_double!(TokenData::OpGt,  '=', TokenData::OpGeq),
+            '!' => single_or_double!(TokenData::OpNot, '=', TokenData::OpNe),
+            '<' => single_or_double!(TokenData::OpLt,  '=', TokenData::OpLe),
+            '>' => single_or_double!(TokenData::OpGt,  '=', TokenData::OpGe),
 
             _ => (),
         }
@@ -404,6 +409,9 @@ impl<'i> Tokenizer<'i> {
                 "continue"  => TokenData::KwContinue,
                 "return"    => TokenData::KwReturn,
                 "fn"        => TokenData::KwFn,
+                "and"       => TokenData::KwAnd,
+                "or"        => TokenData::KwOr,
+                "not"       => TokenData::KwNot,
 
                 _ => TokenData::Ident(value),
             };
@@ -444,6 +452,7 @@ pub enum AstData<'a> {
     Op2         (Box<ast::Op2<'a>>),
     Field       (Box<ast::Field<'a>>),
     Index       (Box<ast::Index<'a>>),
+    Call        (Box<ast::Call<'a>>),
     If          (Box<ast::If<'a>>),
     While       (Box<ast::While<'a>>),
     Break       (ast::Break<'a>),
@@ -505,6 +514,7 @@ pub mod ast {
     pub enum Op2Kind {
         And,
         Or,
+        Assign,
         Add,
         AddAssign,
         Sub,
@@ -513,7 +523,71 @@ pub mod ast {
         MulAssign,
         Div,
         DivAssign,
+        IntDiv,
+        IntDivAssign,
+        CmpEq,
+        CmpNe,
+        CmpLe,
+        CmpLt,
+        CmpGe,
+        CmpGt,
     }
+
+    impl Op2Kind {
+        #[inline(always)]
+        pub fn lprec(self) -> u32 {
+            use Op2Kind::*;
+            match self {
+                Assign          => 100,
+                AddAssign       => 100,
+                SubAssign       => 100,
+                MulAssign       => 100,
+                DivAssign       => 100,
+                IntDivAssign    => 100,
+                Or              => 200,
+                And             => 300,
+                CmpEq           => 400,
+                CmpNe           => 400,
+                CmpLe           => 400,
+                CmpLt           => 400,
+                CmpGe           => 400,
+                CmpGt           => 400,
+                Add             => 600,
+                Sub             => 600,
+                Mul             => 800,
+                Div             => 800,
+                IntDiv          => 800,
+            }
+        }
+
+        #[inline(always)]
+        pub fn rprec(self) -> u32 {
+            use Op2Kind::*;
+            match self {
+                Assign          => 101,
+                AddAssign       => 101,
+                SubAssign       => 101,
+                MulAssign       => 101,
+                DivAssign       => 101,
+                IntDivAssign    => 101,
+                Or              => 200,
+                And             => 300,
+                CmpEq           => 400,
+                CmpNe           => 400,
+                CmpLe           => 400,
+                CmpLt           => 400,
+                CmpGe           => 400,
+                CmpGt           => 400,
+                Add             => 600,
+                Sub             => 600,
+                Mul             => 800,
+                Div             => 800,
+                IntDiv          => 800,
+            }
+        }
+    }
+
+    pub const PREC_POSTFIX: u32 = 1000;
 
 
     #[derive(Debug)]
@@ -526,6 +600,12 @@ pub mod ast {
     pub struct Index<'a> {
         pub base:  Ast<'a>,
         pub index: Ast<'a>,
+    }
+
+    #[derive(Debug)]
+    pub struct Call<'a> {
+        pub func: Ast<'a>,
+        pub args: Vec<Ast<'a>>,
     }
 
 
@@ -594,25 +674,44 @@ impl<'i> Parser<'i> {
         Err(ParseError::Error)
     }
 
-    pub fn expect_semi_colon(&mut self) -> ParseResult<SourceRange> {
+    pub fn expect(&mut self, kind: TokenData) -> ParseResult<SourceRange> {
         let tok = self.toker.consume();
-        if let TokenData::SemiColon = tok.data {
+        if tok.data == kind {
             return Ok(tok.source);
         }
         Err(ParseError::Error)
     }
 
+    pub fn peek_op2(&mut self) -> Option<ast::Op2Kind> {
+        use TokenData::*;
+        use ast::Op2Kind::*;
+        Some(match self.toker.current().data {
+            KwAnd           => And,
+            KwOr            => Or,
+            OpPlus          => Add,
+            OpPlusEq        => AddAssign,
+            OpMinus         => Sub,
+            OpMinusEq       => SubAssign,
+            OpStar          => Mul,
+            OpStarEq        => MulAssign,
+            OpSlash         => Div,
+            OpSlashEq       => DivAssign,
+            OpSlashSlash    => IntDiv,
+            OpSlashSlashEq  => IntDivAssign,
+            OpEq            => Assign,
+            OpEqEq          => CmpEq,
+            OpNe            => CmpNe,
+            OpLe            => CmpLe,
+            OpLt            => CmpLt,
+            OpGe            => CmpGe,
+            OpGt            => CmpGt,
+            _ => return None
+        })
+    }
 
-    pub fn parse_expr(&mut self, prec: u32) -> ParseResult<(Ast<'i>, bool)> {
+
+    pub fn parse_leading_expr(&mut self, _prec: u32) -> ParseResult<(Ast<'i>, bool)> {
         let current = self.toker.current();
-        //let begin = current.source.begin;
-
-        if let TokenData::Number(value) = current.data {
-            let source = current.source;
-            self.toker.consume();
-
-            return Ok((Ast { source, data: AstData::Number(value) }, false));
-        }
 
         if let TokenData::Ident(ident) = current.data {
             let source = current.source;
@@ -621,7 +720,107 @@ impl<'i> Parser<'i> {
             return Ok((Ast { source, data: AstData::Ident(ident) }, false));
         }
 
+        if let TokenData::Number(value) = current.data {
+            let source = current.source;
+            self.toker.consume();
+
+            return Ok((Ast { source, data: AstData::Number(value) }, false));
+        }
+
+        if let TokenData::LParen = current.data {
+            self.toker.consume();
+
+            let result = self.parse_expr(0)?.0;
+
+            self.expect(TokenData::RParen)?;
+            return Ok((result, false));
+        }
+
         unimplemented!()
+    }
+
+    pub fn parse_expr(&mut self, prec: u32) -> ParseResult<(Ast<'i>, bool)> {
+        let mut result = self.parse_leading_expr(prec)?.0;
+
+        loop {
+            // binary operator.
+            if let Some(op2) = self.peek_op2() {
+                if op2.lprec() >= prec {
+                    self.toker.consume();
+
+                    let other = self.parse_expr(op2.rprec())?.0;
+                    let begin = result.source.begin;
+                    let end   = other.source.end;
+                    result = Ast {
+                        source: SourceRange { begin, end },
+                        data: AstData::Op2(Box::new(ast::Op2 {
+                            kind: op2,
+                            children: [result, other]
+                        })),
+                    };
+                    continue;
+                }
+            }
+
+            // "postfix" operators.
+            if ast::PREC_POSTFIX < prec {
+                break;
+            }
+
+            let current = self.toker.current();
+
+            // call.
+            if current.data == TokenData::LParen {
+                self.toker.consume();
+                let args = self.parse_comma_exprs(TokenData::RParen)?.0;
+
+                let begin = result.source.begin;
+                let end = self.expect(TokenData::RParen)?.end;
+
+                result = Ast {
+                    source: SourceRange { begin, end },
+                    data: AstData::Call(Box::new(ast::Call {
+                        func: result,
+                        args,
+                    })),
+                };
+                continue;
+            }
+
+            // field.
+            if current.data == TokenData::Dot {
+                unimplemented!()
+            }
+
+            // index.
+            if current.data == TokenData::LBracket {
+                unimplemented!()
+            }
+
+            break;
+        }
+
+        // @todo-complete: h2 terminated?
+        return Ok((result, false));
+    }
+
+    // bool: last expr had comma.
+    pub fn parse_comma_exprs(&mut self, until: TokenData) -> ParseResult<(Vec<Ast<'i>>, bool)> {
+        let mut result = vec![];
+
+        let mut had_comma = true;
+        while had_comma && self.toker.current().data != until {
+            result.push(self.parse_expr(0)?.0);
+            
+            if self.toker.current().data == TokenData::Comma {
+                self.toker.consume();
+            }
+            else {
+                had_comma = false;
+            }
+        }
+
+        Ok((result, had_comma))
     }
 
     pub fn parse_stmt(&mut self) -> ParseResult<(Ast<'i>, bool)> {
@@ -649,7 +848,7 @@ impl<'i> Parser<'i> {
                 value = Some(self.parse_expr(0)?.0);
             }
 
-            let end = self.expect_semi_colon()?.end;
+            let end = self.expect(TokenData::SemiColon)?.end;
 
             return Ok((Ast {
                 source: SourceRange { begin, end },
