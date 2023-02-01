@@ -1,6 +1,8 @@
 
 - todo:
     - new parser.
+        - precedence parsing.
+            - assignments are right assoc.
         - parse.
             - with good error reporting.
             - can stop on first error for now though.

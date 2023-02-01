@@ -42,7 +42,7 @@ fn main() {
                     i += 1
                     i *= 2
                 end
-                x
+                i
             end
 
             turtle
@@ -56,16 +56,27 @@ fn main() {
         let mut line = 1;
         let mut toker = new_parser::Tokenizer::new(example.as_bytes());
         while let Some(tok) = toker.try_consume() {
-            if tok.range.begin.line != line {
-                line = tok.range.begin.line;
+            if tok.source.begin.line != line {
+                line = tok.source.begin.line;
                 println!();
             }
             print!("{:?} ", tok.data);
-            if tok.range.is_collapsed() {
+            if tok.source.is_collapsed() {
                 print!("<<< inserted ");
             }
         }
         println!();
+
+
+        let example = r#"
+            var bar = 42
+            bar
+        "#;
+
+        let mut p = new_parser::Parser::new(example.as_bytes());
+        let chunk = p.parse_block().unwrap();
+        println!("parsed: {:?}", chunk);
+
 
         if 1==1 { return }
     }

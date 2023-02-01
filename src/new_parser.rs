@@ -20,22 +20,39 @@ impl SourceRange {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Token<'a> {
-    pub range: SourceRange,
+    pub source: SourceRange,
     pub data: TokenData<'a>,
 }
 
 impl<'a> Token<'a> {
     #[inline(always)]
     pub fn new(begin: SourcePos, end: SourcePos, data: TokenData<'a>) -> Self {
-        Self { range: SourceRange { begin, end }, data }
+        Self { source: SourceRange { begin, end }, data }
     }
 }
 
+impl<'a> Default for Token<'a> {
+    fn default() -> Self {
+        let zero = SourcePos { line: 0, column: 0 };
+        let source = SourceRange { begin: zero, end: zero };
+        Token { source, data: TokenData::Error }
+    }
+}
 
-#[derive(Clone, Copy, Debug)]
+impl<'a> core::ops::Deref for Token<'a> {
+    type Target = TokenData<'a>;
+    #[inline(always)] fn deref(&self) -> &Self::Target { &self.data }
+}
+
+
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TokenData<'a> {
-    Name   (&'a str),
+    Eof,
+    Error,
+    Ident  (&'a str),
     Number (&'a str),
+    QuotedString (&'a str),
     LParen,
     RParen,
     LBracket,
@@ -54,6 +71,11 @@ pub enum TokenData<'a> {
     KwElse,
     KwWhile,
     KwFor,
+    KwIn,
+    KwBreak,
+    KwContinue,
+    KwReturn,
+    KwFn,
     OpPlus,
     OpPlusEq,
     OpMinus,
@@ -78,8 +100,11 @@ impl<'a> TokenData<'a> {
     pub fn semi_colon_after(&self) -> bool {
         use TokenData::*;
         match self {
-            Name (_) | Number (_) |
+            // anything that can mark the end
+            // of an expression.
+            Ident (_) | Number (_) | QuotedString(_) |
             RParen | RBracket | RCurly |
+            KwBreak | KwContinue | KwReturn |
             KwEnd
             => true,
 
@@ -88,7 +113,8 @@ impl<'a> TokenData<'a> {
             KwLet | KwVar |
             KwDo |
             KwIf | KwElif | KwElse |
-            KwWhile | KwFor |
+            KwWhile | KwFor | KwIn |
+            KwFn |
             OpPlus | OpPlusEq |
             OpMinus | OpMinusEq |
             OpStar | OpStarEq |
@@ -96,7 +122,8 @@ impl<'a> TokenData<'a> {
             OpSlashSlash | OpSlashSlashEq |
             OpEq | OpEqEq | OpNeq |
             OpLeq | OpLt | OpGeq | OpGt |
-            OpNot
+            OpNot |
+            Eof | Error
             => false,
         }
     }
@@ -104,33 +131,59 @@ impl<'a> TokenData<'a> {
     pub fn semi_colon_before(&self) -> bool {
         use TokenData::*;
         match self {
-            Name (_) |
-            Number (_) |
-            LParen |
-            LBracket |
-            LCurly |
+            Ident (_) | Number (_) | QuotedString(_) |
+            LParen | LBracket | LCurly |
             KwLet | KwVar |
-            KwDo |
-            KwIf |
-            KwWhile |
-            KwFor |
-            OpNot
+            KwDo | KwIf | KwWhile | KwFor |
+            KwBreak | KwContinue | KwReturn |
+            KwFn |
+            OpNot |
+            Eof
             => true,
 
+            // unless the next token indicates
+            // that the expression may continue.
             RParen |
             RBracket |
             RCurly |
             Dot | Comma | Colon | SemiColon |
             KwEnd |
             KwElif | KwElse |
+            KwIn |
             OpPlus | OpPlusEq |
             OpMinus | OpMinusEq |
             OpStar | OpStarEq |
             OpSlash | OpSlashEq |
             OpSlashSlash | OpSlashSlashEq |
             OpEq | OpEqEq | OpNeq |
-            OpLeq | OpLt | OpGeq | OpGt
+            OpLeq | OpLt | OpGeq | OpGt |
+            Error
             => false,
+        }
+    }
+
+    #[inline(always)]
+    pub fn is_eof(&self) -> bool {
+        if let TokenData::Eof = self { true } else { false }
+    }
+
+    #[inline(always)]
+    pub fn is_error(&self) -> bool {
+        if let TokenData::Error = self { true } else { false }
+    }
+
+    #[inline(always)]
+    pub fn is_semi_colon(&self) -> bool {
+        if let TokenData::SemiColon = self { true } else { false }
+    }
+
+
+    #[inline(always)]
+    pub fn is_block_end(&self) -> bool {
+        use TokenData::*;
+        match self {
+            KwEnd | KwElse | KwElif | Eof => true,
+            _ => false,
         }
     }
 }
@@ -143,66 +196,60 @@ pub struct Tokenizer<'i> {
     line: u32,
     line_begin: usize,
 
-    current_token: Option<Token<'i>>,
-    next_token:    Option<Token<'i>>,
+    current_token: Token<'i>,
+    next_token:    Token<'i>,
 }
 
 impl<'i> Tokenizer<'i> {
     pub fn new(input: &'i [u8]) -> Self {
-        let mut r = Tokenizer {
+        let mut toker = Tokenizer {
             input, current: 0,
             line: 1, line_begin: 0,
-            current_token: None, next_token: None,
+            current_token: Default::default(),
+            next_token:    Default::default(),
         };
-        r.next();
-        r
+        toker.current_token = toker._next_token();
+        toker.next_token    = toker._next_token();
+        toker
     }
 
     #[inline(always)]
-    pub fn current(&mut self) -> Option<&Token> {
-        self.current_token.as_ref()
+    pub fn current(&self) -> &Token<'i> {
+        &self.current_token
     }
 
     #[inline(always)]
-    pub fn try_consume(&mut self) -> Option<Token> {
-        if let Some(at) = self.current_token {
-            self.next();
-            return Some(at)
+    pub fn consume(&mut self) -> Token<'i> {
+        let result = self.current_token;
+        self.next();
+        result
+    }
+
+    #[inline(always)]
+    pub fn try_consume(&mut self) -> Option<Token<'i>> {
+        if self.current_token.is_eof() {
+            return None;
         }
-        None
-    }
-
-    #[inline(always)]
-    pub fn consume(&mut self) -> Token {
-        self.try_consume().unwrap()
+        Some(self.consume())
     }
 
     fn next(&mut self) {
-        if let Some(current) = self.current_token {
-            if let Some(next) = self.next_token {
-                let has_line_break = current.range.end.line < next.range.begin.line;
+        if self.current_token.is_eof() { return }
 
-                // insert semi-colon.
-                if has_line_break
-                && current.data.semi_colon_after()
-                && next.data.semi_colon_before() {
-                    // @auto-semi-colon-collapsed-range
-                    let pos = current.range.end;
-                    self.current_token = Some(Token::new(pos, pos, TokenData::SemiColon));
-                }
-                else {
-                    self.current_token = self.next_token;
-                    self.next_token    = self.next_token();
-                }
-            }
-            else {
-                assert_eq!(self.current, self.input.len());
-                self.current_token = None;
-            }
+        let current = &self.current_token;
+        let next    = &self.next_token;
+
+        // insert semi-colon.
+        if current.source.end.line < next.source.begin.line
+        && current.semi_colon_after()
+        && next.semi_colon_before() {
+            // @auto-semi-colon-collapsed-range
+            let pos = current.source.end;
+            self.current_token = Token::new(pos, pos, TokenData::SemiColon);
         }
         else {
-            self.current_token = self.next_token();
-            self.next_token    = self.next_token();
+            self.current_token = self.next_token;
+            self.next_token    = self._next_token();
         }
     }
 
@@ -255,10 +302,12 @@ impl<'i> Tokenizer<'i> {
         }
     }
 
-    fn next_token(&mut self) -> Option<Token<'i>> {
+    fn _next_token(&mut self) -> Token<'i> {
         self.skip_whitespace();
 
-        let at = self.peek_ch(0)?;
+        let Some(at) = self.peek_ch(0) else {
+            return self.mk_token(self.pos(), TokenData::Eof);
+        };
 
         let begin_offset = self.current;
         let begin_pos = self.pos();
@@ -266,7 +315,7 @@ impl<'i> Tokenizer<'i> {
         macro_rules! single_ch {
             ($td: expr) => {{
                 self.consume_ch(1);
-                return Some(self.mk_token(begin_pos, $td));
+                return self.mk_token(begin_pos, $td);
             }};
         }
 
@@ -276,10 +325,10 @@ impl<'i> Tokenizer<'i> {
 
                 if self.peek_ch_zero(0) == $cont as u8 {
                     self.consume_ch(1);
-                    return Some(self.mk_token(begin_pos, $td_cont));
+                    return self.mk_token(begin_pos, $td_cont);
                 }
                 else {
-                    return Some(self.mk_token(begin_pos, $td));
+                    return self.mk_token(begin_pos, $td);
                 }
             }};
         }
@@ -306,20 +355,20 @@ impl<'i> Tokenizer<'i> {
 
                 if self.peek_ch_zero(0) == '=' as u8 {
                     self.consume_ch(1);
-                    return Some(self.mk_token(begin_pos, TokenData::OpSlashEq));
+                    return self.mk_token(begin_pos, TokenData::OpSlashEq);
                 }
                 else if self.peek_ch_zero(0) == '/' as u8 {
                     self.consume_ch(1);
                     if self.peek_ch_zero(0) == '=' as u8 {
                         self.consume_ch(1);
-                        return Some(self.mk_token(begin_pos, TokenData::OpSlashSlashEq));
+                        return self.mk_token(begin_pos, TokenData::OpSlashSlashEq);
                     }
                     else {
-                        return Some(self.mk_token(begin_pos, TokenData::OpSlashSlash));
+                        return self.mk_token(begin_pos, TokenData::OpSlashSlash);
                     }
                 }
                 else {
-                    return Some(self.mk_token(begin_pos, TokenData::OpSlash));
+                    return self.mk_token(begin_pos, TokenData::OpSlash);
                 }
             }
 
@@ -341,19 +390,24 @@ impl<'i> Tokenizer<'i> {
             let value = unsafe { core::str::from_utf8_unchecked(value) };
 
             let data = match value {
-                "end"   => TokenData::KwEnd,
-                "let"   => TokenData::KwLet,
-                "var"   => TokenData::KwVar,
-                "do"    => TokenData::KwDo,
-                "if"    => TokenData::KwIf,
-                "elif"  => TokenData::KwElif,
-                "else"  => TokenData::KwElse,
-                "while" => TokenData::KwWhile,
-                "for"   => TokenData::KwFor,
+                "end"       => TokenData::KwEnd,
+                "let"       => TokenData::KwLet,
+                "var"       => TokenData::KwVar,
+                "do"        => TokenData::KwDo,
+                "if"        => TokenData::KwIf,
+                "elif"      => TokenData::KwElif,
+                "else"      => TokenData::KwElse,
+                "while"     => TokenData::KwWhile,
+                "for"       => TokenData::KwFor,
+                "in"        => TokenData::KwIn,
+                "break"     => TokenData::KwBreak,
+                "continue"  => TokenData::KwContinue,
+                "return"    => TokenData::KwReturn,
+                "fn"        => TokenData::KwFn,
 
-                _ => TokenData::Name(value),
+                _ => TokenData::Ident(value),
             };
-            return Some(self.mk_token(begin_pos, data));
+            return self.mk_token(begin_pos, data);
         }
 
         // number
@@ -363,10 +417,278 @@ impl<'i> Tokenizer<'i> {
 
             let value = &self.input[begin_offset..self.current];
             let value = unsafe { core::str::from_utf8_unchecked(value) };
-            return Some(self.mk_token(begin_pos, TokenData::Number(value)));
+            return self.mk_token(begin_pos, TokenData::Number(value));
         }
 
         unimplemented!();
+    }
+}
+
+
+
+#[derive(Debug)]
+pub struct Ast<'a> {
+    pub source: SourceRange,
+    pub data: AstData<'a>,
+}
+
+#[derive(Debug)]
+pub enum AstData<'a> {
+    Empty,
+    Number      (&'a str),
+    Ident       (&'a str),
+    Block       (Box<ast::Block<'a>>),
+    Tuple       (Box<ast::Tuple<'a>>),
+    Local       (Box<ast::Local<'a>>),
+    Op1         (Box<ast::Op1<'a>>),
+    Op2         (Box<ast::Op2<'a>>),
+    Field       (Box<ast::Field<'a>>),
+    Index       (Box<ast::Index<'a>>),
+    If          (Box<ast::If<'a>>),
+    While       (Box<ast::While<'a>>),
+    Break       (ast::Break<'a>),
+    Continue,
+    Return      (ast::Return<'a>),
+    Fn          (Box<ast::Fn<'a>>),
+}
+
+pub mod ast {
+    use super::*;
+
+    #[derive(Debug)]
+    pub struct Block<'a> {
+        pub children: Vec<Ast<'a>>,
+        pub last_is_expr: bool,
+    }
+
+    #[derive(Debug)]
+    pub struct Tuple<'a> {
+        pub children: Vec<Ast<'a>>,
+    }
+
+
+    #[derive(Debug)]
+    pub struct Local<'a> {
+        pub name:  &'a str,
+        pub value: Option<Ast<'a>>,
+        pub kind:  LocalKind,
+    }
+
+    #[derive(Debug)]
+    pub enum LocalKind {
+        Let,
+        Var,
+    }
+
+
+    #[derive(Debug)]
+    pub struct Op1<'a> {
+        pub kind:  Op1Kind,
+        pub child: Ast<'a>,
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub enum Op1Kind {
+        Not,
+        BitNot,
+        Neg,
+        Plus,
+    }
+
+    #[derive(Debug)]
+    pub struct Op2<'a> {
+        pub kind:     Op2Kind,
+        pub children: [Ast<'a>; 2],
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub enum Op2Kind {
+        And,
+        Or,
+        Add,
+        AddAssign,
+        Sub,
+        SubAssign,
+        Mul,
+        MulAssign,
+        Div,
+        DivAssign,
+    }
+
+
+    #[derive(Debug)]
+    pub struct Field<'a> {
+        pub base: Ast<'a>,
+        pub name: &'a str,
+    }
+
+    #[derive(Debug)]
+    pub struct Index<'a> {
+        pub base:  Ast<'a>,
+        pub index: Ast<'a>,
+    }
+
+
+    #[derive(Debug)]
+    pub struct If<'a> {
+        pub condition: Ast<'a>,
+        pub on_true:   Ast<'a>,
+        pub on_false:  Option<Ast<'a>>,
+    }
+
+    #[derive(Debug)]
+    pub struct While<'a> {
+        pub condition: Ast<'a>,
+        pub body:      Block<'a>,
+    }
+
+
+    #[derive(Debug)]
+    pub struct Break<'a> {
+        pub value: Option<Box<Ast<'a>>>,
+    }
+
+    #[derive(Debug)]
+    pub struct Return<'a> {
+        pub value: Option<Box<Ast<'a>>>,
+    }
+
+
+    #[derive(Debug)]
+    pub struct Fn<'a> {
+        pub params: Vec<FnParam<'a>>,
+        pub body:   Block<'a>,
+    }
+
+    #[derive(Debug)]
+    pub struct FnParam<'a> {
+        pub name: &'a str,
+    }
+}
+
+
+#[derive(Debug)]
+pub enum ParseError {
+    Error,
+}
+
+pub type ParseResult<T> = Result<T, ParseError>;
+
+
+pub struct Parser<'i> {
+    toker: Tokenizer<'i>,
+}
+
+impl<'i> Parser<'i> {
+    pub fn new(input: &'i [u8]) -> Self {
+        Self {
+            toker: Tokenizer::new(input)
+        }
+    }
+
+    pub fn expect_ident(&mut self) -> ParseResult<(SourceRange, &'i str)> {
+        let tok = self.toker.consume();
+        if let TokenData::Ident(ident) = tok.data {
+            return Ok((tok.source, ident));
+        }
+        Err(ParseError::Error)
+    }
+
+    pub fn expect_semi_colon(&mut self) -> ParseResult<SourceRange> {
+        let tok = self.toker.consume();
+        if let TokenData::SemiColon = tok.data {
+            return Ok(tok.source);
+        }
+        Err(ParseError::Error)
+    }
+
+
+    pub fn parse_expr(&mut self, prec: u32) -> ParseResult<(Ast<'i>, bool)> {
+        let current = self.toker.current();
+        //let begin = current.source.begin;
+
+        if let TokenData::Number(value) = current.data {
+            let source = current.source;
+            self.toker.consume();
+
+            return Ok((Ast { source, data: AstData::Number(value) }, false));
+        }
+
+        if let TokenData::Ident(ident) = current.data {
+            let source = current.source;
+            self.toker.consume();
+
+            return Ok((Ast { source, data: AstData::Ident(ident) }, false));
+        }
+
+        unimplemented!()
+    }
+
+    pub fn parse_stmt(&mut self) -> ParseResult<(Ast<'i>, bool)> {
+        // local | expr_stmt
+
+        let current = self.toker.current();
+        let begin = current.source.begin;
+
+        // local ::= (let | var) ident (= expr)? ;
+        if current.data == TokenData::KwLet
+        || current.data == TokenData::KwVar {
+            let kind = match current.data {
+                TokenData::KwLet => ast::LocalKind::Let,
+                TokenData::KwVar => ast::LocalKind::Var,
+                _ => unreachable!()
+            };
+            self.toker.consume();
+
+            let name = self.expect_ident()?.1;
+
+            let mut value = None;
+            if self.toker.current().data == TokenData::OpEq {
+                self.toker.consume();
+
+                value = Some(self.parse_expr(0)?.0);
+            }
+
+            let end = self.expect_semi_colon()?.end;
+
+            return Ok((Ast {
+                source: SourceRange { begin, end },
+                data: AstData::Local(Box::new(ast::Local {
+                    name, value, kind,
+                })),
+            }, true));
+        }
+
+        // expr_stmt
+        let (expr, mut terminated) = self.parse_expr(0)?;
+        if self.toker.current().is_semi_colon() {
+            self.toker.consume();
+            terminated = true;
+        }
+        Ok((expr, terminated))
+    }
+
+    pub fn parse_block(&mut self) -> ParseResult<(SourceRange, ast::Block<'i>)> {
+        let mut result = vec![];
+
+        let begin = self.toker.current().source.begin;
+        let mut end = begin;
+
+        let mut last_is_expr = false;
+        while !self.toker.current().is_block_end() {
+            let (stmt, terminated) = self.parse_stmt()?;
+            if !terminated {
+                if last_is_expr {
+                    unimplemented!()
+                }
+                last_is_expr = true;
+            }
+            end = stmt.source.end;
+            result.push(stmt);
+        }
+
+        let range = SourceRange { begin, end };
+        Ok((range, ast::Block { children: result, last_is_expr }))
     }
 }
 
