@@ -85,6 +85,13 @@ fn main() {
             -- return
             -- return 42
             -- let foo = (return 42) or 7
+            -- ;-a;
+            -- ;-a.foo;
+            -- ;-a+foo;
+            -- a + not b
+            -- not a or b and not c
+            -- nil ?? a <= false ?? true
+            -- a?.foo
         "#;
 
         let mut p = new_parser::Parser::new(example.as_bytes());

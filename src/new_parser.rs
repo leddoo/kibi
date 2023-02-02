@@ -53,6 +53,7 @@ pub enum TokenData<'a> {
     Ident  (&'a str),
     Number (&'a str),
     Bool   (bool),
+    Nil,
     QuotedString (&'a str),
     LParen,
     RParen,
@@ -98,6 +99,10 @@ pub enum TokenData<'a> {
     OpGe,
     OpGt,
     OpNot,
+    OpQ,
+    OpQDot,
+    OpQQ,
+    OpQQEq,
 }
 
 impl<'a> TokenData<'a> {
@@ -106,7 +111,7 @@ impl<'a> TokenData<'a> {
         match self {
             // anything that can mark the end
             // of an expression.
-            Ident (_) | Number (_) | Bool(_) | QuotedString(_) |
+            Ident (_) | Number (_) | Bool(_) | Nil | QuotedString(_) |
             RParen | RBracket | RCurly |
             KwBreak | KwContinue | KwReturn |
             KwEnd
@@ -125,8 +130,8 @@ impl<'a> TokenData<'a> {
             OpStar | OpStarEq |
             OpSlash | OpSlashEq |
             OpSlashSlash | OpSlashSlashEq |
-            OpEq | OpEqEq | OpNe |
-            OpLe | OpLt | OpGe | OpGt |
+            OpEq | OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
+            OpQ | OpQDot | OpQQ | OpQQEq |
             OpNot | KwNot |
             Eof | Error
             => false,
@@ -136,7 +141,7 @@ impl<'a> TokenData<'a> {
     pub fn semi_colon_before(&self) -> bool {
         use TokenData::*;
         match self {
-            Ident (_) | Number (_) | Bool(_) | QuotedString(_) |
+            Ident (_) | Number (_) | Bool(_) | Nil | QuotedString(_) |
             LParen | LBracket | LCurly |
             KwLet | KwVar |
             KwDo | KwIf | KwWhile | KwFor |
@@ -161,8 +166,8 @@ impl<'a> TokenData<'a> {
             OpStar | OpStarEq |
             OpSlash | OpSlashEq |
             OpSlashSlash | OpSlashSlashEq |
-            OpEq | OpEqEq | OpNe |
-            OpLe | OpLt | OpGe | OpGt |
+            OpEq | OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
+            OpQ | OpQDot | OpQQ | OpQQEq |
             Error
             => false,
         }
@@ -197,7 +202,7 @@ impl<'a> TokenData<'a> {
     pub fn is_expr_start(&self) -> bool {
         use TokenData::*;
         match self {
-            Ident (_) | Number (_) | Bool (_) | QuotedString (_) |
+            Ident (_) | Number (_) | Bool (_) | Nil | QuotedString (_) |
             LParen | LBracket | LCurly |
             KwLet | KwVar |
             KwDo | KwIf | KwWhile | KwFor |
@@ -216,7 +221,8 @@ impl<'a> TokenData<'a> {
             KwAnd | KwOr |
             OpPlusEq | OpMinusEq | OpStarEq |
             OpSlash | OpSlashEq | OpSlashSlash | OpSlashSlashEq |
-            OpEq | OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt
+            OpEq | OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
+            OpQ | OpQDot | OpQQ | OpQQEq
             => false
         }
     }
@@ -349,14 +355,14 @@ impl<'i> Tokenizer<'i> {
         let begin_offset = self.current;
         let begin_pos = self.pos();
 
-        macro_rules! single_ch {
+        macro_rules! tok_1 {
             ($td: expr) => {{
                 self.consume_ch(1);
                 return self.mk_token(begin_pos, $td);
             }};
         }
 
-        macro_rules! single_or_double {
+        macro_rules! tok_2 {
             ($td: expr, $cont: expr, $td_cont: expr) => {{
                 self.consume_ch(1);
 
@@ -371,21 +377,43 @@ impl<'i> Tokenizer<'i> {
         }
 
         match at as char {
-            '(' => single_ch!(TokenData::LParen),
-            ')' => single_ch!(TokenData::RParen),
-            '[' => single_ch!(TokenData::LBracket),
-            ']' => single_ch!(TokenData::RBracket),
-            '{' => single_ch!(TokenData::LCurly),
-            '}' => single_ch!(TokenData::RCurly),
+            '(' => tok_1!(TokenData::LParen),
+            ')' => tok_1!(TokenData::RParen),
+            '[' => tok_1!(TokenData::LBracket),
+            ']' => tok_1!(TokenData::RBracket),
+            '{' => tok_1!(TokenData::LCurly),
+            '}' => tok_1!(TokenData::RCurly),
 
-            '.' => single_ch!(TokenData::Dot),
-            ',' => single_ch!(TokenData::Comma),
-            ':' => single_ch!(TokenData::Colon),
-            ';' => single_ch!(TokenData::SemiColon),
+            '.' => tok_1!(TokenData::Dot),
+            ',' => tok_1!(TokenData::Comma),
+            ':' => tok_1!(TokenData::Colon),
+            ';' => tok_1!(TokenData::SemiColon),
+            '?' => {
+                self.consume_ch(1);
 
-            '+' => single_or_double!(TokenData::OpPlus,  '=', TokenData::OpPlusEq),
-            '-' => single_or_double!(TokenData::OpMinus, '=', TokenData::OpMinusEq),
-            '*' => single_or_double!(TokenData::OpStar,  '=', TokenData::OpStarEq),
+                if self.peek_ch_zero(0) == '?' as u8 {
+                    self.consume_ch(1);
+
+                    if self.peek_ch_zero(0) == '=' as u8 {
+                        self.consume_ch(1);
+                        return self.mk_token(begin_pos, TokenData::OpQQEq);
+                    }
+                    else {
+                        return self.mk_token(begin_pos, TokenData::OpQQ);
+                    }
+                }
+                else if self.peek_ch_zero(0) == '.' as u8 {
+                    self.consume_ch(1);
+                    return self.mk_token(begin_pos, TokenData::OpQDot);
+                }
+                else {
+                    return self.mk_token(begin_pos, TokenData::OpQ);
+                }
+            }
+
+            '+' => tok_2!(TokenData::OpPlus,  '=', TokenData::OpPlusEq),
+            '-' => tok_2!(TokenData::OpMinus, '=', TokenData::OpMinusEq),
+            '*' => tok_2!(TokenData::OpStar,  '=', TokenData::OpStarEq),
 
             '/' => {
                 self.consume_ch(1);
@@ -396,6 +424,7 @@ impl<'i> Tokenizer<'i> {
                 }
                 else if self.peek_ch_zero(0) == '/' as u8 {
                     self.consume_ch(1);
+
                     if self.peek_ch_zero(0) == '=' as u8 {
                         self.consume_ch(1);
                         return self.mk_token(begin_pos, TokenData::OpSlashSlashEq);
@@ -409,10 +438,10 @@ impl<'i> Tokenizer<'i> {
                 }
             }
 
-            '=' => single_or_double!(TokenData::OpEq,  '=', TokenData::OpEqEq),
-            '!' => single_or_double!(TokenData::OpNot, '=', TokenData::OpNe),
-            '<' => single_or_double!(TokenData::OpLt,  '=', TokenData::OpLe),
-            '>' => single_or_double!(TokenData::OpGt,  '=', TokenData::OpGe),
+            '=' => tok_2!(TokenData::OpEq,  '=', TokenData::OpEqEq),
+            '!' => tok_2!(TokenData::OpNot, '=', TokenData::OpNe),
+            '<' => tok_2!(TokenData::OpLt,  '=', TokenData::OpLe),
+            '>' => tok_2!(TokenData::OpGt,  '=', TokenData::OpGe),
 
             _ => (),
         }
@@ -446,6 +475,7 @@ impl<'i> Tokenizer<'i> {
                 "not"       => TokenData::KwNot,
                 "false"     => TokenData::Bool(false),
                 "true"      => TokenData::Bool(true),
+                "nil"       => TokenData::Nil,
 
                 _ => TokenData::Ident(value),
             };
@@ -480,6 +510,7 @@ pub enum AstData<'a> {
     Number      (&'a str),
     Ident       (&'a str),
     Bool        (bool),
+    Nil,
     Block       (Box<ast::Block<'a>>),
     Tuple       (Box<ast::Tuple<'a>>),
     SubExpr     (Box<Ast<'a>>),
@@ -487,6 +518,7 @@ pub enum AstData<'a> {
     Op1         (Box<ast::Op1<'a>>),
     Op2         (Box<ast::Op2<'a>>),
     Field       (Box<ast::Field<'a>>),
+    OptChain    (Box<ast::Field<'a>>),
     Index       (Box<ast::Index<'a>>),
     Call        (Box<ast::Call<'a>>),
     If          (Box<ast::If<'a>>),
@@ -567,6 +599,8 @@ pub mod ast {
         CmpLt,
         CmpGe,
         CmpGt,
+        OrElse,
+        OrElseAssign,
     }
 
     impl Op2Kind {
@@ -580,6 +614,8 @@ pub mod ast {
                 MulAssign       => 100,
                 DivAssign       => 100,
                 IntDivAssign    => 100,
+                OrElseAssign    => 100,
+                OrElse          => 150,
                 Or              => 200,
                 And             => 300,
                 CmpEq           => 400,
@@ -600,29 +636,32 @@ pub mod ast {
         pub fn rprec(self) -> u32 {
             use Op2Kind::*;
             match self {
-                Assign          => 101,
-                AddAssign       => 101,
-                SubAssign       => 101,
-                MulAssign       => 101,
-                DivAssign       => 101,
-                IntDivAssign    => 101,
-                Or              => 200,
-                And             => 300,
-                CmpEq           => 400,
-                CmpNe           => 400,
-                CmpLe           => 400,
-                CmpLt           => 400,
-                CmpGe           => 400,
-                CmpGt           => 400,
-                Add             => 600,
-                Sub             => 600,
-                Mul             => 800,
-                Div             => 800,
-                IntDiv          => 800,
+                Assign          => 100,
+                AddAssign       => 100,
+                SubAssign       => 100,
+                MulAssign       => 100,
+                DivAssign       => 100,
+                IntDivAssign    => 100,
+                OrElseAssign    => 100,
+                OrElse          => 151,
+                Or              => 201,
+                And             => 301,
+                CmpEq           => 401,
+                CmpNe           => 401,
+                CmpLe           => 401,
+                CmpLt           => 401,
+                CmpGe           => 401,
+                CmpGt           => 401,
+                Add             => 601,
+                Sub             => 601,
+                Mul             => 801,
+                Div             => 801,
+                IntDiv          => 801,
             }
         }
     }
 
+    pub const PREC_PREFIX:  u32 =  900;
     pub const PREC_POSTFIX: u32 = 1000;
 
 
@@ -724,6 +763,18 @@ impl<'i> Parser<'i> {
         }
     }
 
+    pub fn peek_op1(&mut self) -> Option<ast::Op1Kind> {
+        use TokenData::*;
+        use ast::Op1Kind::*;
+        Some(match self.toker.current().data {
+            KwNot   => Not,
+            OpNot   => BitNot,
+            OpMinus => Neg,
+            OpPlus  => Plus,
+            _ => return None,
+        })
+    }
+
     pub fn peek_op2(&mut self) -> Option<ast::Op2Kind> {
         use TokenData::*;
         use ast::Op2Kind::*;
@@ -747,12 +798,14 @@ impl<'i> Parser<'i> {
             OpLt            => CmpLt,
             OpGe            => CmpGe,
             OpGt            => CmpGt,
+            OpQQ            => OrElse,
+            OpQQEq          => OrElseAssign,
             _ => return None
         })
     }
 
 
-    pub fn parse_leading_expr(&mut self, _prec: u32) -> ParseResult<(Ast<'i>, bool)> {
+    pub fn parse_leading_expr(&mut self, prec: u32) -> ParseResult<(Ast<'i>, bool)> {
         let current = self.toker.current();
 
         // ident.
@@ -771,6 +824,12 @@ impl<'i> Parser<'i> {
         if let TokenData::Bool(value) = current.data {
             let source = self.toker.consume().source;
             return Ok((Ast { source, data: AstData::Bool(value) }, false));
+        }
+
+        // nil.
+        if let TokenData::Nil = current.data {
+            let source = self.toker.consume().source;
+            return Ok((Ast { source, data: AstData::Nil }, false));
         }
 
         let begin = current.source.begin;
@@ -850,6 +909,21 @@ impl<'i> Parser<'i> {
             return Ok((Ast { source: SourceRange { begin, end }, data }, false));
         }
 
+
+        // prefix operators.
+        if let Some(op1) = self.peek_op1() {
+            if ast::PREC_PREFIX < prec {
+                unimplemented!()
+            }
+            self.toker.consume();
+
+            let value = self.parse_expr(ast::PREC_PREFIX)?.0;
+
+            let end = value.source.end;
+            let data = AstData::Op1(Box::new(ast::Op1 { kind: op1, child: value }));
+            return Ok((Ast { source: SourceRange { begin, end }, data }, false));
+        }
+
         unimplemented!()
     }
 
@@ -919,6 +993,24 @@ impl<'i> Parser<'i> {
                 continue;
             }
 
+            // opt-chain.
+            if current.data == TokenData::OpQDot {
+                self.toker.consume();
+
+                let (name_source, name) = self.expect_ident()?;
+
+                let begin = result.source.begin;
+                let end   = name_source.end;
+                result = Ast {
+                    source: SourceRange { begin, end },
+                    data: AstData::OptChain(Box::new(ast::Field {
+                        base: result,
+                        name,
+                    })),
+                };
+                continue;
+            }
+
             // index.
             if current.data == TokenData::LBracket {
                 self.toker.consume();
@@ -951,7 +1043,7 @@ impl<'i> Parser<'i> {
         let mut had_comma = true;
         while had_comma && self.toker.current().data != until {
             result.push(self.parse_expr(0)?.0);
-            
+
             if self.toker.current().data == TokenData::Comma {
                 self.toker.consume();
             }
@@ -964,7 +1056,7 @@ impl<'i> Parser<'i> {
     }
 
     pub fn parse_stmt(&mut self) -> ParseResult<(Ast<'i>, bool)> {
-        // local | expr_stmt
+        // local | empty_stmt | expr_stmt
 
         let current = self.toker.current();
         let begin = current.source.begin;
@@ -996,6 +1088,12 @@ impl<'i> Parser<'i> {
                     name, value, kind,
                 })),
             }, true));
+        }
+
+        // empty
+        if current.data == TokenData::SemiColon {
+            let source = self.toker.consume().source;
+            return Ok((Ast { source, data: AstData::Empty }, true));
         }
 
         // expr_stmt

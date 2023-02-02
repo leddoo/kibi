@@ -2,12 +2,11 @@
 - todo:
     - new parser.
         - the rest of the fkin owl.
-            - prefix ops.
             - fn.
-            - block comments.
             - list.
             - table.
-            - nil, `?`, `??`.
+            - block comments.
+            - quoted strings.
         - parser errors.
         - lexer errors.
     - new compiler.
