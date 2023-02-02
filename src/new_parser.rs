@@ -92,7 +92,7 @@ pub enum TokenData<'a> {
     OpSlashSlash,
     OpSlashSlashEq,
     OpEq,
-    OpFatArrow,
+    FatArrow,
     OpEqEq,
     OpNe,
     OpLe,
@@ -101,7 +101,7 @@ pub enum TokenData<'a> {
     OpGt,
     OpNot,
     OpQ,
-    OpQDot,
+    QDot,
     OpQQ,
     OpQQEq,
 }
@@ -131,9 +131,9 @@ impl<'a> TokenData<'a> {
             OpStar | OpStarEq |
             OpSlash | OpSlashEq |
             OpSlashSlash | OpSlashSlashEq |
-            OpEq | OpFatArrow |
+            OpEq | FatArrow |
             OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
-            OpQ | OpQDot | OpQQ | OpQQEq |
+            OpQ | QDot | OpQQ | OpQQEq |
             OpNot | KwNot |
             Eof | Error
             => false,
@@ -168,9 +168,9 @@ impl<'a> TokenData<'a> {
             OpStar | OpStarEq |
             OpSlash | OpSlashEq |
             OpSlashSlash | OpSlashSlashEq |
-            OpEq | OpFatArrow |
+            OpEq | FatArrow |
             OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
-            OpQ | OpQDot | OpQQ | OpQQEq |
+            OpQ | QDot | OpQQ | OpQQEq |
             Error
             => false,
         }
@@ -187,8 +187,8 @@ impl<'a> TokenData<'a> {
     }
 
     #[inline(always)]
-    pub fn is_semi_colon(&self) -> bool {
-        if let TokenData::SemiColon = self { true } else { false }
+    pub fn is_ident(&self) -> bool {
+        if let TokenData::Ident(_) = self { true } else { false }
     }
 
 
@@ -224,9 +224,9 @@ impl<'a> TokenData<'a> {
             KwAnd | KwOr |
             OpPlusEq | OpMinusEq | OpStarEq |
             OpSlash | OpSlashEq | OpSlashSlash | OpSlashSlashEq |
-            OpEq | OpFatArrow |
+            OpEq | FatArrow |
             OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
-            OpQ | OpQDot | OpQQ | OpQQEq
+            OpQ | QDot | OpQQ | OpQQEq
             => false
         }
     }
@@ -275,10 +275,12 @@ impl<'i> Tokenizer<'i> {
     }
 
     #[inline(always)]
-    pub fn next_if(&mut self, kind: TokenData) {
+    pub fn next_if(&mut self, kind: TokenData) -> bool {
         if self.current_token.data == kind {
             self.next();
+            return true
         }
+        false
     }
 
     fn _advance(&mut self) {
@@ -412,7 +414,7 @@ impl<'i> Tokenizer<'i> {
                 }
                 else if self.peek_ch_zero(0) == '.' as u8 {
                     self.consume_ch(1);
-                    return self.mk_token(begin_pos, TokenData::OpQDot);
+                    return self.mk_token(begin_pos, TokenData::QDot);
                 }
                 else {
                     return self.mk_token(begin_pos, TokenData::OpQ);
@@ -451,7 +453,7 @@ impl<'i> Tokenizer<'i> {
 
                 if self.peek_ch_zero(0) == '>' as u8 {
                     self.consume_ch(1);
-                    return self.mk_token(begin_pos, TokenData::OpFatArrow);
+                    return self.mk_token(begin_pos, TokenData::FatArrow);
                 }
                 else if self.peek_ch_zero(0) == '=' as u8 {
                     self.consume_ch(1);
@@ -465,6 +467,32 @@ impl<'i> Tokenizer<'i> {
             '!' => tok_2!(TokenData::OpNot, '=', TokenData::OpNe),
             '<' => tok_2!(TokenData::OpLt,  '=', TokenData::OpLe),
             '>' => tok_2!(TokenData::OpGt,  '=', TokenData::OpGe),
+
+            '"' => {
+                self.consume_ch(1);
+
+                loop {
+                    let Some(at) = self.peek_ch(0) else {
+                        unimplemented!()
+                    };
+
+                    self.consume_ch(1);
+
+                    if at == '"' as u8 {
+                        let value = &self.input[begin_offset+1 .. self.cursor-1];
+
+                        let Ok(value) = core::str::from_utf8(value) else {
+                            unimplemented!()
+                        };
+
+                        return self.mk_token(begin_pos, TokenData::QuotedString(value));
+                    }
+
+                    if at == '\\' as u8 {
+                        unimplemented!();
+                    }
+                }
+            }
 
             _ => (),
         }
@@ -521,21 +549,24 @@ impl<'i> Tokenizer<'i> {
 
 
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Ast<'a> {
     pub source: SourceRange,
-    pub data: AstData<'a>,
+    pub data:   AstData<'a>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum AstData<'a> {
     Empty,
-    Number      (&'a str),
-    Ident       (&'a str),
-    Bool        (bool),
     Nil,
-    Block       (Box<ast::Block<'a>>),
+    Bool        (bool),
+    Number      (&'a str),
+    QuotedString(&'a str),
+    Ident       (&'a str),
     Tuple       (Box<ast::Tuple<'a>>),
+    List        (Box<ast::List<'a>>),
+    Table       (Box<ast::Table<'a>>),
+    Block       (Box<ast::Block<'a>>),
     SubExpr     (Box<Ast<'a>>),
     Local       (Box<ast::Local<'a>>),
     Op1         (Box<ast::Op1<'a>>),
@@ -555,33 +586,43 @@ pub enum AstData<'a> {
 pub mod ast {
     use super::*;
 
-    #[derive(Debug)]
+    #[derive(Clone, Debug)]
     pub struct Block<'a> {
         pub children: Vec<Ast<'a>>,
         pub last_is_expr: bool,
     }
 
-    #[derive(Debug)]
+    #[derive(Clone, Debug)]
     pub struct Tuple<'a> {
-        pub children: Vec<Ast<'a>>,
+        pub values: Vec<Ast<'a>>,
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct List<'a> {
+        pub values: Vec<Ast<'a>>,
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct Table<'a> {
+        pub values: Vec<(Ident<'a>, Ast<'a>)>,
     }
 
 
-    #[derive(Debug)]
+    #[derive(Clone, Debug)]
     pub struct Local<'a> {
         pub name:  &'a str,
         pub value: Option<Ast<'a>>,
         pub kind:  LocalKind,
     }
 
-    #[derive(Debug)]
+    #[derive(Clone, Debug)]
     pub enum LocalKind {
         Let,
         Var,
     }
 
 
-    #[derive(Debug)]
+    #[derive(Clone, Debug)]
     pub struct Op1<'a> {
         pub kind:  Op1Kind,
         pub child: Ast<'a>,
@@ -595,7 +636,7 @@ pub mod ast {
         Plus,
     }
 
-    #[derive(Debug)]
+    #[derive(Clone, Debug)]
     pub struct Op2<'a> {
         pub kind:     Op2Kind,
         pub children: [Ast<'a>; 2],
@@ -688,64 +729,78 @@ pub mod ast {
     pub const PREC_POSTFIX: u32 = 1000;
 
 
-    #[derive(Debug)]
+    #[derive(Clone, Debug)]
     pub struct Field<'a> {
         pub base: Ast<'a>,
         pub name: &'a str,
     }
 
-    #[derive(Debug)]
+    #[derive(Clone, Debug)]
     pub struct Index<'a> {
         pub base:  Ast<'a>,
         pub index: Ast<'a>,
     }
 
-    #[derive(Debug)]
+    #[derive(Clone, Debug)]
     pub struct Call<'a> {
         pub func: Ast<'a>,
         pub args: Vec<Ast<'a>>,
     }
 
 
-    #[derive(Debug)]
+    #[derive(Clone, Debug)]
     pub struct If<'a> {
         pub condition: Ast<'a>,
         pub on_true:   Ast<'a>,
         pub on_false:  Option<Ast<'a>>,
     }
 
-    #[derive(Debug)]
+    #[derive(Clone, Debug)]
     pub struct While<'a> {
         pub condition: Ast<'a>,
         pub body:      Block<'a>,
     }
 
 
-    #[derive(Debug)]
+    #[derive(Clone, Debug)]
     pub struct Break<'a> {
         pub value: Option<Box<Ast<'a>>>,
     }
 
-    #[derive(Debug)]
+    #[derive(Clone, Debug)]
     pub struct Return<'a> {
         pub value: Option<Box<Ast<'a>>>,
     }
 
 
-    #[derive(Debug)]
+    #[derive(Clone, Debug)]
     pub struct Fn<'a> {
+        pub name:   Option<&'a str>,
         pub params: Vec<FnParam<'a>>,
-        pub body:   Block<'a>,
+        pub body:   Ast<'a>,
     }
 
-    #[derive(Debug)]
+    #[derive(Clone, Debug)]
     pub struct FnParam<'a> {
         pub name: &'a str,
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct Ident<'i> {
+    source: SourceRange,
+    value:  &'i str,
+}
 
-#[derive(Debug)]
+impl<'i> Ident<'i> {
+    #[inline(always)]
+    fn to_ast(self) -> Ast<'i> {
+        Ast { source: self.source, data: AstData::Ident(self.value) }
+    }
+}
+
+
+#[derive(Clone, Copy, Debug)]
 pub enum ParseError {
     Error,
 }
@@ -764,10 +819,10 @@ impl<'i> Parser<'i> {
         }
     }
 
-    pub fn expect_ident(&mut self) -> ParseResult<(SourceRange, &'i str)> {
+    pub fn expect_ident(&mut self) -> ParseResult<Ident<'i>> {
         let tok = self.toker.next();
-        if let TokenData::Ident(ident) = tok.data {
-            return Ok((tok.source, ident));
+        if let TokenData::Ident(value) = tok.data {
+            return Ok(Ident { source: tok.source, value });
         }
         Err(ParseError::Error)
     }
@@ -849,19 +904,25 @@ impl<'i> Parser<'i> {
             return Ok((Ast { source, data: AstData::Nil }, false));
         }
 
+        // string.
+        if let TokenData::QuotedString(value) = current.data {
+            let source = self.toker.next().source;
+            return Ok((Ast { source, data: AstData::QuotedString(value) }, false));
+        }
+
         let begin = current.source.begin;
 
         // tuples & sub-expr.
         if let TokenData::LParen = current.data {
             self.toker.next();
 
-            let (vals, had_comma) = self.parse_comma_exprs(TokenData::RParen)?;
+            let (values, had_comma) = self.parse_comma_exprs(TokenData::RParen)?;
             let data =
-                if vals.len() == 1 && !had_comma {
-                    AstData::SubExpr(Box::new(vals.into_iter().next().unwrap()))
+                if values.len() == 1 && !had_comma {
+                    AstData::SubExpr(Box::new(values.into_iter().next().unwrap()))
                 }
                 else {
-                    AstData::Tuple(Box::new(ast::Tuple { children: vals }))
+                    AstData::Tuple(Box::new(ast::Tuple { values }))
                 };
 
             let end = self.expect(TokenData::RParen)?.end;
@@ -926,6 +987,63 @@ impl<'i> Parser<'i> {
             return Ok((Ast { source: SourceRange { begin, end }, data }, false));
         }
 
+        // functions
+        if let TokenData::KwFn = current.data {
+            self.toker.next();
+
+            // fn name ( params ) ':'? block end
+            if let (TokenData::Ident(name), TokenData::LParen)
+                = (self.toker.peek().data, self.toker.peek_next().data)
+            {
+                self.toker.next();
+                self.toker.next();
+
+                let params = self.parse_fn_params()?.0;
+                self.expect(TokenData::RParen)?;
+                self.toker.next_if(TokenData::Colon);
+
+                let body = self.parse_block_as_ast()?;
+                let end = self.expect(TokenData::KwEnd)?.end;
+
+                let data = AstData::Fn(Box::new(
+                    ast::Fn { name: Some(name), params, body }));
+                return Ok((Ast { source: SourceRange { begin, end }, data }, false));
+            }
+            // fn params => expr
+            else {
+                let params = self.parse_fn_params()?.0;
+                self.expect(TokenData::FatArrow)?;
+
+                let body = self.parse_expr(0)?.0;
+                let end = body.source.end;
+
+                let data = AstData::Fn(Box::new(
+                    ast::Fn { name: None, params, body }));
+                return Ok((Ast { source: SourceRange { begin, end }, data }, false));
+            }
+        }
+
+        // list.
+        if let TokenData::LBracket = current.data {
+            self.toker.next();
+
+            let values = self.parse_comma_exprs(TokenData::RBracket)?.0;
+            let end = self.expect(TokenData::RBracket)?.end;
+
+            let data = AstData::List(Box::new(ast::List { values }));
+            return Ok((Ast { source: SourceRange { begin, end }, data }, false));
+        }
+
+        // table.
+        if let TokenData::LCurly = current.data {
+            self.toker.next();
+
+            let values = self.parse_kv_exprs(TokenData::RCurly)?.0;
+            let end = self.expect(TokenData::RCurly)?.end;
+
+            let data = AstData::Table(Box::new(ast::Table { values }));
+            return Ok((Ast { source: SourceRange { begin, end }, data }, false));
+        }
 
         // prefix operators.
         if let Some(op1) = self.peek_op1() {
@@ -996,33 +1114,33 @@ impl<'i> Parser<'i> {
             if current.data == TokenData::Dot {
                 self.toker.next();
 
-                let (name_source, name) = self.expect_ident()?;
+                let name = self.expect_ident()?;
 
                 let begin = result.source.begin;
-                let end   = name_source.end;
+                let end   = name.source.end;
                 result = Ast {
                     source: SourceRange { begin, end },
                     data: AstData::Field(Box::new(ast::Field {
                         base: result,
-                        name,
+                        name: name.value,
                     })),
                 };
                 continue;
             }
 
             // opt-chain.
-            if current.data == TokenData::OpQDot {
+            if current.data == TokenData::QDot {
                 self.toker.next();
 
-                let (name_source, name) = self.expect_ident()?;
+                let name = self.expect_ident()?;
 
                 let begin = result.source.begin;
-                let end   = name_source.end;
+                let end   = name.source.end;
                 result = Ast {
                     source: SourceRange { begin, end },
                     data: AstData::OptChain(Box::new(ast::Field {
                         base: result,
-                        name,
+                        name: name.value,
                     })),
                 };
                 continue;
@@ -1053,13 +1171,38 @@ impl<'i> Parser<'i> {
         return Ok((result, false));
     }
 
-    // bool: last expr had comma.
     pub fn parse_comma_exprs(&mut self, until: TokenData) -> ParseResult<(Vec<Ast<'i>>, bool)> {
         let mut result = vec![];
 
         let mut had_comma = true;
         while had_comma && self.toker.peek().data != until {
             result.push(self.parse_expr(0)?.0);
+
+            if self.toker.peek().data == TokenData::Comma {
+                self.toker.next();
+            }
+            else {
+                had_comma = false;
+            }
+        }
+
+        Ok((result, had_comma))
+    }
+
+    pub fn parse_kv_exprs(&mut self, until: TokenData) -> ParseResult<(Vec<(Ident<'i>, Ast<'i>)>, bool)> {
+        let mut result = vec![];
+
+        let mut had_comma = true;
+        while had_comma && self.toker.peek().data != until {
+            let key = self.expect_ident()?;
+
+            if self.toker.next_if(TokenData::Colon) {
+                let value = self.parse_expr(0)?.0;
+                result.push((key, value));
+            }
+            else {
+                result.push((key, key.to_ast()));
+            }
 
             if self.toker.peek().data == TokenData::Comma {
                 self.toker.next();
@@ -1088,7 +1231,7 @@ impl<'i> Parser<'i> {
             };
             self.toker.next();
 
-            let name = self.expect_ident()?.1;
+            let name = self.expect_ident()?.value;
 
             let mut value = None;
             if self.toker.peek().data == TokenData::OpEq {
@@ -1115,7 +1258,7 @@ impl<'i> Parser<'i> {
 
         // expr_stmt
         let (expr, mut terminated) = self.parse_expr(0)?;
-        if self.toker.peek().is_semi_colon() {
+        if self.toker.peek().data == TokenData::SemiColon {
             self.toker.next();
             terminated = true;
         }
@@ -1192,6 +1335,27 @@ impl<'i> Parser<'i> {
         let (end, data) = self.parse_if()?;
         let data = AstData::If(Box::new(data));
         Ok(Ast { source: SourceRange { begin, end }, data })
+    }
+
+    pub fn parse_fn_params(&mut self) -> ParseResult<(Vec<ast::FnParam<'i>>, bool)> {
+        let mut result = vec![];
+
+        let mut had_comma = true;
+        while let TokenData::Ident(name) = self.toker.peek().data {
+            if !had_comma { break }
+            self.toker.next();
+
+            result.push(ast::FnParam { name });
+
+            if self.toker.peek().data == TokenData::Comma {
+                self.toker.next();
+            }
+            else {
+                had_comma = false;
+            }
+        }
+
+        Ok((result, had_comma))
     }
 }
 

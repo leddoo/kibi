@@ -1,12 +1,7 @@
 
 - todo:
     - new parser.
-        - the rest of the fkin owl.
-            - fn.
-            - list.
-            - table.
-            - block comments.
-            - quoted strings.
+        - block comments.
         - parser errors.
         - lexer errors.
     - new compiler.

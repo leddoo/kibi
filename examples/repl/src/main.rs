@@ -96,6 +96,11 @@ fn main() {
             -- not a or b and not c
             -- nil ?? a <= false ?? true
             -- a?.foo
+            -- fn foo(a, b): a + b end
+            -- fn a, b => a + b
+            -- [a, b,]
+            -- { a, b: c }
+            -- print("hi")
         "#;
 
         let mut p = new_parser::Parser::new(example.as_bytes());
