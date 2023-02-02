@@ -52,6 +52,7 @@ pub enum TokenData<'a> {
     Error,
     Ident  (&'a str),
     Number (&'a str),
+    Bool   (bool),
     QuotedString (&'a str),
     LParen,
     RParen,
@@ -105,7 +106,7 @@ impl<'a> TokenData<'a> {
         match self {
             // anything that can mark the end
             // of an expression.
-            Ident (_) | Number (_) | QuotedString(_) |
+            Ident (_) | Number (_) | Bool(_) | QuotedString(_) |
             RParen | RBracket | RCurly |
             KwBreak | KwContinue | KwReturn |
             KwEnd
@@ -135,7 +136,7 @@ impl<'a> TokenData<'a> {
     pub fn semi_colon_before(&self) -> bool {
         use TokenData::*;
         match self {
-            Ident (_) | Number (_) | QuotedString(_) |
+            Ident (_) | Number (_) | Bool(_) | QuotedString(_) |
             LParen | LBracket | LCurly |
             KwLet | KwVar |
             KwDo | KwIf | KwWhile | KwFor |
@@ -189,6 +190,34 @@ impl<'a> TokenData<'a> {
         match self {
             KwEnd | KwElse | KwElif | Eof => true,
             _ => false,
+        }
+    }
+
+    #[inline(always)]
+    pub fn is_expr_start(&self) -> bool {
+        use TokenData::*;
+        match self {
+            Ident (_) | Number (_) | Bool (_) | QuotedString (_) |
+            LParen | LBracket | LCurly |
+            KwLet | KwVar |
+            KwDo | KwIf | KwWhile | KwFor |
+            KwBreak | KwContinue | KwReturn |
+            KwFn |
+            KwNot | OpNot |
+            OpPlus | OpMinus | OpStar
+            => true,
+
+            Eof | Error |
+            RParen | RBracket | RCurly |
+            Dot | Comma | Colon | SemiColon |
+            KwEnd |
+            KwElif | KwElse |
+            KwIn |
+            KwAnd | KwOr |
+            OpPlusEq | OpMinusEq | OpStarEq |
+            OpSlash | OpSlashEq | OpSlashSlash | OpSlashSlashEq |
+            OpEq | OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt
+            => false
         }
     }
 }
@@ -303,6 +332,9 @@ impl<'i> Tokenizer<'i> {
             else if at.is_ascii_whitespace() {
                 self.consume_ch(1);
             }
+            else if at == '-' as u8 && self.peek_ch(1) == Some('-' as u8) {
+                self.consume_ch_while(|c| c != '\n');
+            }
             else { break }
         }
     }
@@ -342,9 +374,9 @@ impl<'i> Tokenizer<'i> {
             '(' => single_ch!(TokenData::LParen),
             ')' => single_ch!(TokenData::RParen),
             '[' => single_ch!(TokenData::LBracket),
-            ']' => single_ch!(TokenData::LBracket),
+            ']' => single_ch!(TokenData::RBracket),
             '{' => single_ch!(TokenData::LCurly),
-            '}' => single_ch!(TokenData::LCurly),
+            '}' => single_ch!(TokenData::RCurly),
 
             '.' => single_ch!(TokenData::Dot),
             ',' => single_ch!(TokenData::Comma),
@@ -412,6 +444,8 @@ impl<'i> Tokenizer<'i> {
                 "and"       => TokenData::KwAnd,
                 "or"        => TokenData::KwOr,
                 "not"       => TokenData::KwNot,
+                "false"     => TokenData::Bool(false),
+                "true"      => TokenData::Bool(true),
 
                 _ => TokenData::Ident(value),
             };
@@ -445,8 +479,10 @@ pub enum AstData<'a> {
     Empty,
     Number      (&'a str),
     Ident       (&'a str),
+    Bool        (bool),
     Block       (Box<ast::Block<'a>>),
     Tuple       (Box<ast::Tuple<'a>>),
+    SubExpr     (Box<Ast<'a>>),
     Local       (Box<ast::Local<'a>>),
     Op1         (Box<ast::Op1<'a>>),
     Op2         (Box<ast::Op2<'a>>),
@@ -455,7 +491,7 @@ pub enum AstData<'a> {
     Call        (Box<ast::Call<'a>>),
     If          (Box<ast::If<'a>>),
     While       (Box<ast::While<'a>>),
-    Break       (ast::Break<'a>),
+    Break,
     Continue,
     Return      (ast::Return<'a>),
     Fn          (Box<ast::Fn<'a>>),
@@ -682,6 +718,12 @@ impl<'i> Parser<'i> {
         Err(ParseError::Error)
     }
 
+    pub fn consume_if(&mut self, kind: TokenData) {
+        if self.toker.current().data == kind {
+            self.toker.consume();
+        }
+    }
+
     pub fn peek_op2(&mut self) -> Option<ast::Op2Kind> {
         use TokenData::*;
         use ast::Op2Kind::*;
@@ -713,27 +755,99 @@ impl<'i> Parser<'i> {
     pub fn parse_leading_expr(&mut self, _prec: u32) -> ParseResult<(Ast<'i>, bool)> {
         let current = self.toker.current();
 
+        // ident.
         if let TokenData::Ident(ident) = current.data {
-            let source = current.source;
-            self.toker.consume();
-
+            let source = self.toker.consume().source;
             return Ok((Ast { source, data: AstData::Ident(ident) }, false));
         }
 
+        // number.
         if let TokenData::Number(value) = current.data {
-            let source = current.source;
-            self.toker.consume();
-
+            let source = self.toker.consume().source;
             return Ok((Ast { source, data: AstData::Number(value) }, false));
         }
 
+        // bool.
+        if let TokenData::Bool(value) = current.data {
+            let source = self.toker.consume().source;
+            return Ok((Ast { source, data: AstData::Bool(value) }, false));
+        }
+
+        let begin = current.source.begin;
+
+        // tuples & sub-expr.
         if let TokenData::LParen = current.data {
             self.toker.consume();
 
-            let result = self.parse_expr(0)?.0;
+            let (vals, had_comma) = self.parse_comma_exprs(TokenData::RParen)?;
+            let data =
+                if vals.len() == 1 && !had_comma {
+                    AstData::SubExpr(Box::new(vals.into_iter().next().unwrap()))
+                }
+                else {
+                    AstData::Tuple(Box::new(ast::Tuple { children: vals }))
+                };
 
-            self.expect(TokenData::RParen)?;
-            return Ok((result, false));
+            let end = self.expect(TokenData::RParen)?.end;
+            return Ok((Ast { source: SourceRange { begin, end }, data }, false));
+        }
+
+        // if
+        if let TokenData::KwIf = current.data {
+            self.toker.consume();
+            return Ok((self.parse_if_as_ast(begin)?, true));
+        }
+
+        // while
+        if let TokenData::KwWhile = current.data {
+            self.toker.consume();
+
+            let condition = self.parse_expr(0)?.0;
+            self.expect(TokenData::Colon)?;
+
+            let body = self.parse_block()?.1;
+
+            let data = AstData::While(Box::new(ast::While { condition, body }));
+            let end = self.expect(TokenData::KwEnd)?.end;
+            return Ok((Ast { source: SourceRange { begin, end }, data }, false));
+        }
+
+        // do
+        if let TokenData::KwDo = current.data {
+            self.toker.consume();
+
+            let block = self.parse_block()?.1;
+            let data = AstData::Block(Box::new(block));
+
+            let end = self.expect(TokenData::KwEnd)?.end;
+            return Ok((Ast { source: SourceRange { begin, end }, data }, true));
+        }
+
+        // break
+        if let TokenData::KwBreak = current.data {
+            let source = self.toker.consume().source;
+            return Ok((Ast { source, data: AstData::Break }, false));
+        }
+
+        // continue
+        if let TokenData::KwContinue = current.data {
+            let source = self.toker.consume().source;
+            return Ok((Ast { source, data: AstData::Continue }, false));
+        }
+
+        // return
+        if let TokenData::KwReturn = current.data {
+            let mut end = self.toker.consume().source.end;
+
+            let mut value = None;
+            if self.toker.current().is_expr_start() {
+                let v = self.parse_expr(0)?.0;
+                end = v.source.end;
+                value = Some(Box::new(v));
+            }
+
+            let data = AstData::Return(ast::Return { value });
+            return Ok((Ast { source: SourceRange { begin, end }, data }, false));
         }
 
         unimplemented!()
@@ -772,11 +886,11 @@ impl<'i> Parser<'i> {
             // call.
             if current.data == TokenData::LParen {
                 self.toker.consume();
+
                 let args = self.parse_comma_exprs(TokenData::RParen)?.0;
 
                 let begin = result.source.begin;
-                let end = self.expect(TokenData::RParen)?.end;
-
+                let end   = self.expect(TokenData::RParen)?.end;
                 result = Ast {
                     source: SourceRange { begin, end },
                     data: AstData::Call(Box::new(ast::Call {
@@ -789,12 +903,38 @@ impl<'i> Parser<'i> {
 
             // field.
             if current.data == TokenData::Dot {
-                unimplemented!()
+                self.toker.consume();
+
+                let (name_source, name) = self.expect_ident()?;
+
+                let begin = result.source.begin;
+                let end   = name_source.end;
+                result = Ast {
+                    source: SourceRange { begin, end },
+                    data: AstData::Field(Box::new(ast::Field {
+                        base: result,
+                        name,
+                    })),
+                };
+                continue;
             }
 
             // index.
             if current.data == TokenData::LBracket {
-                unimplemented!()
+                self.toker.consume();
+
+                let index = self.parse_expr(0)?.0;
+
+                let begin = result.source.begin;
+                let end   = self.expect(TokenData::RBracket)?.end;
+                result = Ast {
+                    source: SourceRange { begin, end },
+                    data: AstData::Index(Box::new(ast::Index {
+                        base: result,
+                        index,
+                    })),
+                };
+                continue;
             }
 
             break;
@@ -888,6 +1028,55 @@ impl<'i> Parser<'i> {
 
         let range = SourceRange { begin, end };
         Ok((range, ast::Block { children: result, last_is_expr }))
+    }
+
+    pub fn parse_block_as_ast(&mut self) -> ParseResult<Ast<'i>> {
+        let (source, block) = self.parse_block()?;
+        if block.last_is_expr && block.children.len() == 1 {
+            Ok(block.children.into_iter().next().unwrap())
+        }
+        else {
+            Ok(Ast { source, data: AstData::Block(Box::new(block)) })
+        }
+    }
+
+    pub fn parse_if(&mut self) -> ParseResult<(SourcePos, ast::If<'i>)> {
+        let condition = self.parse_expr(0)?.0;
+        self.expect(TokenData::Colon)?;
+
+        let on_true = self.parse_block_as_ast()?;
+
+        let (end, on_false) = {
+            let at = self.toker.current();
+            if at.data == TokenData::KwElif {
+                let begin = self.toker.consume().source.begin;
+                let body = self.parse_if_as_ast(begin)?;
+                (body.source.end, Some(body))
+            }
+            else if at.data == TokenData::KwElse {
+                self.toker.consume();
+                self.consume_if(TokenData::Colon);
+
+                let body = self.parse_block_as_ast()?;
+                let end = self.expect(TokenData::KwEnd)?.end;
+                (end, Some(body))
+            }
+            else if at.data == TokenData::KwEnd {
+                let end = self.toker.consume().source.end;
+                (end, None)
+            }
+            else {
+                unimplemented!()
+            }
+        };
+
+        Ok((end, ast::If { condition, on_true, on_false }))
+    }
+
+    pub fn parse_if_as_ast(&mut self, begin: SourcePos) -> ParseResult<Ast<'i>> {
+        let (end, data) = self.parse_if()?;
+        let data = AstData::If(Box::new(data));
+        Ok(Ast { source: SourceRange { begin, end }, data })
     }
 }
 

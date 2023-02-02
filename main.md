@@ -2,11 +2,21 @@
 - todo:
     - new parser.
         - the rest of the fkin owl.
+            - prefix ops.
+            - fn.
+            - block comments.
+            - list.
+            - table.
+            - nil, `?`, `??`.
         - parser errors.
         - lexer errors.
     - new compiler.
         - smarter register allocation.
         - don't use `Vm`.
+        - some basic type inference?
+            - stuff like `(a = b): ()`.
+        - can i apply the "elaboration" idea?
+            - function from `Ast` to some "typed ir".
     - tuples
         - really useful for compound table keys.
         - multret is kinda weird & inflexible.

@@ -69,8 +69,22 @@ fn main() {
 
 
         let example = r#"
-            var bar = foo(1, 2+3) / 4
-            ( a + f ( x ) ( y ) ) ( z )
+            -- var bar = foo(1, 2+3) / 4
+            -- ( a + f ( x ) ( y ) ) ( z )
+            -- ()
+            -- (a)
+            -- (a,)
+            -- (a,b)=(b,a)
+            -- a[0] = foo.bar
+            -- true == false or false and true
+            -- do var i = 0; i += 1; i *= 2; i end
+            -- if true: print(42) end
+            -- if a == false: true else false end
+            -- if a==1: one elif a==2: two else three end
+            -- while true: print(hi) end
+            -- return
+            -- return 42
+            -- let foo = (return 42) or 7
         "#;
 
         let mut p = new_parser::Parser::new(example.as_bytes());
