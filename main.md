@@ -16,6 +16,7 @@
             - stuff like `(a = b): ()`.
         - can i apply the "elaboration" idea?
             - function from `Ast` to some "typed ir".
+            - yuh, sounds gud, yuh.
     - tuples
         - really useful for compound table keys.
         - multret is kinda weird & inflexible.

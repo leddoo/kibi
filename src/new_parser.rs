@@ -92,6 +92,7 @@ pub enum TokenData<'a> {
     OpSlashSlash,
     OpSlashSlashEq,
     OpEq,
+    OpFatArrow,
     OpEqEq,
     OpNe,
     OpLe,
@@ -130,7 +131,8 @@ impl<'a> TokenData<'a> {
             OpStar | OpStarEq |
             OpSlash | OpSlashEq |
             OpSlashSlash | OpSlashSlashEq |
-            OpEq | OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
+            OpEq | OpFatArrow |
+            OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
             OpQ | OpQDot | OpQQ | OpQQEq |
             OpNot | KwNot |
             Eof | Error
@@ -166,7 +168,8 @@ impl<'a> TokenData<'a> {
             OpStar | OpStarEq |
             OpSlash | OpSlashEq |
             OpSlashSlash | OpSlashSlashEq |
-            OpEq | OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
+            OpEq | OpFatArrow |
+            OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
             OpQ | OpQDot | OpQQ | OpQQEq |
             Error
             => false,
@@ -221,7 +224,8 @@ impl<'a> TokenData<'a> {
             KwAnd | KwOr |
             OpPlusEq | OpMinusEq | OpStarEq |
             OpSlash | OpSlashEq | OpSlashSlash | OpSlashSlashEq |
-            OpEq | OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
+            OpEq | OpFatArrow |
+            OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
             OpQ | OpQDot | OpQQ | OpQQEq
             => false
         }
@@ -231,7 +235,7 @@ impl<'a> TokenData<'a> {
 
 pub struct Tokenizer<'i> {
     input: &'i [u8],
-    current: usize,
+    cursor: usize,
 
     line: u32,
     line_begin: usize,
@@ -243,7 +247,7 @@ pub struct Tokenizer<'i> {
 impl<'i> Tokenizer<'i> {
     pub fn new(input: &'i [u8]) -> Self {
         let mut toker = Tokenizer {
-            input, current: 0,
+            input, cursor: 0,
             line: 1, line_begin: 0,
             current_token: Default::default(),
             next_token:    Default::default(),
@@ -254,26 +258,30 @@ impl<'i> Tokenizer<'i> {
     }
 
     #[inline(always)]
-    pub fn current(&self) -> &Token<'i> {
+    pub fn peek(&self) -> &Token<'i> {
         &self.current_token
     }
 
     #[inline(always)]
-    pub fn consume(&mut self) -> Token<'i> {
+    pub fn peek_next(&self) -> &Token<'i> {
+        &self.next_token
+    }
+
+    #[inline(always)]
+    pub fn next(&mut self) -> Token<'i> {
         let result = self.current_token;
-        self.next();
+        self._advance();
         result
     }
 
     #[inline(always)]
-    pub fn try_consume(&mut self) -> Option<Token<'i>> {
-        if self.current_token.is_eof() {
-            return None;
+    pub fn next_if(&mut self, kind: TokenData) {
+        if self.current_token.data == kind {
+            self.next();
         }
-        Some(self.consume())
     }
 
-    fn next(&mut self) {
+    fn _advance(&mut self) {
         if self.current_token.is_eof() { return }
 
         let current = &self.current_token;
@@ -295,12 +303,12 @@ impl<'i> Tokenizer<'i> {
 
     #[inline(always)]
     fn pos(&self) -> SourcePos {
-        SourcePos { line: self.line, column: (1 + self.current - self.line_begin) as u32 }
+        SourcePos { line: self.line, column: (1 + self.cursor - self.line_begin) as u32 }
     }
 
     #[inline(always)]
     fn peek_ch(&self, offset: usize) -> Option<u8> {
-        self.input.get(self.current + offset).cloned()
+        self.input.get(self.cursor + offset).cloned()
     }
 
     #[inline(always)]
@@ -310,14 +318,14 @@ impl<'i> Tokenizer<'i> {
 
     #[inline(always)]
     fn consume_ch(&mut self, count: usize) {
-        self.current += count;
+        self.cursor += count;
     }
 
     #[inline(always)]
     fn consume_ch_while<P: Fn(char) -> bool>(&mut self, p: P) {
         while let Some(at) = self.peek_ch(0) {
             if p(at as char) {
-                self.current += 1;
+                self.cursor += 1;
             }
             else { break }
         }
@@ -333,7 +341,7 @@ impl<'i> Tokenizer<'i> {
             if at == '\n' as u8 {
                 self.consume_ch(1);
                 self.line += 1;
-                self.line_begin = self.current;
+                self.line_begin = self.cursor;
             }
             else if at.is_ascii_whitespace() {
                 self.consume_ch(1);
@@ -352,7 +360,7 @@ impl<'i> Tokenizer<'i> {
             return self.mk_token(self.pos(), TokenData::Eof);
         };
 
-        let begin_offset = self.current;
+        let begin_offset = self.cursor;
         let begin_pos = self.pos();
 
         macro_rules! tok_1 {
@@ -438,7 +446,22 @@ impl<'i> Tokenizer<'i> {
                 }
             }
 
-            '=' => tok_2!(TokenData::OpEq,  '=', TokenData::OpEqEq),
+            '=' => {
+                self.consume_ch(1);
+
+                if self.peek_ch_zero(0) == '>' as u8 {
+                    self.consume_ch(1);
+                    return self.mk_token(begin_pos, TokenData::OpFatArrow);
+                }
+                else if self.peek_ch_zero(0) == '=' as u8 {
+                    self.consume_ch(1);
+                    return self.mk_token(begin_pos, TokenData::OpEqEq);
+                }
+                else {
+                    return self.mk_token(begin_pos, TokenData::OpEq);
+                }
+            }
+
             '!' => tok_2!(TokenData::OpNot, '=', TokenData::OpNe),
             '<' => tok_2!(TokenData::OpLt,  '=', TokenData::OpLe),
             '>' => tok_2!(TokenData::OpGt,  '=', TokenData::OpGe),
@@ -452,7 +475,7 @@ impl<'i> Tokenizer<'i> {
             self.consume_ch_while(|c|
                 c.is_ascii_alphanumeric() || c == '_');
 
-            let value = &self.input[begin_offset..self.current];
+            let value = &self.input[begin_offset..self.cursor];
             let value = unsafe { core::str::from_utf8_unchecked(value) };
 
             let data = match value {
@@ -487,7 +510,7 @@ impl<'i> Tokenizer<'i> {
             self.consume_ch(1);
             self.consume_ch_while(|c| c.is_ascii_digit());
 
-            let value = &self.input[begin_offset..self.current];
+            let value = &self.input[begin_offset..self.cursor];
             let value = unsafe { core::str::from_utf8_unchecked(value) };
             return self.mk_token(begin_pos, TokenData::Number(value));
         }
@@ -742,7 +765,7 @@ impl<'i> Parser<'i> {
     }
 
     pub fn expect_ident(&mut self) -> ParseResult<(SourceRange, &'i str)> {
-        let tok = self.toker.consume();
+        let tok = self.toker.next();
         if let TokenData::Ident(ident) = tok.data {
             return Ok((tok.source, ident));
         }
@@ -750,23 +773,17 @@ impl<'i> Parser<'i> {
     }
 
     pub fn expect(&mut self, kind: TokenData) -> ParseResult<SourceRange> {
-        let tok = self.toker.consume();
+        let tok = self.toker.next();
         if tok.data == kind {
             return Ok(tok.source);
         }
         Err(ParseError::Error)
     }
 
-    pub fn consume_if(&mut self, kind: TokenData) {
-        if self.toker.current().data == kind {
-            self.toker.consume();
-        }
-    }
-
     pub fn peek_op1(&mut self) -> Option<ast::Op1Kind> {
         use TokenData::*;
         use ast::Op1Kind::*;
-        Some(match self.toker.current().data {
+        Some(match self.toker.peek().data {
             KwNot   => Not,
             OpNot   => BitNot,
             OpMinus => Neg,
@@ -778,7 +795,7 @@ impl<'i> Parser<'i> {
     pub fn peek_op2(&mut self) -> Option<ast::Op2Kind> {
         use TokenData::*;
         use ast::Op2Kind::*;
-        Some(match self.toker.current().data {
+        Some(match self.toker.peek().data {
             KwAnd           => And,
             KwOr            => Or,
             OpPlus          => Add,
@@ -806,29 +823,29 @@ impl<'i> Parser<'i> {
 
 
     pub fn parse_leading_expr(&mut self, prec: u32) -> ParseResult<(Ast<'i>, bool)> {
-        let current = self.toker.current();
+        let current = self.toker.peek();
 
         // ident.
         if let TokenData::Ident(ident) = current.data {
-            let source = self.toker.consume().source;
+            let source = self.toker.next().source;
             return Ok((Ast { source, data: AstData::Ident(ident) }, false));
         }
 
         // number.
         if let TokenData::Number(value) = current.data {
-            let source = self.toker.consume().source;
+            let source = self.toker.next().source;
             return Ok((Ast { source, data: AstData::Number(value) }, false));
         }
 
         // bool.
         if let TokenData::Bool(value) = current.data {
-            let source = self.toker.consume().source;
+            let source = self.toker.next().source;
             return Ok((Ast { source, data: AstData::Bool(value) }, false));
         }
 
         // nil.
         if let TokenData::Nil = current.data {
-            let source = self.toker.consume().source;
+            let source = self.toker.next().source;
             return Ok((Ast { source, data: AstData::Nil }, false));
         }
 
@@ -836,7 +853,7 @@ impl<'i> Parser<'i> {
 
         // tuples & sub-expr.
         if let TokenData::LParen = current.data {
-            self.toker.consume();
+            self.toker.next();
 
             let (vals, had_comma) = self.parse_comma_exprs(TokenData::RParen)?;
             let data =
@@ -853,13 +870,13 @@ impl<'i> Parser<'i> {
 
         // if
         if let TokenData::KwIf = current.data {
-            self.toker.consume();
+            self.toker.next();
             return Ok((self.parse_if_as_ast(begin)?, true));
         }
 
         // while
         if let TokenData::KwWhile = current.data {
-            self.toker.consume();
+            self.toker.next();
 
             let condition = self.parse_expr(0)?.0;
             self.expect(TokenData::Colon)?;
@@ -873,7 +890,7 @@ impl<'i> Parser<'i> {
 
         // do
         if let TokenData::KwDo = current.data {
-            self.toker.consume();
+            self.toker.next();
 
             let block = self.parse_block()?.1;
             let data = AstData::Block(Box::new(block));
@@ -884,22 +901,22 @@ impl<'i> Parser<'i> {
 
         // break
         if let TokenData::KwBreak = current.data {
-            let source = self.toker.consume().source;
+            let source = self.toker.next().source;
             return Ok((Ast { source, data: AstData::Break }, false));
         }
 
         // continue
         if let TokenData::KwContinue = current.data {
-            let source = self.toker.consume().source;
+            let source = self.toker.next().source;
             return Ok((Ast { source, data: AstData::Continue }, false));
         }
 
         // return
         if let TokenData::KwReturn = current.data {
-            let mut end = self.toker.consume().source.end;
+            let mut end = self.toker.next().source.end;
 
             let mut value = None;
-            if self.toker.current().is_expr_start() {
+            if self.toker.peek().is_expr_start() {
                 let v = self.parse_expr(0)?.0;
                 end = v.source.end;
                 value = Some(Box::new(v));
@@ -915,7 +932,7 @@ impl<'i> Parser<'i> {
             if ast::PREC_PREFIX < prec {
                 unimplemented!()
             }
-            self.toker.consume();
+            self.toker.next();
 
             let value = self.parse_expr(ast::PREC_PREFIX)?.0;
 
@@ -934,7 +951,7 @@ impl<'i> Parser<'i> {
             // binary operator.
             if let Some(op2) = self.peek_op2() {
                 if op2.lprec() >= prec {
-                    self.toker.consume();
+                    self.toker.next();
 
                     let other = self.parse_expr(op2.rprec())?.0;
                     let begin = result.source.begin;
@@ -955,11 +972,11 @@ impl<'i> Parser<'i> {
                 break;
             }
 
-            let current = self.toker.current();
+            let current = self.toker.peek();
 
             // call.
             if current.data == TokenData::LParen {
-                self.toker.consume();
+                self.toker.next();
 
                 let args = self.parse_comma_exprs(TokenData::RParen)?.0;
 
@@ -977,7 +994,7 @@ impl<'i> Parser<'i> {
 
             // field.
             if current.data == TokenData::Dot {
-                self.toker.consume();
+                self.toker.next();
 
                 let (name_source, name) = self.expect_ident()?;
 
@@ -995,7 +1012,7 @@ impl<'i> Parser<'i> {
 
             // opt-chain.
             if current.data == TokenData::OpQDot {
-                self.toker.consume();
+                self.toker.next();
 
                 let (name_source, name) = self.expect_ident()?;
 
@@ -1013,7 +1030,7 @@ impl<'i> Parser<'i> {
 
             // index.
             if current.data == TokenData::LBracket {
-                self.toker.consume();
+                self.toker.next();
 
                 let index = self.parse_expr(0)?.0;
 
@@ -1041,11 +1058,11 @@ impl<'i> Parser<'i> {
         let mut result = vec![];
 
         let mut had_comma = true;
-        while had_comma && self.toker.current().data != until {
+        while had_comma && self.toker.peek().data != until {
             result.push(self.parse_expr(0)?.0);
 
-            if self.toker.current().data == TokenData::Comma {
-                self.toker.consume();
+            if self.toker.peek().data == TokenData::Comma {
+                self.toker.next();
             }
             else {
                 had_comma = false;
@@ -1058,7 +1075,7 @@ impl<'i> Parser<'i> {
     pub fn parse_stmt(&mut self) -> ParseResult<(Ast<'i>, bool)> {
         // local | empty_stmt | expr_stmt
 
-        let current = self.toker.current();
+        let current = self.toker.peek();
         let begin = current.source.begin;
 
         // local ::= (let | var) ident (= expr)? ;
@@ -1069,13 +1086,13 @@ impl<'i> Parser<'i> {
                 TokenData::KwVar => ast::LocalKind::Var,
                 _ => unreachable!()
             };
-            self.toker.consume();
+            self.toker.next();
 
             let name = self.expect_ident()?.1;
 
             let mut value = None;
-            if self.toker.current().data == TokenData::OpEq {
-                self.toker.consume();
+            if self.toker.peek().data == TokenData::OpEq {
+                self.toker.next();
 
                 value = Some(self.parse_expr(0)?.0);
             }
@@ -1092,14 +1109,14 @@ impl<'i> Parser<'i> {
 
         // empty
         if current.data == TokenData::SemiColon {
-            let source = self.toker.consume().source;
+            let source = self.toker.next().source;
             return Ok((Ast { source, data: AstData::Empty }, true));
         }
 
         // expr_stmt
         let (expr, mut terminated) = self.parse_expr(0)?;
-        if self.toker.current().is_semi_colon() {
-            self.toker.consume();
+        if self.toker.peek().is_semi_colon() {
+            self.toker.next();
             terminated = true;
         }
         Ok((expr, terminated))
@@ -1108,11 +1125,11 @@ impl<'i> Parser<'i> {
     pub fn parse_block(&mut self) -> ParseResult<(SourceRange, ast::Block<'i>)> {
         let mut result = vec![];
 
-        let begin = self.toker.current().source.begin;
+        let begin = self.toker.peek().source.begin;
         let mut end = begin;
 
         let mut last_is_expr = false;
-        while !self.toker.current().is_block_end() {
+        while !self.toker.peek().is_block_end() {
             let (stmt, terminated) = self.parse_stmt()?;
             if !terminated {
                 if last_is_expr {
@@ -1145,22 +1162,22 @@ impl<'i> Parser<'i> {
         let on_true = self.parse_block_as_ast()?;
 
         let (end, on_false) = {
-            let at = self.toker.current();
+            let at = self.toker.peek();
             if at.data == TokenData::KwElif {
-                let begin = self.toker.consume().source.begin;
+                let begin = self.toker.next().source.begin;
                 let body = self.parse_if_as_ast(begin)?;
                 (body.source.end, Some(body))
             }
             else if at.data == TokenData::KwElse {
-                self.toker.consume();
-                self.consume_if(TokenData::Colon);
+                self.toker.next();
+                self.toker.next_if(TokenData::Colon);
 
                 let body = self.parse_block_as_ast()?;
                 let end = self.expect(TokenData::KwEnd)?.end;
                 (end, Some(body))
             }
             else if at.data == TokenData::KwEnd {
-                let end = self.toker.consume().source.end;
+                let end = self.toker.next().source.end;
                 (end, None)
             }
             else {

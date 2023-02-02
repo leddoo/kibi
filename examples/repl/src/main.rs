@@ -55,7 +55,8 @@ fn main() {
 
         let mut line = 1;
         let mut toker = new_parser::Tokenizer::new(example.as_bytes());
-        while let Some(tok) = toker.try_consume() {
+        loop {
+            let tok = toker.next();
             if tok.source.begin.line != line {
                 line = tok.source.begin.line;
                 println!();
@@ -63,6 +64,9 @@ fn main() {
             print!("{:?} ", tok.data);
             if tok.source.is_collapsed() {
                 print!("<<< inserted ");
+            }
+            if tok.data.is_eof() {
+                break;
             }
         }
         println!();
