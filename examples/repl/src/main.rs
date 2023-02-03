@@ -101,6 +101,14 @@ fn main() {
             -- [a, b,]
             -- { a, b: c }
             -- print("hi")
+
+            --[[
+                a
+                --[[
+                    b
+                --]]
+                c
+            --]]
         "#;
 
         let mut p = new_parser::Parser::new(example.as_bytes());

@@ -1,9 +1,5 @@
 
 - todo:
-    - new parser.
-        - block comments.
-        - parser errors.
-        - lexer errors.
     - new compiler.
         - smarter register allocation.
         - don't use `Vm`.

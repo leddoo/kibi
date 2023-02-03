@@ -233,6 +233,30 @@ impl<'a> TokenData<'a> {
 }
 
 
+#[derive(Clone, Copy, Debug)]
+pub struct ParseError {
+    pub source: SourceRange,
+    pub data: ParseErrorData,
+}
+
+impl ParseError {
+    #[inline]
+    pub fn at(token: &Token, data: ParseErrorData) -> ParseError {
+        ParseError { source: token.source, data }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum ParseErrorData {
+    Expected(TokenData<'static>),
+    ExpectedExpression,
+    UnexpectedEof,
+}
+
+pub type ParseResult<T> = Result<T, ParseError>;
+
+
+
 pub struct Tokenizer<'i> {
     input: &'i [u8],
     cursor: usize,
@@ -348,11 +372,58 @@ impl<'i> Tokenizer<'i> {
             else if at.is_ascii_whitespace() {
                 self.consume_ch(1);
             }
+            // block comments.
+            else if self.at_block_comment_start() {
+                self.consume_ch(4);
+
+                let mut depth = 1;
+                while depth > 0 {
+                    if self.at_block_comment_start() {
+                        self.consume_ch(4);
+                        depth += 1;
+                    }
+                    else if self.at_block_comment_stop() {
+                        self.consume_ch(4);
+                        depth -= 1;
+                    }
+                    else if self.peek_ch(0) == Some('\n' as u8) {
+                        self.consume_ch(1);
+                        self.line += 1;
+                        self.line_begin = self.cursor;
+                    }
+                    else {
+                        self.consume_ch(1);
+                    }
+                }
+            }
+            // single line comments.
             else if at == '-' as u8 && self.peek_ch(1) == Some('-' as u8) {
                 self.consume_ch_while(|c| c != '\n');
             }
             else { break }
         }
+    }
+
+    #[inline]
+    fn at_block_comment_start(&self) -> bool {
+        if self.cursor + 4 <= self.input.len() {
+               self.input[self.cursor + 0] == '-' as u8
+            && self.input[self.cursor + 1] == '-' as u8
+            && self.input[self.cursor + 2] == '[' as u8
+            && self.input[self.cursor + 3] == '[' as u8
+        }
+        else { false }
+    }
+
+    #[inline]
+    fn at_block_comment_stop(&self) -> bool {
+        if self.cursor + 4 <= self.input.len() {
+               self.input[self.cursor + 0] == '-' as u8
+            && self.input[self.cursor + 1] == '-' as u8
+            && self.input[self.cursor + 2] == ']' as u8
+            && self.input[self.cursor + 3] == ']' as u8
+        }
+        else { false }
     }
 
     fn _next_token(&mut self) -> Token<'i> {
@@ -473,7 +544,7 @@ impl<'i> Tokenizer<'i> {
 
                 loop {
                     let Some(at) = self.peek_ch(0) else {
-                        unimplemented!()
+                        return self.mk_token(begin_pos, TokenData::Error);
                     };
 
                     self.consume_ch(1);
@@ -482,7 +553,7 @@ impl<'i> Tokenizer<'i> {
                         let value = &self.input[begin_offset+1 .. self.cursor-1];
 
                         let Ok(value) = core::str::from_utf8(value) else {
-                            unimplemented!()
+                            return self.mk_token(begin_pos, TokenData::Error);
                         };
 
                         return self.mk_token(begin_pos, TokenData::QuotedString(value));
@@ -490,6 +561,11 @@ impl<'i> Tokenizer<'i> {
 
                     if at == '\\' as u8 {
                         unimplemented!();
+                    }
+
+                    if at == '\n' as u8 {
+                        self.line += 1;
+                        self.line_begin = self.cursor;
                     }
                 }
             }
@@ -543,7 +619,8 @@ impl<'i> Tokenizer<'i> {
             return self.mk_token(begin_pos, TokenData::Number(value));
         }
 
-        unimplemented!();
+        self.consume_ch(1);
+        self.mk_token(begin_pos, TokenData::Error)
     }
 }
 
@@ -800,14 +877,6 @@ impl<'i> Ident<'i> {
 }
 
 
-#[derive(Clone, Copy, Debug)]
-pub enum ParseError {
-    Error,
-}
-
-pub type ParseResult<T> = Result<T, ParseError>;
-
-
 pub struct Parser<'i> {
     toker: Tokenizer<'i>,
 }
@@ -824,15 +893,15 @@ impl<'i> Parser<'i> {
         if let TokenData::Ident(value) = tok.data {
             return Ok(Ident { source: tok.source, value });
         }
-        Err(ParseError::Error)
+        Err(ParseError::at(&tok, ParseErrorData::Expected(TokenData::Ident(""))))
     }
 
-    pub fn expect(&mut self, kind: TokenData) -> ParseResult<SourceRange> {
+    pub fn expect(&mut self, kind: TokenData<'static>) -> ParseResult<SourceRange> {
         let tok = self.toker.next();
         if tok.data == kind {
             return Ok(tok.source);
         }
-        Err(ParseError::Error)
+        Err(ParseError::at(&tok, ParseErrorData::Expected(kind)))
     }
 
     pub fn peek_op1(&mut self) -> Option<ast::Op1Kind> {
@@ -878,7 +947,7 @@ impl<'i> Parser<'i> {
 
 
     pub fn parse_leading_expr(&mut self, prec: u32) -> ParseResult<(Ast<'i>, bool)> {
-        let current = self.toker.peek();
+        let current = *self.toker.peek();
 
         // ident.
         if let TokenData::Ident(ident) = current.data {
@@ -1059,7 +1128,39 @@ impl<'i> Parser<'i> {
             return Ok((Ast { source: SourceRange { begin, end }, data }, false));
         }
 
-        unimplemented!()
+        // local ::= (let | var) ident (= expr)? (;)?
+        if current.data == TokenData::KwLet
+        || current.data == TokenData::KwVar {
+            let kind = match current.data {
+                TokenData::KwLet => ast::LocalKind::Let,
+                TokenData::KwVar => ast::LocalKind::Var,
+                _ => unreachable!()
+            };
+            self.toker.next();
+
+            let name = self.expect_ident()?;
+
+            let mut end = name.source.end;
+
+            let mut value = None;
+            if self.toker.peek().data == TokenData::OpEq {
+                self.toker.next();
+
+                let v = self.parse_expr(0)?.0;
+                end = v.source.end;
+                value = Some(v);
+            }
+
+            return Ok((Ast {
+                source: SourceRange { begin, end },
+                data: AstData::Local(Box::new(ast::Local {
+                    name: name.value, value, kind,
+                })),
+            }, false));
+        }
+
+
+        Err(ParseError::at(&current, ParseErrorData::ExpectedExpression))
     }
 
     pub fn parse_expr(&mut self, prec: u32) -> ParseResult<(Ast<'i>, bool)> {
@@ -1215,87 +1316,47 @@ impl<'i> Parser<'i> {
         Ok((result, had_comma))
     }
 
-    pub fn parse_stmt(&mut self) -> ParseResult<(Ast<'i>, bool)> {
-        // local | empty_stmt | expr_stmt
-
-        let current = self.toker.peek();
-        let begin = current.source.begin;
-
-        // local ::= (let | var) ident (= expr)? ;
-        if current.data == TokenData::KwLet
-        || current.data == TokenData::KwVar {
-            let kind = match current.data {
-                TokenData::KwLet => ast::LocalKind::Let,
-                TokenData::KwVar => ast::LocalKind::Var,
-                _ => unreachable!()
-            };
-            self.toker.next();
-
-            let name = self.expect_ident()?.value;
-
-            let mut value = None;
-            if self.toker.peek().data == TokenData::OpEq {
-                self.toker.next();
-
-                value = Some(self.parse_expr(0)?.0);
-            }
-
-            let end = self.expect(TokenData::SemiColon)?.end;
-
-            return Ok((Ast {
-                source: SourceRange { begin, end },
-                data: AstData::Local(Box::new(ast::Local {
-                    name, value, kind,
-                })),
-            }, true));
-        }
-
-        // empty
-        if current.data == TokenData::SemiColon {
-            let source = self.toker.next().source;
-            return Ok((Ast { source, data: AstData::Empty }, true));
-        }
-
-        // expr_stmt
-        let (expr, mut terminated) = self.parse_expr(0)?;
-        if self.toker.peek().data == TokenData::SemiColon {
-            self.toker.next();
-            terminated = true;
-        }
-        Ok((expr, terminated))
-    }
-
     pub fn parse_block(&mut self) -> ParseResult<(SourceRange, ast::Block<'i>)> {
         let mut result = vec![];
 
         let begin = self.toker.peek().source.begin;
         let mut end = begin;
 
-        let mut last_is_expr = false;
+        let mut non_terminated: Option<SourcePos> = None;
         while !self.toker.peek().is_block_end() {
-            let (stmt, terminated) = self.parse_stmt()?;
-            if !terminated {
-                if last_is_expr {
-                    unimplemented!()
-                }
-                last_is_expr = true;
+            if let Some(pos) = non_terminated {
+                let source = SourceRange { begin: pos, end: pos };
+                return Err(ParseError { source, data: ParseErrorData::Expected(TokenData::SemiColon) });
             }
-            end = stmt.source.end;
-            result.push(stmt);
+
+            // empty stmt.
+            if self.toker.peek().data == TokenData::SemiColon {
+                let source = self.toker.next().source;
+                end = source.end;
+            }
+            // expr stmt
+            else {
+                let (expr, mut terminated) = self.parse_expr(0)?;
+                if self.toker.peek().data == TokenData::SemiColon {
+                    self.toker.next();
+                    terminated = true;
+                }
+
+                if !terminated {
+                    non_terminated = Some(expr.source.end);
+                }
+                end = expr.source.end;
+                result.push(expr);
+            }
         }
 
         let range = SourceRange { begin, end };
-        Ok((range, ast::Block { children: result, last_is_expr }))
+        Ok((range, ast::Block { children: result, last_is_expr: non_terminated.is_none() }))
     }
 
     pub fn parse_block_as_ast(&mut self) -> ParseResult<Ast<'i>> {
         let (source, block) = self.parse_block()?;
-        if block.last_is_expr && block.children.len() == 1 {
-            Ok(block.children.into_iter().next().unwrap())
-        }
-        else {
-            Ok(Ast { source, data: AstData::Block(Box::new(block)) })
-        }
+        Ok(Ast { source, data: AstData::Block(Box::new(block)) })
     }
 
     pub fn parse_if(&mut self) -> ParseResult<(SourcePos, ast::If<'i>)> {
@@ -1324,7 +1385,7 @@ impl<'i> Parser<'i> {
                 (end, None)
             }
             else {
-                unimplemented!()
+                return Err(ParseError::at(&at, ParseErrorData::Expected(TokenData::KwEnd)));
             }
         };
 
