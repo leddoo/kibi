@@ -1,13 +1,24 @@
 
 - todo:
     - new compiler.
+        - todo:
+            - assignments.
+            - lower to bytecode.
+            - more impl:
+                - number.
+                - field.
+                - index.
+                - call.
+                - while.
+                - break/continue.
+                - return.
+                - opt_chain.
+            - later: fancier source positions.
+                - bin-ops: the operator, not the entire expr.
+                - if switch: the colon.
+                - stuff like that.
         - smarter register allocation.
-        - don't use `Vm`.
-        - some basic type inference?
-            - stuff like `(a = b): ()`.
-        - can i apply the "elaboration" idea?
-            - function from `Ast` to some "typed ir".
-            - yuh, sounds gud, yuh.
+        - elab: ty & compile at same time?
     - tuples
         - really useful for compound table keys.
         - multret is kinda weird & inflexible.

@@ -4,6 +4,13 @@ pub struct SourcePos {
     pub column: u32,
 }
 
+impl SourcePos {
+    pub fn to_range(self) -> SourceRange {
+        SourceRange { begin: self, end: self }
+    }
+}
+
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SourceRange {
     pub begin: SourcePos,
@@ -14,6 +21,12 @@ impl SourceRange {
     #[inline(always)]
     pub fn is_collapsed(&self) -> bool {
         self.begin == self.end
+    }
+
+    #[inline(always)]
+    pub const fn null() -> SourceRange {
+        let zero = SourcePos { line: 0, column: 0 };
+        SourceRange { begin: zero, end: zero }
     }
 }
 
@@ -634,7 +647,6 @@ pub struct Ast<'a> {
 
 #[derive(Clone, Debug)]
 pub enum AstData<'a> {
-    Empty,
     Nil,
     Bool        (bool),
     Number      (&'a str),
@@ -1351,7 +1363,7 @@ impl<'i> Parser<'i> {
         }
 
         let range = SourceRange { begin, end };
-        Ok((range, ast::Block { children: result, last_is_expr: non_terminated.is_none() }))
+        Ok((range, ast::Block { children: result, last_is_expr: non_terminated.is_some() }))
     }
 
     pub fn parse_block_as_ast(&mut self) -> ParseResult<Ast<'i>> {

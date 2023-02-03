@@ -109,11 +109,20 @@ fn main() {
                 --]]
                 c
             --]]
+
+            let a = true or false
+            let b
+            if a:
+                a
+            end
         "#;
 
         let mut p = new_parser::Parser::new(example.as_bytes());
-        let chunk = p.parse_block().unwrap();
+        let (chunk_source, chunk) = p.parse_block().unwrap();
         println!("parsed: {:#?}", chunk);
+
+        let mut c = new_compiler::Compiler {};
+        c.compile_chunk(chunk_source, &chunk).unwrap();
 
 
         if 1==1 { return }
