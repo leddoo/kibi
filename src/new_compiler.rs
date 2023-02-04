@@ -7,12 +7,22 @@ pub struct CompileError {
     pub data:   CompileErrorData,
 }
 
+impl CompileError {
+    #[inline]
+    pub fn at(ast: &Ast, data: CompileErrorData) -> CompileError {
+        CompileError { source: ast.source, data }
+    }
+}
+
+
 #[derive(Debug)]
 pub enum CompileErrorData {
     UnexpectedLocal,
+    InvalidAssignTarget,
 }
 
 pub type CompileResult<T> = Result<T, CompileError>;
+
 
 
 pub struct Compiler {
@@ -103,40 +113,69 @@ impl Compiler {
             }
 
             AstData::Op2 (op) => {
-                let src1 = fb.new_reg();
-                self.compile_ast(fb, bb, &op.children[0], src1)?;
-                let src2 = fb.new_reg();
-                self.compile_ast(fb, bb, &op.children[1], src2)?;
+                use ast::Op2Kind as OpKind;
 
-                // TODO: assignments, check lhs:
-                //  - Field or Index -> generate `set`.
-                //  - Ident -> lookup & `copy`.
+                if op.kind == OpKind::Assign {
+                    let res = fb.new_reg();
+                    self.compile_ast(fb, bb, &op.children[1], res)?;
 
-                fb.add_stmt(*bb, ast, match op.kind {
-                    ast::Op2Kind::And => StatementData::And { dst, src1, src2 },
-                    ast::Op2Kind::Or => StatementData::Or { dst, src1, src2 },
-                    ast::Op2Kind::Assign => unimplemented!(),
-                    ast::Op2Kind::Add => StatementData::Add { dst, src1, src2 },
-                    ast::Op2Kind::AddAssign => unimplemented!(),
-                    ast::Op2Kind::Sub => StatementData::Sub { dst, src1, src2 },
-                    ast::Op2Kind::SubAssign => unimplemented!(),
-                    ast::Op2Kind::Mul => StatementData::Mul { dst, src1, src2 },
-                    ast::Op2Kind::MulAssign => unimplemented!(),
-                    ast::Op2Kind::Div => StatementData::Div { dst, src1, src2 },
-                    ast::Op2Kind::DivAssign => unimplemented!(),
-                    ast::Op2Kind::IntDiv => StatementData::IntDiv { dst, src1, src2 },
-                    ast::Op2Kind::IntDivAssign => unimplemented!(),
-                    ast::Op2Kind::CmpEq => StatementData::CmpEq { dst, src1, src2 },
-                    ast::Op2Kind::CmpNe => StatementData::CmpNe { dst, src1, src2 },
-                    ast::Op2Kind::CmpLe => StatementData::CmpLe { dst, src1, src2 },
-                    ast::Op2Kind::CmpLt => StatementData::CmpLt { dst, src1, src2 },
-                    ast::Op2Kind::CmpGe => StatementData::CmpGe { dst, src1, src2 },
-                    ast::Op2Kind::CmpGt => StatementData::CmpGt { dst, src1, src2 },
-                    ast::Op2Kind::OrElse => StatementData::OrElse { dst, src1, src2 },
-                    ast::Op2Kind::OrElseAssign => unimplemented!(),
-                });
+                    self.compile_assign(fb, bb, &op.children[0], res)?;
 
-                Ok(())
+                    fb.add_stmt(*bb, ast, StatementData::LoadNil { dst });
+                    Ok(())
+                }
+                else if op.kind.is_comp_assign() {
+                    let src1 = fb.new_reg();
+                    self.compile_ast(fb, bb, &op.children[0], src1)?;
+                    let src2 = fb.new_reg();
+                    self.compile_ast(fb, bb, &op.children[1], src2)?;
+
+                    let res = fb.new_reg();
+                    fb.add_stmt(*bb, ast, match op.kind {
+                        OpKind::AddAssign     => StatementData::Add { dst: res, src1, src2 },
+                        OpKind::SubAssign     => StatementData::Sub { dst: res, src1, src2 },
+                        OpKind::MulAssign     => StatementData::Mul { dst: res, src1, src2 },
+                        OpKind::DivAssign     => StatementData::Div { dst: res, src1, src2 },
+                        OpKind::IntDivAssign  => StatementData::IntDiv { dst: res, src1, src2 },
+                        OpKind::OrElseAssign  => StatementData::OrElse { dst: res, src1, src2 },
+
+                        _ => unreachable!(),
+                    });
+
+                    self.compile_assign(fb, bb, &op.children[0], res)?;
+
+                    fb.add_stmt(*bb, ast, StatementData::LoadNil { dst });
+                    Ok(())
+                }
+                else {
+                    let src1 = fb.new_reg();
+                    self.compile_ast(fb, bb, &op.children[0], src1)?;
+                    let src2 = fb.new_reg();
+                    self.compile_ast(fb, bb, &op.children[1], src2)?;
+
+                    fb.add_stmt(*bb, ast, match op.kind {
+                        OpKind::And     => StatementData::And    { dst, src1, src2 },
+                        OpKind::Or      => StatementData::Or     { dst, src1, src2 },
+                        OpKind::Add     => StatementData::Add    { dst, src1, src2 },
+                        OpKind::Sub     => StatementData::Sub    { dst, src1, src2 },
+                        OpKind::Mul     => StatementData::Mul    { dst, src1, src2 },
+                        OpKind::Div     => StatementData::Div    { dst, src1, src2 },
+                        OpKind::IntDiv  => StatementData::IntDiv { dst, src1, src2 },
+                        OpKind::CmpEq   => StatementData::CmpEq  { dst, src1, src2 },
+                        OpKind::CmpNe   => StatementData::CmpNe  { dst, src1, src2 },
+                        OpKind::CmpLe   => StatementData::CmpLe  { dst, src1, src2 },
+                        OpKind::CmpLt   => StatementData::CmpLt  { dst, src1, src2 },
+                        OpKind::CmpGe   => StatementData::CmpGe  { dst, src1, src2 },
+                        OpKind::CmpGt   => StatementData::CmpGt  { dst, src1, src2 },
+                        OpKind::OrElse  => StatementData::OrElse { dst, src1, src2 },
+
+                        OpKind::Assign |
+                        OpKind::AddAssign | OpKind::SubAssign | OpKind::MulAssign |
+                        OpKind::DivAssign | OpKind::IntDivAssign |
+                        OpKind::OrElseAssign => unreachable!()
+                    });
+                    Ok(())
+                }
             }
 
             AstData::Field (field) => {
@@ -263,6 +302,35 @@ impl Compiler {
 
         fb.end_scope(scope);
         Ok(())
+    }
+
+    pub fn compile_assign<'a>(&mut self, fb: &mut FunctionBuilder<'a>, bb: &mut BlockId,
+        ast: &Ast<'a>, src: Reg) -> CompileResult<()>
+    {
+        match &ast.data {
+            AstData::Ident (name) => {
+                if let Some(decl) = fb.find_decl(name) {
+                    fb.add_stmt(*bb, ast, StatementData::Copy { dst: decl.reg, src });
+                }
+                else {
+                    unimplemented!()
+                }
+
+                Ok(())
+            }
+
+            AstData::Field (field) => {
+                let _ = field;
+                unimplemented!()
+            }
+
+            AstData::Index (index) => {
+                let _ = index;
+                unimplemented!()
+            }
+
+            _ => Err(CompileError::at(ast, CompileErrorData::InvalidAssignTarget)),
+        }
     }
 }
 

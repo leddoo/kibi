@@ -1,8 +1,24 @@
 
 - todo:
+    - ssa form:
+        - generate ssa w/ locals:
+            - `StmtRef<'a>`.
+            - `load/store_local`.
+            - use local for `if`.
+        - dominators:
+            - compute frontiers.
+            - compute tree.
+        - local2reg.
+        - optimization:
+            - copy propagation.
+        - remove phi nodes.
+        - register allocation.
     - new compiler.
         - todo:
-            - assignments.
+            - constants:
+                - store small ones in `Stmt` for speed.
+                - keep table for strings.
+                - but have a varargs `Tuple` stmt -> sroa & stuff.
             - lower to bytecode.
             - more impl:
                 - number.

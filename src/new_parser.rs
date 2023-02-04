@@ -812,6 +812,22 @@ pub mod ast {
                 IntDiv          => 801,
             }
         }
+
+        #[inline(always)]
+        pub fn is_comp_assign(self) -> bool {
+            use Op2Kind::*;
+            match self {
+                AddAssign | SubAssign | MulAssign | DivAssign |
+                IntDivAssign | OrElseAssign
+                => true,
+
+                And | Or | Assign |
+                Add | Sub | Mul | Div | IntDiv |
+                CmpEq | CmpNe | CmpLe | CmpLt | CmpGe | CmpGt |
+                OrElse
+                => false,
+            }
+        }
     }
 
     pub const PREC_PREFIX:  u32 =  900;

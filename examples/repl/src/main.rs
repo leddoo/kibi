@@ -110,11 +110,20 @@ fn main() {
                 c
             --]]
 
+            --[[
             let a = true or false
             let b
             if a:
                 a
+            else:
+                b = a
+                b += true
             end
+            --]]
+
+            let a; let b; let c
+            a += b
+            a = c / a
         "#;
 
         let mut p = new_parser::Parser::new(example.as_bytes());
