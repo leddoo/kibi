@@ -1,10 +1,6 @@
 
 - todo:
     - ssa form:
-        - generate ssa w/ locals:
-            - `StmtRef<'a>`.
-            - `load/store_local`.
-            - use local for `if`.
         - dominators:
             - compute frontiers.
             - compute tree.

@@ -54,7 +54,8 @@ impl<'a> Default for Token<'a> {
 
 impl<'a> core::ops::Deref for Token<'a> {
     type Target = TokenData<'a>;
-    #[inline(always)] fn deref(&self) -> &Self::Target { &self.data }
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target { &self.data }
 }
 
 
