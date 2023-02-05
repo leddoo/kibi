@@ -1,9 +1,9 @@
 
 - todo:
     - ssa form:
-        - dominators:
-            - compute frontiers.
-            - compute tree.
+        - reverse post-order.
+        - idom.
+        - dominance frontiers.
         - local2reg.
         - optimization:
             - copy propagation.

@@ -1,9 +1,5 @@
 use crate::new_parser::*;
 
-// @temp
-use std::collections::HashMap;
-use core::fmt::Write;
-
 
 #[derive(Debug)]
 pub struct CompileError {
@@ -38,13 +34,9 @@ impl Compiler {
         let mut bb = fb.new_block();
         self.compile_block(&mut fb, &mut bb, source, block, false)?;
 
-        let mut buf = String::new();
-        let mut dump = IrDump::new();
         for bb in &fb.blocks {
-            dump.bb(&mut buf, bb).unwrap();
-            write!(buf, "\n\n").unwrap();
+            println!("{}", bb);
         }
-        print!("{}", buf);
 
         Ok(())
     }
@@ -349,6 +341,10 @@ impl Compiler {
 
 
 
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+pub struct StmtId(u32);
+
+
 #[derive(Clone, Copy)]
 #[repr(transparent)]
 pub struct StmtRef<'a>(&'a Statement<'a>);
@@ -382,18 +378,51 @@ impl<'a> core::ops::Deref for StmtRef<'a> {
     fn deref(&self) -> &Self::Target { self.0 }
 }
 
+impl<'a> core::fmt::Display for StmtRef<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "r{} := ", self.id.0)?;
+
+        use StatementData::*;
+        match &self.data {
+            Copy { src } => { write!(f, "copy r{}", src.id.0) }
+
+            GetLocal { src }      => { write!(f, "get_local {}", src) }
+            SetLocal { dst, src } => { write!(f, "set_local {}, r{}", dst, src.id.0) }
+
+            LoadNil             => { write!(f, "load_nil") }
+            LoadBool  { value } => { write!(f, "load_bool {}", value) }
+            LoatInt   { value } => { write!(f, "load_int {}", value) }
+            LoadFloat { value } => { write!(f, "load_float {}", value) }
+
+            Not    { src } => { write!(f, "not r{}",     src.id.0) }
+            BitNot { src } => { write!(f, "bit_not r{}", src.id.0) }
+            Neg    { src } => { write!(f, "neg r{}",     src.id.0) }
+            Plus   { src } => { write!(f, "plus r{}",    src.id.0) }
+
+            And    { src1, src2 } => { write!(f, "and r{}, r{}",     src1.id.0, src2.id.0) }
+            Or     { src1, src2 } => { write!(f, "or r{}, r{}",      src1.id.0, src2.id.0) }
+            Add    { src1, src2 } => { write!(f, "add r{}, r{}",     src1.id.0, src2.id.0) }
+            Sub    { src1, src2 } => { write!(f, "sub r{}, r{}",     src1.id.0, src2.id.0) }
+            Mul    { src1, src2 } => { write!(f, "mul r{}, r{}",     src1.id.0, src2.id.0) }
+            Div    { src1, src2 } => { write!(f, "div r{}, r{}",     src1.id.0, src2.id.0) }
+            IntDiv { src1, src2 } => { write!(f, "int_div r{}, r{}", src1.id.0, src2.id.0) }
+            CmpEq  { src1, src2 } => { write!(f, "cmp_eq r{}, r{}",  src1.id.0, src2.id.0) }
+            CmpNe  { src1, src2 } => { write!(f, "cmp_ne r{}, r{}",  src1.id.0, src2.id.0) }
+            CmpLe  { src1, src2 } => { write!(f, "cmp_le r{}, r{}",  src1.id.0, src2.id.0) }
+            CmpLt  { src1, src2 } => { write!(f, "cmp_lt r{}, r{}",  src1.id.0, src2.id.0) }
+            CmpGe  { src1, src2 } => { write!(f, "cmp_ge r{}, r{}",  src1.id.0, src2.id.0) }
+            CmpGt  { src1, src2 } => { write!(f, "cmp_gt r{}, r{}",  src1.id.0, src2.id.0) }
+            OrElse { src1, src2 } => { write!(f, "or_else r{}, r{}", src1.id.0, src2.id.0) }
+        }
+    }
+}
+
 
 #[derive(Clone, Debug)]
 pub struct Statement<'a> {
+    pub id:     StmtId,
     pub source: SourceRange,
     pub data:   StatementData<'a>,
-}
-
-impl<'a> Statement<'a> {
-    #[inline]
-    pub fn at(ast: &Ast, data: StatementData<'a>) -> Self {
-        Statement { source: ast.source, data }
-    }
 }
 
 impl<'a> core::ops::Deref for Statement<'a> {
@@ -447,6 +476,26 @@ impl<'a> core::ops::Deref for Terminator<'a> {
     type Target = TerminatorData<'a>;
     #[inline(always)]
     fn deref(&self) -> &Self::Target { &self.data }
+}
+
+impl<'a> core::fmt::Display for Terminator<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use TerminatorData::*;
+        match &self.data {
+            None => {
+                write!(f, "none")
+            }
+            Jump { target } => {
+                write!(f, "jump {}", target)
+            }
+            SwitchBool { src, on_true, on_false } => {
+                write!(f, "switch_bool r{}, {}, {}", src.id.0, on_true, on_false)
+            }
+            Return { src } => {
+                write!(f, "return r{}", src.id.0)
+            }
+        }
+    }
 }
 
 
@@ -503,6 +552,18 @@ impl<'a> Block<'a> {
     }
 }
 
+impl<'a> core::fmt::Display for Block<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:\n", self.id)?;
+
+        for stmt in &self.statements {
+            write!(f, "  {}\n", *stmt)?;
+        }
+
+        write!(f, "  {}\n", self.terminator)
+    }
+}
+
 
 #[derive(Clone, Debug)]
 pub struct Function<'a> {
@@ -538,6 +599,7 @@ pub struct FunctionBuilder<'a> {
     decls:      Vec<Decl<'a>>,
     scope:      ScopeId,
     next_local: LocalId,
+    next_stmt:  StmtId,
 }
 
 impl<'a> FunctionBuilder<'a> {
@@ -547,6 +609,7 @@ impl<'a> FunctionBuilder<'a> {
             decls:      vec![],
             scope:      ScopeId(0),
             next_local: LocalId(0),
+            next_stmt:  StmtId(0),
         }
     }
 
@@ -575,7 +638,11 @@ impl<'a> FunctionBuilder<'a> {
     pub fn add_stmt_at(&mut self, bb: BlockId, source: SourceRange, data: StatementData<'a>) -> StmtRef<'a> {
         let block = &mut self.blocks[bb.0 as usize];
         assert!(!block.terminated());
-        let stmt = StmtRef(Box::leak(Box::new(Statement { source, data })));
+
+        let id = self.next_stmt;
+        self.next_stmt.0 += 1;
+
+        let stmt = StmtRef(Box::leak(Box::new(Statement { id, source, data })));
         block.statements.push(stmt);
         stmt
     }
@@ -603,90 +670,6 @@ impl<'a> FunctionBuilder<'a> {
         assert_eq!(self.scope, scope);
         self.decls.retain(|decl| decl.scope < self.scope);
         self.scope.0 -= 1;
-    }
-}
-
-
-pub struct IrDump<'a> {
-    regs: HashMap<StmtRef<'a>, u32>,
-}
-
-impl<'a> IrDump<'a> {
-    pub fn new() -> Self {
-        IrDump { regs: HashMap::new() }
-    }
-
-    pub fn statement(&self, f: &mut String, stmt: StmtRef<'a>) -> core::fmt::Result {
-        write!(f, "r{} := ", self.regs[&stmt])?;
-
-        use StatementData::*;
-        match &stmt.data {
-            Copy { src } => { write!(f, "copy r{}", self.regs[src]) }
-
-            GetLocal { src }      => { write!(f, "get_local {}", src) }
-            SetLocal { dst, src } => { write!(f, "set_local {}, r{}", dst, self.regs[src]) }
-
-            LoadNil             => { write!(f, "load_nil") }
-            LoadBool  { value } => { write!(f, "load_bool {}", value) }
-            LoatInt   { value } => { write!(f, "load_int {}", value) }
-            LoadFloat { value } => { write!(f, "load_float {}", value) }
-
-            Not    { src } => { write!(f, "not r{}", self.regs[src]) }
-            BitNot { src } => { write!(f, "bit_not r{}", self.regs[src]) }
-            Neg    { src } => { write!(f, "neg r{}", self.regs[src]) }
-            Plus   { src } => { write!(f, "plus r{}", self.regs[src]) }
-
-            And    { src1, src2 } => { write!(f, "and r{}, r{}", self.regs[src1], self.regs[src2]) }
-            Or     { src1, src2 } => { write!(f, "or r{}, r{}", self.regs[src1], self.regs[src2]) }
-            Add    { src1, src2 } => { write!(f, "add r{}, r{}", self.regs[src1], self.regs[src2]) }
-            Sub    { src1, src2 } => { write!(f, "sub r{}, r{}", self.regs[src1], self.regs[src2]) }
-            Mul    { src1, src2 } => { write!(f, "mul r{}, r{}", self.regs[src1], self.regs[src2]) }
-            Div    { src1, src2 } => { write!(f, "div r{}, r{}", self.regs[src1], self.regs[src2]) }
-            IntDiv { src1, src2 } => { write!(f, "int_div r{}, r{}", self.regs[src1], self.regs[src2]) }
-            CmpEq  { src1, src2 } => { write!(f, "cmp_eq r{}, r{}", self.regs[src1], self.regs[src2]) }
-            CmpNe  { src1, src2 } => { write!(f, "cmp_ne r{}, r{}", self.regs[src1], self.regs[src2]) }
-            CmpLe  { src1, src2 } => { write!(f, "cmp_le r{}, r{}", self.regs[src1], self.regs[src2]) }
-            CmpLt  { src1, src2 } => { write!(f, "cmp_lt r{}, r{}", self.regs[src1], self.regs[src2]) }
-            CmpGe  { src1, src2 } => { write!(f, "cmp_ge r{}, r{}", self.regs[src1], self.regs[src2]) }
-            CmpGt  { src1, src2 } => { write!(f, "cmp_gt r{}, r{}", self.regs[src1], self.regs[src2]) }
-            OrElse { src1, src2 } => { write!(f, "or_else r{}, r{}", self.regs[src1], self.regs[src2]) }
-        }
-    }
-
-    pub fn terminator(&self, f: &mut String, term: &Terminator<'a>) -> core::fmt::Result {
-        use TerminatorData::*;
-        match &term.data {
-            None => {
-                write!(f, "none")
-            }
-            Jump { target } => {
-                write!(f, "jump {}", target)
-            }
-            SwitchBool { src, on_true, on_false } => {
-                write!(f, "switch_bool r{}, {}, {}", self.regs[src], on_true, on_false)
-            }
-            Return { src } => {
-                write!(f, "return r{}", self.regs[src])
-            }
-        }
-    }
-
-    pub fn bb(&mut self, f: &mut String, bb: &Block<'a>) -> core::fmt::Result {
-        write!(f, "{}:\n", bb.id)?;
-
-        for stmt in &bb.statements {
-            let reg = self.regs.len() as u32;
-            self.regs.insert(*stmt, reg);
-            write!(f, "  ")?;
-            self.statement(f, *stmt)?;
-            write!(f, "\n")?;
-        }
-
-        write!(f, "  ")?;
-        self.terminator(f, &bb.terminator)?;
-        write!(f, "\n")?;
-
-        Ok(())
     }
 }
 
