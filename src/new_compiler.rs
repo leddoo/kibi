@@ -41,8 +41,8 @@ impl Compiler {
         let nil = fb.add_stmt_at(bb, source, StatementData::LoadNil);
         fb.terminate_at(bb, source, TerminatorData::Return { src: nil });
 
-        for bb in &fb.blocks {
-            println!("{}", bb);
+        for blocks in &fb.blocks {
+            println!("{}", blocks);
         }
 
 
@@ -311,8 +311,8 @@ impl Compiler {
         }
 
         println!("local2reg done");
-        for bb in &fb.blocks {
-            println!("{}", bb);
+        for block in &fb.blocks {
+            println!("{}", block);
         }
 
 
@@ -337,9 +337,66 @@ impl Compiler {
         }
 
         println!("copy propagation done");
-        for bb in &fb.blocks {
-            println!("{}", bb);
+        for block in &fb.blocks {
+            println!("{}", block);
         }
+
+        // dead copy elimination.
+        {
+            let mut visited = vec![false; fb.next_stmt.usize()];
+
+            for block in &fb.blocks {
+                block.args(|arg| visited[arg.get().id.usize()] = true);
+            }
+
+            for block in &mut fb.blocks {
+                block.statements.retain(|stmt_ref| {
+                    let stmt = stmt_ref.get();
+                    visited[stmt.id.usize()] || !stmt.is_copy()
+                });
+            }
+        }
+
+        println!("dead copy elim done");
+        for block in &fb.blocks {
+            println!("{}", block);
+        }
+
+        let block_order = {
+            fn visit(bb: BlockId, order: &mut Vec<BlockId>, visited: &mut Vec<bool>,
+                fb: &FunctionBuilder, idom: &Vec<BlockId>, idom_tree: &Vec<Vec<BlockId>>,
+            ) {
+                assert!(!visited[bb.usize()]);
+                visited[bb.usize()] = true;
+                order.push(bb);
+
+                let block = &fb.blocks[bb.usize()];
+                block.successors(|succ| {
+                    if !visited[succ.usize()] && idom[succ.usize()] == bb {
+                        visit(succ, order, visited, fb, idom, idom_tree);
+                    }
+                });
+
+                for child in &idom_tree[bb.usize()] {
+                    if !visited[child.usize()] {
+                        visit(*child, order, visited, fb, idom, idom_tree);
+                    }
+                }
+            }
+
+            let mut order   = vec![];
+            let mut visited = vec![false; fb.blocks.len()];
+            visit(BlockId::ENTRY, &mut order, &mut visited, &fb, &immediate_dominators, &idom_tree);
+            order
+        };
+
+        println!("block order:");
+        for bb in &block_order {
+            let block = &fb.blocks[bb.usize()];
+            println!("{}", block);
+        }
+
+        // live ranges.
 
         Ok(())
     }
@@ -540,8 +597,30 @@ impl Compiler {
             }
 
             AstData::While (whilee) => {
-                let _ = whilee;
-                unimplemented!()
+                let mut bb_head  = fb.new_block();
+                let mut bb_body  = fb.new_block();
+                let bb_after = fb.new_block();
+
+                fb.terminate(*bb, ast, TerminatorData::Jump { target: bb_head });
+                *bb = bb_after;
+
+                // head.
+                let cond = self.compile_ast(fb, &mut bb_head, &whilee.condition, true)?.unwrap();
+                fb.terminate(bb_head, ast, TerminatorData::SwitchBool {
+                    src:      cond,
+                    on_true:  bb_body,
+                    on_false: bb_after,
+                });
+
+                // body.
+                self.compile_ast(fb, &mut bb_body, &whilee.body, false)?;
+                fb.terminate(bb_body, ast, TerminatorData::Jump { target: bb_head });
+
+                if need_value {
+                    let result = fb.add_stmt(bb_after, ast, StatementData::LoadNil);
+                    Ok(Some(result))
+                }
+                else { Ok(None) }
             }
 
             AstData::Break => {
@@ -792,6 +871,11 @@ pub enum StatementData<'a> {
 }
 
 impl<'a> StatementData<'a> {
+    #[inline(always)]
+    pub fn is_copy(&self) -> bool {
+        if let StatementData::Copy { src: _ } = self { true } else { false }
+    }
+
     #[inline]
     pub fn args<F: FnMut(StmtRef<'a>)>(&self, mut f: F) {
         use StatementData::*;

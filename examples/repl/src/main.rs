@@ -84,6 +84,10 @@ fn main() {
             let a; let b; let c
             if true:
                 a += b
+
+                while b > c:
+                    b -= c / a
+                end
             else:
                 a = c / a
                 b = false

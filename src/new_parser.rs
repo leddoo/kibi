@@ -864,7 +864,7 @@ pub mod ast {
     #[derive(Clone, Debug)]
     pub struct While<'a> {
         pub condition: Ast<'a>,
-        pub body:      Block<'a>,
+        pub body:      Ast<'a>,
     }
 
 
@@ -1040,7 +1040,7 @@ impl<'i> Parser<'i> {
             let condition = self.parse_expr(0)?.0;
             self.expect(TokenData::Colon)?;
 
-            let body = self.parse_block()?.1;
+            let body = self.parse_block_as_ast()?;
 
             let data = AstData::While(Box::new(ast::While { condition, body }));
             let end = self.expect(TokenData::KwEnd)?.end;

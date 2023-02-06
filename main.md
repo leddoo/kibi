@@ -1,8 +1,17 @@
 
 - todo:
     - ssa form:
-        - remove phi nodes.
         - register allocation.
+            - compute live intervals.
+            - `Block::phis`
+                - are invalid in the middle of bbs.
+                - (maybe) easier to mutate, as cfg changes.
+                - (maybe) better for lva, cause phis are concurrent.
+        - gen bytecode.
+        - validation:
+            - `StatementData::has_output`.
+            - check that all args are defined in the cfg.
+            - ensure all uses are dominated by their defs.
     - new compiler.
         - todo:
             - constants:
@@ -15,7 +24,6 @@
                 - field.
                 - index.
                 - call.
-                - while.
                 - break/continue.
                 - return.
                 - opt_chain.
