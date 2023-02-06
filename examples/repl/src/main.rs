@@ -88,7 +88,7 @@ fn main() {
                 a = c / a
             end
 
-            if false: end
+            let d = if true: a end
         "#;
 
         let mut p = new_parser::Parser::new(example.as_bytes());

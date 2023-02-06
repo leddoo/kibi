@@ -1,4 +1,5 @@
 use crate::new_parser::*;
+use core::cell::Cell;
 
 
 #[derive(Debug)]
@@ -346,15 +347,8 @@ impl Compiler {
                 });
                 *bb = after_if;
 
-                // TODO: use `need_value`.
-                // TODO: gen phi node.
-
-                let result_id = fb.new_local();
-
                 // on_true
-                let value_true = self.compile_ast(fb, &mut bb_true, &iff.on_true, true)?.unwrap();
-                fb.add_stmt(bb_true, &iff.on_true,
-                    StatementData::SetLocal { dst: result_id, src: value_true });
+                let value_true = self.compile_ast(fb, &mut bb_true, &iff.on_true, need_value)?;
                 fb.terminate_at(bb_true,
                     iff.on_true.source.end.to_range(),
                     TerminatorData::Jump { target: after_if });
@@ -362,20 +356,26 @@ impl Compiler {
                 // on_false
                 let (value_false, on_false_src) =
                     if let Some(on_false) = &iff.on_false {
-                        let v = self.compile_ast(fb, &mut bb_false, on_false, true)?.unwrap();
+                        let v = self.compile_ast(fb, &mut bb_false, on_false, need_value)?;
                         (v, on_false.source.end.to_range())
                     }
                     else {
                         let source = ast.source.end.to_range();
-                        let v = fb.add_stmt_at(bb_false, source, StatementData::LoadNil);
+                        let v = need_value.then(|| fb.add_stmt_at(bb_false, source, StatementData::LoadNil));
                         (v, source)
                     };
-                fb.add_stmt_at(bb_false, on_false_src,
-                    StatementData::SetLocal { dst: result_id, src: value_false });
                 fb.terminate_at(bb_false, on_false_src,
                     TerminatorData::Jump { target: after_if });
 
-                Ok(Some(fb.add_stmt(after_if, ast, StatementData::GetLocal { src: result_id })))
+                if need_value {
+                    let map = Box::leak(Box::new([
+                        Cell::new((bb_true,  value_true.unwrap())),
+                        Cell::new((bb_false, value_false.unwrap())),
+                    ]));
+                    let result = fb.add_stmt(after_if, ast, StatementData::Phi { map });
+                    Ok(Some(result))
+                }
+                else { Ok(None) }
             }
 
             AstData::While (whilee) => {
@@ -493,12 +493,12 @@ impl StmtId {
 
 #[derive(Clone, Copy)]
 #[repr(transparent)]
-pub struct StmtRef<'a>(&'a Statement<'a>);
+pub struct StmtRef<'a>(&'a Cell<Statement<'a>>);
 
 impl<'a> core::fmt::Debug for StmtRef<'a> {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        self.0.get().fmt(f)
     }
 }
 
@@ -519,52 +519,64 @@ impl<'a> core::hash::Hash for StmtRef<'a> {
 }
 
 impl<'a> core::ops::Deref for StmtRef<'a> {
-    type Target = Statement<'a>;
+    type Target = Cell<Statement<'a>>;
     #[inline]
     fn deref(&self) -> &Self::Target { self.0 }
 }
 
 impl<'a> core::fmt::Display for StmtRef<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "r{} := ", self.id.0)?;
+        let stmt = self.get();
+
+        write!(f, "r{} := ", stmt.id.0)?;
 
         use StatementData::*;
-        match &self.data {
-            Copy { src } => { write!(f, "copy r{}", src.id.0) }
+        match &stmt.data {
+            Copy { src } => { write!(f, "copy r{}", src.get().id.0) }
+
+            Phi { map } => {
+                write!(f, "phi {{")?;
+                for (i, (bb, src)) in map.iter().map(|e| e.get()).enumerate() {
+                    write!(f, "{}: r{}", bb, src.get().id.0)?;
+
+                    if i < map.len() - 1 { write!(f, ", ")?; }
+                }
+                write!(f, "}}")
+            }
 
             GetLocal { src }      => { write!(f, "get_local {}", src) }
-            SetLocal { dst, src } => { write!(f, "set_local {}, r{}", dst, src.id.0) }
+            SetLocal { dst, src } => { write!(f, "set_local {}, r{}", dst, src.get().id.0) }
 
             LoadNil             => { write!(f, "load_nil") }
             LoadBool  { value } => { write!(f, "load_bool {}", value) }
             LoatInt   { value } => { write!(f, "load_int {}", value) }
             LoadFloat { value } => { write!(f, "load_float {}", value) }
 
-            Not    { src } => { write!(f, "not r{}",     src.id.0) }
-            BitNot { src } => { write!(f, "bit_not r{}", src.id.0) }
-            Neg    { src } => { write!(f, "neg r{}",     src.id.0) }
-            Plus   { src } => { write!(f, "plus r{}",    src.id.0) }
+            Not    { src } => { write!(f, "not r{}",     src.get().id.0) }
+            BitNot { src } => { write!(f, "bit_not r{}", src.get().id.0) }
+            Neg    { src } => { write!(f, "neg r{}",     src.get().id.0) }
+            Plus   { src } => { write!(f, "plus r{}",    src.get().id.0) }
 
-            And    { src1, src2 } => { write!(f, "and r{}, r{}",     src1.id.0, src2.id.0) }
-            Or     { src1, src2 } => { write!(f, "or r{}, r{}",      src1.id.0, src2.id.0) }
-            Add    { src1, src2 } => { write!(f, "add r{}, r{}",     src1.id.0, src2.id.0) }
-            Sub    { src1, src2 } => { write!(f, "sub r{}, r{}",     src1.id.0, src2.id.0) }
-            Mul    { src1, src2 } => { write!(f, "mul r{}, r{}",     src1.id.0, src2.id.0) }
-            Div    { src1, src2 } => { write!(f, "div r{}, r{}",     src1.id.0, src2.id.0) }
-            IntDiv { src1, src2 } => { write!(f, "int_div r{}, r{}", src1.id.0, src2.id.0) }
-            CmpEq  { src1, src2 } => { write!(f, "cmp_eq r{}, r{}",  src1.id.0, src2.id.0) }
-            CmpNe  { src1, src2 } => { write!(f, "cmp_ne r{}, r{}",  src1.id.0, src2.id.0) }
-            CmpLe  { src1, src2 } => { write!(f, "cmp_le r{}, r{}",  src1.id.0, src2.id.0) }
-            CmpLt  { src1, src2 } => { write!(f, "cmp_lt r{}, r{}",  src1.id.0, src2.id.0) }
-            CmpGe  { src1, src2 } => { write!(f, "cmp_ge r{}, r{}",  src1.id.0, src2.id.0) }
-            CmpGt  { src1, src2 } => { write!(f, "cmp_gt r{}, r{}",  src1.id.0, src2.id.0) }
-            OrElse { src1, src2 } => { write!(f, "or_else r{}, r{}", src1.id.0, src2.id.0) }
+            And    { src1, src2 } => { write!(f, "and r{}, r{}",     src1.get().id.0, src2.get().id.0) }
+            Or     { src1, src2 } => { write!(f, "or r{}, r{}",      src1.get().id.0, src2.get().id.0) }
+            Add    { src1, src2 } => { write!(f, "add r{}, r{}",     src1.get().id.0, src2.get().id.0) }
+            Sub    { src1, src2 } => { write!(f, "sub r{}, r{}",     src1.get().id.0, src2.get().id.0) }
+            Mul    { src1, src2 } => { write!(f, "mul r{}, r{}",     src1.get().id.0, src2.get().id.0) }
+            Div    { src1, src2 } => { write!(f, "div r{}, r{}",     src1.get().id.0, src2.get().id.0) }
+            IntDiv { src1, src2 } => { write!(f, "int_div r{}, r{}", src1.get().id.0, src2.get().id.0) }
+            CmpEq  { src1, src2 } => { write!(f, "cmp_eq r{}, r{}",  src1.get().id.0, src2.get().id.0) }
+            CmpNe  { src1, src2 } => { write!(f, "cmp_ne r{}, r{}",  src1.get().id.0, src2.get().id.0) }
+            CmpLe  { src1, src2 } => { write!(f, "cmp_le r{}, r{}",  src1.get().id.0, src2.get().id.0) }
+            CmpLt  { src1, src2 } => { write!(f, "cmp_lt r{}, r{}",  src1.get().id.0, src2.get().id.0) }
+            CmpGe  { src1, src2 } => { write!(f, "cmp_ge r{}, r{}",  src1.get().id.0, src2.get().id.0) }
+            CmpGt  { src1, src2 } => { write!(f, "cmp_gt r{}, r{}",  src1.get().id.0, src2.get().id.0) }
+            OrElse { src1, src2 } => { write!(f, "or_else r{}, r{}", src1.get().id.0, src2.get().id.0) }
         }
     }
 }
 
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Statement<'a> {
     pub id:     StmtId,
     pub source: SourceRange,
@@ -578,9 +590,11 @@ impl<'a> core::ops::Deref for Statement<'a> {
 }
 
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum StatementData<'a> {
     Copy        { src: StmtRef<'a> },
+
+    Phi         { map: &'a [Cell<(BlockId, StmtRef<'a>)>] },
 
     GetLocal    { src: LocalId },
     SetLocal    { dst: LocalId, src: StmtRef<'a> },
@@ -635,10 +649,10 @@ impl<'a> core::fmt::Display for Terminator<'a> {
                 write!(f, "jump {}", target)
             }
             SwitchBool { src, on_true, on_false } => {
-                write!(f, "switch_bool r{}, {}, {}", src.id.0, on_true, on_false)
+                write!(f, "switch_bool r{}, {}, {}", src.get().id.0, on_true, on_false)
             }
             Return { src } => {
-                write!(f, "return r{}", src.id.0)
+                write!(f, "return r{}", src.get().id.0)
             }
         }
     }
@@ -812,7 +826,7 @@ impl<'a> FunctionBuilder<'a> {
         let id = self.next_stmt;
         self.next_stmt.0 += 1;
 
-        let stmt = StmtRef(Box::leak(Box::new(Statement { id, source, data })));
+        let stmt = StmtRef(Box::leak(Box::new(Cell::new(Statement { id, source, data }))));
         block.statements.push(stmt);
         stmt
     }
