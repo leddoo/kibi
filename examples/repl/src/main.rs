@@ -33,46 +33,6 @@ mod builtin {
 fn main() {
     {
         let example = r#"
-            let foo = 42
-            print(foo)
-
-            let x = do
-                var i = 0
-                while i < 10:
-                    i += 1
-                    i *= 2
-                end
-                i
-            end
-
-            turtle
-                .forward()
-                .turn_left()
-                .place()
-
-            exit(0)
-        "#;
-
-        let mut line = 1;
-        let mut toker = new_parser::Tokenizer::new(example.as_bytes());
-        loop {
-            let tok = toker.next();
-            if tok.source.begin.line != line {
-                line = tok.source.begin.line;
-                println!();
-            }
-            print!("{:?} ", tok.data);
-            if tok.source.is_collapsed() {
-                print!("<<< inserted ");
-            }
-            if tok.data.is_eof() {
-                break;
-            }
-        }
-        println!();
-
-
-        let example = r#"
             -- var bar = foo(1, 2+3) / 4
             -- ( a + f ( x ) ( y ) ) ( z )
             -- ()
@@ -122,13 +82,18 @@ fn main() {
             --]]
 
             let a; let b; let c
-            a += b
-            a = c / a
+            if true:
+                a += b
+            else:
+                a = c / a
+            end
+
+            if false: end
         "#;
 
         let mut p = new_parser::Parser::new(example.as_bytes());
         let (chunk_source, chunk) = p.parse_block().unwrap();
-        println!("parsed: {:#?}", chunk);
+        //println!("parsed: {:#?}", chunk);
 
         let mut c = new_compiler::Compiler {};
         c.compile_chunk(chunk_source, &chunk).unwrap();

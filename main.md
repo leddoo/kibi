@@ -1,10 +1,10 @@
 
 - todo:
     - ssa form:
-        - reverse post-order.
-        - idom.
-        - dominance frontiers.
         - local2reg.
+            - insert phis.
+                - visited: BlockId -> VarSet.
+            - rename vars.
         - optimization:
             - copy propagation.
         - remove phi nodes.

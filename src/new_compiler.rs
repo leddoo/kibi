@@ -34,8 +34,149 @@ impl Compiler {
         let mut bb = fb.new_block();
         self.compile_block(&mut fb, &mut bb, source, block, false)?;
 
+        let nil = fb.add_stmt_at(bb, source, StatementData::LoadNil);
+        fb.terminate_at(bb, source, TerminatorData::Return { src: nil });
+
         for bb in &fb.blocks {
             println!("{}", bb);
+        }
+
+
+        let (predecessors, post_order) = {
+            let mut predecessors = vec![vec![]; fb.blocks.len()];
+            let mut post_order = vec![];
+            let mut visited = vec![false; fb.blocks.len()];
+
+            fn visit(fb: &FunctionBuilder, bb: BlockId,
+                predecessors: &mut Vec<Vec<BlockId>>,
+                post_order: &mut Vec<BlockId>,
+                visited: &mut Vec<bool>,
+            ) {
+                let block = &fb.blocks[bb.usize()];
+
+                block.successors(|succ| {
+                    predecessors[succ.usize()].push(bb);
+
+                    if !visited[succ.usize()] {
+                        visited[succ.usize()] = true;
+                        visit(fb, succ, predecessors, post_order, visited);
+                    }
+                });
+
+                post_order.push(bb);
+            }
+            visit(&fb, BlockId::ENTRY, &mut predecessors, &mut post_order, &mut visited);
+
+            for bb in post_order.iter().cloned() {
+                if !bb.is_entry() {
+                    assert!(predecessors[bb.usize()].len() > 0);
+                }
+            }
+
+            (predecessors, post_order)
+        };
+
+        let post_indices = {
+            let mut indices = vec![usize::MAX; fb.blocks.len()];
+            for (index, bb) in post_order.iter().cloned().enumerate() {
+                indices[bb.usize()] = index;
+            }
+            indices
+        };
+
+        let immediate_dominators = {
+            let mut doms = vec![None; fb.blocks.len()];
+
+            #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+            struct PostIndex(usize);
+
+            impl PostIndex {
+                #[inline(always)]
+                fn usize(self) -> usize { self.0 }
+            }
+
+            let bb0 = PostIndex(post_indices[BlockId::ENTRY.usize()]);
+            doms[bb0.usize()] = Some(bb0);
+
+            let mut changed = true;
+            while changed {
+                changed = false;
+
+                for bb_id in post_order.iter().rev().cloned() {
+                    if bb_id.is_entry() { continue }
+
+                    let preds = &predecessors[bb_id.usize()];
+                    let bb = PostIndex(post_indices[bb_id.usize()]);
+
+                    let mut new_dom = PostIndex(post_indices[preds[0].usize()]);
+
+                    for pred_id in preds.iter().skip(1) {
+                        let pred = PostIndex(post_indices[pred_id.usize()]);
+
+                        // intersect.
+                        if doms[pred.usize()].is_some() {
+                            let mut x = new_dom;
+                            let mut y = pred;
+
+                            while x != y {
+                                while x < y {
+                                    x = doms[x.usize()].unwrap();
+                                }
+                                while y < x {
+                                    y = doms[y.usize()].unwrap();
+                                }
+                            }
+
+                            new_dom = x;
+                        }
+                    }
+
+                    if doms[bb.usize()] != Some(new_dom) {
+                        doms[bb.usize()] = Some(new_dom);
+                        changed = true;
+                    }
+                }
+            }
+
+            fb.blocks.iter()
+                .map(|block| {
+                    let bb = block.id;
+                    let pi = post_indices[bb.usize()];
+                    let idomi = doms[pi].unwrap();
+                    let idom  = post_order[idomi.usize()];
+                    idom
+                })
+                .collect::<Vec<BlockId>>()
+        };
+
+        let dom_frontiers = {
+            let mut dfs = vec![vec![]; fb.blocks.len()];
+
+            for block in fb.blocks.iter() {
+                let bb = block.id;
+
+                let preds = &predecessors[bb.usize()];
+                if preds.len() < 2 { continue }
+
+                let idom = immediate_dominators[bb.usize()];
+                for pred in preds {
+                    let mut at = *pred;
+                    while at != idom {
+                        let df = &mut dfs[at.usize()];
+                        if !df.contains(&bb) {
+                            df.push(bb);
+                        }
+                        at = immediate_dominators[at.usize()];
+                    }
+                }
+            }
+
+            dfs
+        };
+
+        println!("df:");
+        for df in &dom_frontiers {
+            println!(" {:?}", df);
         }
 
         Ok(())
@@ -344,6 +485,11 @@ impl Compiler {
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct StmtId(u32);
 
+impl StmtId {
+    #[inline(always)]
+    pub fn usize(self) -> usize { self.0 as usize }
+}
+
 
 #[derive(Clone, Copy)]
 #[repr(transparent)]
@@ -519,6 +665,16 @@ impl<'a> TerminatorData<'a> {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BlockId(u32);
 
+impl BlockId {
+    pub const ENTRY: BlockId = BlockId(0);
+
+    #[inline(always)]
+    pub fn is_entry(self) -> bool { self == BlockId::ENTRY }
+
+    #[inline(always)]
+    pub fn usize(self) -> usize { self.0 as usize }
+}
+
 impl core::fmt::Display for BlockId {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -549,6 +705,20 @@ impl<'a> Block<'a> {
     #[inline]
     pub fn terminated(&self) -> bool {
         !self.terminator.data.is_none()
+    }
+
+    #[inline]
+    pub fn successors<F: FnMut(BlockId)>(&self, mut f: F) {
+        use TerminatorData::*;
+        match &self.terminator.data {
+            None => { unreachable!("called successors on unterminated block") }
+
+            Jump { target } => { f(*target); }
+
+            SwitchBool { src: _, on_true, on_false } => { f(*on_true); f(*on_false); }
+
+            Return { src: _ } => {}
+        }
     }
 }
 
