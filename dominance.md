@@ -81,7 +81,7 @@
         for var in vars:
             for d in defs(var):
                 for bb in df(d.bb):
-                    add once to bb: `var = phi (d.bb var)`
+                    add once to bb: `var = phi [(p, var) for p in bb.preds]`
                     and add this new def to defs(var)
 
     def rename_vars():

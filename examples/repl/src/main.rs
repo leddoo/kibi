@@ -86,6 +86,7 @@ fn main() {
                 a += b
             else:
                 a = c / a
+                b = false
             end
 
             let d = if true: a end

@@ -1,6 +1,9 @@
 use crate::new_parser::*;
 use core::cell::Cell;
 
+// @temp
+use std::collections::HashSet;
+
 
 #[derive(Debug)]
 pub struct CompileError {
@@ -68,7 +71,7 @@ impl Compiler {
             }
             visit(&fb, BlockId::ENTRY, &mut predecessors, &mut post_order, &mut visited);
 
-            for bb in post_order.iter().cloned() {
+            for bb in &post_order {
                 if !bb.is_entry() {
                     assert!(predecessors[bb.usize()].len() > 0);
                 }
@@ -79,7 +82,7 @@ impl Compiler {
 
         let post_indices = {
             let mut indices = vec![usize::MAX; fb.blocks.len()];
-            for (index, bb) in post_order.iter().cloned().enumerate() {
+            for (index, bb) in post_order.iter().enumerate() {
                 indices[bb.usize()] = index;
             }
             indices
@@ -103,7 +106,7 @@ impl Compiler {
             while changed {
                 changed = false;
 
-                for bb_id in post_order.iter().rev().cloned() {
+                for bb_id in post_order.iter().rev() {
                     if bb_id.is_entry() { continue }
 
                     let preds = &predecessors[bb_id.usize()];
@@ -150,6 +153,20 @@ impl Compiler {
                 .collect::<Vec<BlockId>>()
         };
 
+        let idom_tree = {
+            let mut tree = vec![vec![]; fb.blocks.len()];
+
+            for block in fb.blocks.iter().skip(1) {
+                let bb = block.id;
+                let idom = immediate_dominators[bb.usize()];
+                tree[idom.usize()].push(bb);
+            }
+
+            tree
+        };
+
+        println!("tree {:?}", idom_tree);
+
         let dom_frontiers = {
             let mut dfs = vec![vec![]; fb.blocks.len()];
 
@@ -175,9 +192,153 @@ impl Compiler {
             dfs
         };
 
-        println!("df:");
-        for df in &dom_frontiers {
-            println!(" {:?}", df);
+        // find phis
+        let mut phis = {
+            let mut visited: HashSet<(BlockId, LocalId)> = HashSet::new();
+
+            let mut stack = vec![];
+            for block in &fb.blocks {
+                for stmt in &block.statements {
+                    let StatementData::SetLocal { dst: lid, src: _ } = stmt.get().data else { continue };
+
+                    let key = (block.id, lid);
+                    if !visited.contains(&key) {
+                        visited.insert(key);
+                        stack.push(key);
+                    }
+                }
+            }
+
+            let mut phis: Vec<Vec<(LocalId, Vec<(BlockId, Option<StmtRef>)>, StmtRef)>>
+                = vec![vec![]; fb.blocks.len()];
+
+            while let Some((from_bb, lid)) = stack.pop() {
+                for to_bb in dom_frontiers[from_bb.usize()].iter() {
+                    let to_bb = *to_bb;
+                    let to_phis = &mut phis[to_bb.usize()];
+
+                    let needs_phi_for_lid = to_phis.iter().find(|(l, _, _)| *l == lid).is_none();
+                    if needs_phi_for_lid {
+                        let preds = &predecessors[to_bb.usize()];
+
+                        let map = preds.iter().map(|p| (*p, None)).collect();
+                        let stmt = fb.new_stmt_at(SourceRange::null(), StatementData::Phi { map: &[] });
+                        to_phis.push((lid, map, stmt));
+
+                        let key = (to_bb, lid);
+                        if !visited.contains(&key) {
+                            visited.insert(key);
+                            stack.push(key);
+                        }
+                    }
+                }
+            }
+
+            phis
+        };
+
+        println!("{:?}", phis);
+
+        // rename vars.
+        {
+            fn visit<'a>(bb: BlockId, mut new_names: Vec<Option<StmtRef<'a>>>,
+                phis: &mut Vec<Vec<(LocalId, Vec<(BlockId, Option<StmtRef<'a>>)>, StmtRef<'a>)>>,
+                fb: &FunctionBuilder<'a>, idom_tree: &Vec<Vec<BlockId>>,
+            ) {
+                let block = &fb.blocks[bb.usize()];
+
+                // update var names.
+                for (lid, _map, stmt) in &phis[bb.usize()] {
+                    new_names[lid.usize()] = Some(*stmt)
+                }
+                for stmt_ref in block.statements.iter() {
+                    let stmt_ref = *stmt_ref;
+                    let mut stmt = stmt_ref.get();
+
+                    if let StatementData::GetLocal { src } = stmt.data {
+                        let new_name = new_names[src.usize()].unwrap();
+                        stmt.data = StatementData::Copy { src: new_name };
+                        stmt_ref.set(stmt);
+                        new_names[src.usize()] = Some(stmt_ref);
+                    }
+
+                    if let StatementData::SetLocal { dst, src } = stmt.data {
+                        stmt.data = StatementData::Copy { src };
+                        stmt_ref.set(stmt);
+                        new_names[dst.usize()] = Some(stmt_ref);
+                    }
+                }
+
+                // propagate to successors.
+                block.successors(|succ| {
+                    for (l, map, _) in &mut phis[succ.usize()] {
+                        let entry = map.iter_mut().find(|(from, _)| *from == bb).unwrap();
+                        assert!(entry.1.is_none());
+
+                        entry.1 = Some(new_names[l.usize()].unwrap());
+                    }
+                });
+
+                // propagate to dominated blocks.
+                for d in idom_tree[bb.usize()].iter() {
+                    visit(*d, new_names.clone(), phis, fb, idom_tree);
+                }
+            }
+
+            let new_names = vec![None; fb.next_local.usize()];
+            visit(BlockId::ENTRY, new_names, &mut phis, &fb, &idom_tree);
+        }
+
+        // insert phis.
+        {
+            for (bb_index, phis) in phis.into_iter().enumerate() {
+                let block = &mut fb.blocks[bb_index];
+
+                let mut phis = phis.iter().map(|(_lid, map, stmt_ref)| {
+                    let map = Vec::leak(map.iter().map(|(bb, stmt)|
+                        Cell::new((*bb, stmt.unwrap()))
+                    ).collect::<Vec<_>>());
+
+                    let mut stmt = stmt_ref.get();
+                    stmt.data = StatementData::Phi { map };
+                    stmt_ref.set(stmt);
+                    *stmt_ref
+                }).collect::<Vec<StmtRef>>();
+
+                phis.extend(block.statements.iter());
+                block.statements = phis;
+            }
+        }
+
+        println!("local2reg done");
+        for bb in &fb.blocks {
+            println!("{}", bb);
+        }
+
+
+        // copy propagation.
+        {
+            fn visit(bb: BlockId, fb: &mut FunctionBuilder, idom_tree: &Vec<Vec<BlockId>>) {
+                let block = &mut fb.blocks[bb.usize()];
+
+                // inline copies.
+                block.replace_args(|arg| {
+                    if let StatementData::Copy { src } = arg.get().data {
+                        *arg = src;
+                    }
+                });
+
+                // propagate to dominated blocks.
+                for d in idom_tree[bb.usize()].iter() {
+                    visit(*d, fb, idom_tree);
+                }
+            }
+            visit(BlockId::ENTRY, &mut fb, &idom_tree);
+        }
+
+        println!("copy propagation done");
+        for bb in &fb.blocks {
+            println!("{}", bb);
         }
 
         Ok(())
@@ -589,6 +750,11 @@ impl<'a> core::ops::Deref for Statement<'a> {
     fn deref(&self) -> &Self::Target { &self.data }
 }
 
+impl<'a> core::ops::DerefMut for Statement<'a> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.data }
+}
+
 
 #[derive(Clone, Copy, Debug)]
 pub enum StatementData<'a> {
@@ -625,6 +791,90 @@ pub enum StatementData<'a> {
     OrElse      { src1: StmtRef<'a>, src2: StmtRef<'a> },
 }
 
+impl<'a> StatementData<'a> {
+    #[inline]
+    pub fn args<F: FnMut(StmtRef<'a>)>(&self, mut f: F) {
+        use StatementData::*;
+        match self {
+            Copy { src } => { f(*src) }
+
+            Phi { map } => { for entry in *map { f(entry.get().1) } }
+
+            GetLocal { src: _ } => (),
+            SetLocal { dst: _, src } => { f(*src) }
+
+            LoadNil |
+            LoadBool  { value: _ } |
+            LoatInt   { value: _ } |
+            LoadFloat { value: _ } => (),
+
+            Not         { src } |
+            BitNot      { src } |
+            Neg         { src } |
+            Plus        { src } => { f(*src) }
+
+            And         { src1, src2 } |
+            Or          { src1, src2 } |
+            Add         { src1, src2 } |
+            Sub         { src1, src2 } |
+            Mul         { src1, src2 } |
+            Div         { src1, src2 } |
+            IntDiv      { src1, src2 } |
+            CmpEq       { src1, src2 } |
+            CmpNe       { src1, src2 } |
+            CmpLe       { src1, src2 } |
+            CmpLt       { src1, src2 } |
+            CmpGe       { src1, src2 } |
+            CmpGt       { src1, src2 } |
+            OrElse      { src1, src2 } => { f(*src1); f(*src2) }
+        }
+    }
+
+    #[inline]
+    pub fn replace_args<F: FnMut(&mut StmtRef<'a>)>(&mut self, mut f: F) {
+        use StatementData::*;
+        match self {
+            Copy { src } => { f(src) }
+
+            Phi { map } => {
+                for entry in *map {
+                    let (bb, mut arg) = entry.get();
+                    f(&mut arg);
+                    entry.set((bb, arg));
+                }
+            }
+
+            GetLocal { src: _ } => (),
+            SetLocal { dst: _, src } => { f(src) }
+
+            LoadNil |
+            LoadBool  { value: _ } |
+            LoatInt   { value: _ } |
+            LoadFloat { value: _ } => (),
+
+            Not         { src } |
+            BitNot      { src } |
+            Neg         { src } |
+            Plus        { src } => { f(src) }
+
+            And         { src1, src2 } |
+            Or          { src1, src2 } |
+            Add         { src1, src2 } |
+            Sub         { src1, src2 } |
+            Mul         { src1, src2 } |
+            Div         { src1, src2 } |
+            IntDiv      { src1, src2 } |
+            CmpEq       { src1, src2 } |
+            CmpNe       { src1, src2 } |
+            CmpLe       { src1, src2 } |
+            CmpLt       { src1, src2 } |
+            CmpGe       { src1, src2 } |
+            CmpGt       { src1, src2 } |
+            OrElse      { src1, src2 } => { f(src1); f(src2) }
+        }
+    }
+}
+
 
 #[derive(Clone, Debug)]
 pub struct Terminator<'a> {
@@ -636,6 +886,11 @@ impl<'a> core::ops::Deref for Terminator<'a> {
     type Target = TerminatorData<'a>;
     #[inline(always)]
     fn deref(&self) -> &Self::Target { &self.data }
+}
+
+impl<'a> core::ops::DerefMut for Terminator<'a> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.data }
 }
 
 impl<'a> core::fmt::Display for Terminator<'a> {
@@ -672,11 +927,39 @@ impl<'a> TerminatorData<'a> {
     pub fn is_none(&self) -> bool {
         if let TerminatorData::None = self { true } else { false }
     }
+
+    #[inline]
+    pub fn args<F: FnMut(StmtRef<'a>)>(&self, mut f: F) {
+        use TerminatorData::*;
+        match self {
+            None => (),
+
+            Jump { target: _ } => (),
+
+            SwitchBool { src, on_true: _, on_false: _ } => { f(*src) }
+
+            Return { src } => { f(*src) }
+        }
+    }
+
+    #[inline]
+    pub fn replace_args<F: FnMut(&mut StmtRef<'a>)>(&mut self, mut f: F) {
+        use TerminatorData::*;
+        match self {
+            None => (),
+
+            Jump { target: _ } => (),
+
+            SwitchBool { src, on_true: _, on_false: _ } => { f(src) }
+
+            Return { src } => { f(src) }
+        }
+    }
 }
 
 
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct BlockId(u32);
 
 impl BlockId {
@@ -734,6 +1017,24 @@ impl<'a> Block<'a> {
             Return { src: _ } => {}
         }
     }
+
+    #[inline]
+    pub fn args<F: FnMut(StmtRef<'a>)>(&self, mut f: F) {
+        for stmt in &self.statements {
+            stmt.get().args(&mut f);
+        }
+        self.terminator.args(&mut f);
+    }
+
+    #[inline]
+    pub fn replace_args<F: FnMut(&mut StmtRef<'a>)>(&mut self, mut f: F) {
+        for stmt_ref in &self.statements {
+            let mut stmt = stmt_ref.get();
+            stmt.replace_args(&mut f);
+            stmt_ref.set(stmt);
+        }
+        self.terminator.replace_args(&mut f);
+    }
 }
 
 impl<'a> core::fmt::Display for Block<'a> {
@@ -755,8 +1056,13 @@ pub struct Function<'a> {
 }
 
 
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LocalId(u32);
+
+impl LocalId {
+    #[inline(always)]
+    pub fn usize(self) -> usize { self.0 as usize }
+}
 
 impl core::fmt::Display for LocalId {
     #[inline]
@@ -819,14 +1125,18 @@ impl<'a> FunctionBuilder<'a> {
         id
     }
 
-    pub fn add_stmt_at(&mut self, bb: BlockId, source: SourceRange, data: StatementData<'a>) -> StmtRef<'a> {
-        let block = &mut self.blocks[bb.0 as usize];
-        assert!(!block.terminated());
-
+    pub fn new_stmt_at(&mut self, source: SourceRange, data: StatementData<'a>) -> StmtRef<'a> {
         let id = self.next_stmt;
         self.next_stmt.0 += 1;
 
-        let stmt = StmtRef(Box::leak(Box::new(Cell::new(Statement { id, source, data }))));
+        StmtRef(Box::leak(Box::new(Cell::new(Statement { id, source, data }))))
+    }
+
+    pub fn add_stmt_at(&mut self, bb: BlockId, source: SourceRange, data: StatementData<'a>) -> StmtRef<'a> {
+        let stmt = self.new_stmt_at(source, data);
+
+        let block = &mut self.blocks[bb.0 as usize];
+        assert!(!block.terminated());
         block.statements.push(stmt);
         stmt
     }

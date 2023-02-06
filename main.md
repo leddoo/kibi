@@ -1,12 +1,6 @@
 
 - todo:
     - ssa form:
-        - local2reg.
-            - insert phis.
-                - visited: BlockId -> VarSet.
-            - rename vars.
-        - optimization:
-            - copy propagation.
         - remove phi nodes.
         - register allocation.
     - new compiler.
