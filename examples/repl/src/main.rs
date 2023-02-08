@@ -81,19 +81,66 @@ fn main() {
             end
             --]]
 
+            -- --[[
+
+            -- bb0
             let a; let b; let c
+
             if true:
+                -- bb1
                 a += b
 
+                -- bb4
                 while b > c:
+                    -- bb5
                     b -= c / a
                 end
+
+                -- bb6
             else:
+                -- bb2
                 a = c / a
                 b = false
             end
 
-            let d = if true: a end
+            -- bb3
+            let d = if true: a end -- bb7/8
+
+            -- bb9
+            a + a
+            b + b
+            c + c
+            d + d
+
+            --]]
+
+            --[[
+
+            -- bb0
+            let a
+            let one
+            let n
+            let x
+            let y
+            -- bb1
+            while x < n:
+                -- bb2
+                -- let y -- broken
+
+                -- bb4
+                while y < n:
+                    -- bb5
+                    a += a
+                    y += one
+                end
+
+                -- bb6
+                a *= a
+                x += one
+            end
+
+            -- bb3
+            --]]
         "#;
 
         let mut p = new_parser::Parser::new(example.as_bytes());

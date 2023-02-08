@@ -294,7 +294,7 @@ impl Compiler {
             for (bb_index, phis) in phis.into_iter().enumerate() {
                 let block = &mut fb.blocks[bb_index];
 
-                let mut phis = phis.iter().map(|(_lid, map, stmt_ref)| {
+                let phis = phis.iter().map(|(_lid, map, stmt_ref)| {
                     let map = Vec::leak(map.iter().map(|(bb, stmt)|
                         Cell::new((*bb, stmt.unwrap()))
                     ).collect::<Vec<_>>());
@@ -305,8 +305,7 @@ impl Compiler {
                     *stmt_ref
                 }).collect::<Vec<StmtRef>>();
 
-                phis.extend(block.statements.iter());
-                block.statements = phis;
+                block.statements.splice(0..0, phis);
             }
         }
 
@@ -390,13 +389,224 @@ impl Compiler {
             order
         };
 
+        let (block_begins, stmt_indices) = {
+            let mut block_begins = vec![usize::MAX; fb.blocks.len()];
+            let mut stmt_indices = vec![usize::MAX; fb.next_stmt.usize()];
+
+            let mut cursor = 0;
+            for bb in &block_order {
+                let block = &fb.blocks[bb.usize()];
+
+                let block_begin = cursor;
+                cursor += block.statements.len() + 1;
+
+                block_begins[block.id.usize()] = block_begin;
+
+                for (i, stmt) in block.statements.iter().enumerate() {
+                    stmt_indices[stmt.id().usize()] = block_begin + i;
+                }
+            }
+            block_begins.push(cursor);
+
+            (block_begins, stmt_indices)
+        };
+
         println!("block order:");
         for bb in &block_order {
             let block = &fb.blocks[bb.usize()];
-            println!("{}", block);
+            println!("{}", block.id);
+
+            for stmt in &block.statements {
+                println!("  ({}) {}", stmt_indices[stmt.id().usize()], *stmt);
+            }
+
+            let block_begin = block_begins[bb.usize()];
+            println!("  ({}) {}\n", block_begin + block.statements.len(), block.terminator);
         }
 
+
         // live ranges.
+        {
+            let mut bb_gen  = Vec::with_capacity(fb.blocks.len());
+            let mut bb_kill = Vec::with_capacity(fb.blocks.len());
+
+            fn pretty(set: &Vec<bool>) -> Vec<usize> {
+                set.iter().enumerate()
+                .filter_map(|(i, v)| v.then(|| i))
+                .collect()
+            }
+
+            for block in &fb.blocks {
+                let mut gen  = vec![false; fb.next_stmt.usize()];
+                let mut kill = vec![false; fb.next_stmt.usize()];
+
+                // terminator.
+                block.terminator.args(|arg| {
+                    gen[arg.id().usize()] = true;
+                });
+
+                // statements in reverse.
+                for stmt_ref in block.statements.iter().rev() {
+                    let stmt = stmt_ref.get();
+
+                    if stmt.has_value() {
+                        kill[stmt.id.usize()] = true;
+                        gen [stmt.id.usize()] = false;
+                    }
+
+                    if !stmt.is_phi() {
+                        stmt.args(|arg| {
+                            gen[arg.id().usize()] = true;
+                        });
+                    }
+                }
+
+                // println!("{}:", block.id);
+                // println!(" gen:  {:?}", pretty(&gen));
+                // println!(" kill: {:?}", pretty(&kill));
+
+                bb_gen.push(gen);
+                bb_kill.push(kill);
+            }
+
+
+            let mut bb_live_in  = vec![vec![false; fb.next_stmt.usize()]; fb.blocks.len()];
+            let mut bb_live_out = vec![vec![false; fb.next_stmt.usize()]; fb.blocks.len()];
+            let mut changed = true;
+            while changed {
+                changed = false;
+
+                println!("live iter");
+
+                for bb in &post_order {
+                    let block = &fb.blocks[bb.usize()];
+                    let gen   = &bb_gen[bb.usize()];
+                    let kill  = &bb_kill[bb.usize()];
+
+                    let mut new_live_out = vec![false; fb.next_stmt.usize()];
+                    block.successors(|succ| {
+                        // live_in.
+                        for (i, live) in bb_live_in[succ.usize()].iter().enumerate() {
+                            if *live {
+                                new_live_out[i] = true;
+                            }
+                        }
+
+                        // phis.
+                        for stmt_ref in &fb.blocks[succ.usize()].statements {
+                            if let StatementData::Phi { map } = stmt_ref.get().data {
+                                let entry = map.iter().find(|e| e.get().0 == block.id).unwrap();
+                                let var = entry.get().1;
+                                new_live_out[var.id().usize()] = true;
+                            }
+                            else { break }
+                        }
+                    });
+
+                    let mut new_live_in = new_live_out.clone();
+                    for (i, kill) in kill.iter().enumerate() {
+                        if *kill {
+                            new_live_in[i] = false;
+                        }
+                    }
+                    for (i, gen) in gen.iter().enumerate() {
+                        if *gen {
+                            new_live_in[i] = true;
+                        }
+                    }
+
+                    if new_live_in != bb_live_in[bb.usize()] {
+                        changed = true;
+                        bb_live_in[bb.usize()] = new_live_in;
+                    }
+                    if new_live_out != bb_live_out[bb.usize()] {
+                        changed = true;
+                        bb_live_out[bb.usize()] = new_live_out;
+                    }
+                }
+            }
+
+            println!("bb_live:");
+            for (i, (live_in, live_out)) in bb_live_in.iter().zip(&bb_live_out).enumerate() {
+                println!(" {} in:  {:?}", i, pretty(live_in));
+                println!(" {} out: {:?}", i, pretty(live_out));
+            }
+
+
+            let mut intervals = vec![vec![]; fb.next_stmt.usize()];
+            for bb in block_order.iter() {
+                //let live_in  = &bb_live_in[bb.usize()];
+                let live_out = &bb_live_out[bb.usize()];
+
+                let block       = &fb.blocks[bb.usize()];
+                let block_begin = block_begins[bb.usize()];
+                let block_end   = block_begin + block.statements.len() + 1;
+
+                let mut live = live_out.iter().map(|live| {
+                    live.then(|| block_end)
+                }).collect::<Vec<_>>();
+
+                #[inline]
+                fn gen(var: StmtId, stop: usize, live: &mut Vec<Option<usize>>) {
+                    let id = var.usize();
+                    if live[id].is_none() {
+                        live[id] = Some(stop);
+                    }
+                }
+
+                #[inline]
+                fn kill(var: StmtId, start: usize, live: &mut Vec<Option<usize>>, intervals: &mut Vec<Vec<(usize, usize)>>) {
+                    let id = var.usize();
+                    if let Some(stop) = live[id] {
+                        live[id] = None;
+
+                        let interval = &mut intervals[id];
+                        // try to extend.
+                        if let Some((_, old_stop)) = interval.last_mut() {
+                            if *old_stop == start {
+                                *old_stop = stop;
+                                return;
+                            }
+                        }
+                        // need new range.
+                        interval.push((start, stop));
+                        return;
+                    }
+                }
+
+                // terminator.
+                block.terminator.args(|arg| {
+                    gen(arg.id(), block_end - 1, &mut live);
+                });
+
+                // statements.
+                for stmt_ref in block.statements.iter().rev() {
+                    let stmt = stmt_ref.get();
+
+                    if stmt.has_value() {
+                        let start = stmt_indices[stmt.id.usize()];
+                        kill(stmt.id, start, &mut live, &mut intervals)
+                    }
+
+                    if !stmt.is_phi() {
+                        stmt.args(|arg| {
+                            let stop = stmt_indices[stmt.id.usize()];
+                            gen(arg.id(), stop, &mut live);
+                        });
+                    }
+                }
+
+                for id in 0..fb.next_stmt.usize() {
+                    let start = block_begin;
+                    kill(StmtId(id as u32), start, &mut live, &mut intervals);
+                }
+            }
+
+            println!("live intervals");
+            for (bb, int) in intervals.iter().enumerate() {
+                println!(" {}: {:?}", bb, int);
+            }
+        }
 
         Ok(())
     }
@@ -735,6 +945,11 @@ impl StmtId {
 #[repr(transparent)]
 pub struct StmtRef<'a>(&'a Cell<Statement<'a>>);
 
+impl<'a> StmtRef<'a> {
+    #[inline(always)]
+    pub fn id(self) -> StmtId { self.get().id }
+}
+
 impl<'a> core::fmt::Debug for StmtRef<'a> {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -874,6 +1089,35 @@ impl<'a> StatementData<'a> {
     #[inline(always)]
     pub fn is_copy(&self) -> bool {
         if let StatementData::Copy { src: _ } = self { true } else { false }
+    }
+
+    #[inline(always)]
+    pub fn is_phi(&self) -> bool {
+        if let StatementData::Phi { map: _ } = self { true } else { false }
+    }
+
+    #[inline(always)]
+    pub fn has_value(&self) -> bool {
+        use StatementData::*;
+        match self {
+            Copy { src: _ } |
+            Phi { map: _ } |
+            GetLocal { src: _ } |
+            LoadNil |
+            LoadBool { value: _ } |
+            LoatInt { value: _ } |
+            LoadFloat { value: _ } |
+            Not { src: _ } | BitNot { src: _ } | Neg { src: _ } | Plus { src: _ } |
+            And { src1: _, src2: _ } | Or { src1: _, src2: _ } |
+            Add { src1: _, src2: _ } | Sub { src1: _, src2: _ } | Mul { src1: _, src2: _ } |
+            Div { src1: _, src2: _ } | IntDiv { src1: _, src2: _ } |
+            CmpEq { src1: _, src2: _ } | CmpNe { src1: _, src2: _ } |
+            CmpLe { src1: _, src2: _ } | CmpLt { src1: _, src2: _ } |
+            CmpGe { src1: _, src2: _ } | CmpGt { src1: _, src2: _ } |
+            OrElse { src1: _, src2: _ } => true,
+
+            SetLocal { dst: _, src: _ } => false,
+        }
     }
 
     #[inline]

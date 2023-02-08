@@ -2,12 +2,11 @@
 - todo:
     - ssa form:
         - register allocation.
-            - compute live intervals.
-            - `Block::phis`
-                - are invalid in the middle of bbs.
-                - (maybe) easier to mutate, as cfg changes.
-                - (maybe) better for lva, cause phis are concurrent.
+            - do the linear scan.
         - gen bytecode.
+            - register fixups for phis & lifetime holes.
+        - fix inner locals.
+            - thinking init to nil in pre-entry, where also init params (no code generated).
         - validation:
             - `StatementData::has_output`.
             - check that all args are defined in the cfg.
@@ -27,6 +26,9 @@
                 - break/continue.
                 - return.
                 - opt_chain.
+            - later: rename vars before liveness analysis.
+                - to reduce size of bit vectors.
+            - later: register hints.
             - later: fancier source positions.
                 - bin-ops: the operator, not the entire expr.
                 - if switch: the colon.
