@@ -390,8 +390,8 @@ impl Compiler {
         };
 
         let (block_begins, stmt_indices) = {
-            let mut block_begins = vec![usize::MAX; fb.blocks.len()];
-            let mut stmt_indices = vec![usize::MAX; fb.next_stmt.usize()];
+            let mut block_begins = vec![u32::MAX; fb.blocks.len()];
+            let mut stmt_indices = vec![u32::MAX; fb.next_stmt.usize()];
 
             let mut cursor = 0;
             for bb in &block_order {
@@ -400,13 +400,13 @@ impl Compiler {
                 let block_begin = cursor;
                 cursor += block.statements.len() + 1;
 
-                block_begins[block.id.usize()] = block_begin;
+                block_begins[block.id.usize()] = block_begin as u32;
 
                 for (i, stmt) in block.statements.iter().enumerate() {
-                    stmt_indices[stmt.id().usize()] = block_begin + i;
+                    stmt_indices[stmt.id().usize()] = (block_begin + i) as u32;
                 }
             }
-            block_begins.push(cursor);
+            block_begins.push(cursor as u32);
 
             (block_begins, stmt_indices)
         };
@@ -421,12 +421,12 @@ impl Compiler {
             }
 
             let block_begin = block_begins[bb.usize()];
-            println!("  ({}) {}\n", block_begin + block.statements.len(), block.terminator);
+            println!("  ({}) {}\n", block_begin + block.statements.len() as u32, block.terminator);
         }
 
 
-        // live ranges.
-        {
+        // live intervals.
+        let intervals = {
             let mut bb_gen  = Vec::with_capacity(fb.blocks.len());
             let mut bb_kill = Vec::with_capacity(fb.blocks.len());
 
@@ -540,14 +540,14 @@ impl Compiler {
 
                 let block       = &fb.blocks[bb.usize()];
                 let block_begin = block_begins[bb.usize()];
-                let block_end   = block_begin + block.statements.len() + 1;
+                let block_end   = block_begin + block.statements.len() as u32 + 1;
 
                 let mut live = live_out.iter().map(|live| {
                     live.then(|| block_end)
                 }).collect::<Vec<_>>();
 
                 #[inline]
-                fn gen(var: StmtId, stop: usize, live: &mut Vec<Option<usize>>) {
+                fn gen(var: StmtId, stop: u32, live: &mut Vec<Option<u32>>) {
                     let id = var.usize();
                     if live[id].is_none() {
                         live[id] = Some(stop);
@@ -555,7 +555,7 @@ impl Compiler {
                 }
 
                 #[inline]
-                fn kill(var: StmtId, start: usize, live: &mut Vec<Option<usize>>, intervals: &mut Vec<Vec<(usize, usize)>>) {
+                fn kill(var: StmtId, start: u32, live: &mut Vec<Option<u32>>, intervals: &mut Vec<Vec<(u32, u32)>>) {
                     let id = var.usize();
                     if let Some(stop) = live[id] {
                         live[id] = None;
@@ -605,6 +605,547 @@ impl Compiler {
             println!("live intervals");
             for (bb, int) in intervals.iter().enumerate() {
                 println!(" {}: {:?}", bb, int);
+            }
+
+            intervals
+        };
+
+
+        // register allocation.
+        let (reg_mapping, num_regs) = {
+            #[derive(Debug)]
+            struct Interval<'a> {
+                stmt: StmtId,
+                start: u32,
+                stop:  u32,
+                ranges: &'a [(u32, u32)],
+            }
+
+            let mut intervals =
+                intervals.iter().enumerate()
+                .filter_map(|(i, ranges)| {
+                    if ranges.len() == 0 { return None }
+                    Some(Interval {
+                        stmt: StmtId(i as u32),
+                        start: ranges[0].0,
+                        stop:  ranges[ranges.len()-1].1,
+                        ranges,
+                    })
+                }).collect::<Vec<_>>();
+            intervals.sort_unstable_by(|a, b| a.start.cmp(&b.start));
+
+            for int in &intervals {
+                println!("{:?}", int);
+            }
+
+            struct ActiveInterval<'a> {
+                ranges: &'a [(u32, u32)],
+                stop:   u32,
+                reg:    u32,
+                live:      bool,
+                allocated: bool,
+                // @temp
+                stmt: StmtId,
+                start: u32,
+            }
+
+            let mut actives = vec![];
+            let mut regs    = vec![];
+
+            let mut mapping = vec![u32::MAX; fb.next_stmt.usize()];
+
+            for new_int in &intervals {
+                println!("new: {:?} {}..{}", new_int.stmt, new_int.start, new_int.stop);
+
+                // update active intervals.
+                actives.retain_mut(|active: &mut ActiveInterval| {
+                    println!("  active {:?} r{}({}) {}..{}", active.stmt, active.reg, active.allocated, active.start, active.stop);
+
+                    // expire interval.
+                    if active.stop <= new_int.start {
+                        println!("    expired");
+                        regs[active.reg as usize] = false;
+                        false
+                    }
+                    else {
+                        // active intervals.
+                        if active.live {
+                            debug_assert!(active.allocated);
+                            debug_assert!(regs[active.reg as usize]);
+
+                            let rng_stop = active.ranges[0].1;
+                            if rng_stop <= new_int.start {
+                                println!("    now inactive");
+                                let next_start = active.ranges[1].0;
+                                if next_start >= new_int.stop {
+                                    println!("    new interval fits in hole; freeing register.");
+                                    active.allocated = false;
+                                    regs[active.reg as usize] = false;
+                                }
+
+                                active.ranges = &active.ranges[1..];
+                                active.live   = false;
+                            }
+                        }
+                        // inactive intervals.
+                        else {
+                            debug_assert!(!active.allocated || regs[active.reg as usize]);
+
+                            // needs to activate?
+                            let rng_start = active.ranges[0].0;
+                            if rng_start <= new_int.start {
+                                println!("    reactivating");
+                                active.live      = true;
+                                active.allocated = true;
+                                regs[active.reg as usize] = true;
+                            }
+                            else {
+                                // remains inactive.
+                                // can free register for new interval?
+                                if new_int.stop <= rng_start {
+                                    if active.allocated {
+                                        println!("    new interval fits in hole; freeing register.");
+                                        active.allocated = false;
+                                        regs[active.reg as usize] = false;
+                                    }
+                                }
+                                else {
+                                    if !active.allocated {
+                                        println!("    new interval intersects next range; reclaiming register.");
+                                        active.allocated = true;
+                                        regs[active.reg as usize] = true;
+                                    }
+                                }
+                            }
+                        }
+
+                        true
+                    }
+                });
+
+                let reg =
+                    if let Some(reg) = regs.iter().position(|used| *used == false) {
+                        regs[reg] = true;
+                        reg as u32
+                    }
+                    else {
+                        let reg = regs.len();
+                        regs.push(true);
+                        reg as u32
+                    };
+
+                println!("-> r{}", reg);
+
+                actives.push(ActiveInterval {
+                    ranges: new_int.ranges,
+                    stop:   new_int.stop,
+                    reg,
+                    live:      true,
+                    allocated: true,
+
+                    stmt: new_int.stmt,
+                    start: new_int.start,
+                });
+
+                mapping[new_int.stmt.usize()] = reg;
+
+
+                // @temp
+                let mut allocated_by = vec![None; regs.len()];
+                for active in &actives {
+                    if active.allocated {
+                        let reg = active.reg as usize;
+                        assert!(allocated_by[reg].is_none());
+                        allocated_by[reg] = Some(active.stmt);
+                    }
+                }
+                for (i, used) in regs.iter().enumerate() {
+                    assert!(!*used || allocated_by[i].is_some());
+                }
+            }
+
+            println!("register allocation done. used {} registers.", regs.len());
+            (mapping, regs.len())
+        };
+
+        // generate bytecode.
+        let code = {
+            let mut bcb = crate::bytecode::ByteCodeBuilder::new();
+
+            println!("codegen");
+
+            // @temp
+            assert!(num_regs < 128);
+            assert!(block_order.len() < u16::MAX as usize / 2);
+
+            let reg = |stmt: StmtRef| reg_mapping[stmt.id().usize()] as u8;
+
+            let mut block_offsets = vec![u16::MAX; fb.blocks.len()];
+
+            for (block_index, bb) in block_order.iter().enumerate() {
+                println!("{}", bb);
+                //block_offsets.push(bcb.current_offset() as u16);
+                block_offsets[bb.usize()] = bcb.current_offset() as u16;
+
+                let block = &fb.blocks[bb.usize()];
+
+                for stmt in &block.statements {
+                    let dst = reg(*stmt);
+
+                    // @temp
+                    if dst == 255 {
+                        continue;
+                    }
+
+                    use StatementData::*;
+                    match stmt.get().data {
+                        Copy { src } => bcb.copy(dst, reg(src)),
+
+                        Phi { map: _ } => (),
+
+                        GetLocal { src: _ } |
+                        SetLocal { dst: _, src: _ } => unimplemented!(),
+
+                        LoadNil             => bcb.load_nil(dst),
+                        LoadBool  { value } => bcb.load_bool(dst, value),
+                        LoatInt   { value: _ } => unimplemented!(),
+                        LoadFloat { value: _ } => unimplemented!(),
+
+                        Not    { src: _ } => unimplemented!(),
+                        BitNot { src: _ } => unimplemented!(),
+                        Neg    { src: _ } => unimplemented!(),
+                        Plus   { src: _ } => unimplemented!(),
+
+                        And         { src1, src2 } => { let _ = (src1, src2); unimplemented!() },
+                        Or          { src1, src2 } => { let _ = (src1, src2); unimplemented!() },
+                        Add         { src1, src2 } => bcb.add(dst, reg(src1), reg(src2)),
+                        Sub         { src1, src2 } => bcb.sub(dst, reg(src1), reg(src2)),
+                        Mul         { src1, src2 } => bcb.mul(dst, reg(src1), reg(src2)),
+                        Div         { src1, src2 } => bcb.div(dst, reg(src1), reg(src2)),
+                        IntDiv      { src1: _, src2: _ } => unimplemented!(),
+                        CmpEq       { src1, src2 } => bcb.cmp_eq(dst, reg(src1), reg(src2)),
+                        CmpNe       { src1: _, src2: _ } => unimplemented!(),
+                        CmpLe       { src1, src2 } => bcb.cmp_le(dst, reg(src1), reg(src2)),
+                        CmpLt       { src1, src2 } => bcb.cmp_lt(dst, reg(src1), reg(src2)),
+                        CmpGe       { src1, src2 } => bcb.cmp_ge(dst, reg(src1), reg(src2)),
+                        CmpGt       { src1, src2 } => bcb.cmp_gt(dst, reg(src1), reg(src2)),
+                        OrElse      { src1: _, src2: _ } => unimplemented!(),
+                    }
+                }
+
+                // phis of successors.
+                block.successors(|succ| {
+                    println!(" -> {}", succ);
+                    for stmt in &fb.blocks[succ.usize()].statements {
+                        if let StatementData::Phi { map } = stmt.get().data {
+                            let dst = reg(*stmt);
+
+                            let entry = map.iter().find(|e| e.get().0 == block.id).unwrap();
+                            let src = reg(entry.get().1);
+                            println!("r{} -> r{}", src, dst);
+
+                            if dst != src {
+                                bcb.copy(dst as u8, src as u8);
+                            }
+                        }
+                    }
+                });
+
+
+                let next_bb = block_order.get(block_index + 1);
+
+                use TerminatorData::*;
+                match &block.terminator.data {
+                    None => { unreachable!("unterminated block") }
+
+                    Jump { target } => {
+                        if Some(target) != next_bb {
+                            bcb.jump(target.0 as u16)
+                        }
+                    }
+
+                    SwitchBool { src, on_true, on_false } => {
+                        if Some(on_true) != next_bb {
+                            bcb.jump_true(reg(*src), on_true.0 as u16);
+                        }
+                        if Some(on_false) != next_bb {
+                            bcb.jump_false(reg(*src), on_false.0 as u16);
+                        }
+                    }
+
+                    Return { src } => {
+                        bcb.ret(reg(*src), 1);
+                    }
+                }
+            }
+
+            let mut code = bcb.build();
+
+            let mut i = 0;
+            while i < code.len() {
+                let instr = &mut code[i];
+                i += 1;
+
+                use crate::bytecode::opcode::*;
+                match instr.opcode() as u8 {
+                    JUMP_EQ  | JUMP_LE  | JUMP_LT |
+                    JUMP_NEQ | JUMP_NLE | JUMP_NLT => {
+                        let extra = &mut code[i];
+                        i += 1;
+
+                        assert_eq!(extra.opcode() as u8, EXTRA);
+
+                        let block = extra.u16() as usize;
+                        extra.patch_u16(block_offsets[block]);
+                    }
+
+                    JUMP | JUMP_TRUE | JUMP_FALSE => {
+                        let block = instr.u16() as usize;
+                        instr.patch_u16(block_offsets[block]);
+                    }
+
+                    NOP | UNREACHABLE | COPY |
+                    LOAD_NIL | LOAD_BOOL | LOAD_INT | LOAD_CONST | LOAD_ENV |
+                    LIST_NEW | LIST_APPEND |
+                    TABLE_NEW |
+                    DEF | SET | GET | LEN |
+                    ADD | SUB | MUL | DIV | INC | DEC |
+                    CMP_EQ | CMP_LE | CMP_LT | CMP_GE | CMP_GT |
+                    PACKED_CALL | GATHER_CALL | RET |
+                    EXTRA
+                    => (),
+
+                    0 | END ..= 254 => unreachable!(),
+                }
+            }
+
+            code
+        };
+
+        // temp: disassemble.
+        {
+            let mut pc = 0;
+            while pc < code.len() {
+                print!("{:02}: ", pc);
+
+                let instr = code[pc];
+                pc += 1;
+
+                let mut instr_extra = || {
+                    let extra = code[pc];
+                    pc += 1;
+                    assert_eq!(extra.opcode() as u8, crate::bytecode::opcode::EXTRA);
+                    extra
+                };
+
+                use crate::bytecode::opcode::*;
+                match instr.opcode() as u8 {
+                    NOP => (),
+
+                    UNREACHABLE => {
+                        println!("  unreachable");
+                        break;
+                    }
+
+
+                    COPY => {
+                        let (dst, src) = instr.c2();
+                        println!("  copy r{}, r{}", dst, src);
+                    }
+
+
+                    LOAD_NIL => {
+                        let dst = instr.c1();
+                        println!("  load_nil r{}", dst);
+                    }
+
+                    LOAD_BOOL => {
+                        let (dst, value) = instr.c1b();
+                        println!("  load_bool r{}, {}", dst, value);
+                    }
+
+                    LOAD_INT => {
+                        let (dst, value) = instr.c1u16();
+                        let value = value as u16 as i16 as f64;
+                        println!("  load_int r{}, {}", dst, value);
+                    }
+
+                    LOAD_CONST => {
+                        let (dst, index) = instr.c1u16();
+                        println!("  load_const r{}, c{}", dst, index);
+                    }
+
+                    LOAD_ENV => {
+                        let dst = instr.c1();
+                        println!("  load_env r{}", dst);
+                    }
+
+
+                    LIST_NEW => {
+                        let dst = instr.c1();
+                        println!("  list_new r{}", dst);
+                    }
+
+                    LIST_APPEND => {
+                        let (list, value) = instr.c2();
+                        println!("  list_append r{}, r{}", list, value);
+                    }
+
+
+                    TABLE_NEW => {
+                        let dst = instr.c1();
+                        println!("  table_new r{}", dst);
+                    }
+
+
+                    DEF => {
+                        // @todo-speed: remove checks.
+                        let (obj, key, value) = instr.c3();
+                        println!("  def r{}, r{}, r{}", obj, key, value);
+                    }
+
+                    SET => {
+                        let (obj, key, value) = instr.c3();
+                        println!("  set r{}, r{}, r{}", obj, key, value);
+                    }
+
+                    GET => {
+                        let (dst, obj, key) = instr.c3();
+                        println!("  get r{}, r{}, r{}", dst, obj, key);
+                    }
+
+                    LEN => {
+                        let (dst, obj) = instr.c2();
+                        println!("  len r{}, r{}", dst, obj);
+                    }
+
+
+                    ADD => {
+                        let (dst, src1, src2) = instr.c3();
+                        println!("  add r{}, r{}, r{}", dst, src1, src2);
+                    }
+
+                    SUB => {
+                        let (dst, src1, src2) = instr.c3();
+                        println!("  sub r{}, r{}, r{}", dst, src1, src2);
+                    }
+
+                    MUL => {
+                        let (dst, src1, src2) = instr.c3();
+                        println!("  mul r{}, r{}, r{}", dst, src1, src2);
+                    }
+
+                    DIV => {
+                        let (dst, src1, src2) = instr.c3();
+                        println!("  div r{}, r{}, r{}", dst, src1, src2);
+                    }
+
+                    INC => {
+                        let dst = instr.c1();
+                        println!("  inc r{}", dst);
+                    }
+
+                    DEC => {
+                        let dst = instr.c1();
+                        println!("  dec r{}", dst);
+                    }
+
+
+                    CMP_EQ => {
+                        let (dst, src1, src2) = instr.c3();
+                        println!("  cmp_eq r{}, r{}, r{}", dst, src1, src2);
+                    }
+
+                    CMP_LE => {
+                        let (dst, src1, src2) = instr.c3();
+                        println!("  cmp_le r{}, r{}, r{}", dst, src1, src2);
+                    }
+
+                    CMP_LT => {
+                        let (dst, src1, src2) = instr.c3();
+                        println!("  cmp_lt r{}, r{}, r{}", dst, src1, src2);
+                    }
+
+                    CMP_GE => {
+                        let (dst, src1, src2) = instr.c3();
+                        println!("  cmp_ge r{}, r{}, r{}", dst, src1, src2);
+                    }
+
+                    CMP_GT => {
+                        let (dst, src1, src2) = instr.c3();
+                        println!("  cmp_gt r{}, r{}, r{}", dst, src1, src2);
+                    }
+
+
+                    JUMP => {
+                        let target = instr.u16();
+                        println!("  jump {}", target);
+                    }
+
+                    JUMP_TRUE => {
+                        let (src, target) = instr.c1u16();
+                        println!("  jump_true r{}, {}", src, target);
+                    }
+
+                    JUMP_FALSE => {
+                        let (src, target) = instr.c1u16();
+                        println!("  jump_false r{}, {}", src, target);
+                    }
+
+                    JUMP_EQ => {
+                        let (src1, src2) = instr.c2();
+                        let target = instr_extra().u16();
+                        println!("  jump_eq r{}, r{}, {}", src1, src2, target);
+                    }
+
+                    JUMP_LE => {
+                        let (src1, src2) = instr.c2();
+                        let target = instr_extra().u16();
+                        println!("  jump_le r{}, r{}, {}", src1, src2, target);
+                    }
+
+                    JUMP_LT => {
+                        let (src1, src2) = instr.c2();
+                        let target = instr_extra().u16();
+                        println!("  jump_le r{}, r{}, {}", src1, src2, target);
+                    }
+
+                    JUMP_NEQ => {
+                        let (src1, src2) = instr.c2();
+                        let target = instr_extra().u16();
+                        println!("  jump_le r{}, r{}, {}", src1, src2, target);
+                    }
+
+                    JUMP_NLE => {
+                        let (src1, src2) = instr.c2();
+                        let target = instr_extra().u16();
+                        println!("  jump_nle r{}, r{}, {}", src1, src2, target);
+                    }
+
+                    JUMP_NLT => {
+                        let (src1, src2) = instr.c2();
+                        let target = instr_extra().u16();
+                        println!("  jump_nlt r{}, r{}, {}", src1, src2, target);
+                    }
+
+
+                    PACKED_CALL => {
+                        unimplemented!()
+                    }
+
+                    GATHER_CALL => {
+                        unimplemented!()
+                    }
+
+                    RET => {
+                        let (rets, num_rets) = instr.c2();
+                        println!("  ret r{}, {}", rets, num_rets);
+                    }
+
+                    // @todo-speed: this inserts a check to reduce dispatch table size.
+                    //  may want an unreachable_unchecked() in release.
+                    0 | END ..= 255 => unreachable!()
+                }
             }
         }
 

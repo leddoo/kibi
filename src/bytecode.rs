@@ -460,6 +460,12 @@ impl ByteCodeBuilder {
     }
 
 
+    #[inline(always)]
+    pub fn current_offset(&self) -> usize {
+        self.buffer.len()
+    }
+
+
     pub fn build(mut self) -> Vec<Instruction> {
         assert!(self.buffer.len() < (1 << 16));
         assert!(self.blocks.len() < (1 << 12));

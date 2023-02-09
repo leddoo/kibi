@@ -1,16 +1,19 @@
 
 - todo:
     - ssa form:
-        - register allocation.
-            - do the linear scan.
-        - gen bytecode.
-            - register fixups for phis & lifetime holes.
+        - minor changes:
+            - `Statement` -> `Stmt`.
+            - terminator as `Stmt`.
         - fix inner locals.
             - thinking init to nil in pre-entry, where also init params (no code generated).
         - validation:
             - `StatementData::has_output`.
             - check that all args are defined in the cfg.
             - ensure all uses are dominated by their defs.
+        - api:
+            - how to make nice to use?
+            - while allowing changes (passes).
+            - and preventing cache invalidation bugs.
     - new compiler.
         - todo:
             - constants:
