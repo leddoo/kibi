@@ -342,7 +342,7 @@ impl Compiler {
 
         // dead copy elimination.
         {
-            let mut visited = vec![false; fb.next_stmt.usize()];
+            let mut visited = vec![false; fb.stmts.len()];
 
             for block in &fb.blocks {
                 block.args(|arg| visited[arg.get().id.usize()] = true);
@@ -391,7 +391,7 @@ impl Compiler {
 
         let (block_begins, stmt_indices) = {
             let mut block_begins = vec![u32::MAX; fb.blocks.len()];
-            let mut stmt_indices = vec![u32::MAX; fb.next_stmt.usize()];
+            let mut stmt_indices = vec![u32::MAX; fb.stmts.len()];
 
             let mut cursor = 0;
             for bb in &block_order {
@@ -434,8 +434,8 @@ impl Compiler {
             }
 
             for block in &fb.blocks {
-                let mut gen  = vec![false; fb.next_stmt.usize()];
-                let mut kill = vec![false; fb.next_stmt.usize()];
+                let mut gen  = vec![false; fb.stmts.len()];
+                let mut kill = vec![false; fb.stmts.len()];
 
                 // statements in reverse.
                 for stmt_ref in block.statements.iter().rev() {
@@ -462,8 +462,8 @@ impl Compiler {
             }
 
 
-            let mut bb_live_in  = vec![vec![false; fb.next_stmt.usize()]; fb.blocks.len()];
-            let mut bb_live_out = vec![vec![false; fb.next_stmt.usize()]; fb.blocks.len()];
+            let mut bb_live_in  = vec![vec![false; fb.stmts.len()]; fb.blocks.len()];
+            let mut bb_live_out = vec![vec![false; fb.stmts.len()]; fb.blocks.len()];
             let mut changed = true;
             while changed {
                 changed = false;
@@ -475,7 +475,7 @@ impl Compiler {
                     let gen   = &bb_gen[bb.usize()];
                     let kill  = &bb_kill[bb.usize()];
 
-                    let mut new_live_out = vec![false; fb.next_stmt.usize()];
+                    let mut new_live_out = vec![false; fb.stmts.len()];
                     block.successors(|succ| {
                         // live_in.
                         for (i, live) in bb_live_in[succ.usize()].iter().enumerate() {
@@ -525,7 +525,7 @@ impl Compiler {
             }
 
 
-            let mut intervals = vec![vec![]; fb.next_stmt.usize()];
+            let mut intervals = vec![vec![]; fb.stmts.len()];
             for bb in block_order.iter() {
                 //let live_in  = &bb_live_in[bb.usize()];
                 let live_out = &bb_live_out[bb.usize()];
@@ -583,7 +583,7 @@ impl Compiler {
                     }
                 }
 
-                for id in 0..fb.next_stmt.usize() {
+                for id in 0..fb.stmts.len() {
                     let start = block_begin;
                     kill(StmtId(id as u32), start, &mut live, &mut intervals);
                 }
@@ -639,7 +639,7 @@ impl Compiler {
             let mut actives = vec![];
             let mut regs    = vec![];
 
-            let mut mapping = vec![u32::MAX; fb.next_stmt.usize()];
+            let mut mapping = vec![u32::MAX; fb.stmts.len()];
 
             for new_int in &intervals {
                 println!("new: {:?} {}..{}", new_int.stmt, new_int.start, new_int.stop);
@@ -1907,9 +1907,9 @@ pub struct Decl<'a> {
 pub struct FunctionBuilder<'a> {
     blocks:     Vec<Block<'a>>,
     decls:      Vec<Decl<'a>>,
+    stmts:      Vec<StmtRef<'a>>,
     scope:      ScopeId,
     next_local: LocalId,
-    next_stmt:  StmtId,
 }
 
 impl<'a> FunctionBuilder<'a> {
@@ -1917,9 +1917,9 @@ impl<'a> FunctionBuilder<'a> {
         FunctionBuilder {
             blocks:     vec![],
             decls:      vec![],
+            stmts:      vec![],
             scope:      ScopeId(0),
             next_local: LocalId(0),
-            next_stmt:  StmtId(0),
         }
     }
 
@@ -1936,10 +1936,10 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     pub fn new_stmt_at(&mut self, source: SourceRange, data: StmtData<'a>) -> StmtRef<'a> {
-        let id = self.next_stmt;
-        self.next_stmt.0 += 1;
-
-        StmtRef(Box::leak(Box::new(Cell::new(Stmt { id, source, data }))))
+        let id = StmtId(self.stmts.len() as u32);
+        let rf = StmtRef(Box::leak(Box::new(Cell::new(Stmt { id, source, data }))));
+        self.stmts.push(rf);
+        rf
     }
 
     pub fn add_stmt_at(&mut self, bb: BlockId, source: SourceRange, data: StmtData<'a>) -> StmtRef<'a> {

@@ -3,10 +3,6 @@
     - ssa form:
         - cleanup:
             - data structure changes:
-                - `Vec<Stmt>` on `Func`.
-                    - use `StmtId` in `StmtData` -> smaller.
-                    - easier lookup from `StmtId` to `Stmt`.
-                    - no `Cell` business.
                 - `Op1`, `Op2`.
                 - `Phi1`, `Phi2`, `Phi`.
             - `Module`/`Func` api.
@@ -18,11 +14,16 @@
                     - could be annoying.
                     - maybe `generation` is fine. incr when cfg changes.
                 - methods that require analysis data just take as params.
+            - "passes":
+                - free standing functions.
+                - local_to_reg.
+                - dead_copy_elim.
             - more files.
         - validation:
             - args point to `StmtData::has_output`.
             - check that all args are defined in the cfg.
             - ensure all uses are dominated by their defs.
+            - stmts not in multiple blocks.
         - fix phi copies.
             - issue: they're parallel assignments, but serialized in code-gen.
             - insert copies in preds?
@@ -46,6 +47,7 @@
                 - dead code elim.
                 - constant folding.
                 - cse.
+            - `Vec<StmtRef>` on function for id -> ref lookup.
     - new compiler.
         - todo:
             - constants:
