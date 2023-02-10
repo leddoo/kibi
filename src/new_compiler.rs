@@ -38,7 +38,7 @@ impl Compiler {
         let mut bb = fb.new_block();
         self.compile_block(&mut fb, &mut bb, source, block, false)?;
 
-        let nil = fb.add_stmt_at(bb, source, StatementData::LoadNil);
+        let nil = fb.add_stmt_at(bb, source, StmtData::LoadNil);
         fb.terminate_at(bb, source, TerminatorData::Return { src: nil });
 
         for blocks in &fb.blocks {
@@ -199,7 +199,7 @@ impl Compiler {
             let mut stack = vec![];
             for block in &fb.blocks {
                 for stmt in &block.statements {
-                    let StatementData::SetLocal { dst: lid, src: _ } = stmt.get().data else { continue };
+                    let StmtData::SetLocal { dst: lid, src: _ } = stmt.get().data else { continue };
 
                     let key = (block.id, lid);
                     if !visited.contains(&key) {
@@ -222,7 +222,7 @@ impl Compiler {
                         let preds = &predecessors[to_bb.usize()];
 
                         let map = preds.iter().map(|p| (*p, None)).collect();
-                        let stmt = fb.new_stmt_at(SourceRange::null(), StatementData::Phi { map: &[] });
+                        let stmt = fb.new_stmt_at(SourceRange::null(), StmtData::Phi { map: &[] });
                         to_phis.push((lid, map, stmt));
 
                         let key = (to_bb, lid);
@@ -255,15 +255,15 @@ impl Compiler {
                     let stmt_ref = *stmt_ref;
                     let mut stmt = stmt_ref.get();
 
-                    if let StatementData::GetLocal { src } = stmt.data {
+                    if let StmtData::GetLocal { src } = stmt.data {
                         let new_name = new_names[src.usize()].unwrap();
-                        stmt.data = StatementData::Copy { src: new_name };
+                        stmt.data = StmtData::Copy { src: new_name };
                         stmt_ref.set(stmt);
                         new_names[src.usize()] = Some(stmt_ref);
                     }
 
-                    if let StatementData::SetLocal { dst, src } = stmt.data {
-                        stmt.data = StatementData::Copy { src };
+                    if let StmtData::SetLocal { dst, src } = stmt.data {
+                        stmt.data = StmtData::Copy { src };
                         stmt_ref.set(stmt);
                         new_names[dst.usize()] = Some(stmt_ref);
                     }
@@ -300,7 +300,7 @@ impl Compiler {
                     ).collect::<Vec<_>>());
 
                     let mut stmt = stmt_ref.get();
-                    stmt.data = StatementData::Phi { map };
+                    stmt.data = StmtData::Phi { map };
                     stmt_ref.set(stmt);
                     *stmt_ref
                 }).collect::<Vec<StmtRef>>();
@@ -322,7 +322,7 @@ impl Compiler {
 
                 // inline copies.
                 block.replace_args(|arg| {
-                    if let StatementData::Copy { src } = arg.get().data {
+                    if let StmtData::Copy { src } = arg.get().data {
                         *arg = src;
                     }
                 });
@@ -494,7 +494,7 @@ impl Compiler {
 
                         // phis.
                         for stmt_ref in &fb.blocks[succ.usize()].statements {
-                            if let StatementData::Phi { map } = stmt_ref.get().data {
+                            if let StmtData::Phi { map } = stmt_ref.get().data {
                                 let entry = map.iter().find(|e| e.get().0 == block.id).unwrap();
                                 let var = entry.get().1;
                                 new_live_out[var.id().usize()] = true;
@@ -797,7 +797,7 @@ impl Compiler {
                         continue;
                     }
 
-                    use StatementData::*;
+                    use StmtData::*;
                     match stmt.get().data {
                         Copy { src } => bcb.copy(dst, reg(src)),
 
@@ -837,7 +837,7 @@ impl Compiler {
                 block.successors(|succ| {
                     println!(" -> {}", succ);
                     for stmt in &fb.blocks[succ.usize()].statements {
-                        if let StatementData::Phi { map } = stmt.get().data {
+                        if let StmtData::Phi { map } = stmt.get().data {
                             let dst = reg(*stmt);
 
                             let entry = map.iter().find(|e| e.get().0 == block.id).unwrap();
@@ -1157,11 +1157,11 @@ impl Compiler {
     {
         match &ast.data {
             AstData::Nil => {
-                Ok(Some(fb.add_stmt(*bb, ast, StatementData::LoadNil)))
+                Ok(Some(fb.add_stmt(*bb, ast, StmtData::LoadNil)))
             }
 
             AstData::Bool (value) => {
-                Ok(Some(fb.add_stmt(*bb, ast, StatementData::LoadBool { value: *value })))
+                Ok(Some(fb.add_stmt(*bb, ast, StmtData::LoadBool { value: *value })))
             }
 
             AstData::Number (value) => {
@@ -1176,7 +1176,7 @@ impl Compiler {
 
             AstData::Ident (name) => {
                 Ok(Some(if let Some(decl) = fb.find_decl(name) {
-                    fb.add_stmt(*bb, ast, StatementData::GetLocal { src: decl.id })
+                    fb.add_stmt(*bb, ast, StmtData::GetLocal { src: decl.id })
                 }
                 else {
                     unimplemented!()
@@ -1213,10 +1213,10 @@ impl Compiler {
             AstData::Op1 (op) => {
                 let src = self.compile_ast(fb, bb, &op.child, true)?.unwrap();
                 Ok(Some(fb.add_stmt(*bb, ast, match op.kind {
-                    ast::Op1Kind::Not    => StatementData::Not    { src },
-                    ast::Op1Kind::BitNot => StatementData::BitNot { src },
-                    ast::Op1Kind::Neg    => StatementData::Neg    { src },
-                    ast::Op1Kind::Plus   => StatementData::Plus   { src },
+                    ast::Op1Kind::Not    => StmtData::Not    { src },
+                    ast::Op1Kind::BitNot => StmtData::BitNot { src },
+                    ast::Op1Kind::Neg    => StmtData::Neg    { src },
+                    ast::Op1Kind::Plus   => StmtData::Plus   { src },
                 })))
             }
 
@@ -1228,7 +1228,7 @@ impl Compiler {
                     self.compile_assign(fb, bb, &op.children[0], value)?;
 
                     Ok(if need_value {
-                        Some(fb.add_stmt(*bb, ast, StatementData::LoadNil))
+                        Some(fb.add_stmt(*bb, ast, StmtData::LoadNil))
                     }
                     else { None })
                 }
@@ -1237,12 +1237,12 @@ impl Compiler {
                     let src2 = self.compile_ast(fb, bb, &op.children[1], true)?.unwrap();
 
                     let value = fb.add_stmt(*bb, ast, match op.kind {
-                        OpKind::AddAssign     => StatementData::Add    { src1, src2 },
-                        OpKind::SubAssign     => StatementData::Sub    { src1, src2 },
-                        OpKind::MulAssign     => StatementData::Mul    { src1, src2 },
-                        OpKind::DivAssign     => StatementData::Div    { src1, src2 },
-                        OpKind::IntDivAssign  => StatementData::IntDiv { src1, src2 },
-                        OpKind::OrElseAssign  => StatementData::OrElse { src1, src2 },
+                        OpKind::AddAssign     => StmtData::Add    { src1, src2 },
+                        OpKind::SubAssign     => StmtData::Sub    { src1, src2 },
+                        OpKind::MulAssign     => StmtData::Mul    { src1, src2 },
+                        OpKind::DivAssign     => StmtData::Div    { src1, src2 },
+                        OpKind::IntDivAssign  => StmtData::IntDiv { src1, src2 },
+                        OpKind::OrElseAssign  => StmtData::OrElse { src1, src2 },
 
                         _ => unreachable!(),
                     });
@@ -1250,7 +1250,7 @@ impl Compiler {
                     self.compile_assign(fb, bb, &op.children[0], value)?;
 
                     Ok(if need_value {
-                        Some(fb.add_stmt(*bb, ast, StatementData::LoadNil))
+                        Some(fb.add_stmt(*bb, ast, StmtData::LoadNil))
                     }
                     else { None })
                 }
@@ -1259,20 +1259,20 @@ impl Compiler {
                     let src2 = self.compile_ast(fb, bb, &op.children[1], true)?.unwrap();
 
                     Ok(Some(fb.add_stmt(*bb, ast, match op.kind {
-                        OpKind::And     => StatementData::And    { src1, src2 },
-                        OpKind::Or      => StatementData::Or     { src1, src2 },
-                        OpKind::Add     => StatementData::Add    { src1, src2 },
-                        OpKind::Sub     => StatementData::Sub    { src1, src2 },
-                        OpKind::Mul     => StatementData::Mul    { src1, src2 },
-                        OpKind::Div     => StatementData::Div    { src1, src2 },
-                        OpKind::IntDiv  => StatementData::IntDiv { src1, src2 },
-                        OpKind::CmpEq   => StatementData::CmpEq  { src1, src2 },
-                        OpKind::CmpNe   => StatementData::CmpNe  { src1, src2 },
-                        OpKind::CmpLe   => StatementData::CmpLe  { src1, src2 },
-                        OpKind::CmpLt   => StatementData::CmpLt  { src1, src2 },
-                        OpKind::CmpGe   => StatementData::CmpGe  { src1, src2 },
-                        OpKind::CmpGt   => StatementData::CmpGt  { src1, src2 },
-                        OpKind::OrElse  => StatementData::OrElse { src1, src2 },
+                        OpKind::And     => StmtData::And    { src1, src2 },
+                        OpKind::Or      => StmtData::Or     { src1, src2 },
+                        OpKind::Add     => StmtData::Add    { src1, src2 },
+                        OpKind::Sub     => StmtData::Sub    { src1, src2 },
+                        OpKind::Mul     => StmtData::Mul    { src1, src2 },
+                        OpKind::Div     => StmtData::Div    { src1, src2 },
+                        OpKind::IntDiv  => StmtData::IntDiv { src1, src2 },
+                        OpKind::CmpEq   => StmtData::CmpEq  { src1, src2 },
+                        OpKind::CmpNe   => StmtData::CmpNe  { src1, src2 },
+                        OpKind::CmpLe   => StmtData::CmpLe  { src1, src2 },
+                        OpKind::CmpLt   => StmtData::CmpLt  { src1, src2 },
+                        OpKind::CmpGe   => StmtData::CmpGe  { src1, src2 },
+                        OpKind::CmpGt   => StmtData::CmpGt  { src1, src2 },
+                        OpKind::OrElse  => StmtData::OrElse { src1, src2 },
 
                         OpKind::Assign |
                         OpKind::AddAssign | OpKind::SubAssign | OpKind::MulAssign |
@@ -1330,7 +1330,7 @@ impl Compiler {
                     }
                     else {
                         let source = ast.source.end.to_range();
-                        let v = need_value.then(|| fb.add_stmt_at(bb_false, source, StatementData::LoadNil));
+                        let v = need_value.then(|| fb.add_stmt_at(bb_false, source, StmtData::LoadNil));
                         (v, source)
                     };
                 fb.terminate_at(bb_false, on_false_src,
@@ -1341,7 +1341,7 @@ impl Compiler {
                         Cell::new((bb_true,  value_true.unwrap())),
                         Cell::new((bb_false, value_false.unwrap())),
                     ]));
-                    let result = fb.add_stmt(after_if, ast, StatementData::Phi { map });
+                    let result = fb.add_stmt(after_if, ast, StmtData::Phi { map });
                     Ok(Some(result))
                 }
                 else { Ok(None) }
@@ -1368,7 +1368,7 @@ impl Compiler {
                 fb.terminate(bb_body, ast, TerminatorData::Jump { target: bb_head });
 
                 if need_value {
-                    let result = fb.add_stmt(bb_after, ast, StatementData::LoadNil);
+                    let result = fb.add_stmt(bb_after, ast, StmtData::LoadNil);
                     Ok(Some(result))
                 }
                 else { Ok(None) }
@@ -1416,9 +1416,9 @@ impl Compiler {
                         self.compile_ast(fb, bb, value, true)?.unwrap()
                     }
                     else {
-                        fb.add_stmt(*bb, node, StatementData::LoadNil)
+                        fb.add_stmt(*bb, node, StmtData::LoadNil)
                     };
-                fb.add_stmt(*bb, node, StatementData::SetLocal { dst: lid, src: v });
+                fb.add_stmt(*bb, node, StmtData::SetLocal { dst: lid, src: v });
             }
             else {
                 self.compile_ast(fb, bb, node, false)?;
@@ -1433,7 +1433,7 @@ impl Compiler {
             else if need_value {
                 let source = block_source.end.to_range();
                 // @todo: return empty tuple.
-                Some(fb.add_stmt_at(*bb, source, StatementData::LoadNil))
+                Some(fb.add_stmt_at(*bb, source, StmtData::LoadNil))
             }
             else { None };
 
@@ -1447,7 +1447,7 @@ impl Compiler {
         match &ast.data {
             AstData::Ident (name) => {
                 if let Some(decl) = fb.find_decl(name) {
-                    fb.add_stmt(*bb, ast, StatementData::SetLocal { dst: decl.id, src: value });
+                    fb.add_stmt(*bb, ast, StmtData::SetLocal { dst: decl.id, src: value });
                 }
                 else {
                     unimplemented!()
@@ -1484,7 +1484,7 @@ impl StmtId {
 
 #[derive(Clone, Copy)]
 #[repr(transparent)]
-pub struct StmtRef<'a>(&'a Cell<Statement<'a>>);
+pub struct StmtRef<'a>(&'a Cell<Stmt<'a>>);
 
 impl<'a> StmtRef<'a> {
     #[inline(always)]
@@ -1515,7 +1515,7 @@ impl<'a> core::hash::Hash for StmtRef<'a> {
 }
 
 impl<'a> core::ops::Deref for StmtRef<'a> {
-    type Target = Cell<Statement<'a>>;
+    type Target = Cell<Stmt<'a>>;
     #[inline]
     fn deref(&self) -> &Self::Target { self.0 }
 }
@@ -1526,7 +1526,7 @@ impl<'a> core::fmt::Display for StmtRef<'a> {
 
         write!(f, "r{} := ", stmt.id.0)?;
 
-        use StatementData::*;
+        use StmtData::*;
         match &stmt.data {
             Copy { src } => { write!(f, "copy r{}", src.get().id.0) }
 
@@ -1573,26 +1573,26 @@ impl<'a> core::fmt::Display for StmtRef<'a> {
 
 
 #[derive(Clone, Copy, Debug)]
-pub struct Statement<'a> {
+pub struct Stmt<'a> {
     pub id:     StmtId,
     pub source: SourceRange,
-    pub data:   StatementData<'a>,
+    pub data:   StmtData<'a>,
 }
 
-impl<'a> core::ops::Deref for Statement<'a> {
-    type Target = StatementData<'a>;
+impl<'a> core::ops::Deref for Stmt<'a> {
+    type Target = StmtData<'a>;
     #[inline(always)]
     fn deref(&self) -> &Self::Target { &self.data }
 }
 
-impl<'a> core::ops::DerefMut for Statement<'a> {
+impl<'a> core::ops::DerefMut for Stmt<'a> {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target { &mut self.data }
 }
 
 
 #[derive(Clone, Copy, Debug)]
-pub enum StatementData<'a> {
+pub enum StmtData<'a> {
     Copy        { src: StmtRef<'a> },
 
     Phi         { map: &'a [Cell<(BlockId, StmtRef<'a>)>] },
@@ -1626,20 +1626,20 @@ pub enum StatementData<'a> {
     OrElse      { src1: StmtRef<'a>, src2: StmtRef<'a> },
 }
 
-impl<'a> StatementData<'a> {
+impl<'a> StmtData<'a> {
     #[inline(always)]
     pub fn is_copy(&self) -> bool {
-        if let StatementData::Copy { src: _ } = self { true } else { false }
+        if let StmtData::Copy { src: _ } = self { true } else { false }
     }
 
     #[inline(always)]
     pub fn is_phi(&self) -> bool {
-        if let StatementData::Phi { map: _ } = self { true } else { false }
+        if let StmtData::Phi { map: _ } = self { true } else { false }
     }
 
     #[inline(always)]
     pub fn has_value(&self) -> bool {
-        use StatementData::*;
+        use StmtData::*;
         match self {
             Copy { src: _ } |
             Phi { map: _ } |
@@ -1663,7 +1663,7 @@ impl<'a> StatementData<'a> {
 
     #[inline]
     pub fn args<F: FnMut(StmtRef<'a>)>(&self, mut f: F) {
-        use StatementData::*;
+        use StmtData::*;
         match self {
             Copy { src } => { f(*src) }
 
@@ -1701,7 +1701,7 @@ impl<'a> StatementData<'a> {
 
     #[inline]
     pub fn replace_args<F: FnMut(&mut StmtRef<'a>)>(&mut self, mut f: F) {
-        use StatementData::*;
+        use StmtData::*;
         match self {
             Copy { src } => { f(src) }
 
@@ -1994,14 +1994,14 @@ impl<'a> FunctionBuilder<'a> {
         id
     }
 
-    pub fn new_stmt_at(&mut self, source: SourceRange, data: StatementData<'a>) -> StmtRef<'a> {
+    pub fn new_stmt_at(&mut self, source: SourceRange, data: StmtData<'a>) -> StmtRef<'a> {
         let id = self.next_stmt;
         self.next_stmt.0 += 1;
 
-        StmtRef(Box::leak(Box::new(Cell::new(Statement { id, source, data }))))
+        StmtRef(Box::leak(Box::new(Cell::new(Stmt { id, source, data }))))
     }
 
-    pub fn add_stmt_at(&mut self, bb: BlockId, source: SourceRange, data: StatementData<'a>) -> StmtRef<'a> {
+    pub fn add_stmt_at(&mut self, bb: BlockId, source: SourceRange, data: StmtData<'a>) -> StmtRef<'a> {
         let stmt = self.new_stmt_at(source, data);
 
         let block = &mut self.blocks[bb.0 as usize];
@@ -2010,7 +2010,7 @@ impl<'a> FunctionBuilder<'a> {
         stmt
     }
 
-    pub fn add_stmt(&mut self, bb: BlockId, at: &Ast, data: StatementData<'a>) -> StmtRef<'a> {
+    pub fn add_stmt(&mut self, bb: BlockId, at: &Ast, data: StmtData<'a>) -> StmtRef<'a> {
         self.add_stmt_at(bb, at.source, data)
     }
 

@@ -1,19 +1,52 @@
 
 - todo:
     - ssa form:
-        - minor changes:
-            - `Statement` -> `Stmt`.
-            - terminator as `Stmt`.
-        - fix inner locals.
-            - thinking init to nil in pre-entry, where also init params (no code generated).
+        - cleanup:
+            - data structure changes:
+                - terminator as statement.
+                - `Vec<Stmt>` on `Func`.
+                    - use `StmtId` in `StmtData` -> smaller.
+                    - easier lookup from `StmtId` to `Stmt`.
+                    - no `Cell` business.
+                - `Op1`, `Op2`.
+                - `Phi1`, `Phi2`, `Phi`.
+            - `Module`/`Func` api.
+            - analyses as function methods.
+                - that return data.
+                - maybe attach shared borrow to data.
+                    - prevent cfg changes while analysis data is live.
+                    - could have method to "detach" the lifetime.
+                    - could be annoying.
+                    - maybe `generation` is fine. incr when cfg changes.
+                - methods that require analysis data just take as params.
+            - more files.
         - validation:
-            - `StatementData::has_output`.
+            - args point to `StmtData::has_output`.
             - check that all args are defined in the cfg.
             - ensure all uses are dominated by their defs.
-        - api:
-            - how to make nice to use?
-            - while allowing changes (passes).
-            - and preventing cache invalidation bugs.
+        - fix phi copies.
+            - issue: they're parallel assignments, but serialized in code-gen.
+            - insert copies in preds?
+                - feel like that would be the simplest fix.
+                - phis still `gen` those copies, so they have proper live ranges.
+                - reg-alloc processes them sequentially.
+        - fix inner locals.
+            - thinking init to nil in pre-entry, where also init params (no code generated).
+        - debug:
+            - generate info.
+            - option to not optimize things out.
+                - every stmt needs a non-empty live range.
+        - other stuff:
+            - constants.
+            - vm ops: boolean, orelse.
+            - remove stuff:
+                - old parser/compiler.
+                - bcb blocks.
+            - opt:
+                - place loop headers after loop body.
+                - dead code elim.
+                - constant folding.
+                - cse.
     - new compiler.
         - todo:
             - constants:
