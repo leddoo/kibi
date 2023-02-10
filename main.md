@@ -3,7 +3,6 @@
     - ssa form:
         - cleanup:
             - data structure changes:
-                - terminator as statement.
                 - `Vec<Stmt>` on `Func`.
                     - use `StmtId` in `StmtData` -> smaller.
                     - easier lookup from `StmtId` to `Stmt`.

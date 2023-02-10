@@ -39,7 +39,7 @@ impl Compiler {
         self.compile_block(&mut fb, &mut bb, source, block, false)?;
 
         let nil = fb.add_stmt_at(bb, source, StmtData::LoadNil);
-        fb.terminate_at(bb, source, TerminatorData::Return { src: nil });
+        fb.add_stmt_at(bb, source, StmtData::Return { src: nil });
 
         for blocks in &fb.blocks {
             println!("{}", blocks);
@@ -398,7 +398,7 @@ impl Compiler {
                 let block = &fb.blocks[bb.usize()];
 
                 let block_begin = cursor;
-                cursor += block.statements.len() + 1;
+                cursor += block.statements.len();
 
                 block_begins[block.id.usize()] = block_begin as u32;
 
@@ -419,9 +419,6 @@ impl Compiler {
             for stmt in &block.statements {
                 println!("  ({}) {}", stmt_indices[stmt.id().usize()], *stmt);
             }
-
-            let block_begin = block_begins[bb.usize()];
-            println!("  ({}) {}\n", block_begin + block.statements.len() as u32, block.terminator);
         }
 
 
@@ -439,11 +436,6 @@ impl Compiler {
             for block in &fb.blocks {
                 let mut gen  = vec![false; fb.next_stmt.usize()];
                 let mut kill = vec![false; fb.next_stmt.usize()];
-
-                // terminator.
-                block.terminator.args(|arg| {
-                    gen[arg.id().usize()] = true;
-                });
 
                 // statements in reverse.
                 for stmt_ref in block.statements.iter().rev() {
@@ -540,7 +532,7 @@ impl Compiler {
 
                 let block       = &fb.blocks[bb.usize()];
                 let block_begin = block_begins[bb.usize()];
-                let block_end   = block_begin + block.statements.len() as u32 + 1;
+                let block_end   = block_begin + block.statements.len() as u32;
 
                 let mut live = live_out.iter().map(|live| {
                     live.then(|| block_end)
@@ -573,11 +565,6 @@ impl Compiler {
                         return;
                     }
                 }
-
-                // terminator.
-                block.terminator.args(|arg| {
-                    gen(arg.id(), block_end - 1, &mut live);
-                });
 
                 // statements.
                 for stmt_ref in block.statements.iter().rev() {
@@ -789,7 +776,7 @@ impl Compiler {
 
                 let block = &fb.blocks[bb.usize()];
 
-                for stmt in &block.statements {
+                for stmt in &block.statements[..block.statements.len()-1] {
                     let dst = reg(*stmt);
 
                     // @temp
@@ -830,6 +817,10 @@ impl Compiler {
                         CmpGe       { src1, src2 } => bcb.cmp_ge(dst, reg(src1), reg(src2)),
                         CmpGt       { src1, src2 } => bcb.cmp_gt(dst, reg(src1), reg(src2)),
                         OrElse      { src1: _, src2: _ } => unimplemented!(),
+
+                        Jump       { target: _ } |
+                        SwitchBool { src: _, on_true: _, on_false: _ } |
+                        Return     { src: _ } => unreachable!("multiple terminators")
                     }
                 }
 
@@ -852,12 +843,13 @@ impl Compiler {
                 });
 
 
+                let terminator = block.statements.last().unwrap();
+                assert!(terminator.get().is_terminator());
+
                 let next_bb = block_order.get(block_index + 1);
 
-                use TerminatorData::*;
-                match &block.terminator.data {
-                    None => { unreachable!("unterminated block") }
-
+                use StmtData::*;
+                match &terminator.get().data {
                     Jump { target } => {
                         if Some(target) != next_bb {
                             bcb.jump(target.0 as u16)
@@ -876,6 +868,8 @@ impl Compiler {
                     Return { src } => {
                         bcb.ret(reg(*src), 1);
                     }
+
+                    _ => (),
                 }
             }
 
@@ -1309,7 +1303,7 @@ impl Compiler {
 
                 // condition.
                 let cond = self.compile_ast(fb, bb, &iff.condition, true)?.unwrap();
-                fb.terminate(*bb, ast, TerminatorData::SwitchBool {
+                fb.add_stmt(*bb, ast, StmtData::SwitchBool {
                     src:      cond,
                     on_true:  bb_true,
                     on_false: bb_false,
@@ -1318,9 +1312,9 @@ impl Compiler {
 
                 // on_true
                 let value_true = self.compile_ast(fb, &mut bb_true, &iff.on_true, need_value)?;
-                fb.terminate_at(bb_true,
+                fb.add_stmt_at(bb_true,
                     iff.on_true.source.end.to_range(),
-                    TerminatorData::Jump { target: after_if });
+                    StmtData::Jump { target: after_if });
 
                 // on_false
                 let (value_false, on_false_src) =
@@ -1333,8 +1327,8 @@ impl Compiler {
                         let v = need_value.then(|| fb.add_stmt_at(bb_false, source, StmtData::LoadNil));
                         (v, source)
                     };
-                fb.terminate_at(bb_false, on_false_src,
-                    TerminatorData::Jump { target: after_if });
+                fb.add_stmt_at(bb_false, on_false_src,
+                    StmtData::Jump { target: after_if });
 
                 if need_value {
                     let map = Box::leak(Box::new([
@@ -1352,12 +1346,12 @@ impl Compiler {
                 let mut bb_body  = fb.new_block();
                 let bb_after = fb.new_block();
 
-                fb.terminate(*bb, ast, TerminatorData::Jump { target: bb_head });
+                fb.add_stmt(*bb, ast, StmtData::Jump { target: bb_head });
                 *bb = bb_after;
 
                 // head.
                 let cond = self.compile_ast(fb, &mut bb_head, &whilee.condition, true)?.unwrap();
-                fb.terminate(bb_head, ast, TerminatorData::SwitchBool {
+                fb.add_stmt(bb_head, ast, StmtData::SwitchBool {
                     src:      cond,
                     on_true:  bb_body,
                     on_false: bb_after,
@@ -1365,7 +1359,7 @@ impl Compiler {
 
                 // body.
                 self.compile_ast(fb, &mut bb_body, &whilee.body, false)?;
-                fb.terminate(bb_body, ast, TerminatorData::Jump { target: bb_head });
+                fb.add_stmt(bb_body, ast, StmtData::Jump { target: bb_head });
 
                 if need_value {
                     let result = fb.add_stmt(bb_after, ast, StmtData::LoadNil);
@@ -1567,6 +1561,10 @@ impl<'a> core::fmt::Display for StmtRef<'a> {
             CmpGe  { src1, src2 } => { write!(f, "cmp_ge r{}, r{}",  src1.get().id.0, src2.get().id.0) }
             CmpGt  { src1, src2 } => { write!(f, "cmp_gt r{}, r{}",  src1.get().id.0, src2.get().id.0) }
             OrElse { src1, src2 } => { write!(f, "or_else r{}, r{}", src1.get().id.0, src2.get().id.0) }
+
+            Jump       { target }                 => { write!(f, "jump {}", target) }
+            SwitchBool { src, on_true, on_false } => { write!(f, "switch_bool r{}, {}, {}", src.get().id.0, on_true, on_false) }
+            Return     { src }                    => { write!(f, "return r{}", src.get().id.0) }
         }
     }
 }
@@ -1624,6 +1622,10 @@ pub enum StmtData<'a> {
     CmpGe       { src1: StmtRef<'a>, src2: StmtRef<'a> },
     CmpGt       { src1: StmtRef<'a>, src2: StmtRef<'a> },
     OrElse      { src1: StmtRef<'a>, src2: StmtRef<'a> },
+
+    Jump        { target: BlockId },
+    SwitchBool  { src: StmtRef<'a>, on_true: BlockId, on_false: BlockId },
+    Return      { src: StmtRef<'a> },
 }
 
 impl<'a> StmtData<'a> {
@@ -1635,6 +1637,30 @@ impl<'a> StmtData<'a> {
     #[inline(always)]
     pub fn is_phi(&self) -> bool {
         if let StmtData::Phi { map: _ } = self { true } else { false }
+    }
+
+    #[inline(always)]
+    pub fn is_terminator(&self) -> bool {
+        use StmtData::*;
+        match self {
+            Jump { target: _ } |
+            SwitchBool { src: _, on_true: _, on_false: _ } |
+            Return { src: _ } => true,
+
+            Copy { src: _ } |
+            Phi { map: _ } |
+            GetLocal { src: _ } |
+            LoadNil | LoadBool { value: _ } | LoatInt { value: _ } | LoadFloat { value: _ } |
+            Not { src: _ } | BitNot { src: _ } | Neg { src: _ } | Plus { src: _ } |
+            And { src1: _, src2: _ } | Or { src1: _, src2: _ } |
+            Add { src1: _, src2: _ } | Sub { src1: _, src2: _ } | Mul { src1: _, src2: _ } |
+            Div { src1: _, src2: _ } | IntDiv { src1: _, src2: _ } |
+            CmpEq { src1: _, src2: _ } | CmpNe { src1: _, src2: _ } |
+            CmpLe { src1: _, src2: _ } | CmpLt { src1: _, src2: _ } |
+            CmpGe { src1: _, src2: _ } | CmpGt { src1: _, src2: _ } |
+            OrElse { src1: _, src2: _ } |
+            SetLocal { dst: _, src: _ } => false,
+        }
     }
 
     #[inline(always)]
@@ -1657,7 +1683,10 @@ impl<'a> StmtData<'a> {
             CmpGe { src1: _, src2: _ } | CmpGt { src1: _, src2: _ } |
             OrElse { src1: _, src2: _ } => true,
 
-            SetLocal { dst: _, src: _ } => false,
+            SetLocal { dst: _, src: _ } |
+            Jump { target: _ } |
+            SwitchBool { src: _, on_true: _, on_false: _ } |
+            Return { src: _ } => false,
         }
     }
 
@@ -1696,6 +1725,10 @@ impl<'a> StmtData<'a> {
             CmpGe       { src1, src2 } |
             CmpGt       { src1, src2 } |
             OrElse      { src1, src2 } => { f(*src1); f(*src2) }
+
+            Jump       { target: _ } => (),
+            SwitchBool { src, on_true: _, on_false: _ } => { f(*src) }
+            Return     { src }                          => { f(*src) },
         }
     }
 
@@ -1740,88 +1773,10 @@ impl<'a> StmtData<'a> {
             CmpGe       { src1, src2 } |
             CmpGt       { src1, src2 } |
             OrElse      { src1, src2 } => { f(src1); f(src2) }
-        }
-    }
-}
 
-
-#[derive(Clone, Debug)]
-pub struct Terminator<'a> {
-    pub source: SourceRange,
-    pub data:   TerminatorData<'a>,
-}
-
-impl<'a> core::ops::Deref for Terminator<'a> {
-    type Target = TerminatorData<'a>;
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target { &self.data }
-}
-
-impl<'a> core::ops::DerefMut for Terminator<'a> {
-    #[inline(always)]
-    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.data }
-}
-
-impl<'a> core::fmt::Display for Terminator<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use TerminatorData::*;
-        match &self.data {
-            None => {
-                write!(f, "none")
-            }
-            Jump { target } => {
-                write!(f, "jump {}", target)
-            }
-            SwitchBool { src, on_true, on_false } => {
-                write!(f, "switch_bool r{}, {}, {}", src.get().id.0, on_true, on_false)
-            }
-            Return { src } => {
-                write!(f, "return r{}", src.get().id.0)
-            }
-        }
-    }
-}
-
-
-#[derive(Clone, Debug)]
-pub enum TerminatorData<'a> {
-    None,
-    Jump        { target: BlockId },
-    SwitchBool  { src: StmtRef<'a>, on_true: BlockId, on_false: BlockId },
-    Return      { src: StmtRef<'a> },
-}
-
-impl<'a> TerminatorData<'a> {
-    #[inline]
-    pub fn is_none(&self) -> bool {
-        if let TerminatorData::None = self { true } else { false }
-    }
-
-    #[inline]
-    pub fn args<F: FnMut(StmtRef<'a>)>(&self, mut f: F) {
-        use TerminatorData::*;
-        match self {
-            None => (),
-
-            Jump { target: _ } => (),
-
-            SwitchBool { src, on_true: _, on_false: _ } => { f(*src) }
-
-            Return { src } => { f(*src) }
-        }
-    }
-
-    #[inline]
-    pub fn replace_args<F: FnMut(&mut StmtRef<'a>)>(&mut self, mut f: F) {
-        use TerminatorData::*;
-        match self {
-            None => (),
-
-            Jump { target: _ } => (),
-
+            Jump       { target: _ } => (),
             SwitchBool { src, on_true: _, on_false: _ } => { f(src) }
-
-            Return { src } => { f(src) }
+            Return     { src }                          => { f(src) },
         }
     }
 }
@@ -1853,7 +1808,6 @@ impl core::fmt::Display for BlockId {
 pub struct Block<'a> {
     pub id: BlockId,
     pub statements: Vec<StmtRef<'a>>,
-    pub terminator: Terminator<'a>,
 }
 
 impl<'a> Block<'a> {
@@ -1861,29 +1815,28 @@ impl<'a> Block<'a> {
         Block {
             id,
             statements: vec![],
-            terminator: Terminator {
-                source: SourceRange::null(),
-                data:   TerminatorData::None,
-            },
         }
     }
 
     #[inline]
     pub fn terminated(&self) -> bool {
-        !self.terminator.data.is_none()
+        if let Some(last) = self.statements.last() {
+            last.get().is_terminator()
+        }
+        else { false }
     }
 
     #[inline]
     pub fn successors<F: FnMut(BlockId)>(&self, mut f: F) {
-        use TerminatorData::*;
-        match &self.terminator.data {
-            None => { unreachable!("called successors on unterminated block") }
+        let Some(last) = self.statements.last() else { return };
 
-            Jump { target } => { f(*target); }
-
-            SwitchBool { src: _, on_true, on_false } => { f(*on_true); f(*on_false); }
-
+        use StmtData::*;
+        match last.get().data {
+            Jump { target } => { f(target); }
+            SwitchBool { src: _, on_true, on_false } => { f(on_true); f(on_false); }
             Return { src: _ } => {}
+
+            _ => { unreachable!("called successors on unterminated block") }
         }
     }
 
@@ -1892,7 +1845,6 @@ impl<'a> Block<'a> {
         for stmt in &self.statements {
             stmt.get().args(&mut f);
         }
-        self.terminator.args(&mut f);
     }
 
     #[inline]
@@ -1902,7 +1854,6 @@ impl<'a> Block<'a> {
             stmt.replace_args(&mut f);
             stmt_ref.set(stmt);
         }
-        self.terminator.replace_args(&mut f);
     }
 }
 
@@ -1914,7 +1865,7 @@ impl<'a> core::fmt::Display for Block<'a> {
             write!(f, "  {}\n", *stmt)?;
         }
 
-        write!(f, "  {}\n", self.terminator)
+        Ok(())
     }
 }
 
@@ -1976,16 +1927,6 @@ impl<'a> FunctionBuilder<'a> {
         let id = BlockId(self.blocks.len() as u32);
         self.blocks.push(Block::new(id));
         id
-    }
-
-    pub fn terminate_at(&mut self, bb: BlockId, source: SourceRange, data: TerminatorData<'a>) {
-        let block = &mut self.blocks[bb.0 as usize];
-        assert!(!block.terminated());
-        block.terminator = Terminator { source, data };
-    }
-
-    pub fn terminate(&mut self, bb: BlockId, at: &Ast, data: TerminatorData<'a>) {
-        self.terminate_at(bb, at.source, data)
     }
 
     pub fn new_local(&mut self) -> LocalId {
