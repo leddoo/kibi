@@ -3,8 +3,7 @@
     - ssa form:
         - cleanup:
             - data structure changes:
-                - `Op1`, `Op2`.
-                - `Phi1`, `Phi2`, `Phi`.
+                - `Phi2`.
             - `Module`/`Func` api.
             - analyses as function methods.
                 - that return data.
@@ -30,6 +29,7 @@
                 - feel like that would be the simplest fix.
                 - phis still `gen` those copies, so they have proper live ranges.
                 - reg-alloc processes them sequentially.
+            - may cause extra reg pressure. what really is the issue there?
         - fix inner locals.
             - thinking init to nil in pre-entry, where also init params (no code generated).
         - debug:

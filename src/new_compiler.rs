@@ -798,25 +798,27 @@ impl Compiler {
                         LoatInt   { value: _ } => unimplemented!(),
                         LoadFloat { value: _ } => unimplemented!(),
 
-                        Not    { src: _ } => unimplemented!(),
-                        BitNot { src: _ } => unimplemented!(),
-                        Neg    { src: _ } => unimplemented!(),
-                        Plus   { src: _ } => unimplemented!(),
+                        Op1 { op: _, src: _ } => unimplemented!(),
 
-                        And         { src1, src2 } => { let _ = (src1, src2); unimplemented!() },
-                        Or          { src1, src2 } => { let _ = (src1, src2); unimplemented!() },
-                        Add         { src1, src2 } => bcb.add(dst, reg(src1), reg(src2)),
-                        Sub         { src1, src2 } => bcb.sub(dst, reg(src1), reg(src2)),
-                        Mul         { src1, src2 } => bcb.mul(dst, reg(src1), reg(src2)),
-                        Div         { src1, src2 } => bcb.div(dst, reg(src1), reg(src2)),
-                        IntDiv      { src1: _, src2: _ } => unimplemented!(),
-                        CmpEq       { src1, src2 } => bcb.cmp_eq(dst, reg(src1), reg(src2)),
-                        CmpNe       { src1: _, src2: _ } => unimplemented!(),
-                        CmpLe       { src1, src2 } => bcb.cmp_le(dst, reg(src1), reg(src2)),
-                        CmpLt       { src1, src2 } => bcb.cmp_lt(dst, reg(src1), reg(src2)),
-                        CmpGe       { src1, src2 } => bcb.cmp_ge(dst, reg(src1), reg(src2)),
-                        CmpGt       { src1, src2 } => bcb.cmp_gt(dst, reg(src1), reg(src2)),
-                        OrElse      { src1: _, src2: _ } => unimplemented!(),
+                        Op2 { op, src1, src2 } => {
+                            use self::Op2::*;
+                            match op {
+                                And    => { let _ = (src1, src2); unimplemented!() },
+                                Or     => { let _ = (src1, src2); unimplemented!() },
+                                Add    => bcb.add(dst, reg(src1), reg(src2)),
+                                Sub    => bcb.sub(dst, reg(src1), reg(src2)),
+                                Mul    => bcb.mul(dst, reg(src1), reg(src2)),
+                                Div    => bcb.div(dst, reg(src1), reg(src2)),
+                                IntDiv => unimplemented!(),
+                                CmpEq  => bcb.cmp_eq(dst, reg(src1), reg(src2)),
+                                CmpNe  => unimplemented!(),
+                                CmpLe  => bcb.cmp_le(dst, reg(src1), reg(src2)),
+                                CmpLt  => bcb.cmp_lt(dst, reg(src1), reg(src2)),
+                                CmpGe  => bcb.cmp_ge(dst, reg(src1), reg(src2)),
+                                CmpGt  => bcb.cmp_gt(dst, reg(src1), reg(src2)),
+                                OrElse => unimplemented!(),
+                            }
+                        }
 
                         Jump       { target: _ } |
                         SwitchBool { src: _, on_true: _, on_false: _ } |
@@ -1204,75 +1206,42 @@ impl Compiler {
                 Err(CompileError { source: ast.source, data: CompileErrorData::UnexpectedLocal })
             }
 
-            AstData::Op1 (op) => {
-                let src = self.compile_ast(fb, bb, &op.child, true)?.unwrap();
-                Ok(Some(fb.add_stmt(*bb, ast, match op.kind {
-                    ast::Op1Kind::Not    => StmtData::Not    { src },
-                    ast::Op1Kind::BitNot => StmtData::BitNot { src },
-                    ast::Op1Kind::Neg    => StmtData::Neg    { src },
-                    ast::Op1Kind::Plus   => StmtData::Plus   { src },
-                })))
+            AstData::Op1 (op1) => {
+                let src = self.compile_ast(fb, bb, &op1.child, true)?.unwrap();
+                let op  = op1.kind.0;
+                Ok(Some(fb.add_stmt(*bb, ast, StmtData::Op1 { op, src })))
             }
 
-            AstData::Op2 (op) => {
-                use ast::Op2Kind as OpKind;
+            AstData::Op2 (op2) => {
+                match op2.kind {
+                    ast::Op2Kind::Assign => {
+                        let value = self.compile_ast(fb, bb, &op2.children[1], true)?.unwrap();
+                        self.compile_assign(fb, bb, &op2.children[0], value)?;
 
-                if op.kind == OpKind::Assign {
-                    let value = self.compile_ast(fb, bb, &op.children[1], true)?.unwrap();
-                    self.compile_assign(fb, bb, &op.children[0], value)?;
-
-                    Ok(if need_value {
-                        Some(fb.add_stmt(*bb, ast, StmtData::LoadNil))
+                        Ok(if need_value {
+                            Some(fb.add_stmt(*bb, ast, StmtData::LoadNil))
+                        }
+                        else { None })
                     }
-                    else { None })
-                }
-                else if op.kind.is_comp_assign() {
-                    let src1 = self.compile_ast(fb, bb, &op.children[0], true)?.unwrap();
-                    let src2 = self.compile_ast(fb, bb, &op.children[1], true)?.unwrap();
 
-                    let value = fb.add_stmt(*bb, ast, match op.kind {
-                        OpKind::AddAssign     => StmtData::Add    { src1, src2 },
-                        OpKind::SubAssign     => StmtData::Sub    { src1, src2 },
-                        OpKind::MulAssign     => StmtData::Mul    { src1, src2 },
-                        OpKind::DivAssign     => StmtData::Div    { src1, src2 },
-                        OpKind::IntDivAssign  => StmtData::IntDiv { src1, src2 },
-                        OpKind::OrElseAssign  => StmtData::OrElse { src1, src2 },
+                    ast::Op2Kind::Op2Assign(op) => {
+                        let src1 = self.compile_ast(fb, bb, &op2.children[0], true)?.unwrap();
+                        let src2 = self.compile_ast(fb, bb, &op2.children[1], true)?.unwrap();
 
-                        _ => unreachable!(),
-                    });
+                        let value = fb.add_stmt(*bb, ast, StmtData::Op2 { op, src1, src2 });
+                        self.compile_assign(fb, bb, &op2.children[0], value)?;
 
-                    self.compile_assign(fb, bb, &op.children[0], value)?;
-
-                    Ok(if need_value {
-                        Some(fb.add_stmt(*bb, ast, StmtData::LoadNil))
+                        Ok(if need_value {
+                            Some(fb.add_stmt(*bb, ast, StmtData::LoadNil))
+                        }
+                        else { None })
                     }
-                    else { None })
-                }
-                else {
-                    let src1 = self.compile_ast(fb, bb, &op.children[0], true)?.unwrap();
-                    let src2 = self.compile_ast(fb, bb, &op.children[1], true)?.unwrap();
 
-                    Ok(Some(fb.add_stmt(*bb, ast, match op.kind {
-                        OpKind::And     => StmtData::And    { src1, src2 },
-                        OpKind::Or      => StmtData::Or     { src1, src2 },
-                        OpKind::Add     => StmtData::Add    { src1, src2 },
-                        OpKind::Sub     => StmtData::Sub    { src1, src2 },
-                        OpKind::Mul     => StmtData::Mul    { src1, src2 },
-                        OpKind::Div     => StmtData::Div    { src1, src2 },
-                        OpKind::IntDiv  => StmtData::IntDiv { src1, src2 },
-                        OpKind::CmpEq   => StmtData::CmpEq  { src1, src2 },
-                        OpKind::CmpNe   => StmtData::CmpNe  { src1, src2 },
-                        OpKind::CmpLe   => StmtData::CmpLe  { src1, src2 },
-                        OpKind::CmpLt   => StmtData::CmpLt  { src1, src2 },
-                        OpKind::CmpGe   => StmtData::CmpGe  { src1, src2 },
-                        OpKind::CmpGt   => StmtData::CmpGt  { src1, src2 },
-                        OpKind::OrElse  => StmtData::OrElse { src1, src2 },
-
-                        OpKind::Assign |
-                        OpKind::AddAssign | OpKind::SubAssign | OpKind::MulAssign |
-                        OpKind::DivAssign | OpKind::IntDivAssign |
-                        OpKind::OrElseAssign => unreachable!()
-                    })))
+                    ast::Op2Kind::Op2(op) => {
+                        let src1 = self.compile_ast(fb, bb, &op2.children[0], true)?.unwrap();
+                        let src2 = self.compile_ast(fb, bb, &op2.children[1], true)?.unwrap();
+                        Ok(Some(fb.add_stmt(*bb, ast, StmtData::Op2 { op, src1, src2 })))
+                    }
                 }
             }
 
@@ -1405,7 +1374,7 @@ impl Compiler {
             if let AstData::Local(local) = &node.data {
                 let lid = fb.add_decl(local.name);
 
-                let v = 
+                let v =
                     if let Some(value) = &local.value {
                         self.compile_ast(fb, bb, value, true)?.unwrap()
                     }
@@ -1542,29 +1511,76 @@ impl<'a> core::fmt::Display for StmtRef<'a> {
             LoatInt   { value } => { write!(f, "load_int {}", value) }
             LoadFloat { value } => { write!(f, "load_float {}", value) }
 
-            Not    { src } => { write!(f, "not r{}",     src.get().id.0) }
-            BitNot { src } => { write!(f, "bit_not r{}", src.get().id.0) }
-            Neg    { src } => { write!(f, "neg r{}",     src.get().id.0) }
-            Plus   { src } => { write!(f, "plus r{}",    src.get().id.0) }
-
-            And    { src1, src2 } => { write!(f, "and r{}, r{}",     src1.get().id.0, src2.get().id.0) }
-            Or     { src1, src2 } => { write!(f, "or r{}, r{}",      src1.get().id.0, src2.get().id.0) }
-            Add    { src1, src2 } => { write!(f, "add r{}, r{}",     src1.get().id.0, src2.get().id.0) }
-            Sub    { src1, src2 } => { write!(f, "sub r{}, r{}",     src1.get().id.0, src2.get().id.0) }
-            Mul    { src1, src2 } => { write!(f, "mul r{}, r{}",     src1.get().id.0, src2.get().id.0) }
-            Div    { src1, src2 } => { write!(f, "div r{}, r{}",     src1.get().id.0, src2.get().id.0) }
-            IntDiv { src1, src2 } => { write!(f, "int_div r{}, r{}", src1.get().id.0, src2.get().id.0) }
-            CmpEq  { src1, src2 } => { write!(f, "cmp_eq r{}, r{}",  src1.get().id.0, src2.get().id.0) }
-            CmpNe  { src1, src2 } => { write!(f, "cmp_ne r{}, r{}",  src1.get().id.0, src2.get().id.0) }
-            CmpLe  { src1, src2 } => { write!(f, "cmp_le r{}, r{}",  src1.get().id.0, src2.get().id.0) }
-            CmpLt  { src1, src2 } => { write!(f, "cmp_lt r{}, r{}",  src1.get().id.0, src2.get().id.0) }
-            CmpGe  { src1, src2 } => { write!(f, "cmp_ge r{}, r{}",  src1.get().id.0, src2.get().id.0) }
-            CmpGt  { src1, src2 } => { write!(f, "cmp_gt r{}, r{}",  src1.get().id.0, src2.get().id.0) }
-            OrElse { src1, src2 } => { write!(f, "or_else r{}, r{}", src1.get().id.0, src2.get().id.0) }
+            Op1 { op, src }        => { write!(f, "{} r{}",      op.str(), src.get().id.0) }
+            Op2 { op, src1, src2 } => { write!(f, "{} r{}, r{}", op.str(), src1.get().id.0, src2.get().id.0) }
 
             Jump       { target }                 => { write!(f, "jump {}", target) }
             SwitchBool { src, on_true, on_false } => { write!(f, "switch_bool r{}, {}, {}", src.get().id.0, on_true, on_false) }
             Return     { src }                    => { write!(f, "return r{}", src.get().id.0) }
+        }
+    }
+}
+
+
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Op1 {
+    BoolNot,
+    BitNot,
+    Neg,
+    Plus,
+}
+
+impl Op1 {
+    #[inline]
+    pub fn str(self) -> &'static str {
+        use self::Op1::*;
+        match self {
+            BoolNot => { "not" }
+            BitNot  => { "bit_not" }
+            Neg     => { "neg" }
+            Plus    => { "plus" }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Op2 {
+    And,
+    Or,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    IntDiv,
+    CmpEq,
+    CmpNe,
+    CmpLe,
+    CmpLt,
+    CmpGe,
+    CmpGt,
+    OrElse,
+}
+
+impl Op2 {
+    #[inline]
+    pub fn str(self) -> &'static str {
+        use Op2::*;
+        match self {
+            And    => { "and" }
+            Or     => { "or" }
+            Add    => { "add" }
+            Sub    => { "sub" }
+            Mul    => { "mul" }
+            Div    => { "div" }
+            IntDiv => { "int_div" }
+            CmpEq  => { "cmp_eq" }
+            CmpNe  => { "cmp_ne" }
+            CmpLe  => { "cmp_le" }
+            CmpLt  => { "cmp_lt" }
+            CmpGe  => { "cmp_ge" }
+            CmpGt  => { "cmp_gt" }
+            OrElse => { "or_else" }
         }
     }
 }
@@ -1603,25 +1619,8 @@ pub enum StmtData<'a> {
     LoatInt     { value: i64 },
     LoadFloat   { value: f64 },
 
-    Not         { src: StmtRef<'a> },
-    BitNot      { src: StmtRef<'a> },
-    Neg         { src: StmtRef<'a> },
-    Plus        { src: StmtRef<'a> },
-
-    And         { src1: StmtRef<'a>, src2: StmtRef<'a> },
-    Or          { src1: StmtRef<'a>, src2: StmtRef<'a> },
-    Add         { src1: StmtRef<'a>, src2: StmtRef<'a> },
-    Sub         { src1: StmtRef<'a>, src2: StmtRef<'a> },
-    Mul         { src1: StmtRef<'a>, src2: StmtRef<'a> },
-    Div         { src1: StmtRef<'a>, src2: StmtRef<'a> },
-    IntDiv      { src1: StmtRef<'a>, src2: StmtRef<'a> },
-    CmpEq       { src1: StmtRef<'a>, src2: StmtRef<'a> },
-    CmpNe       { src1: StmtRef<'a>, src2: StmtRef<'a> },
-    CmpLe       { src1: StmtRef<'a>, src2: StmtRef<'a> },
-    CmpLt       { src1: StmtRef<'a>, src2: StmtRef<'a> },
-    CmpGe       { src1: StmtRef<'a>, src2: StmtRef<'a> },
-    CmpGt       { src1: StmtRef<'a>, src2: StmtRef<'a> },
-    OrElse      { src1: StmtRef<'a>, src2: StmtRef<'a> },
+    Op1         { op: Op1, src: StmtRef<'a> },
+    Op2         { op: Op2, src1: StmtRef<'a>, src2: StmtRef<'a> },
 
     Jump        { target: BlockId },
     SwitchBool  { src: StmtRef<'a>, on_true: BlockId, on_false: BlockId },
@@ -1650,15 +1649,12 @@ impl<'a> StmtData<'a> {
             Copy { src: _ } |
             Phi { map: _ } |
             GetLocal { src: _ } |
-            LoadNil | LoadBool { value: _ } | LoatInt { value: _ } | LoadFloat { value: _ } |
-            Not { src: _ } | BitNot { src: _ } | Neg { src: _ } | Plus { src: _ } |
-            And { src1: _, src2: _ } | Or { src1: _, src2: _ } |
-            Add { src1: _, src2: _ } | Sub { src1: _, src2: _ } | Mul { src1: _, src2: _ } |
-            Div { src1: _, src2: _ } | IntDiv { src1: _, src2: _ } |
-            CmpEq { src1: _, src2: _ } | CmpNe { src1: _, src2: _ } |
-            CmpLe { src1: _, src2: _ } | CmpLt { src1: _, src2: _ } |
-            CmpGe { src1: _, src2: _ } | CmpGt { src1: _, src2: _ } |
-            OrElse { src1: _, src2: _ } |
+            LoadNil |
+            LoadBool { value: _ } |
+            LoatInt { value: _ } |
+            LoadFloat { value: _ } |
+            Op1 { op: _, src: _ } |
+            Op2 { op: _, src1: _, src2: _ } |
             SetLocal { dst: _, src: _ } => false,
         }
     }
@@ -1674,14 +1670,8 @@ impl<'a> StmtData<'a> {
             LoadBool { value: _ } |
             LoatInt { value: _ } |
             LoadFloat { value: _ } |
-            Not { src: _ } | BitNot { src: _ } | Neg { src: _ } | Plus { src: _ } |
-            And { src1: _, src2: _ } | Or { src1: _, src2: _ } |
-            Add { src1: _, src2: _ } | Sub { src1: _, src2: _ } | Mul { src1: _, src2: _ } |
-            Div { src1: _, src2: _ } | IntDiv { src1: _, src2: _ } |
-            CmpEq { src1: _, src2: _ } | CmpNe { src1: _, src2: _ } |
-            CmpLe { src1: _, src2: _ } | CmpLt { src1: _, src2: _ } |
-            CmpGe { src1: _, src2: _ } | CmpGt { src1: _, src2: _ } |
-            OrElse { src1: _, src2: _ } => true,
+            Op1 { op: _, src: _ } |
+            Op2 { op: _, src1: _, src2: _ } => true,
 
             SetLocal { dst: _, src: _ } |
             Jump { target: _ } |
@@ -1706,25 +1696,8 @@ impl<'a> StmtData<'a> {
             LoatInt   { value: _ } |
             LoadFloat { value: _ } => (),
 
-            Not         { src } |
-            BitNot      { src } |
-            Neg         { src } |
-            Plus        { src } => { f(*src) }
-
-            And         { src1, src2 } |
-            Or          { src1, src2 } |
-            Add         { src1, src2 } |
-            Sub         { src1, src2 } |
-            Mul         { src1, src2 } |
-            Div         { src1, src2 } |
-            IntDiv      { src1, src2 } |
-            CmpEq       { src1, src2 } |
-            CmpNe       { src1, src2 } |
-            CmpLe       { src1, src2 } |
-            CmpLt       { src1, src2 } |
-            CmpGe       { src1, src2 } |
-            CmpGt       { src1, src2 } |
-            OrElse      { src1, src2 } => { f(*src1); f(*src2) }
+            Op1 { op: _, src }        => { f(*src) }
+            Op2 { op: _, src1, src2 } => { f(*src1); f(*src2) }
 
             Jump       { target: _ } => (),
             SwitchBool { src, on_true: _, on_false: _ } => { f(*src) }
@@ -1754,25 +1727,9 @@ impl<'a> StmtData<'a> {
             LoatInt   { value: _ } |
             LoadFloat { value: _ } => (),
 
-            Not         { src } |
-            BitNot      { src } |
-            Neg         { src } |
-            Plus        { src } => { f(src) }
 
-            And         { src1, src2 } |
-            Or          { src1, src2 } |
-            Add         { src1, src2 } |
-            Sub         { src1, src2 } |
-            Mul         { src1, src2 } |
-            Div         { src1, src2 } |
-            IntDiv      { src1, src2 } |
-            CmpEq       { src1, src2 } |
-            CmpNe       { src1, src2 } |
-            CmpLe       { src1, src2 } |
-            CmpLt       { src1, src2 } |
-            CmpGe       { src1, src2 } |
-            CmpGt       { src1, src2 } |
-            OrElse      { src1, src2 } => { f(src1); f(src2) }
+            Op1 { op: _, src }        => { f(src) }
+            Op2 { op: _, src1, src2 } => { f(src1); f(src2) }
 
             Jump       { target: _ } => (),
             SwitchBool { src, on_true: _, on_false: _ } => { f(src) }

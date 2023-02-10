@@ -719,12 +719,8 @@ pub mod ast {
     }
 
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub enum Op1Kind {
-        Not,
-        BitNot,
-        Neg,
-        Plus,
-    }
+    pub struct Op1Kind (pub crate::new_compiler::Op1);
+
 
     #[derive(Clone, Debug)]
     pub struct Op2<'a> {
@@ -734,99 +730,61 @@ pub mod ast {
 
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub enum Op2Kind {
-        And,
-        Or,
+        Op2       (crate::new_compiler::Op2),
+        Op2Assign (crate::new_compiler::Op2),
         Assign,
-        Add,
-        AddAssign,
-        Sub,
-        SubAssign,
-        Mul,
-        MulAssign,
-        Div,
-        DivAssign,
-        IntDiv,
-        IntDivAssign,
-        CmpEq,
-        CmpNe,
-        CmpLe,
-        CmpLt,
-        CmpGe,
-        CmpGt,
-        OrElse,
-        OrElseAssign,
     }
 
     impl Op2Kind {
         #[inline(always)]
         pub fn lprec(self) -> u32 {
             use Op2Kind::*;
+            use crate::new_compiler::Op2::*;
             match self {
                 Assign          => 100,
-                AddAssign       => 100,
-                SubAssign       => 100,
-                MulAssign       => 100,
-                DivAssign       => 100,
-                IntDivAssign    => 100,
-                OrElseAssign    => 100,
-                OrElse          => 150,
-                Or              => 200,
-                And             => 300,
-                CmpEq           => 400,
-                CmpNe           => 400,
-                CmpLe           => 400,
-                CmpLt           => 400,
-                CmpGe           => 400,
-                CmpGt           => 400,
-                Add             => 600,
-                Sub             => 600,
-                Mul             => 800,
-                Div             => 800,
-                IntDiv          => 800,
+                Op2Assign(_)    => 100,
+                Op2(op) => match op {
+                    OrElse      => 150,
+                    Or          => 200,
+                    And         => 300,
+                    CmpEq       => 400,
+                    CmpNe       => 400,
+                    CmpLe       => 400,
+                    CmpLt       => 400,
+                    CmpGe       => 400,
+                    CmpGt       => 400,
+                    Add         => 600,
+                    Sub         => 600,
+                    Mul         => 800,
+                    Div         => 800,
+                    IntDiv      => 800,
+                }
             }
         }
 
         #[inline(always)]
         pub fn rprec(self) -> u32 {
             use Op2Kind::*;
+            use crate::new_compiler::Op2::*;
             match self {
                 Assign          => 100,
-                AddAssign       => 100,
-                SubAssign       => 100,
-                MulAssign       => 100,
-                DivAssign       => 100,
-                IntDivAssign    => 100,
-                OrElseAssign    => 100,
-                OrElse          => 151,
-                Or              => 201,
-                And             => 301,
-                CmpEq           => 401,
-                CmpNe           => 401,
-                CmpLe           => 401,
-                CmpLt           => 401,
-                CmpGe           => 401,
-                CmpGt           => 401,
-                Add             => 601,
-                Sub             => 601,
-                Mul             => 801,
-                Div             => 801,
-                IntDiv          => 801,
-            }
-        }
-
-        #[inline(always)]
-        pub fn is_comp_assign(self) -> bool {
-            use Op2Kind::*;
-            match self {
-                AddAssign | SubAssign | MulAssign | DivAssign |
-                IntDivAssign | OrElseAssign
-                => true,
-
-                And | Or | Assign |
-                Add | Sub | Mul | Div | IntDiv |
-                CmpEq | CmpNe | CmpLe | CmpLt | CmpGe | CmpGt |
-                OrElse
-                => false,
+                Op2Assign(_)    => 100,
+                Op2(op) => match op {
+                    OrElse          => 151,
+                    Or              => 201,
+                    And             => 301,
+                    CmpEq           => 401,
+                    CmpNe           => 401,
+                    CmpLe           => 401,
+                    CmpLt           => 401,
+                    CmpGe           => 401,
+                    CmpGt           => 401,
+                    Add             => 601,
+                    Sub             => 601,
+                    Mul             => 801,
+                    Div             => 801,
+                    IntDiv          => 801,
+                }
             }
         }
     }
@@ -935,41 +893,41 @@ impl<'i> Parser<'i> {
 
     pub fn peek_op1(&mut self) -> Option<ast::Op1Kind> {
         use TokenData::*;
-        use ast::Op1Kind::*;
+        use crate::new_compiler::Op1::*;
         Some(match self.toker.peek().data {
-            KwNot   => Not,
-            OpNot   => BitNot,
-            OpMinus => Neg,
-            OpPlus  => Plus,
+            KwNot   => ast::Op1Kind(BoolNot),
+            OpNot   => ast::Op1Kind(BitNot),
+            OpMinus => ast::Op1Kind(Neg),
+            OpPlus  => ast::Op1Kind(Plus),
             _ => return None,
         })
     }
 
     pub fn peek_op2(&mut self) -> Option<ast::Op2Kind> {
         use TokenData::*;
-        use ast::Op2Kind::*;
+        use crate::new_compiler::Op2::*;
         Some(match self.toker.peek().data {
-            KwAnd           => And,
-            KwOr            => Or,
-            OpPlus          => Add,
-            OpPlusEq        => AddAssign,
-            OpMinus         => Sub,
-            OpMinusEq       => SubAssign,
-            OpStar          => Mul,
-            OpStarEq        => MulAssign,
-            OpSlash         => Div,
-            OpSlashEq       => DivAssign,
-            OpSlashSlash    => IntDiv,
-            OpSlashSlashEq  => IntDivAssign,
-            OpEq            => Assign,
-            OpEqEq          => CmpEq,
-            OpNe            => CmpNe,
-            OpLe            => CmpLe,
-            OpLt            => CmpLt,
-            OpGe            => CmpGe,
-            OpGt            => CmpGt,
-            OpQQ            => OrElse,
-            OpQQEq          => OrElseAssign,
+            KwAnd           => ast::Op2Kind::Op2(And),
+            KwOr            => ast::Op2Kind::Op2(Or),
+            OpPlus          => ast::Op2Kind::Op2(Add),
+            OpPlusEq        => ast::Op2Kind::Op2Assign(Add),
+            OpMinus         => ast::Op2Kind::Op2(Sub),
+            OpMinusEq       => ast::Op2Kind::Op2Assign(Sub),
+            OpStar          => ast::Op2Kind::Op2(Mul),
+            OpStarEq        => ast::Op2Kind::Op2Assign(Mul),
+            OpSlash         => ast::Op2Kind::Op2(Div),
+            OpSlashEq       => ast::Op2Kind::Op2Assign(Div),
+            OpSlashSlash    => ast::Op2Kind::Op2(IntDiv),
+            OpSlashSlashEq  => ast::Op2Kind::Op2Assign(IntDiv),
+            OpEq            => ast::Op2Kind::Assign,
+            OpEqEq          => ast::Op2Kind::Op2(CmpEq),
+            OpNe            => ast::Op2Kind::Op2(CmpNe),
+            OpLe            => ast::Op2Kind::Op2(CmpLe),
+            OpLt            => ast::Op2Kind::Op2(CmpLt),
+            OpGe            => ast::Op2Kind::Op2(CmpGe),
+            OpGt            => ast::Op2Kind::Op2(CmpGt),
+            OpQQ            => ast::Op2Kind::Op2(OrElse),
+            OpQQEq          => ast::Op2Kind::Op2Assign(OrElse),
             _ => return None
         })
     }
