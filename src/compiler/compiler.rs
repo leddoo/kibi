@@ -69,151 +69,17 @@ impl Compiler {
         }
 
 
-        let (predecessors, post_order) = {
-            let mut predecessors = vec![vec![]; fun.blocks.len()];
-            let mut post_order = vec![];
-            let mut visited = vec![false; fun.blocks.len()];
+        let (preds, post_order) = fun.preds_and_post_order();
 
-            fn visit(fb: &Function, bb: BlockId,
-                predecessors: &mut Vec<Vec<BlockId>>,
-                post_order: &mut Vec<BlockId>,
-                visited: &mut Vec<bool>,
-            ) {
-                let block = &fb.blocks[bb.usize()];
+        let post_indices = post_order.indices();
 
-                block.successors(|succ| {
-                    predecessors[succ.usize()].push(bb);
+        let idoms = fun.immediate_dominators(&preds, &post_order, &post_indices);
 
-                    if !visited[succ.usize()] {
-                        visited[succ.usize()] = true;
-                        visit(fb, succ, predecessors, post_order, visited);
-                    }
-                });
+        let dom_tree = fun.dominator_tree(&idoms);
 
-                post_order.push(bb);
-            }
-            visit(&fun, BlockId::ENTRY, &mut predecessors, &mut post_order, &mut visited);
+        println!("tree {:?}", *dom_tree);
 
-            for bb in &post_order {
-                if !bb.is_entry() {
-                    assert!(predecessors[bb.usize()].len() > 0);
-                }
-            }
-
-            (predecessors, post_order)
-        };
-
-        let post_indices = {
-            let mut indices = vec![usize::MAX; fun.blocks.len()];
-            for (index, bb) in post_order.iter().enumerate() {
-                indices[bb.usize()] = index;
-            }
-            indices
-        };
-
-        let immediate_dominators = {
-            let mut doms = vec![None; fun.blocks.len()];
-
-            #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-            struct PostIndex(usize);
-
-            impl PostIndex {
-                #[inline(always)]
-                fn usize(self) -> usize { self.0 }
-            }
-
-            let bb0 = PostIndex(post_indices[BlockId::ENTRY.usize()]);
-            doms[bb0.usize()] = Some(bb0);
-
-            let mut changed = true;
-            while changed {
-                changed = false;
-
-                for bb_id in post_order.iter().rev() {
-                    if bb_id.is_entry() { continue }
-
-                    let preds = &predecessors[bb_id.usize()];
-                    let bb = PostIndex(post_indices[bb_id.usize()]);
-
-                    let mut new_dom = PostIndex(post_indices[preds[0].usize()]);
-
-                    for pred_id in preds.iter().skip(1) {
-                        let pred = PostIndex(post_indices[pred_id.usize()]);
-
-                        // intersect.
-                        if doms[pred.usize()].is_some() {
-                            let mut x = new_dom;
-                            let mut y = pred;
-
-                            while x != y {
-                                while x < y {
-                                    x = doms[x.usize()].unwrap();
-                                }
-                                while y < x {
-                                    y = doms[y.usize()].unwrap();
-                                }
-                            }
-
-                            new_dom = x;
-                        }
-                    }
-
-                    if doms[bb.usize()] != Some(new_dom) {
-                        doms[bb.usize()] = Some(new_dom);
-                        changed = true;
-                    }
-                }
-            }
-
-            fun.blocks.iter()
-                .map(|block| {
-                    let bb = block.id;
-                    let pi = post_indices[bb.usize()];
-                    let idomi = doms[pi].unwrap();
-                    let idom  = post_order[idomi.usize()];
-                    idom
-                })
-                .collect::<Vec<BlockId>>()
-        };
-
-        let idom_tree = {
-            let mut tree = vec![vec![]; fun.blocks.len()];
-
-            for block in fun.blocks.iter().skip(1) {
-                let bb = block.id;
-                let idom = immediate_dominators[bb.usize()];
-                tree[idom.usize()].push(bb);
-            }
-
-            tree
-        };
-
-        println!("tree {:?}", idom_tree);
-
-        let dom_frontiers = {
-            let mut dfs = vec![vec![]; fun.blocks.len()];
-
-            for block in fun.blocks.iter() {
-                let bb = block.id;
-
-                let preds = &predecessors[bb.usize()];
-                if preds.len() < 2 { continue }
-
-                let idom = immediate_dominators[bb.usize()];
-                for pred in preds {
-                    let mut at = *pred;
-                    while at != idom {
-                        let df = &mut dfs[at.usize()];
-                        if !df.contains(&bb) {
-                            df.push(bb);
-                        }
-                        at = immediate_dominators[at.usize()];
-                    }
-                }
-            }
-
-            dfs
-        };
+        let dom_frontiers = fun.dominance_frontiers(&preds, &idoms);
 
         // find phis
         let mut phis = {
@@ -242,7 +108,7 @@ impl Compiler {
 
                     let needs_phi_for_lid = to_phis.iter().find(|(l, _, _)| *l == lid).is_none();
                     if needs_phi_for_lid {
-                        let preds = &predecessors[to_bb.usize()];
+                        let preds = &preds[to_bb.usize()];
 
                         let map = preds.iter().map(|p| (*p, None)).collect();
                         let stmt = fun.new_stmt_at(SourceRange::null(), StmtData::Phi { map: &[] });
@@ -309,7 +175,7 @@ impl Compiler {
             }
 
             let new_names = vec![None; fun.next_local.usize()];
-            visit(BlockId::ENTRY, new_names, &mut phis, &fun, &idom_tree);
+            visit(BlockId::ENTRY, new_names, &mut phis, &fun, &dom_tree);
         }
 
         // insert phis.
@@ -355,7 +221,7 @@ impl Compiler {
                     visit(*d, fb, idom_tree);
                 }
             }
-            visit(BlockId::ENTRY, &mut fun, &idom_tree);
+            visit(BlockId::ENTRY, &mut fun, &dom_tree);
         }
 
         println!("copy propagation done");
@@ -408,7 +274,7 @@ impl Compiler {
 
             let mut order   = vec![];
             let mut visited = vec![false; fun.blocks.len()];
-            visit(BlockId::ENTRY, &mut order, &mut visited, &fun, &immediate_dominators, &idom_tree);
+            visit(BlockId::ENTRY, &mut order, &mut visited, &fun, &idoms, &dom_tree);
             order
         };
 
@@ -493,7 +359,7 @@ impl Compiler {
 
                 println!("live iter");
 
-                for bb in &post_order {
+                for bb in &*post_order {
                     let block = &fun.blocks[bb.usize()];
                     let gen   = &bb_gen[bb.usize()];
                     let kill  = &bb_kill[bb.usize()];

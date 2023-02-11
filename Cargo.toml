@@ -8,6 +8,10 @@ members = [
     "examples/*",
 ]
 
+
+[dependencies]
+derive_more = "0.99.17"
+
 [profile.release]
 debug = true
 

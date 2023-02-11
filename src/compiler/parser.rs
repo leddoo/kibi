@@ -1,10 +1,12 @@
+use derive_more::Deref;
 use super::*;
 
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Deref)]
 pub struct Token<'a> {
+    #[deref]
+    pub data:   TokenData<'a>,
     pub source: SourceRange,
-    pub data: TokenData<'a>,
 }
 
 impl<'a> Token<'a> {
@@ -20,12 +22,6 @@ impl<'a> Default for Token<'a> {
         let source = SourceRange { begin: zero, end: zero };
         Token { source, data: TokenData::Error }
     }
-}
-
-impl<'a> core::ops::Deref for Token<'a> {
-    type Target = TokenData<'a>;
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target { &self.data }
 }
 
 

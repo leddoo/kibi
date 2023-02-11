@@ -2,18 +2,13 @@
 - todo:
     - ssa form:
         - cleanup:
-            - analyses as function methods.
-                - that return data.
-                - maybe attach shared borrow to data.
-                    - prevent cfg changes while analysis data is live.
-                    - could have method to "detach" the lifetime.
-                    - could be annoying.
-                    - maybe `generation` is fine. incr when cfg changes.
-                - methods that require analysis data just take as params.
-            - "passes":
-                - free standing functions.
-                - local_to_reg.
-                - dead_copy_elim.
+            - local_to_reg.
+            - copy_propagation.
+            - dead_copy_elim.
+            - liveness.
+            - register allocation.
+                - fix phi copies.
+            - codegen.
         - validation:
             - args point to `StmtData::has_output`.
             - check that all args are defined in the cfg.

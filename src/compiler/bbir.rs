@@ -1,4 +1,5 @@
 use core::cell::Cell;
+use derive_more::{Deref, DerefMut};
 use super::*;
 
 
@@ -9,16 +10,18 @@ use super::*;
 #[repr(transparent)]
 pub struct StmtId(pub u32); // @temp
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Deref)]
 #[repr(transparent)]
 pub struct StmtRef<'a>(&'a Cell<Stmt<'a>>);
 
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Deref, DerefMut)]
 pub struct Stmt<'a> {
+    #[deref]
+    #[deref_mut]
+    pub data:   StmtData<'a>,
     pub id:     StmtId,
     pub source: SourceRange,
-    pub data:   StmtData<'a>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -115,12 +118,6 @@ impl<'a> core::hash::Hash for StmtRef<'a> {
     }
 }
 
-impl<'a> core::ops::Deref for StmtRef<'a> {
-    type Target = Cell<Stmt<'a>>;
-    #[inline]
-    fn deref(&self) -> &Self::Target { self.0 }
-}
-
 impl<'a> core::fmt::Display for StmtRef<'a> {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -131,17 +128,6 @@ impl<'a> core::fmt::Display for StmtRef<'a> {
 
 
 // --- Stmt ---
-
-impl<'a> core::ops::Deref for Stmt<'a> {
-    type Target = StmtData<'a>;
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target { &self.data }
-}
-
-impl<'a> core::ops::DerefMut for Stmt<'a> {
-    #[inline(always)]
-    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.data }
-}
 
 impl<'a> core::fmt::Display for Stmt<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

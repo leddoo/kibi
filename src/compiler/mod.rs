@@ -1,9 +1,11 @@
 pub mod parser;
 pub mod bbir;
+pub mod analysis;
 pub mod compiler;
 
 pub use parser::*;
 pub use bbir::*;
+pub use analysis::*;
 pub use compiler::*;
 
 
