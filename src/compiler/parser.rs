@@ -1,34 +1,4 @@
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct SourcePos {
-    pub line:   u32,
-    pub column: u32,
-}
-
-impl SourcePos {
-    pub fn to_range(self) -> SourceRange {
-        SourceRange { begin: self, end: self }
-    }
-}
-
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct SourceRange {
-    pub begin: SourcePos,
-    pub end:   SourcePos,
-}
-
-impl SourceRange {
-    #[inline(always)]
-    pub fn is_collapsed(&self) -> bool {
-        self.begin == self.end
-    }
-
-    #[inline(always)]
-    pub const fn null() -> SourceRange {
-        let zero = SourcePos { line: 0, column: 0 };
-        SourceRange { begin: zero, end: zero }
-    }
-}
+use super::*;
 
 
 #[derive(Clone, Copy, Debug)]
@@ -719,7 +689,7 @@ pub mod ast {
     }
 
     #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Op1Kind (pub crate::new_compiler::Op1);
+    pub struct Op1Kind (pub super::Op1);
 
 
     #[derive(Clone, Debug)]
@@ -730,8 +700,8 @@ pub mod ast {
 
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub enum Op2Kind {
-        Op2       (crate::new_compiler::Op2),
-        Op2Assign (crate::new_compiler::Op2),
+        Op2       (super::Op2),
+        Op2Assign (super::Op2),
         Assign,
     }
 
@@ -739,7 +709,7 @@ pub mod ast {
         #[inline(always)]
         pub fn lprec(self) -> u32 {
             use Op2Kind::*;
-            use crate::new_compiler::Op2::*;
+            use super::Op2::*;
             match self {
                 Assign          => 100,
                 Op2Assign(_)    => 100,
@@ -765,7 +735,7 @@ pub mod ast {
         #[inline(always)]
         pub fn rprec(self) -> u32 {
             use Op2Kind::*;
-            use crate::new_compiler::Op2::*;
+            use super::Op2::*;
             match self {
                 Assign          => 100,
                 Op2Assign(_)    => 100,
@@ -893,7 +863,7 @@ impl<'i> Parser<'i> {
 
     pub fn peek_op1(&mut self) -> Option<ast::Op1Kind> {
         use TokenData::*;
-        use crate::new_compiler::Op1::*;
+        use super::Op1::*;
         Some(match self.toker.peek().data {
             KwNot   => ast::Op1Kind(BoolNot),
             OpNot   => ast::Op1Kind(BitNot),
@@ -905,7 +875,7 @@ impl<'i> Parser<'i> {
 
     pub fn peek_op2(&mut self) -> Option<ast::Op2Kind> {
         use TokenData::*;
-        use crate::new_compiler::Op2::*;
+        use super::Op2::*;
         Some(match self.toker.peek().data {
             KwAnd           => ast::Op2Kind::Op2(And),
             KwOr            => ast::Op2Kind::Op2(Or),

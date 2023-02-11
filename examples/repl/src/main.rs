@@ -143,11 +143,11 @@ fn main() {
             --]]
         "#;
 
-        let mut p = new_parser::Parser::new(example.as_bytes());
+        let mut p = compiler::Parser::new(example.as_bytes());
         let (chunk_source, chunk) = p.parse_block().unwrap();
         //println!("parsed: {:#?}", chunk);
 
-        let mut c = new_compiler::Compiler {};
+        let mut c = compiler::Compiler {};
         c.compile_chunk(chunk_source, &chunk).unwrap();
 
 
@@ -196,6 +196,7 @@ fn main() {
         let t0 = std::time::Instant::now();
         let ic = vm.instruction_counter();
 
+        /*
         let ast = {
             let chunk = buffer.trim();
             if chunk.len() == 0 {
@@ -226,6 +227,7 @@ fn main() {
             continue;
         };
         buffer.clear();
+        */
 
         running.store(true, core::sync::atomic::Ordering::SeqCst);
         let result = vm.call();

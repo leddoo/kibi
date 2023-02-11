@@ -1062,9 +1062,11 @@ impl VmImpl {
     // that wraps `&mut Vm`.
     // cause calling them while execution is suspended is ub.
     // TEMP: don't expose protos.
+    #[allow(dead_code)] // @temp: used in tests.
     pub fn func_new(&mut self, proto: usize) -> Value {
         Value::Func { proto }
     }
+    #[allow(dead_code)] // @temp: used in tests.
     pub fn push_func(&mut self, proto: usize) {
         let f = self.func_new(proto);
         self.push(f);
@@ -1486,6 +1488,7 @@ mod tests {
         }
     }
 
+    /*
     #[test]
     fn lexical_scoping() {
         let mut vm = Vm::new();
@@ -1573,6 +1576,7 @@ mod tests {
         assert!(vm.inner.raw_eq(i, 100.0.into()));
         assert!(vm.inner.raw_eq(j, 150.0.into()));
     }
+    */
 }
 
 

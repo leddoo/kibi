@@ -1,14 +1,9 @@
-mod bytecode;
-mod value;
-mod vm;
-mod parser;
-pub mod new_parser;
-pub mod new_compiler;
-mod compiler;
+pub mod compiler;
+pub mod bytecode;
+pub mod value;
+pub mod vm;
 
 pub use bytecode::*;
 pub use value::*;
 pub use vm::*;
-pub use parser::*;
-pub use compiler::*;
 

@@ -523,3 +523,230 @@ impl ByteCodeBuilder {
 }
 
 
+pub fn dump(code: &[Instruction]) {
+    let mut pc = 0;
+    while pc < code.len() {
+        print!("{:02}: ", pc);
+
+        let instr = code[pc];
+        pc += 1;
+
+        let mut instr_extra = || {
+            let extra = code[pc];
+            pc += 1;
+            assert_eq!(extra.opcode() as u8, crate::bytecode::opcode::EXTRA);
+            extra
+        };
+
+        use crate::bytecode::opcode::*;
+        match instr.opcode() as u8 {
+            NOP => (),
+
+            UNREACHABLE => {
+                println!("  unreachable");
+                break;
+            }
+
+
+            COPY => {
+                let (dst, src) = instr.c2();
+                println!("  copy r{}, r{}", dst, src);
+            }
+
+
+            LOAD_NIL => {
+                let dst = instr.c1();
+                println!("  load_nil r{}", dst);
+            }
+
+            LOAD_BOOL => {
+                let (dst, value) = instr.c1b();
+                println!("  load_bool r{}, {}", dst, value);
+            }
+
+            LOAD_INT => {
+                let (dst, value) = instr.c1u16();
+                let value = value as u16 as i16 as f64;
+                println!("  load_int r{}, {}", dst, value);
+            }
+
+            LOAD_CONST => {
+                let (dst, index) = instr.c1u16();
+                println!("  load_const r{}, c{}", dst, index);
+            }
+
+            LOAD_ENV => {
+                let dst = instr.c1();
+                println!("  load_env r{}", dst);
+            }
+
+
+            LIST_NEW => {
+                let dst = instr.c1();
+                println!("  list_new r{}", dst);
+            }
+
+            LIST_APPEND => {
+                let (list, value) = instr.c2();
+                println!("  list_append r{}, r{}", list, value);
+            }
+
+
+            TABLE_NEW => {
+                let dst = instr.c1();
+                println!("  table_new r{}", dst);
+            }
+
+
+            DEF => {
+                // @todo-speed: remove checks.
+                let (obj, key, value) = instr.c3();
+                println!("  def r{}, r{}, r{}", obj, key, value);
+            }
+
+            SET => {
+                let (obj, key, value) = instr.c3();
+                println!("  set r{}, r{}, r{}", obj, key, value);
+            }
+
+            GET => {
+                let (dst, obj, key) = instr.c3();
+                println!("  get r{}, r{}, r{}", dst, obj, key);
+            }
+
+            LEN => {
+                let (dst, obj) = instr.c2();
+                println!("  len r{}, r{}", dst, obj);
+            }
+
+
+            ADD => {
+                let (dst, src1, src2) = instr.c3();
+                println!("  add r{}, r{}, r{}", dst, src1, src2);
+            }
+
+            SUB => {
+                let (dst, src1, src2) = instr.c3();
+                println!("  sub r{}, r{}, r{}", dst, src1, src2);
+            }
+
+            MUL => {
+                let (dst, src1, src2) = instr.c3();
+                println!("  mul r{}, r{}, r{}", dst, src1, src2);
+            }
+
+            DIV => {
+                let (dst, src1, src2) = instr.c3();
+                println!("  div r{}, r{}, r{}", dst, src1, src2);
+            }
+
+            INC => {
+                let dst = instr.c1();
+                println!("  inc r{}", dst);
+            }
+
+            DEC => {
+                let dst = instr.c1();
+                println!("  dec r{}", dst);
+            }
+
+
+            CMP_EQ => {
+                let (dst, src1, src2) = instr.c3();
+                println!("  cmp_eq r{}, r{}, r{}", dst, src1, src2);
+            }
+
+            CMP_LE => {
+                let (dst, src1, src2) = instr.c3();
+                println!("  cmp_le r{}, r{}, r{}", dst, src1, src2);
+            }
+
+            CMP_LT => {
+                let (dst, src1, src2) = instr.c3();
+                println!("  cmp_lt r{}, r{}, r{}", dst, src1, src2);
+            }
+
+            CMP_GE => {
+                let (dst, src1, src2) = instr.c3();
+                println!("  cmp_ge r{}, r{}, r{}", dst, src1, src2);
+            }
+
+            CMP_GT => {
+                let (dst, src1, src2) = instr.c3();
+                println!("  cmp_gt r{}, r{}, r{}", dst, src1, src2);
+            }
+
+
+            JUMP => {
+                let target = instr.u16();
+                println!("  jump {}", target);
+            }
+
+            JUMP_TRUE => {
+                let (src, target) = instr.c1u16();
+                println!("  jump_true r{}, {}", src, target);
+            }
+
+            JUMP_FALSE => {
+                let (src, target) = instr.c1u16();
+                println!("  jump_false r{}, {}", src, target);
+            }
+
+            JUMP_EQ => {
+                let (src1, src2) = instr.c2();
+                let target = instr_extra().u16();
+                println!("  jump_eq r{}, r{}, {}", src1, src2, target);
+            }
+
+            JUMP_LE => {
+                let (src1, src2) = instr.c2();
+                let target = instr_extra().u16();
+                println!("  jump_le r{}, r{}, {}", src1, src2, target);
+            }
+
+            JUMP_LT => {
+                let (src1, src2) = instr.c2();
+                let target = instr_extra().u16();
+                println!("  jump_le r{}, r{}, {}", src1, src2, target);
+            }
+
+            JUMP_NEQ => {
+                let (src1, src2) = instr.c2();
+                let target = instr_extra().u16();
+                println!("  jump_le r{}, r{}, {}", src1, src2, target);
+            }
+
+            JUMP_NLE => {
+                let (src1, src2) = instr.c2();
+                let target = instr_extra().u16();
+                println!("  jump_nle r{}, r{}, {}", src1, src2, target);
+            }
+
+            JUMP_NLT => {
+                let (src1, src2) = instr.c2();
+                let target = instr_extra().u16();
+                println!("  jump_nlt r{}, r{}, {}", src1, src2, target);
+            }
+
+
+            PACKED_CALL => {
+                unimplemented!()
+            }
+
+            GATHER_CALL => {
+                unimplemented!()
+            }
+
+            RET => {
+                let (rets, num_rets) = instr.c2();
+                println!("  ret r{}, {}", rets, num_rets);
+            }
+
+            // @todo-speed: this inserts a check to reduce dispatch table size.
+            //  may want an unreachable_unchecked() in release.
+            0 | END ..= 255 => unreachable!()
+        }
+    }
+}
+
+

@@ -1,5 +1,6 @@
-use crate::new_parser::*;
 use core::cell::Cell;
+use super::*;
+
 
 // @temp
 use std::collections::HashSet;
@@ -9,13 +10,6 @@ use std::collections::HashSet;
 pub struct CompileError {
     pub source: SourceRange,
     pub data:   CompileErrorData,
-}
-
-impl CompileError {
-    #[inline]
-    pub fn at(ast: &Ast, data: CompileErrorData) -> CompileError {
-        CompileError { source: ast.source, data }
-    }
 }
 
 
@@ -29,29 +23,58 @@ pub type CompileResult<T> = Result<T, CompileError>;
 
 
 
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+pub struct ScopeId(u32);
+
+
+#[derive(Clone, Debug)]
+pub struct Decl<'a> {
+    pub name:  &'a str,
+    pub id:    LocalId,
+    pub scope: ScopeId,
+}
+
+
 pub struct Compiler {
 }
 
+
+pub struct Ctx<'a> {
+    scope: ScopeId,
+    decls: Vec<Decl<'a>>,
+}
+
+
+
+impl CompileError {
+    #[inline]
+    pub fn at(ast: &Ast, data: CompileErrorData) -> CompileError {
+        CompileError { source: ast.source, data }
+    }
+}
+
+
 impl Compiler {
     pub fn compile_chunk(&mut self, source: SourceRange, block: &ast::Block) -> CompileResult<()> {
-        let mut fb = FunctionBuilder::new();
-        let mut bb = fb.new_block();
-        self.compile_block(&mut fb, &mut bb, source, block, false)?;
+        let mut ctx = Ctx::new();
+        let mut fun = Function::new();
+        let mut bb = fun.new_block();
+        self.compile_block(&mut ctx, &mut fun, &mut bb, source, block, false)?;
 
-        let nil = fb.add_stmt_at(bb, source, StmtData::LoadNil);
-        fb.add_stmt_at(bb, source, StmtData::Return { src: nil });
+        let nil = fun.add_stmt_at(bb, source, StmtData::LoadNil);
+        fun.add_stmt_at(bb, source, StmtData::Return { src: nil });
 
-        for blocks in &fb.blocks {
+        for blocks in &fun.blocks {
             println!("{}", blocks);
         }
 
 
         let (predecessors, post_order) = {
-            let mut predecessors = vec![vec![]; fb.blocks.len()];
+            let mut predecessors = vec![vec![]; fun.blocks.len()];
             let mut post_order = vec![];
-            let mut visited = vec![false; fb.blocks.len()];
+            let mut visited = vec![false; fun.blocks.len()];
 
-            fn visit(fb: &FunctionBuilder, bb: BlockId,
+            fn visit(fb: &Function, bb: BlockId,
                 predecessors: &mut Vec<Vec<BlockId>>,
                 post_order: &mut Vec<BlockId>,
                 visited: &mut Vec<bool>,
@@ -69,7 +92,7 @@ impl Compiler {
 
                 post_order.push(bb);
             }
-            visit(&fb, BlockId::ENTRY, &mut predecessors, &mut post_order, &mut visited);
+            visit(&fun, BlockId::ENTRY, &mut predecessors, &mut post_order, &mut visited);
 
             for bb in &post_order {
                 if !bb.is_entry() {
@@ -81,7 +104,7 @@ impl Compiler {
         };
 
         let post_indices = {
-            let mut indices = vec![usize::MAX; fb.blocks.len()];
+            let mut indices = vec![usize::MAX; fun.blocks.len()];
             for (index, bb) in post_order.iter().enumerate() {
                 indices[bb.usize()] = index;
             }
@@ -89,7 +112,7 @@ impl Compiler {
         };
 
         let immediate_dominators = {
-            let mut doms = vec![None; fb.blocks.len()];
+            let mut doms = vec![None; fun.blocks.len()];
 
             #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
             struct PostIndex(usize);
@@ -142,7 +165,7 @@ impl Compiler {
                 }
             }
 
-            fb.blocks.iter()
+            fun.blocks.iter()
                 .map(|block| {
                     let bb = block.id;
                     let pi = post_indices[bb.usize()];
@@ -154,9 +177,9 @@ impl Compiler {
         };
 
         let idom_tree = {
-            let mut tree = vec![vec![]; fb.blocks.len()];
+            let mut tree = vec![vec![]; fun.blocks.len()];
 
-            for block in fb.blocks.iter().skip(1) {
+            for block in fun.blocks.iter().skip(1) {
                 let bb = block.id;
                 let idom = immediate_dominators[bb.usize()];
                 tree[idom.usize()].push(bb);
@@ -168,9 +191,9 @@ impl Compiler {
         println!("tree {:?}", idom_tree);
 
         let dom_frontiers = {
-            let mut dfs = vec![vec![]; fb.blocks.len()];
+            let mut dfs = vec![vec![]; fun.blocks.len()];
 
-            for block in fb.blocks.iter() {
+            for block in fun.blocks.iter() {
                 let bb = block.id;
 
                 let preds = &predecessors[bb.usize()];
@@ -197,7 +220,7 @@ impl Compiler {
             let mut visited: HashSet<(BlockId, LocalId)> = HashSet::new();
 
             let mut stack = vec![];
-            for block in &fb.blocks {
+            for block in &fun.blocks {
                 for stmt in &block.statements {
                     let StmtData::SetLocal { dst: lid, src: _ } = stmt.get().data else { continue };
 
@@ -210,7 +233,7 @@ impl Compiler {
             }
 
             let mut phis: Vec<Vec<(LocalId, Vec<(BlockId, Option<StmtRef>)>, StmtRef)>>
-                = vec![vec![]; fb.blocks.len()];
+                = vec![vec![]; fun.blocks.len()];
 
             while let Some((from_bb, lid)) = stack.pop() {
                 for to_bb in dom_frontiers[from_bb.usize()].iter() {
@@ -222,7 +245,7 @@ impl Compiler {
                         let preds = &predecessors[to_bb.usize()];
 
                         let map = preds.iter().map(|p| (*p, None)).collect();
-                        let stmt = fb.new_stmt_at(SourceRange::null(), StmtData::Phi { map: &[] });
+                        let stmt = fun.new_stmt_at(SourceRange::null(), StmtData::Phi { map: &[] });
                         to_phis.push((lid, map, stmt));
 
                         let key = (to_bb, lid);
@@ -243,7 +266,7 @@ impl Compiler {
         {
             fn visit<'a>(bb: BlockId, mut new_names: Vec<Option<StmtRef<'a>>>,
                 phis: &mut Vec<Vec<(LocalId, Vec<(BlockId, Option<StmtRef<'a>>)>, StmtRef<'a>)>>,
-                fb: &FunctionBuilder<'a>, idom_tree: &Vec<Vec<BlockId>>,
+                fb: &Function<'a>, idom_tree: &Vec<Vec<BlockId>>,
             ) {
                 let block = &fb.blocks[bb.usize()];
 
@@ -285,14 +308,14 @@ impl Compiler {
                 }
             }
 
-            let new_names = vec![None; fb.next_local.usize()];
-            visit(BlockId::ENTRY, new_names, &mut phis, &fb, &idom_tree);
+            let new_names = vec![None; fun.next_local.usize()];
+            visit(BlockId::ENTRY, new_names, &mut phis, &fun, &idom_tree);
         }
 
         // insert phis.
         {
             for (bb_index, phis) in phis.into_iter().enumerate() {
-                let block = &mut fb.blocks[bb_index];
+                let block = &mut fun.blocks[bb_index];
 
                 let phis = phis.iter().map(|(_lid, map, stmt_ref)| {
                     let map = Vec::leak(map.iter().map(|(bb, stmt)|
@@ -310,14 +333,14 @@ impl Compiler {
         }
 
         println!("local2reg done");
-        for block in &fb.blocks {
+        for block in &fun.blocks {
             println!("{}", block);
         }
 
 
         // copy propagation.
         {
-            fn visit(bb: BlockId, fb: &mut FunctionBuilder, idom_tree: &Vec<Vec<BlockId>>) {
+            fn visit(bb: BlockId, fb: &mut Function, idom_tree: &Vec<Vec<BlockId>>) {
                 let block = &mut fb.blocks[bb.usize()];
 
                 // inline copies.
@@ -332,23 +355,23 @@ impl Compiler {
                     visit(*d, fb, idom_tree);
                 }
             }
-            visit(BlockId::ENTRY, &mut fb, &idom_tree);
+            visit(BlockId::ENTRY, &mut fun, &idom_tree);
         }
 
         println!("copy propagation done");
-        for block in &fb.blocks {
+        for block in &fun.blocks {
             println!("{}", block);
         }
 
         // dead copy elimination.
         {
-            let mut visited = vec![false; fb.stmts.len()];
+            let mut visited = vec![false; fun.stmts.len()];
 
-            for block in &fb.blocks {
+            for block in &fun.blocks {
                 block.args(|arg| visited[arg.get().id.usize()] = true);
             }
 
-            for block in &mut fb.blocks {
+            for block in &mut fun.blocks {
                 block.statements.retain(|stmt_ref| {
                     let stmt = stmt_ref.get();
                     visited[stmt.id.usize()] || !stmt.is_copy()
@@ -357,13 +380,13 @@ impl Compiler {
         }
 
         println!("dead copy elim done");
-        for block in &fb.blocks {
+        for block in &fun.blocks {
             println!("{}", block);
         }
 
         let block_order = {
             fn visit(bb: BlockId, order: &mut Vec<BlockId>, visited: &mut Vec<bool>,
-                fb: &FunctionBuilder, idom: &Vec<BlockId>, idom_tree: &Vec<Vec<BlockId>>,
+                fb: &Function, idom: &Vec<BlockId>, idom_tree: &Vec<Vec<BlockId>>,
             ) {
                 assert!(!visited[bb.usize()]);
                 visited[bb.usize()] = true;
@@ -384,18 +407,18 @@ impl Compiler {
             }
 
             let mut order   = vec![];
-            let mut visited = vec![false; fb.blocks.len()];
-            visit(BlockId::ENTRY, &mut order, &mut visited, &fb, &immediate_dominators, &idom_tree);
+            let mut visited = vec![false; fun.blocks.len()];
+            visit(BlockId::ENTRY, &mut order, &mut visited, &fun, &immediate_dominators, &idom_tree);
             order
         };
 
         let (block_begins, stmt_indices) = {
-            let mut block_begins = vec![u32::MAX; fb.blocks.len()];
-            let mut stmt_indices = vec![u32::MAX; fb.stmts.len()];
+            let mut block_begins = vec![u32::MAX; fun.blocks.len()];
+            let mut stmt_indices = vec![u32::MAX; fun.stmts.len()];
 
             let mut cursor = 0;
             for bb in &block_order {
-                let block = &fb.blocks[bb.usize()];
+                let block = &fun.blocks[bb.usize()];
 
                 let block_begin = cursor;
                 cursor += block.statements.len();
@@ -413,7 +436,7 @@ impl Compiler {
 
         println!("block order:");
         for bb in &block_order {
-            let block = &fb.blocks[bb.usize()];
+            let block = &fun.blocks[bb.usize()];
             println!("{}", block.id);
 
             for stmt in &block.statements {
@@ -424,8 +447,8 @@ impl Compiler {
 
         // live intervals.
         let intervals = {
-            let mut bb_gen  = Vec::with_capacity(fb.blocks.len());
-            let mut bb_kill = Vec::with_capacity(fb.blocks.len());
+            let mut bb_gen  = Vec::with_capacity(fun.blocks.len());
+            let mut bb_kill = Vec::with_capacity(fun.blocks.len());
 
             fn pretty(set: &Vec<bool>) -> Vec<usize> {
                 set.iter().enumerate()
@@ -433,9 +456,9 @@ impl Compiler {
                 .collect()
             }
 
-            for block in &fb.blocks {
-                let mut gen  = vec![false; fb.stmts.len()];
-                let mut kill = vec![false; fb.stmts.len()];
+            for block in &fun.blocks {
+                let mut gen  = vec![false; fun.stmts.len()];
+                let mut kill = vec![false; fun.stmts.len()];
 
                 // statements in reverse.
                 for stmt_ref in block.statements.iter().rev() {
@@ -462,8 +485,8 @@ impl Compiler {
             }
 
 
-            let mut bb_live_in  = vec![vec![false; fb.stmts.len()]; fb.blocks.len()];
-            let mut bb_live_out = vec![vec![false; fb.stmts.len()]; fb.blocks.len()];
+            let mut bb_live_in  = vec![vec![false; fun.stmts.len()]; fun.blocks.len()];
+            let mut bb_live_out = vec![vec![false; fun.stmts.len()]; fun.blocks.len()];
             let mut changed = true;
             while changed {
                 changed = false;
@@ -471,11 +494,11 @@ impl Compiler {
                 println!("live iter");
 
                 for bb in &post_order {
-                    let block = &fb.blocks[bb.usize()];
+                    let block = &fun.blocks[bb.usize()];
                     let gen   = &bb_gen[bb.usize()];
                     let kill  = &bb_kill[bb.usize()];
 
-                    let mut new_live_out = vec![false; fb.stmts.len()];
+                    let mut new_live_out = vec![false; fun.stmts.len()];
                     block.successors(|succ| {
                         // live_in.
                         for (i, live) in bb_live_in[succ.usize()].iter().enumerate() {
@@ -485,7 +508,7 @@ impl Compiler {
                         }
 
                         // phis.
-                        for stmt_ref in &fb.blocks[succ.usize()].statements {
+                        for stmt_ref in &fun.blocks[succ.usize()].statements {
                             if let StmtData::Phi { map } = stmt_ref.get().data {
                                 let entry = map.iter().find(|e| e.get().0 == block.id).unwrap();
                                 let var = entry.get().1;
@@ -525,12 +548,12 @@ impl Compiler {
             }
 
 
-            let mut intervals = vec![vec![]; fb.stmts.len()];
+            let mut intervals = vec![vec![]; fun.stmts.len()];
             for bb in block_order.iter() {
                 //let live_in  = &bb_live_in[bb.usize()];
                 let live_out = &bb_live_out[bb.usize()];
 
-                let block       = &fb.blocks[bb.usize()];
+                let block       = &fun.blocks[bb.usize()];
                 let block_begin = block_begins[bb.usize()];
                 let block_end   = block_begin + block.statements.len() as u32;
 
@@ -583,7 +606,7 @@ impl Compiler {
                     }
                 }
 
-                for id in 0..fb.stmts.len() {
+                for id in 0..fun.stmts.len() {
                     let start = block_begin;
                     kill(StmtId(id as u32), start, &mut live, &mut intervals);
                 }
@@ -639,7 +662,7 @@ impl Compiler {
             let mut actives = vec![];
             let mut regs    = vec![];
 
-            let mut mapping = vec![u32::MAX; fb.stmts.len()];
+            let mut mapping = vec![u32::MAX; fun.stmts.len()];
 
             for new_int in &intervals {
                 println!("new: {:?} {}..{}", new_int.stmt, new_int.start, new_int.stop);
@@ -767,14 +790,14 @@ impl Compiler {
 
             let reg = |stmt: StmtRef| reg_mapping[stmt.id().usize()] as u8;
 
-            let mut block_offsets = vec![u16::MAX; fb.blocks.len()];
+            let mut block_offsets = vec![u16::MAX; fun.blocks.len()];
 
             for (block_index, bb) in block_order.iter().enumerate() {
                 println!("{}", bb);
                 //block_offsets.push(bcb.current_offset() as u16);
                 block_offsets[bb.usize()] = bcb.current_offset() as u16;
 
-                let block = &fb.blocks[bb.usize()];
+                let block = &fun.blocks[bb.usize()];
 
                 for stmt in &block.statements[..block.statements.len()-1] {
                     let dst = reg(*stmt);
@@ -829,7 +852,7 @@ impl Compiler {
                 // phis of successors.
                 block.successors(|succ| {
                     println!(" -> {}", succ);
-                    for stmt in &fb.blocks[succ.usize()].statements {
+                    for stmt in &fun.blocks[succ.usize()].statements {
                         if let StmtData::Phi { map } = stmt.get().data {
                             let dst = reg(*stmt);
 
@@ -919,245 +942,22 @@ impl Compiler {
         };
 
         // temp: disassemble.
-        {
-            let mut pc = 0;
-            while pc < code.len() {
-                print!("{:02}: ", pc);
-
-                let instr = code[pc];
-                pc += 1;
-
-                let mut instr_extra = || {
-                    let extra = code[pc];
-                    pc += 1;
-                    assert_eq!(extra.opcode() as u8, crate::bytecode::opcode::EXTRA);
-                    extra
-                };
-
-                use crate::bytecode::opcode::*;
-                match instr.opcode() as u8 {
-                    NOP => (),
-
-                    UNREACHABLE => {
-                        println!("  unreachable");
-                        break;
-                    }
-
-
-                    COPY => {
-                        let (dst, src) = instr.c2();
-                        println!("  copy r{}, r{}", dst, src);
-                    }
-
-
-                    LOAD_NIL => {
-                        let dst = instr.c1();
-                        println!("  load_nil r{}", dst);
-                    }
-
-                    LOAD_BOOL => {
-                        let (dst, value) = instr.c1b();
-                        println!("  load_bool r{}, {}", dst, value);
-                    }
-
-                    LOAD_INT => {
-                        let (dst, value) = instr.c1u16();
-                        let value = value as u16 as i16 as f64;
-                        println!("  load_int r{}, {}", dst, value);
-                    }
-
-                    LOAD_CONST => {
-                        let (dst, index) = instr.c1u16();
-                        println!("  load_const r{}, c{}", dst, index);
-                    }
-
-                    LOAD_ENV => {
-                        let dst = instr.c1();
-                        println!("  load_env r{}", dst);
-                    }
-
-
-                    LIST_NEW => {
-                        let dst = instr.c1();
-                        println!("  list_new r{}", dst);
-                    }
-
-                    LIST_APPEND => {
-                        let (list, value) = instr.c2();
-                        println!("  list_append r{}, r{}", list, value);
-                    }
-
-
-                    TABLE_NEW => {
-                        let dst = instr.c1();
-                        println!("  table_new r{}", dst);
-                    }
-
-
-                    DEF => {
-                        // @todo-speed: remove checks.
-                        let (obj, key, value) = instr.c3();
-                        println!("  def r{}, r{}, r{}", obj, key, value);
-                    }
-
-                    SET => {
-                        let (obj, key, value) = instr.c3();
-                        println!("  set r{}, r{}, r{}", obj, key, value);
-                    }
-
-                    GET => {
-                        let (dst, obj, key) = instr.c3();
-                        println!("  get r{}, r{}, r{}", dst, obj, key);
-                    }
-
-                    LEN => {
-                        let (dst, obj) = instr.c2();
-                        println!("  len r{}, r{}", dst, obj);
-                    }
-
-
-                    ADD => {
-                        let (dst, src1, src2) = instr.c3();
-                        println!("  add r{}, r{}, r{}", dst, src1, src2);
-                    }
-
-                    SUB => {
-                        let (dst, src1, src2) = instr.c3();
-                        println!("  sub r{}, r{}, r{}", dst, src1, src2);
-                    }
-
-                    MUL => {
-                        let (dst, src1, src2) = instr.c3();
-                        println!("  mul r{}, r{}, r{}", dst, src1, src2);
-                    }
-
-                    DIV => {
-                        let (dst, src1, src2) = instr.c3();
-                        println!("  div r{}, r{}, r{}", dst, src1, src2);
-                    }
-
-                    INC => {
-                        let dst = instr.c1();
-                        println!("  inc r{}", dst);
-                    }
-
-                    DEC => {
-                        let dst = instr.c1();
-                        println!("  dec r{}", dst);
-                    }
-
-
-                    CMP_EQ => {
-                        let (dst, src1, src2) = instr.c3();
-                        println!("  cmp_eq r{}, r{}, r{}", dst, src1, src2);
-                    }
-
-                    CMP_LE => {
-                        let (dst, src1, src2) = instr.c3();
-                        println!("  cmp_le r{}, r{}, r{}", dst, src1, src2);
-                    }
-
-                    CMP_LT => {
-                        let (dst, src1, src2) = instr.c3();
-                        println!("  cmp_lt r{}, r{}, r{}", dst, src1, src2);
-                    }
-
-                    CMP_GE => {
-                        let (dst, src1, src2) = instr.c3();
-                        println!("  cmp_ge r{}, r{}, r{}", dst, src1, src2);
-                    }
-
-                    CMP_GT => {
-                        let (dst, src1, src2) = instr.c3();
-                        println!("  cmp_gt r{}, r{}, r{}", dst, src1, src2);
-                    }
-
-
-                    JUMP => {
-                        let target = instr.u16();
-                        println!("  jump {}", target);
-                    }
-
-                    JUMP_TRUE => {
-                        let (src, target) = instr.c1u16();
-                        println!("  jump_true r{}, {}", src, target);
-                    }
-
-                    JUMP_FALSE => {
-                        let (src, target) = instr.c1u16();
-                        println!("  jump_false r{}, {}", src, target);
-                    }
-
-                    JUMP_EQ => {
-                        let (src1, src2) = instr.c2();
-                        let target = instr_extra().u16();
-                        println!("  jump_eq r{}, r{}, {}", src1, src2, target);
-                    }
-
-                    JUMP_LE => {
-                        let (src1, src2) = instr.c2();
-                        let target = instr_extra().u16();
-                        println!("  jump_le r{}, r{}, {}", src1, src2, target);
-                    }
-
-                    JUMP_LT => {
-                        let (src1, src2) = instr.c2();
-                        let target = instr_extra().u16();
-                        println!("  jump_le r{}, r{}, {}", src1, src2, target);
-                    }
-
-                    JUMP_NEQ => {
-                        let (src1, src2) = instr.c2();
-                        let target = instr_extra().u16();
-                        println!("  jump_le r{}, r{}, {}", src1, src2, target);
-                    }
-
-                    JUMP_NLE => {
-                        let (src1, src2) = instr.c2();
-                        let target = instr_extra().u16();
-                        println!("  jump_nle r{}, r{}, {}", src1, src2, target);
-                    }
-
-                    JUMP_NLT => {
-                        let (src1, src2) = instr.c2();
-                        let target = instr_extra().u16();
-                        println!("  jump_nlt r{}, r{}, {}", src1, src2, target);
-                    }
-
-
-                    PACKED_CALL => {
-                        unimplemented!()
-                    }
-
-                    GATHER_CALL => {
-                        unimplemented!()
-                    }
-
-                    RET => {
-                        let (rets, num_rets) = instr.c2();
-                        println!("  ret r{}, {}", rets, num_rets);
-                    }
-
-                    // @todo-speed: this inserts a check to reduce dispatch table size.
-                    //  may want an unreachable_unchecked() in release.
-                    0 | END ..= 255 => unreachable!()
-                }
-            }
-        }
+        crate::bytecode::dump(&code);
 
         Ok(())
     }
 
-    pub fn compile_ast<'a>(&mut self, fb: &mut FunctionBuilder<'a>, bb: &mut BlockId,
-        ast: &Ast<'a>, need_value: bool) -> CompileResult<Option<StmtRef<'a>>>
-    {
+    pub fn compile_ast<'a>(&mut self,
+        ctx: &mut Ctx<'a>, fun: &mut Function<'static>, bb: &mut BlockId,
+        ast: &Ast<'a>, need_value: bool,
+    ) -> CompileResult<Option<StmtRef<'static>>> {
         match &ast.data {
             AstData::Nil => {
-                Ok(Some(fb.add_stmt(*bb, ast, StmtData::LoadNil)))
+                Ok(Some(fun.add_stmt(*bb, ast, StmtData::LoadNil)))
             }
 
             AstData::Bool (value) => {
-                Ok(Some(fb.add_stmt(*bb, ast, StmtData::LoadBool { value: *value })))
+                Ok(Some(fun.add_stmt(*bb, ast, StmtData::LoadBool { value: *value })))
             }
 
             AstData::Number (value) => {
@@ -1171,8 +971,8 @@ impl Compiler {
             }
 
             AstData::Ident (name) => {
-                Ok(Some(if let Some(decl) = fb.find_decl(name) {
-                    fb.add_stmt(*bb, ast, StmtData::GetLocal { src: decl.id })
+                Ok(Some(if let Some(decl) = ctx.find_decl(name) {
+                    fun.add_stmt(*bb, ast, StmtData::GetLocal { src: decl.id })
                 }
                 else {
                     unimplemented!()
@@ -1195,11 +995,11 @@ impl Compiler {
             }
 
             AstData::Block (block) => {
-                self.compile_block(fb, bb, ast.source, block, need_value)
+                self.compile_block(ctx, fun, bb, ast.source, block, need_value)
             }
 
             AstData::SubExpr (sub_expr) => {
-                self.compile_ast(fb, bb, sub_expr, need_value)
+                self.compile_ast(ctx, fun, bb, sub_expr, need_value)
             }
 
             AstData::Local (_) => {
@@ -1207,40 +1007,40 @@ impl Compiler {
             }
 
             AstData::Op1 (op1) => {
-                let src = self.compile_ast(fb, bb, &op1.child, true)?.unwrap();
+                let src = self.compile_ast(ctx, fun, bb, &op1.child, true)?.unwrap();
                 let op  = op1.kind.0;
-                Ok(Some(fb.add_stmt(*bb, ast, StmtData::Op1 { op, src })))
+                Ok(Some(fun.add_stmt(*bb, ast, StmtData::Op1 { op, src })))
             }
 
             AstData::Op2 (op2) => {
                 match op2.kind {
                     ast::Op2Kind::Assign => {
-                        let value = self.compile_ast(fb, bb, &op2.children[1], true)?.unwrap();
-                        self.compile_assign(fb, bb, &op2.children[0], value)?;
+                        let value = self.compile_ast(ctx, fun, bb, &op2.children[1], true)?.unwrap();
+                        self.compile_assign(ctx, fun, bb, &op2.children[0], value)?;
 
                         Ok(if need_value {
-                            Some(fb.add_stmt(*bb, ast, StmtData::LoadNil))
+                            Some(fun.add_stmt(*bb, ast, StmtData::LoadNil))
                         }
                         else { None })
                     }
 
                     ast::Op2Kind::Op2Assign(op) => {
-                        let src1 = self.compile_ast(fb, bb, &op2.children[0], true)?.unwrap();
-                        let src2 = self.compile_ast(fb, bb, &op2.children[1], true)?.unwrap();
+                        let src1 = self.compile_ast(ctx, fun, bb, &op2.children[0], true)?.unwrap();
+                        let src2 = self.compile_ast(ctx, fun, bb, &op2.children[1], true)?.unwrap();
 
-                        let value = fb.add_stmt(*bb, ast, StmtData::Op2 { op, src1, src2 });
-                        self.compile_assign(fb, bb, &op2.children[0], value)?;
+                        let value = fun.add_stmt(*bb, ast, StmtData::Op2 { op, src1, src2 });
+                        self.compile_assign(ctx, fun, bb, &op2.children[0], value)?;
 
                         Ok(if need_value {
-                            Some(fb.add_stmt(*bb, ast, StmtData::LoadNil))
+                            Some(fun.add_stmt(*bb, ast, StmtData::LoadNil))
                         }
                         else { None })
                     }
 
                     ast::Op2Kind::Op2(op) => {
-                        let src1 = self.compile_ast(fb, bb, &op2.children[0], true)?.unwrap();
-                        let src2 = self.compile_ast(fb, bb, &op2.children[1], true)?.unwrap();
-                        Ok(Some(fb.add_stmt(*bb, ast, StmtData::Op2 { op, src1, src2 })))
+                        let src1 = self.compile_ast(ctx, fun, bb, &op2.children[0], true)?.unwrap();
+                        let src2 = self.compile_ast(ctx, fun, bb, &op2.children[1], true)?.unwrap();
+                        Ok(Some(fun.add_stmt(*bb, ast, StmtData::Op2 { op, src1, src2 })))
                     }
                 }
             }
@@ -1266,13 +1066,13 @@ impl Compiler {
             }
 
             AstData::If (iff) => {
-                let mut bb_true = fb.new_block();
-                let mut bb_false = fb.new_block();
-                let after_if = fb.new_block();
+                let mut bb_true = fun.new_block();
+                let mut bb_false = fun.new_block();
+                let after_if = fun.new_block();
 
                 // condition.
-                let cond = self.compile_ast(fb, bb, &iff.condition, true)?.unwrap();
-                fb.add_stmt(*bb, ast, StmtData::SwitchBool {
+                let cond = self.compile_ast(ctx, fun, bb, &iff.condition, true)?.unwrap();
+                fun.add_stmt(*bb, ast, StmtData::SwitchBool {
                     src:      cond,
                     on_true:  bb_true,
                     on_false: bb_false,
@@ -1280,23 +1080,23 @@ impl Compiler {
                 *bb = after_if;
 
                 // on_true
-                let value_true = self.compile_ast(fb, &mut bb_true, &iff.on_true, need_value)?;
-                fb.add_stmt_at(bb_true,
+                let value_true = self.compile_ast(ctx, fun, &mut bb_true, &iff.on_true, need_value)?;
+                fun.add_stmt_at(bb_true,
                     iff.on_true.source.end.to_range(),
                     StmtData::Jump { target: after_if });
 
                 // on_false
                 let (value_false, on_false_src) =
                     if let Some(on_false) = &iff.on_false {
-                        let v = self.compile_ast(fb, &mut bb_false, on_false, need_value)?;
+                        let v = self.compile_ast(ctx, fun, &mut bb_false, on_false, need_value)?;
                         (v, on_false.source.end.to_range())
                     }
                     else {
                         let source = ast.source.end.to_range();
-                        let v = need_value.then(|| fb.add_stmt_at(bb_false, source, StmtData::LoadNil));
+                        let v = need_value.then(|| fun.add_stmt_at(bb_false, source, StmtData::LoadNil));
                         (v, source)
                     };
-                fb.add_stmt_at(bb_false, on_false_src,
+                fun.add_stmt_at(bb_false, on_false_src,
                     StmtData::Jump { target: after_if });
 
                 if need_value {
@@ -1304,34 +1104,34 @@ impl Compiler {
                         Cell::new((bb_true,  value_true.unwrap())),
                         Cell::new((bb_false, value_false.unwrap())),
                     ]));
-                    let result = fb.add_stmt(after_if, ast, StmtData::Phi { map });
+                    let result = fun.add_stmt(after_if, ast, StmtData::Phi { map });
                     Ok(Some(result))
                 }
                 else { Ok(None) }
             }
 
             AstData::While (whilee) => {
-                let mut bb_head  = fb.new_block();
-                let mut bb_body  = fb.new_block();
-                let bb_after = fb.new_block();
+                let mut bb_head  = fun.new_block();
+                let mut bb_body  = fun.new_block();
+                let bb_after = fun.new_block();
 
-                fb.add_stmt(*bb, ast, StmtData::Jump { target: bb_head });
+                fun.add_stmt(*bb, ast, StmtData::Jump { target: bb_head });
                 *bb = bb_after;
 
                 // head.
-                let cond = self.compile_ast(fb, &mut bb_head, &whilee.condition, true)?.unwrap();
-                fb.add_stmt(bb_head, ast, StmtData::SwitchBool {
+                let cond = self.compile_ast(ctx, fun, &mut bb_head, &whilee.condition, true)?.unwrap();
+                fun.add_stmt(bb_head, ast, StmtData::SwitchBool {
                     src:      cond,
                     on_true:  bb_body,
                     on_false: bb_after,
                 });
 
                 // body.
-                self.compile_ast(fb, &mut bb_body, &whilee.body, false)?;
-                fb.add_stmt(bb_body, ast, StmtData::Jump { target: bb_head });
+                self.compile_ast(ctx, fun, &mut bb_body, &whilee.body, false)?;
+                fun.add_stmt(bb_body, ast, StmtData::Jump { target: bb_head });
 
                 if need_value {
-                    let result = fb.add_stmt(bb_after, ast, StmtData::LoadNil);
+                    let result = fun.add_stmt(bb_after, ast, StmtData::LoadNil);
                     Ok(Some(result))
                 }
                 else { Ok(None) }
@@ -1357,10 +1157,11 @@ impl Compiler {
         }
     }
 
-    pub fn compile_block<'a>(&mut self, fb: &mut FunctionBuilder<'a>, bb: &mut BlockId,
-        block_source: SourceRange, block: &ast::Block<'a>, need_value: bool) -> CompileResult<Option<StmtRef<'a>>>
-    {
-        let scope = fb.begin_scope();
+    pub fn compile_block<'a>(&mut self,
+        ctx: &mut Ctx<'a>, fun: &mut Function<'static>, bb: &mut BlockId,
+        block_source: SourceRange, block: &ast::Block<'a>, need_value: bool
+    ) -> CompileResult<Option<StmtRef<'static>>> {
+        let scope = ctx.begin_scope();
 
         let mut stmts_end = block.children.len();
         if block.last_is_expr { stmts_end -= 1 }
@@ -1372,45 +1173,47 @@ impl Compiler {
 
             // local decls.
             if let AstData::Local(local) = &node.data {
-                let lid = fb.add_decl(local.name);
+                let lid = fun.new_local();
+                ctx.add_decl(local.name, lid);
 
                 let v =
                     if let Some(value) = &local.value {
-                        self.compile_ast(fb, bb, value, true)?.unwrap()
+                        self.compile_ast(ctx, fun, bb, value, true)?.unwrap()
                     }
                     else {
-                        fb.add_stmt(*bb, node, StmtData::LoadNil)
+                        fun.add_stmt(*bb, node, StmtData::LoadNil)
                     };
-                fb.add_stmt(*bb, node, StmtData::SetLocal { dst: lid, src: v });
+                fun.add_stmt(*bb, node, StmtData::SetLocal { dst: lid, src: v });
             }
             else {
-                self.compile_ast(fb, bb, node, false)?;
+                self.compile_ast(ctx, fun, bb, node, false)?;
             }
         }
 
         // last statement (or expression).
         let result =
             if block.last_is_expr {
-                self.compile_ast(fb, bb, &block.children[stmts_end], need_value)?
+                self.compile_ast(ctx, fun, bb, &block.children[stmts_end], need_value)?
             }
             else if need_value {
                 let source = block_source.end.to_range();
                 // @todo: return empty tuple.
-                Some(fb.add_stmt_at(*bb, source, StmtData::LoadNil))
+                Some(fun.add_stmt_at(*bb, source, StmtData::LoadNil))
             }
             else { None };
 
-        fb.end_scope(scope);
+        ctx.end_scope(scope);
         Ok(result)
     }
 
-    pub fn compile_assign<'a>(&mut self, fb: &mut FunctionBuilder<'a>, bb: &mut BlockId,
-        ast: &Ast<'a>, value: StmtRef<'a>) -> CompileResult<()>
+    pub fn compile_assign<'a>(&mut self,
+        ctx: &mut Ctx<'a>, fun: &mut Function<'static>, bb: &mut BlockId,
+        ast: &Ast<'a>, value: StmtRef<'static>) -> CompileResult<()>
     {
         match &ast.data {
             AstData::Ident (name) => {
-                if let Some(decl) = fb.find_decl(name) {
-                    fb.add_stmt(*bb, ast, StmtData::SetLocal { dst: decl.id, src: value });
+                if let Some(decl) = ctx.find_decl(name) {
+                    fun.add_stmt(*bb, ast, StmtData::SetLocal { dst: decl.id, src: value });
                 }
                 else {
                     unimplemented!()
@@ -1435,502 +1238,32 @@ impl Compiler {
 }
 
 
-
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-pub struct StmtId(u32);
-
-impl StmtId {
-    #[inline(always)]
-    pub fn usize(self) -> usize { self.0 as usize }
-}
-
-
-#[derive(Clone, Copy)]
-#[repr(transparent)]
-pub struct StmtRef<'a>(&'a Cell<Stmt<'a>>);
-
-impl<'a> StmtRef<'a> {
-    #[inline(always)]
-    pub fn id(self) -> StmtId { self.get().id }
-}
-
-impl<'a> core::fmt::Debug for StmtRef<'a> {
-    #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.get().fmt(f)
-    }
-}
-
-impl<'a> PartialEq for StmtRef<'a> {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        core::ptr::eq(self.0, other.0)
-    }
-}
-
-impl<'a> Eq for StmtRef<'a> {}
-
-impl<'a> core::hash::Hash for StmtRef<'a> {
-    #[inline]
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        core::ptr::hash(self.0, state)
-    }
-}
-
-impl<'a> core::ops::Deref for StmtRef<'a> {
-    type Target = Cell<Stmt<'a>>;
-    #[inline]
-    fn deref(&self) -> &Self::Target { self.0 }
-}
-
-impl<'a> core::fmt::Display for StmtRef<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let stmt = self.get();
-
-        write!(f, "r{} := ", stmt.id.0)?;
-
-        use StmtData::*;
-        match &stmt.data {
-            Copy { src } => { write!(f, "copy r{}", src.get().id.0) }
-
-            Phi { map } => {
-                write!(f, "phi {{")?;
-                for (i, (bb, src)) in map.iter().map(|e| e.get()).enumerate() {
-                    write!(f, "{}: r{}", bb, src.get().id.0)?;
-
-                    if i < map.len() - 1 { write!(f, ", ")?; }
-                }
-                write!(f, "}}")
-            }
-
-            GetLocal { src }      => { write!(f, "get_local {}", src) }
-            SetLocal { dst, src } => { write!(f, "set_local {}, r{}", dst, src.get().id.0) }
-
-            LoadNil             => { write!(f, "load_nil") }
-            LoadBool  { value } => { write!(f, "load_bool {}", value) }
-            LoatInt   { value } => { write!(f, "load_int {}", value) }
-            LoadFloat { value } => { write!(f, "load_float {}", value) }
-
-            Op1 { op, src }        => { write!(f, "{} r{}",      op.str(), src.get().id.0) }
-            Op2 { op, src1, src2 } => { write!(f, "{} r{}, r{}", op.str(), src1.get().id.0, src2.get().id.0) }
-
-            Jump       { target }                 => { write!(f, "jump {}", target) }
-            SwitchBool { src, on_true, on_false } => { write!(f, "switch_bool r{}, {}, {}", src.get().id.0, on_true, on_false) }
-            Return     { src }                    => { write!(f, "return r{}", src.get().id.0) }
-        }
-    }
-}
-
-
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Op1 {
-    BoolNot,
-    BitNot,
-    Neg,
-    Plus,
-}
-
-impl Op1 {
-    #[inline]
-    pub fn str(self) -> &'static str {
-        use self::Op1::*;
-        match self {
-            BoolNot => { "not" }
-            BitNot  => { "bit_not" }
-            Neg     => { "neg" }
-            Plus    => { "plus" }
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Op2 {
-    And,
-    Or,
-    Add,
-    Sub,
-    Mul,
-    Div,
-    IntDiv,
-    CmpEq,
-    CmpNe,
-    CmpLe,
-    CmpLt,
-    CmpGe,
-    CmpGt,
-    OrElse,
-}
-
-impl Op2 {
-    #[inline]
-    pub fn str(self) -> &'static str {
-        use Op2::*;
-        match self {
-            And    => { "and" }
-            Or     => { "or" }
-            Add    => { "add" }
-            Sub    => { "sub" }
-            Mul    => { "mul" }
-            Div    => { "div" }
-            IntDiv => { "int_div" }
-            CmpEq  => { "cmp_eq" }
-            CmpNe  => { "cmp_ne" }
-            CmpLe  => { "cmp_le" }
-            CmpLt  => { "cmp_lt" }
-            CmpGe  => { "cmp_ge" }
-            CmpGt  => { "cmp_gt" }
-            OrElse => { "or_else" }
-        }
-    }
-}
-
-
-#[derive(Clone, Copy, Debug)]
-pub struct Stmt<'a> {
-    pub id:     StmtId,
-    pub source: SourceRange,
-    pub data:   StmtData<'a>,
-}
-
-impl<'a> core::ops::Deref for Stmt<'a> {
-    type Target = StmtData<'a>;
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target { &self.data }
-}
-
-impl<'a> core::ops::DerefMut for Stmt<'a> {
-    #[inline(always)]
-    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.data }
-}
-
-
-#[derive(Clone, Copy, Debug)]
-pub enum StmtData<'a> {
-    Copy        { src: StmtRef<'a> },
-
-    Phi         { map: &'a [Cell<(BlockId, StmtRef<'a>)>] },
-
-    GetLocal    { src: LocalId },
-    SetLocal    { dst: LocalId, src: StmtRef<'a> },
-
-    LoadNil,
-    LoadBool    { value: bool },
-    LoatInt     { value: i64 },
-    LoadFloat   { value: f64 },
-
-    Op1         { op: Op1, src: StmtRef<'a> },
-    Op2         { op: Op2, src1: StmtRef<'a>, src2: StmtRef<'a> },
-
-    Jump        { target: BlockId },
-    SwitchBool  { src: StmtRef<'a>, on_true: BlockId, on_false: BlockId },
-    Return      { src: StmtRef<'a> },
-}
-
-impl<'a> StmtData<'a> {
-    #[inline(always)]
-    pub fn is_copy(&self) -> bool {
-        if let StmtData::Copy { src: _ } = self { true } else { false }
-    }
-
-    #[inline(always)]
-    pub fn is_phi(&self) -> bool {
-        if let StmtData::Phi { map: _ } = self { true } else { false }
-    }
-
-    #[inline(always)]
-    pub fn is_terminator(&self) -> bool {
-        use StmtData::*;
-        match self {
-            Jump { target: _ } |
-            SwitchBool { src: _, on_true: _, on_false: _ } |
-            Return { src: _ } => true,
-
-            Copy { src: _ } |
-            Phi { map: _ } |
-            GetLocal { src: _ } |
-            LoadNil |
-            LoadBool { value: _ } |
-            LoatInt { value: _ } |
-            LoadFloat { value: _ } |
-            Op1 { op: _, src: _ } |
-            Op2 { op: _, src1: _, src2: _ } |
-            SetLocal { dst: _, src: _ } => false,
+impl<'a> Ctx<'a> {
+    fn new() -> Self {
+        Ctx {
+            scope: ScopeId(0),
+            decls: vec![],
         }
     }
 
-    #[inline(always)]
-    pub fn has_value(&self) -> bool {
-        use StmtData::*;
-        match self {
-            Copy { src: _ } |
-            Phi { map: _ } |
-            GetLocal { src: _ } |
-            LoadNil |
-            LoadBool { value: _ } |
-            LoatInt { value: _ } |
-            LoadFloat { value: _ } |
-            Op1 { op: _, src: _ } |
-            Op2 { op: _, src1: _, src2: _ } => true,
-
-            SetLocal { dst: _, src: _ } |
-            Jump { target: _ } |
-            SwitchBool { src: _, on_true: _, on_false: _ } |
-            Return { src: _ } => false,
-        }
-    }
-
-    #[inline]
-    pub fn args<F: FnMut(StmtRef<'a>)>(&self, mut f: F) {
-        use StmtData::*;
-        match self {
-            Copy { src } => { f(*src) }
-
-            Phi { map } => { for entry in *map { f(entry.get().1) } }
-
-            GetLocal { src: _ } => (),
-            SetLocal { dst: _, src } => { f(*src) }
-
-            LoadNil |
-            LoadBool  { value: _ } |
-            LoatInt   { value: _ } |
-            LoadFloat { value: _ } => (),
-
-            Op1 { op: _, src }        => { f(*src) }
-            Op2 { op: _, src1, src2 } => { f(*src1); f(*src2) }
-
-            Jump       { target: _ } => (),
-            SwitchBool { src, on_true: _, on_false: _ } => { f(*src) }
-            Return     { src }                          => { f(*src) },
-        }
-    }
-
-    #[inline]
-    pub fn replace_args<F: FnMut(&mut StmtRef<'a>)>(&mut self, mut f: F) {
-        use StmtData::*;
-        match self {
-            Copy { src } => { f(src) }
-
-            Phi { map } => {
-                for entry in *map {
-                    let (bb, mut arg) = entry.get();
-                    f(&mut arg);
-                    entry.set((bb, arg));
-                }
-            }
-
-            GetLocal { src: _ } => (),
-            SetLocal { dst: _, src } => { f(src) }
-
-            LoadNil |
-            LoadBool  { value: _ } |
-            LoatInt   { value: _ } |
-            LoadFloat { value: _ } => (),
-
-
-            Op1 { op: _, src }        => { f(src) }
-            Op2 { op: _, src1, src2 } => { f(src1); f(src2) }
-
-            Jump       { target: _ } => (),
-            SwitchBool { src, on_true: _, on_false: _ } => { f(src) }
-            Return     { src }                          => { f(src) },
-        }
-    }
-}
-
-
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct BlockId(u32);
-
-impl BlockId {
-    pub const ENTRY: BlockId = BlockId(0);
-
-    #[inline(always)]
-    pub fn is_entry(self) -> bool { self == BlockId::ENTRY }
-
-    #[inline(always)]
-    pub fn usize(self) -> usize { self.0 as usize }
-}
-
-impl core::fmt::Display for BlockId {
-    #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "bb{}", self.0)
-    }
-}
-
-
-#[derive(Clone, Debug)]
-pub struct Block<'a> {
-    pub id: BlockId,
-    pub statements: Vec<StmtRef<'a>>,
-}
-
-impl<'a> Block<'a> {
-    pub fn new(id: BlockId) -> Self {
-        Block {
-            id,
-            statements: vec![],
-        }
-    }
-
-    #[inline]
-    pub fn terminated(&self) -> bool {
-        if let Some(last) = self.statements.last() {
-            last.get().is_terminator()
-        }
-        else { false }
-    }
-
-    #[inline]
-    pub fn successors<F: FnMut(BlockId)>(&self, mut f: F) {
-        let Some(last) = self.statements.last() else { return };
-
-        use StmtData::*;
-        match last.get().data {
-            Jump { target } => { f(target); }
-            SwitchBool { src: _, on_true, on_false } => { f(on_true); f(on_false); }
-            Return { src: _ } => {}
-
-            _ => { unreachable!("called successors on unterminated block") }
-        }
-    }
-
-    #[inline]
-    pub fn args<F: FnMut(StmtRef<'a>)>(&self, mut f: F) {
-        for stmt in &self.statements {
-            stmt.get().args(&mut f);
-        }
-    }
-
-    #[inline]
-    pub fn replace_args<F: FnMut(&mut StmtRef<'a>)>(&mut self, mut f: F) {
-        for stmt_ref in &self.statements {
-            let mut stmt = stmt_ref.get();
-            stmt.replace_args(&mut f);
-            stmt_ref.set(stmt);
-        }
-    }
-}
-
-impl<'a> core::fmt::Display for Block<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:\n", self.id)?;
-
-        for stmt in &self.statements {
-            write!(f, "  {}\n", *stmt)?;
-        }
-
-        Ok(())
-    }
-}
-
-
-#[derive(Clone, Debug)]
-pub struct Function<'a> {
-    pub blocks: Vec<Block<'a>>,
-}
-
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LocalId(u32);
-
-impl LocalId {
-    #[inline(always)]
-    pub fn usize(self) -> usize { self.0 as usize }
-}
-
-impl core::fmt::Display for LocalId {
-    #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "l{}", self.0)
-    }
-}
-
-
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-pub struct ScopeId(u32);
-
-
-#[derive(Clone, Debug)]
-pub struct Decl<'a> {
-    pub name:  &'a str,
-    pub id:    LocalId,
-    pub scope: ScopeId,
-}
-
-
-pub struct FunctionBuilder<'a> {
-    blocks:     Vec<Block<'a>>,
-    decls:      Vec<Decl<'a>>,
-    stmts:      Vec<StmtRef<'a>>,
-    scope:      ScopeId,
-    next_local: LocalId,
-}
-
-impl<'a> FunctionBuilder<'a> {
-    pub fn new() -> Self {
-        FunctionBuilder {
-            blocks:     vec![],
-            decls:      vec![],
-            stmts:      vec![],
-            scope:      ScopeId(0),
-            next_local: LocalId(0),
-        }
-    }
-
-    pub fn new_block(&mut self) -> BlockId {
-        let id = BlockId(self.blocks.len() as u32);
-        self.blocks.push(Block::new(id));
-        id
-    }
-
-    pub fn new_local(&mut self) -> LocalId {
-        let id = self.next_local;
-        self.next_local.0 += 1;
-        id
-    }
-
-    pub fn new_stmt_at(&mut self, source: SourceRange, data: StmtData<'a>) -> StmtRef<'a> {
-        let id = StmtId(self.stmts.len() as u32);
-        let rf = StmtRef(Box::leak(Box::new(Cell::new(Stmt { id, source, data }))));
-        self.stmts.push(rf);
-        rf
-    }
-
-    pub fn add_stmt_at(&mut self, bb: BlockId, source: SourceRange, data: StmtData<'a>) -> StmtRef<'a> {
-        let stmt = self.new_stmt_at(source, data);
-
-        let block = &mut self.blocks[bb.0 as usize];
-        assert!(!block.terminated());
-        block.statements.push(stmt);
-        stmt
-    }
-
-    pub fn add_stmt(&mut self, bb: BlockId, at: &Ast, data: StmtData<'a>) -> StmtRef<'a> {
-        self.add_stmt_at(bb, at.source, data)
-    }
-
-    pub fn add_decl(&mut self, name: &'a str) -> LocalId {
-        let id = self.new_local();
+    fn add_decl(&mut self, name: &'a str, id: LocalId) {
         self.decls.push(Decl { name, id, scope: self.scope });
-        id
     }
 
-    pub fn find_decl(&self, name: &str) -> Option<&Decl<'a>> {
+    fn find_decl(&self, name: &str) -> Option<&Decl<'a>> {
         self.decls.iter().rev().find(|decl| decl.name == name)
     }
 
-    pub fn begin_scope(&mut self) -> ScopeId {
+    fn begin_scope(&mut self) -> ScopeId {
         self.scope.0 += 1;
         self.scope
     }
 
-    pub fn end_scope(&mut self, scope: ScopeId) {
+    fn end_scope(&mut self, scope: ScopeId) {
         assert_eq!(self.scope, scope);
         self.decls.retain(|decl| decl.scope < self.scope);
         self.scope.0 -= 1;
     }
 }
+
 

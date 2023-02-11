@@ -2,9 +2,6 @@
 - todo:
     - ssa form:
         - cleanup:
-            - data structure changes:
-                - `Phi2`.
-            - `Module`/`Func` api.
             - analyses as function methods.
                 - that return data.
                 - maybe attach shared borrow to data.
@@ -17,7 +14,6 @@
                 - free standing functions.
                 - local_to_reg.
                 - dead_copy_elim.
-            - more files.
         - validation:
             - args point to `StmtData::has_output`.
             - check that all args are defined in the cfg.
@@ -29,9 +25,9 @@
                 - feel like that would be the simplest fix.
                 - phis still `gen` those copies, so they have proper live ranges.
                 - reg-alloc processes them sequentially.
-            - may cause extra reg pressure. what really is the issue there?
         - fix inner locals.
             - thinking init to nil in pre-entry, where also init params (no code generated).
+            - may cause extra reg pressure. what really is the issue there?
         - debug:
             - generate info.
             - option to not optimize things out.
@@ -48,6 +44,9 @@
                 - constant folding.
                 - cse.
             - `Vec<StmtRef>` on function for id -> ref lookup.
+            - impl opt:
+                - arena.
+                - `Phi2`.
     - new compiler.
         - todo:
             - constants:
