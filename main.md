@@ -2,7 +2,6 @@
 - todo:
     - ssa form:
         - cleanup:
-            - `Function::locals`: store debug info.
             - get rid of `Blocks::_stmts`.
             - local_to_reg.
                 - def locals in bb0.

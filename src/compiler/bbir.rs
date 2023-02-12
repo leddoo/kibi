@@ -70,6 +70,15 @@ pub struct Block {
 pub struct LocalId(u32);
 
 
+#[allow(dead_code)] // @temp
+#[derive(Debug)]
+struct Local {
+    id:     LocalId,
+    name:   String,
+    source: SourceRange,
+}
+
+
 
 // ### Function ###
 
@@ -90,8 +99,7 @@ pub struct Stmts {
 }
 
 pub struct Locals {
-    // @temp
-    next_local: LocalId,
+    locals: Vec<Local>,
 }
 
 
@@ -340,7 +348,7 @@ impl Function {
         Function {
             blocks: Blocks { blocks: vec![], stmts: vec![] },
             stmts:  Stmts { stmts: vec![], phi_maps: vec![] },
-            locals: Locals { next_local: LocalId(0) },
+            locals: Locals { locals: vec![] },
         }
     }
 
@@ -508,16 +516,15 @@ impl Stmts {
 }
 
 impl Locals {
-    #[inline]
-    pub fn new(&mut self) -> LocalId {
-        let id = self.next_local;
-        self.next_local.0 += 1;
+    pub fn new(&mut self, name: &str, source: SourceRange) -> LocalId {
+        let id = LocalId(self.locals.len() as u32);
+        self.locals.push(Local { id, name: name.into(), source });
         id
     }
 
 
     #[inline]
-    pub fn len(&self) -> usize { self.next_local.0 as usize }
+    pub fn len(&self) -> usize { self.locals.len() }
 }
 
 

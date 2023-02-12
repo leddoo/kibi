@@ -1018,7 +1018,7 @@ impl Compiler {
 
             // local decls.
             if let AstData::Local(local) = &node.data {
-                let lid = fun.locals.new();
+                let lid = fun.locals.new(local.name, node.source);
                 ctx.add_decl(local.name, lid);
 
                 let v =
