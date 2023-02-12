@@ -124,9 +124,9 @@ impl Function {
             }
         }
 
-        let idom = self.blocks.iter()
-            .map(|block| {
-                let post_index      = post_indices[block.id.usize()];
+        let idom = self.blocks.ids()
+            .map(|bb| {
+                let post_index      = post_indices[bb.usize()];
                 let idom_post_index = doms[post_index.usize()].unwrap();
                 let idom            = post_order[idom_post_index.usize()];
                 idom
@@ -138,8 +138,7 @@ impl Function {
     pub fn dominator_tree(&self, idoms: &ImmediateDominators) -> DomTree {
         let mut tree = vec![vec![]; self.blocks.len()];
 
-        for block in self.blocks.iter().skip(1) {
-            let bb = block.id;
+        for bb in self.blocks.ids().skip(1) {
             let idom = idoms[bb.usize()];
             tree[idom.usize()].push(bb);
         }
@@ -150,9 +149,7 @@ impl Function {
     pub fn dominance_frontiers(&self, preds: &Predecessors, idoms: &ImmediateDominators) -> DominanceFrontiers {
         let mut frontiers = vec![vec![]; self.blocks.len()];
 
-        for block in self.blocks.iter() {
-            let bb = block.id;
-
+        for bb in self.blocks.ids() {
             let preds = &preds[bb.usize()];
             if preds.len() < 2 { continue }
 

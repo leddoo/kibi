@@ -2,9 +2,8 @@
 - todo:
     - ssa form:
         - cleanup:
-            - doubly linked `Stmt` list.
-                - `Block: Clone`.
             - `Function::locals`: store debug info.
+            - get rid of `Blocks::_stmts`.
             - local_to_reg.
                 - def locals in bb0.
             - copy_propagation.
@@ -45,6 +44,7 @@
             - impl opt:
                 - arena.
                 - `Phi2`.
+                - doubly linked stmt list.
     - new compiler.
         - todo:
             - constants:
