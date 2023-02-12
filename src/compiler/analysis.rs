@@ -1,6 +1,7 @@
 use derive_more::Deref;
 use super::*;
 
+
 #[derive(Deref)]
 pub struct Predecessors {
     preds: Vec<Vec<BlockId>>,
@@ -44,7 +45,7 @@ pub struct DominanceFrontiers {
 
 
 
-impl<'a> Function<'a> {
+impl Function {
     pub fn preds_and_post_order(&self) -> (Predecessors, PostOrder) {
         let mut preds = vec![vec![]; self.blocks.len()];
         let mut post_order = vec![];
@@ -55,9 +56,7 @@ impl<'a> Function<'a> {
             post_order: &mut Vec<BlockId>,
             visited: &mut Vec<bool>,
         ) {
-            let block = &fun.blocks[bb.usize()];
-
-            block.successors(|succ| {
+            fun.block_successors(bb, |succ| {
                 preds[succ.usize()].push(bb);
 
                 if !visited[succ.usize()] {

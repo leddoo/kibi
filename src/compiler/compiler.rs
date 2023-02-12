@@ -1,4 +1,3 @@
-use core::cell::Cell;
 use super::*;
 
 
@@ -64,8 +63,11 @@ impl Compiler {
         let nil = fun.add_stmt_at(bb, source, StmtData::LoadNil);
         fun.add_stmt_at(bb, source, StmtData::Return { src: nil });
 
-        for blocks in &fun.blocks {
-            println!("{}", blocks);
+        for block in &fun.blocks {
+            println!("{}", block.id);
+            for stmt_id in &fun.block_stmts[block.id.usize()] {
+                println!("  {}", fun.stmts[stmt_id.usize()]);
+            }
         }
 
 
@@ -87,8 +89,8 @@ impl Compiler {
 
             let mut stack = vec![];
             for block in &fun.blocks {
-                for stmt in &block.statements {
-                    let StmtData::SetLocal { dst: lid, src: _ } = stmt.get().data else { continue };
+                for stmt in &fun.block_stmts[block.id.usize()] {
+                    let StmtData::SetLocal { dst: lid, src: _ } = stmt.get(&fun).data else { continue };
 
                     let key = (block.id, lid);
                     if !visited.contains(&key) {
@@ -98,7 +100,7 @@ impl Compiler {
                 }
             }
 
-            let mut phis: Vec<Vec<(LocalId, Vec<(BlockId, Option<StmtRef>)>, StmtRef)>>
+            let mut phis: Vec<Vec<(LocalId, Vec<(BlockId, Option<StmtId>)>, StmtId)>>
                 = vec![vec![]; fun.blocks.len()];
 
             while let Some((from_bb, lid)) = stack.pop() {
@@ -111,7 +113,7 @@ impl Compiler {
                         let preds = &preds[to_bb.usize()];
 
                         let map = preds.iter().map(|p| (*p, None)).collect();
-                        let stmt = fun.new_stmt_at(SourceRange::null(), StmtData::Phi { map: &[] });
+                        let stmt = fun.new_stmt_at(SourceRange::null(), StmtData::Phi { map_id: PhiMapId(u32::MAX) });
                         to_phis.push((lid, map, stmt));
 
                         let key = (to_bb, lid);
@@ -130,36 +132,31 @@ impl Compiler {
 
         // rename vars.
         {
-            fn visit<'a>(bb: BlockId, mut new_names: Vec<Option<StmtRef<'a>>>,
-                phis: &mut Vec<Vec<(LocalId, Vec<(BlockId, Option<StmtRef<'a>>)>, StmtRef<'a>)>>,
-                fb: &Function<'a>, idom_tree: &Vec<Vec<BlockId>>,
+            fn visit(bb: BlockId, mut new_names: Vec<Option<StmtId>>,
+                phis: &mut Vec<Vec<(LocalId, Vec<(BlockId, Option<StmtId>)>, StmtId)>>,
+                fun: &mut Function, idom_tree: &Vec<Vec<BlockId>>,
             ) {
-                let block = &fb.blocks[bb.usize()];
-
                 // update var names.
                 for (lid, _map, stmt) in &phis[bb.usize()] {
                     new_names[lid.usize()] = Some(*stmt)
                 }
-                for stmt_ref in block.statements.iter() {
-                    let stmt_ref = *stmt_ref;
-                    let mut stmt = stmt_ref.get();
+                for stmt_id in fun.block_stmts[bb.usize()].iter() {
+                    let stmt = &mut fun.stmts[stmt_id.usize()];
 
                     if let StmtData::GetLocal { src } = stmt.data {
                         let new_name = new_names[src.usize()].unwrap();
                         stmt.data = StmtData::Copy { src: new_name };
-                        stmt_ref.set(stmt);
-                        new_names[src.usize()] = Some(stmt_ref);
+                        new_names[src.usize()] = Some(*stmt_id);
                     }
 
                     if let StmtData::SetLocal { dst, src } = stmt.data {
                         stmt.data = StmtData::Copy { src };
-                        stmt_ref.set(stmt);
-                        new_names[dst.usize()] = Some(stmt_ref);
+                        new_names[dst.usize()] = Some(*stmt_id);
                     }
                 }
 
                 // propagate to successors.
-                block.successors(|succ| {
+                fun.block_successors(bb, |succ| {
                     for (l, map, _) in &mut phis[succ.usize()] {
                         let entry = map.iter_mut().find(|(from, _)| *from == bb).unwrap();
                         assert!(entry.1.is_none());
@@ -170,55 +167,53 @@ impl Compiler {
 
                 // propagate to dominated blocks.
                 for d in idom_tree[bb.usize()].iter() {
-                    visit(*d, new_names.clone(), phis, fb, idom_tree);
+                    visit(*d, new_names.clone(), phis, fun, idom_tree);
                 }
             }
 
             let new_names = vec![None; fun.next_local.usize()];
-            visit(BlockId::ENTRY, new_names, &mut phis, &fun, &dom_tree);
+            visit(BlockId::ENTRY, new_names, &mut phis, &mut fun, &dom_tree);
         }
 
         // insert phis.
         {
             for (bb_index, phis) in phis.into_iter().enumerate() {
-                let block = &mut fun.blocks[bb_index];
+                let phis = phis.iter().map(|(_lid, map, stmt_id)| {
+                    let map_id = PhiMapId(fun.phi_maps.len() as u32);
+                    let map = map.iter().map(|(bb, stmt)| (*bb, stmt.unwrap())).collect::<Vec<_>>();
+                    fun.phi_maps.push(PhiMap{ map });
 
-                let phis = phis.iter().map(|(_lid, map, stmt_ref)| {
-                    let map = Vec::leak(map.iter().map(|(bb, stmt)|
-                        Cell::new((*bb, stmt.unwrap()))
-                    ).collect::<Vec<_>>());
+                    let stmt = &mut fun.stmts[stmt_id.usize()];
+                    stmt.data = StmtData::Phi { map_id };
+                    *stmt_id
+                }).collect::<Vec<StmtId>>();
 
-                    let mut stmt = stmt_ref.get();
-                    stmt.data = StmtData::Phi { map };
-                    stmt_ref.set(stmt);
-                    *stmt_ref
-                }).collect::<Vec<StmtRef>>();
-
-                block.statements.splice(0..0, phis);
+                fun.block_stmts[bb_index].splice(0..0, phis);
             }
         }
 
         println!("local2reg done");
         for block in &fun.blocks {
-            println!("{}", block);
+            println!("{}", block.id);
+            for stmt_id in &fun.block_stmts[block.id.usize()] {
+                println!("  {}", fun.stmts[stmt_id.usize()]);
+            }
         }
 
 
         // copy propagation.
         {
-            fn visit(bb: BlockId, fb: &mut Function, idom_tree: &Vec<Vec<BlockId>>) {
-                let block = &mut fb.blocks[bb.usize()];
-
+            fn visit(bb: BlockId, fun: &mut Function, idom_tree: &Vec<Vec<BlockId>>) {
                 // inline copies.
-                block.replace_args(|arg| {
-                    if let StmtData::Copy { src } = arg.get().data {
+                fun.block_replace_args_ex(bb, |stmts, arg| {
+                    if let StmtData::Copy { src } = stmts[arg.usize()].data {
                         *arg = src;
                     }
                 });
 
                 // propagate to dominated blocks.
                 for d in idom_tree[bb.usize()].iter() {
-                    visit(*d, fb, idom_tree);
+                    visit(*d, fun, idom_tree);
                 }
             }
             visit(BlockId::ENTRY, &mut fun, &dom_tree);
@@ -226,48 +221,51 @@ impl Compiler {
 
         println!("copy propagation done");
         for block in &fun.blocks {
-            println!("{}", block);
+            println!("{}", block.id);
+            for stmt_id in &fun.block_stmts[block.id.usize()] {
+                println!("  {}", fun.stmts[stmt_id.usize()]);
+            }
         }
 
         // dead copy elimination.
         {
             let mut visited = vec![false; fun.stmts.len()];
 
-            for block in &fun.blocks {
-                block.args(|arg| visited[arg.get().id.usize()] = true);
-            }
+            fun.all_args(|arg| visited[arg.usize()] = true);
 
-            for block in &mut fun.blocks {
-                block.statements.retain(|stmt_ref| {
-                    let stmt = stmt_ref.get();
-                    visited[stmt.id.usize()] || !stmt.is_copy()
+            for block_stmts in &mut fun.block_stmts {
+                block_stmts.retain(|stmt_id| {
+                    let stmt = &fun.stmts[stmt_id.usize()];
+                    visited[stmt_id.usize()] || !stmt.is_copy()
                 });
             }
         }
 
         println!("dead copy elim done");
         for block in &fun.blocks {
-            println!("{}", block);
+            println!("{}", block.id);
+            for stmt_id in &fun.block_stmts[block.id.usize()] {
+                println!("  {}", fun.stmts[stmt_id.usize()]);
+            }
         }
 
         let block_order = {
             fn visit(bb: BlockId, order: &mut Vec<BlockId>, visited: &mut Vec<bool>,
-                fb: &Function, idom: &Vec<BlockId>, idom_tree: &Vec<Vec<BlockId>>,
+                fun: &Function, idom: &Vec<BlockId>, idom_tree: &Vec<Vec<BlockId>>,
             ) {
                 assert!(!visited[bb.usize()]);
                 visited[bb.usize()] = true;
                 order.push(bb);
 
-                let block = &fb.blocks[bb.usize()];
-                block.successors(|succ| {
+                fun.block_successors(bb, |succ| {
                     if !visited[succ.usize()] && idom[succ.usize()] == bb {
-                        visit(succ, order, visited, fb, idom, idom_tree);
+                        visit(succ, order, visited, fun, idom, idom_tree);
                     }
                 });
 
                 for child in &idom_tree[bb.usize()] {
                     if !visited[child.usize()] {
-                        visit(*child, order, visited, fb, idom, idom_tree);
+                        visit(*child, order, visited, fun, idom, idom_tree);
                     }
                 }
             }
@@ -284,15 +282,15 @@ impl Compiler {
 
             let mut cursor = 0;
             for bb in &block_order {
-                let block = &fun.blocks[bb.usize()];
+                let stmts = &fun.block_stmts[bb.usize()];
 
                 let block_begin = cursor;
-                cursor += block.statements.len();
+                cursor += stmts.len();
 
-                block_begins[block.id.usize()] = block_begin as u32;
+                block_begins[bb.usize()] = block_begin as u32;
 
-                for (i, stmt) in block.statements.iter().enumerate() {
-                    stmt_indices[stmt.id().usize()] = (block_begin + i) as u32;
+                for (i, stmt_id) in stmts.iter().enumerate() {
+                    stmt_indices[stmt_id.usize()] = (block_begin + i) as u32;
                 }
             }
             block_begins.push(cursor as u32);
@@ -305,8 +303,8 @@ impl Compiler {
             let block = &fun.blocks[bb.usize()];
             println!("{}", block.id);
 
-            for stmt in &block.statements {
-                println!("  ({}) {}", stmt_indices[stmt.id().usize()], *stmt);
+            for stmt_id in &fun.block_stmts[bb.usize()] {
+                println!("  ({}) {}", stmt_indices[stmt_id.usize()], &fun.stmts[stmt_id.usize()]);
             }
         }
 
@@ -327,8 +325,8 @@ impl Compiler {
                 let mut kill = vec![false; fun.stmts.len()];
 
                 // statements in reverse.
-                for stmt_ref in block.statements.iter().rev() {
-                    let stmt = stmt_ref.get();
+                for stmt_id in fun.block_stmts[block.id.usize()].iter().rev() {
+                    let stmt = stmt_id.get(&fun);
 
                     if stmt.has_value() {
                         kill[stmt.id.usize()] = true;
@@ -336,8 +334,8 @@ impl Compiler {
                     }
 
                     if !stmt.is_phi() {
-                        stmt.args(|arg| {
-                            gen[arg.id().usize()] = true;
+                        stmt.args(&fun.phi_maps, |arg| {
+                            gen[arg.usize()] = true;
                         });
                     }
                 }
@@ -365,7 +363,7 @@ impl Compiler {
                     let kill  = &bb_kill[bb.usize()];
 
                     let mut new_live_out = vec![false; fun.stmts.len()];
-                    block.successors(|succ| {
+                    fun.block_successors(*bb, |succ| {
                         // live_in.
                         for (i, live) in bb_live_in[succ.usize()].iter().enumerate() {
                             if *live {
@@ -374,11 +372,11 @@ impl Compiler {
                         }
 
                         // phis.
-                        for stmt_ref in &fun.blocks[succ.usize()].statements {
-                            if let StmtData::Phi { map } = stmt_ref.get().data {
-                                let entry = map.iter().find(|e| e.get().0 == block.id).unwrap();
-                                let var = entry.get().1;
-                                new_live_out[var.id().usize()] = true;
+                        for stmt_id in &fun.block_stmts[succ.usize()] {
+                            if let StmtData::Phi { map_id } = stmt_id.get(&fun).data {
+                                let map = &fun.phi_maps[map_id.usize()];
+                                let (_, src) = map.iter().find(|(bb, _)| *bb == block.id).unwrap();
+                                new_live_out[src.usize()] = true;
                             }
                             else { break }
                         }
@@ -419,9 +417,10 @@ impl Compiler {
                 //let live_in  = &bb_live_in[bb.usize()];
                 let live_out = &bb_live_out[bb.usize()];
 
-                let block       = &fun.blocks[bb.usize()];
+                let stmts = &fun.block_stmts[bb.usize()];
+
                 let block_begin = block_begins[bb.usize()];
-                let block_end   = block_begin + block.statements.len() as u32;
+                let block_end   = block_begin + stmts.len() as u32;
 
                 let mut live = live_out.iter().map(|live| {
                     live.then(|| block_end)
@@ -456,8 +455,8 @@ impl Compiler {
                 }
 
                 // statements.
-                for stmt_ref in block.statements.iter().rev() {
-                    let stmt = stmt_ref.get();
+                for stmt_id in stmts.iter().rev() {
+                    let stmt = stmt_id.get(&fun);
 
                     if stmt.has_value() {
                         let start = stmt_indices[stmt.id.usize()];
@@ -465,9 +464,9 @@ impl Compiler {
                     }
 
                     if !stmt.is_phi() {
-                        stmt.args(|arg| {
+                        stmt.args(&fun.phi_maps, |arg| {
                             let stop = stmt_indices[stmt.id.usize()];
-                            gen(arg.id(), stop, &mut live);
+                            gen(arg, stop, &mut live);
                         });
                     }
                 }
@@ -654,7 +653,7 @@ impl Compiler {
             assert!(num_regs < 128);
             assert!(block_order.len() < u16::MAX as usize / 2);
 
-            let reg = |stmt: StmtRef| reg_mapping[stmt.id().usize()] as u8;
+            let reg = |stmt: StmtId| reg_mapping[stmt.usize()] as u8;
 
             let mut block_offsets = vec![u16::MAX; fun.blocks.len()];
 
@@ -663,9 +662,9 @@ impl Compiler {
                 //block_offsets.push(bcb.current_offset() as u16);
                 block_offsets[bb.usize()] = bcb.current_offset() as u16;
 
-                let block = &fun.blocks[bb.usize()];
+                let stmts = &fun.block_stmts[bb.usize()];
 
-                for stmt in &block.statements[..block.statements.len()-1] {
+                for stmt in &stmts[..stmts.len()-1] {
                     let dst = reg(*stmt);
 
                     // @temp
@@ -674,10 +673,10 @@ impl Compiler {
                     }
 
                     use StmtData::*;
-                    match stmt.get().data {
+                    match stmt.get(&fun).data {
                         Copy { src } => bcb.copy(dst, reg(src)),
 
-                        Phi { map: _ } => (),
+                        Phi { map_id: _ } => (),
 
                         GetLocal { src: _ } |
                         SetLocal { dst: _, src: _ } => unimplemented!(),
@@ -716,14 +715,17 @@ impl Compiler {
                 }
 
                 // phis of successors.
-                block.successors(|succ| {
+                fun.block_successors(*bb, |succ| {
                     println!(" -> {}", succ);
-                    for stmt in &fun.blocks[succ.usize()].statements {
-                        if let StmtData::Phi { map } = stmt.get().data {
+                    let succ_stmts = &fun.block_stmts[succ.usize()];
+                    for stmt in succ_stmts {
+                        if let StmtData::Phi { map_id } = stmt.get(&fun).data {
                             let dst = reg(*stmt);
 
-                            let entry = map.iter().find(|e| e.get().0 == block.id).unwrap();
-                            let src = reg(entry.get().1);
+                            let map = &fun.phi_maps[map_id.usize()];
+
+                            let (_, src) = map.iter().find(|(from_bb, _)| from_bb == bb).unwrap();
+                            let src = reg(*src);
                             println!("r{} -> r{}", src, dst);
 
                             if dst != src {
@@ -734,13 +736,13 @@ impl Compiler {
                 });
 
 
-                let terminator = block.statements.last().unwrap();
-                assert!(terminator.get().is_terminator());
+                let terminator = stmts.last().unwrap();
+                assert!(terminator.get(&fun).is_terminator());
 
                 let next_bb = block_order.get(block_index + 1);
 
                 use StmtData::*;
-                match &terminator.get().data {
+                match &terminator.get(&fun).data {
                     Jump { target } => {
                         if Some(target) != next_bb {
                             bcb.jump(target.0 as u16)
@@ -814,9 +816,9 @@ impl Compiler {
     }
 
     pub fn compile_ast<'a>(&mut self,
-        ctx: &mut Ctx<'a>, fun: &mut Function<'static>, bb: &mut BlockId,
+        ctx: &mut Ctx<'a>, fun: &mut Function, bb: &mut BlockId,
         ast: &Ast<'a>, need_value: bool,
-    ) -> CompileResult<Option<StmtRef<'static>>> {
+    ) -> CompileResult<Option<StmtId>> {
         match &ast.data {
             AstData::Nil => {
                 Ok(Some(fun.add_stmt(*bb, ast, StmtData::LoadNil)))
@@ -966,11 +968,12 @@ impl Compiler {
                     StmtData::Jump { target: after_if });
 
                 if need_value {
-                    let map = Box::leak(Box::new([
-                        Cell::new((bb_true,  value_true.unwrap())),
-                        Cell::new((bb_false, value_false.unwrap())),
-                    ]));
-                    let result = fun.add_stmt(after_if, ast, StmtData::Phi { map });
+                    let map_id = PhiMapId(fun.phi_maps.len() as u32);
+                    fun.phi_maps.push(PhiMap { map: vec![
+                        (bb_true,  value_true.unwrap()),
+                        (bb_false, value_false.unwrap()),
+                    ]});
+                    let result = fun.add_stmt(after_if, ast, StmtData::Phi { map_id });
                     Ok(Some(result))
                 }
                 else { Ok(None) }
@@ -1024,9 +1027,9 @@ impl Compiler {
     }
 
     pub fn compile_block<'a>(&mut self,
-        ctx: &mut Ctx<'a>, fun: &mut Function<'static>, bb: &mut BlockId,
+        ctx: &mut Ctx<'a>, fun: &mut Function, bb: &mut BlockId,
         block_source: SourceRange, block: &ast::Block<'a>, need_value: bool
-    ) -> CompileResult<Option<StmtRef<'static>>> {
+    ) -> CompileResult<Option<StmtId>> {
         let scope = ctx.begin_scope();
 
         let mut stmts_end = block.children.len();
@@ -1073,8 +1076,8 @@ impl Compiler {
     }
 
     pub fn compile_assign<'a>(&mut self,
-        ctx: &mut Ctx<'a>, fun: &mut Function<'static>, bb: &mut BlockId,
-        ast: &Ast<'a>, value: StmtRef<'static>) -> CompileResult<()>
+        ctx: &mut Ctx<'a>, fun: &mut Function, bb: &mut BlockId,
+        ast: &Ast<'a>, value: StmtId) -> CompileResult<()>
     {
         match &ast.data {
             AstData::Ident (name) => {

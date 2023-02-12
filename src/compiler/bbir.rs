@@ -1,4 +1,3 @@
-use core::cell::Cell;
 use derive_more::{Deref, DerefMut};
 use super::*;
 
@@ -8,42 +7,47 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 #[repr(transparent)]
-pub struct StmtId(pub u32); // @temp
-
-#[derive(Clone, Copy, Deref)]
-#[repr(transparent)]
-pub struct StmtRef<'a>(&'a Cell<Stmt<'a>>);
+pub struct StmtId(pub(crate) u32);
 
 
-#[derive(Clone, Copy, Debug, Deref, DerefMut)]
-pub struct Stmt<'a> {
-    #[deref]
-    #[deref_mut]
-    pub data:   StmtData<'a>,
+#[derive(Clone, Debug, Deref, DerefMut)]
+pub struct Stmt {
+    #[deref] #[deref_mut]
+    pub data:   StmtData,
     pub id:     StmtId,
     pub source: SourceRange,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum StmtData<'a> {
-    Copy        { src: StmtRef<'a> },
+pub enum StmtData {
+    Copy        { src: StmtId },
 
-    Phi         { map: &'a [Cell<(BlockId, StmtRef<'a>)>] },
+    Phi         { map_id: PhiMapId },
 
     GetLocal    { src: LocalId },
-    SetLocal    { dst: LocalId, src: StmtRef<'a> },
+    SetLocal    { dst: LocalId, src: StmtId },
 
     LoadNil,
     LoadBool    { value: bool },
     LoatInt     { value: i64 },
     LoadFloat   { value: f64 },
 
-    Op1         { op: Op1, src: StmtRef<'a> },
-    Op2         { op: Op2, src1: StmtRef<'a>, src2: StmtRef<'a> },
+    Op1         { op: Op1, src: StmtId },
+    Op2         { op: Op2, src1: StmtId, src2: StmtId },
 
     Jump        { target: BlockId },
-    SwitchBool  { src: StmtRef<'a>, on_true: BlockId, on_false: BlockId },
-    Return      { src: StmtRef<'a> },
+    SwitchBool  { src: StmtId, on_true: BlockId, on_false: BlockId },
+    Return      { src: StmtId },
+}
+
+
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+#[repr(transparent)]
+pub struct PhiMapId(pub(crate) u32);
+
+#[derive(Deref, DerefMut)]
+pub struct PhiMap {
+    pub(crate) map: Vec<(BlockId, StmtId)>,
 }
 
 
@@ -54,9 +58,8 @@ pub enum StmtData<'a> {
 pub struct BlockId(pub u32); // @temp
 
 #[derive(Clone, Debug)]
-pub struct Block<'a> {
+pub struct Block {
     pub id: BlockId,
-    pub statements: Vec<StmtRef<'a>>,
 }
 
 
@@ -70,11 +73,14 @@ pub struct LocalId(u32);
 
 // ### Function ###
 
-pub struct Function<'a> {
-    // @temp
-    pub blocks:     Vec<Block<'a>>,
-    pub stmts:      Vec<StmtRef<'a>>,
+pub struct Function {
+    // @temp: pub
+    pub blocks:     Vec<Block>,
+    pub stmts:      Vec<Stmt>,
     pub next_local: LocalId,
+    pub phi_maps:   Vec<PhiMap>,
+    // @temp: linked lists
+    pub block_stmts: Vec<Vec<StmtId>>,
 }
 
 
@@ -84,44 +90,15 @@ pub struct Function<'a> {
 impl StmtId {
     #[inline(always)]
     pub fn usize(self) -> usize { self.0 as usize }
-}
 
-
-
-// --- StmtRef ---
-
-impl<'a> StmtRef<'a> {
     #[inline(always)]
-    pub fn id(self) -> StmtId { self.get().id }
+    pub fn get(self, fun: &Function) -> &Stmt { &fun.stmts[self.usize()] }
 }
 
-impl<'a> core::fmt::Debug for StmtRef<'a> {
+impl core::fmt::Display for StmtId {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.get().fmt(f)
-    }
-}
-
-impl<'a> PartialEq for StmtRef<'a> {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        core::ptr::eq(self.0, other.0)
-    }
-}
-
-impl<'a> Eq for StmtRef<'a> {}
-
-impl<'a> core::hash::Hash for StmtRef<'a> {
-    #[inline]
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        core::ptr::hash(self.0, state)
-    }
-}
-
-impl<'a> core::fmt::Display for StmtRef<'a> {
-    #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.get().fmt(f)
+        write!(f, "r{}", self.0)
     }
 }
 
@@ -129,38 +106,32 @@ impl<'a> core::fmt::Display for StmtRef<'a> {
 
 // --- Stmt ---
 
-impl<'a> core::fmt::Display for Stmt<'a> {
+impl core::fmt::Display for Stmt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "r{} := ", self.id.0)?;
 
         use StmtData::*;
         match &self.data {
-            Copy { src } => { write!(f, "copy r{}", src.get().id.0) }
+            Copy { src } => { write!(f, "copy {}", src) }
 
-            Phi { map } => {
-                write!(f, "phi {{")?;
-                for (i, (bb, src)) in map.iter().map(|e| e.get()).enumerate() {
-                    write!(f, "{}: r{}", bb, src.get().id.0)?;
-
-                    if i < map.len() - 1 { write!(f, ", ")?; }
-                }
-                write!(f, "}}")
+            Phi { map_id: map } => {
+                write!(f, "phi p{}", map.0)
             }
 
             GetLocal { src }      => { write!(f, "get_local {}", src) }
-            SetLocal { dst, src } => { write!(f, "set_local {}, r{}", dst, src.get().id.0) }
+            SetLocal { dst, src } => { write!(f, "set_local {}, {}", dst, src) }
 
             LoadNil             => { write!(f, "load_nil") }
             LoadBool  { value } => { write!(f, "load_bool {}", value) }
             LoatInt   { value } => { write!(f, "load_int {}", value) }
             LoadFloat { value } => { write!(f, "load_float {}", value) }
 
-            Op1 { op, src }        => { write!(f, "{} r{}",      op.str(), src.get().id.0) }
-            Op2 { op, src1, src2 } => { write!(f, "{} r{}, r{}", op.str(), src1.get().id.0, src2.get().id.0) }
+            Op1 { op, src }        => { write!(f, "{} {}",     op.str(), src) }
+            Op2 { op, src1, src2 } => { write!(f, "{} {}, {}", op.str(), src1, src2) }
 
             Jump       { target }                 => { write!(f, "jump {}", target) }
-            SwitchBool { src, on_true, on_false } => { write!(f, "switch_bool r{}, {}, {}", src.get().id.0, on_true, on_false) }
-            Return     { src }                    => { write!(f, "return r{}", src.get().id.0) }
+            SwitchBool { src, on_true, on_false } => { write!(f, "switch_bool {}, {}, {}", src, on_true, on_false) }
+            Return     { src }                    => { write!(f, "return {}", src) }
         }
     }
 }
@@ -169,7 +140,7 @@ impl<'a> core::fmt::Display for Stmt<'a> {
 
 // --- StmtData ---
 
-impl<'a> StmtData<'a> {
+impl StmtData {
     #[inline(always)]
     pub fn is_copy(&self) -> bool {
         if let StmtData::Copy { src: _ } = self { true } else { false }
@@ -177,7 +148,7 @@ impl<'a> StmtData<'a> {
 
     #[inline(always)]
     pub fn is_phi(&self) -> bool {
-        if let StmtData::Phi { map: _ } = self { true } else { false }
+        if let StmtData::Phi { map_id: _ } = self { true } else { false }
     }
 
     #[inline(always)]
@@ -189,7 +160,7 @@ impl<'a> StmtData<'a> {
             Return { src: _ } => true,
 
             Copy { src: _ } |
-            Phi { map: _ } |
+            Phi { map_id: _ } |
             GetLocal { src: _ } |
             LoadNil |
             LoadBool { value: _ } |
@@ -206,7 +177,7 @@ impl<'a> StmtData<'a> {
         use StmtData::*;
         match self {
             Copy { src: _ } |
-            Phi { map: _ } |
+            Phi { map_id: _ } |
             GetLocal { src: _ } |
             LoadNil |
             LoadBool { value: _ } |
@@ -223,12 +194,12 @@ impl<'a> StmtData<'a> {
     }
 
     #[inline]
-    pub fn args<F: FnMut(StmtRef<'a>)>(&self, mut f: F) {
+    pub fn args<F: FnMut(StmtId)>(&self, phi_maps: &[PhiMap], mut f: F) {
         use StmtData::*;
         match self {
             Copy { src } => { f(*src) }
 
-            Phi { map } => { for entry in *map { f(entry.get().1) } }
+            Phi { map_id: map } => { for (_, src) in &*phi_maps[map.usize()] { f(*src) } }
 
             GetLocal { src: _ } => (),
             SetLocal { dst: _, src } => { f(*src) }
@@ -248,16 +219,14 @@ impl<'a> StmtData<'a> {
     }
 
     #[inline]
-    pub fn replace_args<F: FnMut(&mut StmtRef<'a>)>(&mut self, mut f: F) {
+    pub fn replace_args<F: FnMut(&mut StmtId)>(&mut self, phi_maps: &mut [PhiMap], mut f: F) {
         use StmtData::*;
         match self {
             Copy { src } => { f(src) }
 
-            Phi { map } => {
-                for entry in *map {
-                    let (bb, mut arg) = entry.get();
-                    f(&mut arg);
-                    entry.set((bb, arg));
+            Phi { map_id: map } => {
+                for (_, src) in &mut *phi_maps[map.usize()] {
+                    f(src)
                 }
             }
 
@@ -278,6 +247,11 @@ impl<'a> StmtData<'a> {
             Return     { src }                          => { f(src) },
         }
     }
+}
+
+impl PhiMapId {
+    #[inline(always)]
+    pub fn usize(self) -> usize { self.0 as usize }
 }
 
 
@@ -305,62 +279,11 @@ impl core::fmt::Display for BlockId {
 
 // --- Block ---
 
-impl<'a> Block<'a> {
+impl Block {
     pub fn new(id: BlockId) -> Self {
         Block {
             id,
-            statements: vec![],
         }
-    }
-
-    #[inline]
-    pub fn terminated(&self) -> bool {
-        if let Some(last) = self.statements.last() {
-            last.get().is_terminator()
-        }
-        else { false }
-    }
-
-    #[inline]
-    pub fn successors<F: FnMut(BlockId)>(&self, mut f: F) {
-        let Some(last) = self.statements.last() else { return };
-
-        use StmtData::*;
-        match last.get().data {
-            Jump { target } => { f(target); }
-            SwitchBool { src: _, on_true, on_false } => { f(on_true); f(on_false); }
-            Return { src: _ } => {}
-
-            _ => { unreachable!("called successors on unterminated block") }
-        }
-    }
-
-    #[inline]
-    pub fn args<F: FnMut(StmtRef<'a>)>(&self, mut f: F) {
-        for stmt in &self.statements {
-            stmt.get().args(&mut f);
-        }
-    }
-
-    #[inline]
-    pub fn replace_args<F: FnMut(&mut StmtRef<'a>)>(&mut self, mut f: F) {
-        for stmt_ref in &self.statements {
-            let mut stmt = stmt_ref.get();
-            stmt.replace_args(&mut f);
-            stmt_ref.set(stmt);
-        }
-    }
-}
-
-impl<'a> core::fmt::Display for Block<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:\n", self.id)?;
-
-        for stmt in &self.statements {
-            write!(f, "  {}\n", *stmt)?;
-        }
-
-        Ok(())
     }
 }
 
@@ -384,12 +307,14 @@ impl core::fmt::Display for LocalId {
 
 // --- Function ---
 
-impl<'a> Function<'a> {
+impl Function {
     pub fn new() -> Self {
         Function {
             blocks:     vec![],
             stmts:      vec![],
             next_local: LocalId(0),
+            phi_maps:   vec![],
+            block_stmts: vec![],
         }
     }
 
@@ -401,23 +326,24 @@ impl<'a> Function<'a> {
     }
 
 
-    pub fn new_stmt_at(&mut self, source: SourceRange, data: StmtData<'a>) -> StmtRef<'a> {
+    pub fn new_stmt_at(&mut self, source: SourceRange, data: StmtData) -> StmtId {
         let id = StmtId(self.stmts.len() as u32);
-        let rf = StmtRef(Box::leak(Box::new(Cell::new(Stmt { id, source, data }))));
-        self.stmts.push(rf);
-        rf
+        self.stmts.push(Stmt { id, source, data });
+        id
     }
 
-    pub fn add_stmt_at(&mut self, bb: BlockId, source: SourceRange, data: StmtData<'a>) -> StmtRef<'a> {
+    pub fn add_stmt_at(&mut self, bb: BlockId, source: SourceRange, data: StmtData) -> StmtId {
         let stmt = self.new_stmt_at(source, data);
 
-        let block = &mut self.blocks[bb.0 as usize];
-        assert!(!block.terminated());
-        block.statements.push(stmt);
+        let stmts = &mut self.block_stmts[bb.usize()];
+        if let Some(last) = stmts.last() {
+            assert!(!self.stmts[last.usize()].is_terminator());
+        }
+        stmts.push(stmt);
         stmt
     }
 
-    pub fn add_stmt(&mut self, bb: BlockId, at: &Ast, data: StmtData<'a>) -> StmtRef<'a> {
+    pub fn add_stmt(&mut self, bb: BlockId, at: &Ast, data: StmtData) -> StmtId {
         self.add_stmt_at(bb, at.source, data)
     }
 
@@ -425,7 +351,57 @@ impl<'a> Function<'a> {
     pub fn new_block(&mut self) -> BlockId {
         let id = BlockId(self.blocks.len() as u32);
         self.blocks.push(Block::new(id));
+        self.block_stmts.push(vec![]);
         id
+    }
+
+
+    #[inline]
+    pub fn block_successors<F: FnMut(BlockId)>(&self, bb: BlockId, mut f: F) {
+        let stmts = &self.block_stmts[bb.usize()];
+
+        let Some(last) = stmts.last() else { return };
+
+        use StmtData::*;
+        match last.get(self).data {
+            Jump { target } => { f(target); }
+            SwitchBool { src: _, on_true, on_false } => { f(on_true); f(on_false); }
+            Return { src: _ } => {}
+
+            _ => { unreachable!("called successors on unterminated block") }
+        }
+    }
+
+    #[inline]
+    pub fn block_args<F: FnMut(StmtId)>(&self, bb: BlockId, mut f: F) {
+        for stmt_id in &self.block_stmts[bb.usize()] {
+            self.stmts[stmt_id.usize()].args(&self.phi_maps, &mut f);
+        }
+    }
+
+    #[inline]
+    pub fn block_replace_args<F: FnMut(&mut StmtId)>(&mut self, bb: BlockId, mut f: F) {
+        for stmt_id in &self.block_stmts[bb.usize()] {
+            self.stmts[stmt_id.usize()].replace_args(&mut self.phi_maps, &mut f);
+        }
+    }
+
+    #[inline]
+    pub fn block_replace_args_ex<F: FnMut(&[Stmt], &mut StmtId)>(&mut self, bb: BlockId, mut f: F) {
+        for stmt_id in &self.block_stmts[bb.usize()] {
+            let mut data = self.stmts[stmt_id.usize()].data;
+            data.replace_args(&mut self.phi_maps, |arg| f(&self.stmts, arg));
+            self.stmts[stmt_id.usize()].data = data;
+        }
+    }
+
+    #[inline]
+    pub fn all_args<F: FnMut(StmtId)>(&self, mut f: F) {
+        for stmt_ids in self.block_stmts.iter() {
+            for stmt_id in stmt_ids.iter() {
+                self.stmts[stmt_id.usize()].args(&self.phi_maps, &mut f);
+            }
+        }
     }
 }
 

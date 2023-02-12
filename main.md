@@ -2,7 +2,11 @@
 - todo:
     - ssa form:
         - cleanup:
+            - doubly linked `Stmt` list.
+                - `Block: Clone`.
+            - `Function::locals`: store debug info.
             - local_to_reg.
+                - def locals in bb0.
             - copy_propagation.
             - dead_copy_elim.
             - liveness.
@@ -38,7 +42,6 @@
                 - dead code elim.
                 - constant folding.
                 - cse.
-            - `Vec<StmtRef>` on function for id -> ref lookup.
             - impl opt:
                 - arena.
                 - `Phi2`.
