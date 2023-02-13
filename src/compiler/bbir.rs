@@ -46,8 +46,13 @@ pub enum StmtData {
 pub struct PhiMapId(u32);
 
 #[derive(Deref, DerefMut)]
-pub struct PhiMap {
+struct PhiMapImpl {
     map: Vec<(BlockId, StmtId)>,
+}
+
+#[derive(Clone, Copy, Debug, Deref)]
+pub struct PhiMap<'a> {
+    pub map: &'a [(BlockId, StmtId)],
 }
 
 
@@ -95,7 +100,7 @@ pub struct Blocks {
 
 pub struct Stmts {
     stmts:    Vec<Stmt>,
-    phi_maps: Vec<PhiMap>,
+    phi_maps: Vec<PhiMapImpl>,
 }
 
 pub struct Locals {
@@ -170,9 +175,6 @@ impl core::fmt::Display for Stmt {
     }
 }
 
-
-
-// --- StmtData ---
 
 impl StmtData {
     #[inline(always)]
@@ -263,7 +265,7 @@ impl StmtData {
                 for (_, src) in &mut map {
                     f(stmts, src)
                 }
-                stmts.phi_maps[map_id.usize()] = PhiMap { map };
+                stmts.phi_maps[map_id.usize()] = PhiMapImpl { map };
             }
 
             GetLocal { src: _ } => (),
@@ -285,9 +287,23 @@ impl StmtData {
     }
 }
 
+
 impl PhiMapId {
     #[inline(always)]
     pub fn usize(self) -> usize { self.0 as usize }
+
+    #[inline]
+    pub fn get<'s>(self, stmts: &'s Stmts) -> PhiMap<'s> {
+        PhiMap { map: &stmts.phi_maps[self.usize()] }
+    }
+}
+
+
+impl<'a> PhiMap<'a> {
+    pub fn get(self, bb: BlockId) -> Option<StmtId> {
+        self.iter().find_map(|(from_bb, stmt_id)|
+            (*from_bb == bb).then_some(*stmt_id))
+    }
 }
 
 
@@ -371,7 +387,7 @@ impl Function {
 
     pub fn add_phi(&mut self, bb: BlockId, at: &Ast, map: &[(BlockId, StmtId)]) -> StmtId {
         let map_id = PhiMapId(self.stmts.phi_maps.len() as u32);
-        self.stmts.phi_maps.push(PhiMap { map: map.into() });
+        self.stmts.phi_maps.push(PhiMapImpl { map: map.into() });
         self.add_stmt(bb, at, StmtData::Phi { map_id })
     }
 
@@ -479,7 +495,7 @@ impl Stmts {
 
     pub fn new_phi(&mut self, source: SourceRange, map: &[(BlockId, StmtId)]) -> StmtId {
         let map_id = PhiMapId(self.phi_maps.len() as u32);
-        self.phi_maps.push(PhiMap { map: map.into() });
+        self.phi_maps.push(PhiMapImpl { map: map.into() });
         self.new(source, StmtData::Phi { map_id })
     }
 
@@ -504,14 +520,18 @@ impl Stmts {
     pub fn get_mut(&mut self, stmt: StmtId) -> &mut Stmt { &mut self.stmts[stmt.usize()] }
 
 
-    pub fn phi_map(&self, stmt: StmtId) -> &[(BlockId, StmtId)] {
-        let StmtData::Phi { map_id } = self.stmts[stmt.usize()].data else { unreachable!() };
-        &self.phi_maps[map_id.usize()]
+    pub fn try_phi(&self, stmt: StmtId) -> Option<PhiMap> {
+        if let StmtData::Phi { map_id } = self.stmts[stmt.usize()].data {
+            return Some(PhiMap { map: &*self.phi_maps[map_id.usize()] });
+        }
+        None
     }
 
-    pub fn set_phi_map(&mut self, stmt: StmtId, map: &[(BlockId, StmtId)]) {
+    // @todo: support Phi2.
+    // @todo: def_phi variant.
+    pub fn set_phi(&mut self, stmt: StmtId, map: &[(BlockId, StmtId)]) {
         let StmtData::Phi { map_id } = self.stmts[stmt.usize()].data else { unreachable!() };
-        self.phi_maps[map_id.usize()] = PhiMap { map: map.into() };
+        self.phi_maps[map_id.usize()] = PhiMapImpl { map: map.into() };
     }
 }
 

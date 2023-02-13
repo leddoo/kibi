@@ -175,7 +175,7 @@ impl Compiler {
             for (bb_index, phis) in phis.into_iter().enumerate() {
                 let phis = phis.iter().map(|(_lid, map, stmt_id)| {
                     let map = map.iter().map(|(bb, stmt)| (*bb, stmt.unwrap())).collect::<Vec<_>>();
-                    fun.stmts.set_phi_map(*stmt_id, &map);
+                    fun.stmts.set_phi(*stmt_id, &map);
                     *stmt_id
                 }).collect::<Vec<StmtId>>();
 
@@ -350,9 +350,8 @@ impl Compiler {
                         // phis.
                         for stmt_id in fun.blocks.stmts(succ) {
                             // @todo: Stmts::try_phi.
-                            if let StmtData::Phi { map_id: _ } = stmt_id.get(&fun).data {
-                                let map = fun.stmts.phi_map(stmt_id);
-                                let (_, src) = map.iter().find(|(from_bb, _)| from_bb == bb).unwrap();
+                            if let Some(map) = fun.stmts.try_phi(stmt_id) {
+                                let src = map.get(*bb).unwrap();
                                 new_live_out[src.usize()] = true;
                             }
                             else { break }
@@ -695,20 +694,16 @@ impl Compiler {
                 fun.block_successors(*bb, |succ| {
                     println!(" -> {}", succ);
                     for stmt in fun.blocks.stmts(succ) {
-                        // todo: try_phi & break.
-                        if let StmtData::Phi { map_id: _ } = stmt.get(&fun).data {
+                        if let Some(map) = fun.stmts.try_phi(stmt) {
                             let dst = reg(stmt);
-
-                            let map = fun.stmts.phi_map(stmt);
-
-                            let (_, src) = map.iter().find(|(from_bb, _)| from_bb == bb).unwrap();
-                            let src = reg(*src);
+                            let src = reg(map.get(*bb).unwrap());
                             println!("r{} -> r{}", src, dst);
 
                             if dst != src {
                                 bcb.copy(dst as u8, src as u8);
                             }
                         }
+                        else { break }
                     }
                 });
 

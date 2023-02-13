@@ -313,6 +313,7 @@
 
 
 - performance:
+    - 16 byte align `Value`.
     - inline generic ops into `Vm::run`.
         - eg: get/set/add.
         - to call these from native code, call `Vm::run` in single step mode.
@@ -355,6 +356,21 @@
             - typed code can use escape analysis & stack allocation.
             - these types can still be implemented as tables by a vm.
             - they could help with wasm interop.
+        - structs.
+            - fixed number of fields.
+            - structurally typed (for "linking").
+            - value types -> requires clone on copy.
+                - fine ~ eventually stack allocated.
+            - use case: code where speed > flexibility.
+    - string interning & string raweq uses pointer eq first.
+    - run/link time cross module optimizations (eg: inlining).
+        - issue: redefining some function, maybe from the debugger.
+        - but: can always de-optimize, switch back to bytecode.
+    - table opts:
+        - hash slot prediction.
+            - this may be enough, since you should use structs when perf matters.
+            - interned string raweq is very fast.
+        - hidden classes.
     - allocation:
         - concurrent garbage collector (like go).
         - paged size class heap (like mimalloc/tcmalloc).
@@ -378,6 +394,15 @@
         - with inline hit counter.
         - have to walk code to reset/collect data.
         - but has really low overhead & don't need to allocate counter indices.
+    - maybe `Box` type.
+        - to turn value types into ref types.
+        - closures already use similar functionality.
+    - freezing.
+        - for spreadsheet use case.
+    - sandboxing.
+        - safest is always to de-/serialize values.
+        - but that can be slow, so tools to make sharing stuff safely easy would be nice.
+        - freezing could help, restricting metatable access, etc.
 
 
 - idioms:
