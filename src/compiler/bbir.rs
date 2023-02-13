@@ -14,8 +14,8 @@ pub struct StmtId(u32);
 pub struct Stmt {
     #[deref] #[deref_mut]
     pub data:   StmtData,
-    pub id:     StmtId,
     pub source: SourceRange,
+    id:         StmtId,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -144,6 +144,14 @@ impl core::fmt::Display for StmtId {
 
 
 // --- Stmt ---
+
+impl Stmt {
+    #[inline]
+    pub fn id(&self) -> StmtId { self.id }
+
+    #[inline]
+    pub fn read(&self) -> (StmtId, StmtData) { (self.id, self.data) }
+}
 
 impl core::fmt::Display for Stmt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -434,12 +442,34 @@ impl Function {
     }
 
 
+    #[inline]
+    pub fn block_stmts<F: FnMut(&Stmt)>(&self, bb: BlockId, mut f: F) {
+        for stmt_id in &self.blocks.stmts[bb.usize()] {
+            f(&self.stmts.stmts[stmt_id.usize()]);
+        }
+    }
+
+    #[inline]
+    pub fn block_stmts_ex<F: FnMut(&Stmt) -> bool>(&self, bb: BlockId, mut f: F) {
+        for stmt_id in &self.blocks.stmts[bb.usize()] {
+            if !f(&self.stmts.stmts[stmt_id.usize()]) {
+                break
+            }
+        }
+    }
+
+    #[inline]
+    pub fn block_stmts_mut<F: FnMut(&mut Stmt)>(&mut self, bb: BlockId, mut f: F) {
+        for stmt_id in &self.blocks.stmts[bb.usize()] {
+            f(&mut self.stmts.stmts[stmt_id.usize()]);
+        }
+    }
+
+
     pub fn dump(&self) {
         for bb in self.blocks.ids() {
             println!("{}:", bb);
-            for stmt_id in self.blocks.stmts(bb) {
-                println!("  {}", self.stmts.get(stmt_id));
-            }
+            self.block_stmts(bb, |stmt| println!("  {}", stmt));
         }
     }
 }
@@ -471,15 +501,14 @@ impl Blocks {
     pub fn iter(&self) -> BlockIter { BlockIter { blocks: &self.blocks } }
 
     #[inline(always)]
-    pub fn stmts(&self, bb: BlockId) -> BlockStmtIter { BlockStmtIter { stmts: &self.stmts[bb.usize()] } }
+    pub fn num_stmts(&self, bb: BlockId) -> usize {
+        self.stmts[bb.usize()].len()
+    }
 
     #[inline(always)]
     pub fn stmts_rev(&self, bb: BlockId) -> BlockStmtIterRev { BlockStmtIterRev { stmts: &self.stmts[bb.usize()] } }
 
 
-    // @temp
-    #[inline(always)]
-    pub fn _stmts(&self) -> &Vec<Vec<StmtId>> { &self.stmts }
     // @temp
     #[inline(always)]
     pub fn _stmts_mut(&mut self) -> &mut Vec<Vec<StmtId>> { &mut self.stmts }
@@ -534,6 +563,7 @@ impl Stmts {
         self.phi_maps[map_id.usize()] = PhiMapImpl { map: map.into() };
     }
 }
+
 
 impl Locals {
     pub fn new(&mut self, name: &str, source: SourceRange) -> LocalId {

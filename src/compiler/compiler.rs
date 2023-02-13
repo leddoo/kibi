@@ -84,15 +84,15 @@ impl Compiler {
 
             let mut stack = vec![];
             for bb in fun.blocks.ids() {
-                for stmt_id in fun.blocks.stmts(bb) {
-                    let StmtData::SetLocal { dst: lid, src: _ } = stmt_id.get(&fun).data else { continue };
+                fun.block_stmts(bb, |stmt| {
+                    let StmtData::SetLocal { dst: lid, src: _ } = stmt.data else { return };
 
                     let key = (bb, lid);
                     if !visited.contains(&key) {
                         visited.insert(key);
                         stack.push(key);
                     }
-                }
+                });
             }
 
             let mut phis: Vec<Vec<(LocalId, Vec<(BlockId, Option<StmtId>)>, StmtId)>>
@@ -135,20 +135,18 @@ impl Compiler {
                 for (lid, _map, stmt) in &phis[bb.usize()] {
                     new_names[lid.usize()] = Some(*stmt)
                 }
-                for stmt_id in fun.blocks.stmts(bb) {
-                    let stmt = fun.stmts.get_mut(stmt_id);
-
+                fun.block_stmts_mut(bb, |stmt| {
                     if let StmtData::GetLocal { src } = stmt.data {
                         let new_name = new_names[src.usize()].unwrap();
                         stmt.data = StmtData::Copy { src: new_name };
-                        new_names[src.usize()] = Some(stmt_id);
+                        new_names[src.usize()] = Some(stmt.id());
                     }
 
                     if let StmtData::SetLocal { dst, src } = stmt.data {
                         stmt.data = StmtData::Copy { src };
-                        new_names[dst.usize()] = Some(stmt_id);
+                        new_names[dst.usize()] = Some(stmt.id());
                     }
-                }
+                });
 
                 // propagate to successors.
                 fun.block_successors(bb, |succ| {
@@ -261,15 +259,14 @@ impl Compiler {
 
             let mut cursor = 0;
             for bb in &block_order {
-                let stmts = fun.blocks.stmts(*bb);
 
                 let block_begin = cursor;
                 block_begins[bb.usize()] = block_begin as u32;
 
-                for (i, stmt_id) in stmts.enumerate() {
-                    stmt_indices[stmt_id.usize()] = (block_begin + i) as u32;
+                fun.block_stmts(*bb, |stmt| {
+                    stmt_indices[stmt.id().usize()] = cursor;
                     cursor += 1;
-                }
+                });
             }
             block_begins.push(cursor as u32);
 
@@ -280,9 +277,9 @@ impl Compiler {
         for bb in &block_order {
             println!("{}:", bb);
 
-            for stmt_id in fun.blocks.stmts(*bb) {
-                println!("  ({}) {}", stmt_indices[stmt_id.usize()], fun.stmts.get(stmt_id));
-            }
+            fun.block_stmts(*bb, |stmt| {
+                println!("  ({}) {}", stmt_indices[stmt.id().usize()], stmt);
+            });
         }
 
 
@@ -306,8 +303,8 @@ impl Compiler {
                     let stmt = stmt_id.get(&fun);
 
                     if stmt.has_value() {
-                        kill[stmt.id.usize()] = true;
-                        gen [stmt.id.usize()] = false;
+                        kill[stmt.id().usize()] = true;
+                        gen [stmt.id().usize()] = false;
                     }
 
                     if !stmt.is_phi() {
@@ -348,14 +345,15 @@ impl Compiler {
                         }
 
                         // phis.
-                        for stmt_id in fun.blocks.stmts(succ) {
-                            // @todo: Stmts::try_phi.
-                            if let Some(map) = fun.stmts.try_phi(stmt_id) {
+                        fun.block_stmts_ex(succ, |stmt| {
+                            // @todo: try_phi Stmt variant?
+                            if let Some(map) = fun.stmts.try_phi(stmt.id()) {
                                 let src = map.get(*bb).unwrap();
                                 new_live_out[src.usize()] = true;
+                                return true;
                             }
-                            else { break }
-                        }
+                            false
+                        });
                     });
 
                     let mut new_live_in = new_live_out.clone();
@@ -393,10 +391,10 @@ impl Compiler {
                 //let live_in  = &bb_live_in[bb.usize()];
                 let live_out = &bb_live_out[bb.usize()];
 
-                let stmts = &fun.blocks._stmts()[bb.usize()];
+                let num_stmts = fun.blocks.num_stmts(*bb);
 
                 let block_begin = block_begins[bb.usize()];
-                let block_end   = block_begin + stmts.len() as u32;
+                let block_end   = block_begin + num_stmts as u32;
 
                 let mut live = live_out.iter().map(|live| {
                     live.then(|| block_end)
@@ -431,17 +429,17 @@ impl Compiler {
                 }
 
                 // statements.
-                for stmt_id in stmts.iter().rev() {
+                for stmt_id in fun.blocks.stmts_rev(*bb) {
                     let stmt = stmt_id.get(&fun);
 
                     if stmt.has_value() {
-                        let start = stmt_indices[stmt.id.usize()];
-                        kill(stmt.id, start, &mut live, &mut intervals)
+                        let start = stmt_indices[stmt.id().usize()];
+                        kill(stmt.id(), start, &mut live, &mut intervals)
                     }
 
                     if !stmt.is_phi() {
                         stmt.args(&fun.stmts, |arg| {
-                            let stop = stmt_indices[stmt.id.usize()];
+                            let stop = stmt_indices[stmt.id().usize()];
                             gen(arg, stop, &mut live);
                         });
                     }
@@ -638,18 +636,39 @@ impl Compiler {
                 //block_offsets.push(bcb.current_offset() as u16);
                 block_offsets[bb.usize()] = bcb.current_offset() as u16;
 
-                let stmts = &fun.blocks._stmts()[bb.usize()];
-
-                for stmt in &stmts[..stmts.len()-1] {
-                    let dst = reg(*stmt);
+                fun.block_stmts(*bb, |stmt| {
+                    let dst = reg(stmt.id());
 
                     // @temp
-                    if dst == 255 {
-                        continue;
+                    if dst == 255 && !stmt.is_terminator() {
+                        return
                     }
 
+                    // @temp: this is broken anyway.
+                    if stmt.is_terminator() {
+                        // phis of successors.
+                        fun.block_successors(*bb, |succ| {
+                            println!(" -> {}", succ);
+                            fun.block_stmts_ex(succ, |stmt| {
+                                if let Some(map) = fun.stmts.try_phi(stmt.id()) {
+                                    let dst = reg(stmt.id());
+                                    let src = reg(map.get(*bb).unwrap());
+                                    println!("r{} -> r{}", src, dst);
+
+                                    if dst != src {
+                                        bcb.copy(dst as u8, src as u8);
+                                    }
+                                    return true;
+                                }
+                                false
+                            });
+                        });
+                    }
+
+                    let next_bb = block_order.get(block_index + 1).cloned();
+
                     use StmtData::*;
-                    match stmt.get(&fun).data {
+                    match stmt.data {
                         Copy { src } => bcb.copy(dst, reg(src)),
 
                         Phi { map_id: _ } => (),
@@ -684,58 +703,26 @@ impl Compiler {
                             }
                         }
 
-                        Jump       { target: _ } |
-                        SwitchBool { src: _, on_true: _, on_false: _ } |
-                        Return     { src: _ } => unreachable!("multiple terminators")
-                    }
-                }
-
-                // phis of successors.
-                fun.block_successors(*bb, |succ| {
-                    println!(" -> {}", succ);
-                    for stmt in fun.blocks.stmts(succ) {
-                        if let Some(map) = fun.stmts.try_phi(stmt) {
-                            let dst = reg(stmt);
-                            let src = reg(map.get(*bb).unwrap());
-                            println!("r{} -> r{}", src, dst);
-
-                            if dst != src {
-                                bcb.copy(dst as u8, src as u8);
+                        Jump { target } => {
+                            if Some(target) != next_bb {
+                                bcb.jump(target.usize() as u16)
                             }
                         }
-                        else { break }
+
+                        SwitchBool { src, on_true, on_false } => {
+                            if Some(on_true) != next_bb {
+                                bcb.jump_true(reg(src), on_true.usize() as u16);
+                            }
+                            if Some(on_false) != next_bb {
+                                bcb.jump_false(reg(src), on_false.usize() as u16);
+                            }
+                        }
+
+                        Return { src } => {
+                            bcb.ret(reg(src), 1);
+                        }
                     }
                 });
-
-
-                let terminator = stmts.last().unwrap();
-                assert!(terminator.get(&fun).is_terminator());
-
-                let next_bb = block_order.get(block_index + 1);
-
-                use StmtData::*;
-                match &terminator.get(&fun).data {
-                    Jump { target } => {
-                        if Some(target) != next_bb {
-                            bcb.jump(target.usize() as u16)
-                        }
-                    }
-
-                    SwitchBool { src, on_true, on_false } => {
-                        if Some(on_true) != next_bb {
-                            bcb.jump_true(reg(*src), on_true.usize() as u16);
-                        }
-                        if Some(on_false) != next_bb {
-                            bcb.jump_false(reg(*src), on_false.usize() as u16);
-                        }
-                    }
-
-                    Return { src } => {
-                        bcb.ret(reg(*src), 1);
-                    }
-
-                    _ => (),
-                }
             }
 
             let mut code = bcb.build();

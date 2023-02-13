@@ -2,7 +2,13 @@
 - todo:
     - ssa form:
         - cleanup:
-            - get rid of `Blocks::_stmts`.
+            - linked list time.
+                - `Function::retain_stmts[_in_bb](&Stmt -> bool)`.
+                - `Function::insert_[before, after]`.
+                - `Function::stmt_next(StmtId) -> &Stmt`.
+                    - can kill the borrow using `let (id, data) = stmt.read()`.
+                - get rid of Blocks, Stmts, Locals.
+            - `Function::[set_]current_bb()`.
             - local_to_reg.
                 - def locals in bb0.
             - copy_propagation.
@@ -43,7 +49,6 @@
             - impl opt:
                 - arena.
                 - `Phi2`.
-                - doubly linked stmt list.
     - new compiler.
         - todo:
             - constants:
