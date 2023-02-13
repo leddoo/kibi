@@ -9,6 +9,10 @@ use super::*;
 #[repr(transparent)]
 pub struct StmtId(u32);
 
+#[derive(Clone, Copy, PartialEq, PartialOrd)]
+#[repr(transparent)]
+pub struct OptStmtId(u32);
+
 
 #[derive(Clone, Debug, Deref, DerefMut)]
 pub struct Stmt {
@@ -16,6 +20,9 @@ pub struct Stmt {
     pub data:   StmtData,
     pub source: SourceRange,
     id:         StmtId,
+    prev:       OptStmtId,
+    next:       OptStmtId,
+    bb:         OptBlockId,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -62,9 +69,16 @@ pub struct PhiMap<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct BlockId(u32);
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct OptBlockId(u32);
+
+
 #[derive(Clone, Debug)]
 pub struct Block {
-    pub id: BlockId,
+    id: BlockId,
+    first: OptStmtId,
+    last:  OptStmtId,
+    len: u32,
 }
 
 
@@ -95,7 +109,6 @@ pub struct Function {
 
 pub struct Blocks {
     blocks: Vec<Block>,
-    stmts:  Vec<Vec<StmtId>>,
 }
 
 pub struct Stmts {
@@ -142,14 +155,31 @@ impl core::fmt::Display for StmtId {
 }
 
 
+impl OptStmtId {
+    pub const NONE: OptStmtId = OptStmtId(u32::MAX);
+
+    #[inline(always)]
+    pub fn to_option(self) -> Option<StmtId> {
+        (self != Self::NONE).then_some(StmtId(self.0))
+    }
+}
+
+impl core::fmt::Debug for OptStmtId {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { self.to_option().fmt(f) }
+}
+
+
 
 // --- Stmt ---
 
 impl Stmt {
-    #[inline]
-    pub fn id(&self) -> StmtId { self.id }
+    #[inline(always)] pub fn id(&self)   -> StmtId     { self.id }
+    #[inline(always)] pub fn prev(&self) -> OptStmtId  { self.prev }
+    #[inline(always)] pub fn next(&self) -> OptStmtId  { self.next }
+    #[inline(always)] pub fn bb(&self)   -> OptBlockId { self.bb }
 
-    #[inline]
+    #[inline(always)]
     pub fn read(&self) -> (StmtId, StmtData) { (self.id, self.data) }
 }
 
@@ -336,15 +366,39 @@ impl core::fmt::Display for BlockId {
 }
 
 
+impl OptBlockId {
+    pub const NONE: OptBlockId = OptBlockId(u32::MAX);
+
+    #[inline(always)]
+    pub fn to_option(self) -> Option<BlockId> {
+        (self != Self::NONE).then_some(BlockId(self.0))
+    }
+}
+
+impl core::fmt::Debug for OptBlockId {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { self.to_option().fmt(f) }
+}
+
+
 
 // --- Block ---
 
 impl Block {
+    #[inline]
     pub fn new(id: BlockId) -> Self {
         Block {
             id,
+            first: OptStmtId::NONE,
+            last:  OptStmtId::NONE,
+            len:   0,
         }
     }
+
+    #[inline(always)] pub fn id(&self)    -> BlockId   { self.id }
+    #[inline(always)] pub fn first(&self) -> OptStmtId { self.first }
+    #[inline(always)] pub fn last(&self)  -> OptStmtId { self.last }
+    #[inline(always)] pub fn len(&self)   -> usize     { self.len as usize }
 }
 
 
@@ -370,7 +424,7 @@ impl core::fmt::Display for LocalId {
 impl Function {
     pub fn new() -> Self {
         Function {
-            blocks: Blocks { blocks: vec![], stmts: vec![] },
+            blocks: Blocks { blocks: vec![] },
             stmts:  Stmts { stmts: vec![], phi_maps: vec![] },
             locals: Locals { locals: vec![] },
         }
@@ -378,14 +432,36 @@ impl Function {
 
 
     pub fn add_stmt_at(&mut self, bb: BlockId, source: SourceRange, data: StmtData) -> StmtId {
-        let stmt = self.stmts.new(source, data);
+        assert!(self.stmts.stmts.len() < u32::MAX as usize / 2);
+        let id      = StmtId(self.stmts.stmts.len() as u32);
+        let some_id = OptStmtId(id.0);
 
-        let stmts = &mut self.blocks.stmts[bb.usize()];
-        if let Some(last) = stmts.last() {
-            assert!(!self.stmts.stmts[last.usize()].is_terminator());
+        let block = &mut self.blocks.blocks[bb.usize()];
+        let old_last = block.last;
+
+        // update linked list.
+        if let Some(last) = old_last.to_option() {
+            let last = self.stmts.get_mut(last);
+            assert!(!last.data.is_terminator());
+            last.next  = some_id;
+            block.last = some_id;
+            block.len += 1;
         }
-        stmts.push(stmt);
-        stmt
+        else {
+            assert!(block.first.to_option().is_none());
+            block.first = some_id;
+            block.last  = some_id;
+            block.len   = 1;
+        }
+
+        self.stmts.stmts.push(Stmt {
+            data, source, id,
+            prev: old_last,
+            next: OptStmtId::NONE,
+            bb:   OptBlockId(bb.0),
+        });
+
+        id
     }
 
     pub fn add_stmt(&mut self, bb: BlockId, at: &Ast, data: StmtData) -> StmtId {
@@ -402,9 +478,9 @@ impl Function {
 
     #[inline]
     pub fn block_successors<F: FnMut(BlockId)>(&self, bb: BlockId, mut f: F) {
-        let stmts = &self.blocks.stmts[bb.usize()];
+        let block = &self.blocks.blocks[bb.usize()];
 
-        let Some(last) = stmts.last() else { return };
+        let Some(last) = block.last.to_option() else { return };
 
         use StmtData::*;
         match last.get(self).data {
@@ -418,25 +494,35 @@ impl Function {
 
     #[inline]
     pub fn block_args<F: FnMut(StmtId)>(&self, bb: BlockId, mut f: F) {
-        for stmt_id in &self.blocks.stmts[bb.usize()] {
-            self.stmts.stmts[stmt_id.usize()].args(&self.stmts, &mut f);
+        let mut at = self.blocks.blocks[bb.usize()].first;
+        while let Some(id) = at.to_option() {
+            let stmt = &self.stmts.stmts[id.usize()];
+            stmt.args(&self.stmts, &mut f);
+            at = stmt.next;
         }
     }
 
     #[inline]
     pub fn block_replace_args<F: FnMut(&Stmts, &mut StmtId)>(&mut self, bb: BlockId, mut f: F) {
-        for stmt_id in &self.blocks.stmts[bb.usize()] {
-            let mut data = self.stmts.stmts[stmt_id.usize()].data;
+        let mut at = self.blocks.blocks[bb.usize()].first;
+        while let Some(id) = at.to_option() {
+            let mut data = self.stmts.stmts[id.usize()].data;
             data.replace_args(&mut self.stmts, &mut f);
-            self.stmts.stmts[stmt_id.usize()].data = data;
+
+            let stmt = &mut self.stmts.stmts[id.usize()];
+            stmt.data = data;
+            at = stmt.next;
         }
     }
 
     #[inline]
     pub fn all_args<F: FnMut(StmtId)>(&self, mut f: F) {
-        for stmt_ids in self.blocks.stmts.iter() {
-            for stmt_id in stmt_ids.iter() {
-                self.stmts.stmts[stmt_id.usize()].args(&self.stmts, &mut f);
+        for block in &self.blocks.blocks {
+            let mut at = block.first;
+            while let Some(id) = at.to_option() {
+                let stmt = &self.stmts.stmts[id.usize()];
+                stmt.args(&self.stmts, &mut f);
+                at = stmt.next;
             }
         }
     }
@@ -444,24 +530,191 @@ impl Function {
 
     #[inline]
     pub fn block_stmts<F: FnMut(&Stmt)>(&self, bb: BlockId, mut f: F) {
-        for stmt_id in &self.blocks.stmts[bb.usize()] {
-            f(&self.stmts.stmts[stmt_id.usize()]);
+        let mut at = self.blocks.blocks[bb.usize()].first;
+        while let Some(id) = at.to_option() {
+            let stmt = &self.stmts.stmts[id.usize()];
+            f(stmt);
+            at = stmt.next;
         }
     }
 
     #[inline]
     pub fn block_stmts_ex<F: FnMut(&Stmt) -> bool>(&self, bb: BlockId, mut f: F) {
-        for stmt_id in &self.blocks.stmts[bb.usize()] {
-            if !f(&self.stmts.stmts[stmt_id.usize()]) {
-                break
+        let mut at = self.blocks.blocks[bb.usize()].first;
+        while let Some(id) = at.to_option() {
+            let stmt = &self.stmts.stmts[id.usize()];
+            if !f(stmt) {
+                break;
             }
+            at = stmt.next;
         }
     }
 
     #[inline]
     pub fn block_stmts_mut<F: FnMut(&mut Stmt)>(&mut self, bb: BlockId, mut f: F) {
-        for stmt_id in &self.blocks.stmts[bb.usize()] {
-            f(&mut self.stmts.stmts[stmt_id.usize()]);
+        let mut at = self.blocks.blocks[bb.usize()].first;
+        while let Some(id) = at.to_option() {
+            let stmt = &mut self.stmts.stmts[id.usize()];
+            f(stmt);
+            at = stmt.next;
+        }
+    }
+
+
+    #[inline]
+    pub fn block_stmts_rev<F: FnMut(&Stmt)>(&self, bb: BlockId, mut f: F) {
+        let mut at = self.blocks.blocks[bb.usize()].last;
+        while let Some(id) = at.to_option() {
+            let stmt = &self.stmts.stmts[id.usize()];
+            f(stmt);
+            at = stmt.prev;
+        }
+    }
+
+
+    // stmt_id must not be in a block.
+    pub fn prepend_stmt(&mut self, bb: BlockId, stmt_id: StmtId) {
+        let block = &mut self.blocks.blocks[bb.usize()];
+        let stmt  = &mut self.stmts.stmts[stmt_id.usize()];
+        assert!(stmt.bb.to_option().is_none());
+        debug_assert!(stmt.id == stmt_id);
+        debug_assert!(stmt.prev.to_option().is_none());
+        debug_assert!(stmt.next.to_option().is_none());
+
+        let old_first = block.first;
+        block.first = OptStmtId(stmt_id.0);
+        block.len  += 1;
+        stmt.bb     = OptBlockId(block.id.0);
+        stmt.prev   = OptStmtId::NONE;
+        stmt.next   = old_first;
+
+        if let Some(first) = old_first.to_option() {
+            let stmt = &mut self.stmts.stmts[first.usize()];
+            debug_assert!(stmt.prev.to_option().is_none());
+            stmt.prev = OptStmtId(stmt_id.0);
+        }
+    }
+
+    fn remove_stmt(block: &mut Block, stmts: &mut Vec<Stmt>, stmt_index: usize) -> OptStmtId {
+        let stmt = &mut stmts[stmt_index];
+        assert!(stmt.bb.0 == block.id.0);
+
+        let old_prev = stmt.prev;
+        let old_next = stmt.next;
+        stmt.prev = OptStmtId::NONE;
+        stmt.next = OptStmtId::NONE;
+        stmt.bb   = OptBlockId::NONE;
+
+        if let Some(prev) = old_prev.to_option() {
+            stmts[prev.usize()].next = old_next;
+        }
+        else {
+            block.first = old_next;
+        }
+
+        if let Some(next) = old_next.to_option() {
+            stmts[next.usize()].prev = old_prev;
+        }
+        else {
+            block.last = old_prev;
+        }
+
+        block.len -= 1;
+
+        old_next
+    }
+
+    #[inline]
+    pub fn retain_block_stmts<F: FnMut(&Stmt) -> bool>(&mut self, bb: BlockId, mut f: F) {
+        let block = &mut self.blocks.blocks[bb.usize()];
+
+        let mut at = block.first;
+        while let Some(current) = at.to_option() {
+            let stmt = &self.stmts.stmts[current.usize()];
+
+            if !f(stmt) {
+                at = Self::remove_stmt(block, &mut self.stmts.stmts, current.usize());
+            }
+            else {
+                at = stmt.next;
+            }
+        }
+    }
+
+    #[inline]
+    pub fn retain_stmts<F: FnMut(&Stmt) -> bool>(&mut self, mut f: F) {
+        for bb in 0..self.blocks.blocks.len() as u32 {
+            self.retain_block_stmts(BlockId(bb), &mut f);
+        }
+    }
+
+
+    pub fn slow_integrity_check(&self) {
+        let mut visited = vec![false; self.stmts.len()];
+
+        for bb in self.blocks.ids() {
+            let block = &self.blocks.blocks[bb.usize()];
+            assert_eq!(block.id, bb);
+
+            let mut in_phis = true;
+            let mut has_terminator = false;
+            let mut stmt_count = 0;
+
+            let mut at = block.first;
+            while let Some(current) = at.to_option() {
+                assert!(!visited[current.usize()]);
+                visited[current.usize()] = true;
+
+                stmt_count += 1;
+
+                // ids.
+                let stmt = &self.stmts.stmts[current.usize()];
+                assert_eq!(stmt.id, current);
+                assert_eq!(stmt.bb.0, bb.0);
+
+                // linked list first.
+                if current.0 == block.first.0 {
+                    assert_eq!(stmt.prev, OptStmtId::NONE);
+                }
+
+                // linked list last.
+                if current.0 == block.last.0 {
+                    assert_eq!(stmt.next, OptStmtId::NONE);
+                }
+                else {
+                    let next = stmt.next.to_option().unwrap();
+                    let next = &self.stmts.stmts[next.usize()];
+                    assert_eq!(next.prev.0, current.0);
+                }
+
+                // phis.
+                if stmt.is_phi() { assert!(in_phis); }
+                else { in_phis = false; }
+
+                // terminator.
+                if stmt.is_terminator() {
+                    assert!(!has_terminator);
+                    has_terminator = true;
+                }
+
+                at = stmt.next;
+            }
+
+            assert_eq!(stmt_count, block.len());
+
+            if block.first == OptStmtId::NONE {
+                assert_eq!(block.last, OptStmtId::NONE);
+            }
+        }
+
+        for stmt_id in self.stmts.ids() {
+            if !visited[stmt_id.usize()] {
+                let stmt = &self.stmts.stmts[stmt_id.usize()];
+                assert_eq!(stmt.id, stmt_id);
+                assert_eq!(stmt.bb, OptBlockId::NONE);
+                assert_eq!(stmt.prev, OptStmtId::NONE);
+                assert_eq!(stmt.next, OptStmtId::NONE);
+            }
         }
     }
 
@@ -479,7 +732,6 @@ impl Blocks {
     pub fn new(&mut self) -> BlockId {
         let id = BlockId(self.blocks.len() as u32);
         self.blocks.push(Block::new(id));
-        self.stmts.push(vec![]);
         id
     }
 
@@ -502,23 +754,20 @@ impl Blocks {
 
     #[inline(always)]
     pub fn num_stmts(&self, bb: BlockId) -> usize {
-        self.stmts[bb.usize()].len()
+        self.blocks[bb.usize()].len()
     }
-
-    #[inline(always)]
-    pub fn stmts_rev(&self, bb: BlockId) -> BlockStmtIterRev { BlockStmtIterRev { stmts: &self.stmts[bb.usize()] } }
-
-
-    // @temp
-    #[inline(always)]
-    pub fn _stmts_mut(&mut self) -> &mut Vec<Vec<StmtId>> { &mut self.stmts }
 }
 
 
 impl Stmts {
     pub fn new(&mut self, source: SourceRange, data: StmtData) -> StmtId {
         let id = StmtId(self.stmts.len() as u32);
-        self.stmts.push(Stmt { id, source, data });
+        self.stmts.push(Stmt {
+            data, source, id,
+            prev: OptStmtId::NONE,
+            next: OptStmtId::NONE,
+            bb:   OptBlockId::NONE,
+        });
         id
     }
 

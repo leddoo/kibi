@@ -55,15 +55,18 @@ impl CompileError {
 
 impl Compiler {
     pub fn compile_chunk(&mut self, source: SourceRange, block: &ast::Block) -> CompileResult<()> {
-        let mut ctx = Ctx::new();
-        let mut fun = Function::new();
-        let mut bb = fun.blocks.new();
-        self.compile_block(&mut ctx, &mut fun, &mut bb, source, block, false)?;
+        let mut fun = {
+            let mut ctx = Ctx::new();
+            let mut fun = Function::new();
+            let mut bb = fun.blocks.new();
+            self.compile_block(&mut ctx, &mut fun, &mut bb, source, block, false)?;
 
-        let nil = fun.add_stmt_at(bb, source, StmtData::LoadNil);
-        fun.add_stmt_at(bb, source, StmtData::Return { src: nil });
+            let nil = fun.add_stmt_at(bb, source, StmtData::LoadNil);
+            fun.add_stmt_at(bb, source, StmtData::Return { src: nil });
 
-        fun.dump();
+            fun.dump();
+            fun
+        };
 
 
         let (preds, post_order) = fun.preds_and_post_order();
@@ -122,6 +125,7 @@ impl Compiler {
 
             phis
         };
+        fun.slow_integrity_check();
 
         println!("{:?}", phis);
 
@@ -167,6 +171,7 @@ impl Compiler {
             let new_names = vec![None; fun.locals.len()];
             visit(BlockId::ENTRY, new_names, &mut phis, &mut fun, &dom_tree);
         }
+        fun.slow_integrity_check();
 
         // insert phis.
         {
@@ -178,9 +183,13 @@ impl Compiler {
                 }).collect::<Vec<StmtId>>();
 
                 // @temp
-                fun.blocks._stmts_mut()[bb_index].splice(0..0, phis);
+                for stmt_id in phis.iter().rev() {
+                    let id = fun.blocks.id_from_usize(bb_index);
+                    fun.prepend_stmt(id, *stmt_id);
+                }
             }
         }
+        fun.slow_integrity_check();
 
         println!("local2reg done");
         fun.dump();
@@ -203,6 +212,7 @@ impl Compiler {
             }
             visit(BlockId::ENTRY, &mut fun, &dom_tree);
         }
+        fun.slow_integrity_check();
 
         println!("copy propagation done");
         fun.dump();
@@ -214,13 +224,11 @@ impl Compiler {
 
             fun.all_args(|arg| visited[arg.usize()] = true);
 
-            for block_stmts in fun.blocks._stmts_mut() {
-                block_stmts.retain(|stmt_id| {
-                    let stmt = fun.stmts.get_mut(*stmt_id);
-                    visited[stmt_id.usize()] || !stmt.is_copy()
-                });
-            }
+            fun.retain_stmts(|stmt| {
+                visited[stmt.id().usize()] || !stmt.is_copy()
+            });
         }
+        fun.slow_integrity_check();
 
         println!("dead copy elim done");
         fun.dump();
@@ -252,6 +260,7 @@ impl Compiler {
             visit(BlockId::ENTRY, &mut order, &mut visited, &fun, &idoms, &dom_tree);
             order
         };
+        fun.slow_integrity_check();
 
         let (block_begins, stmt_indices) = {
             let mut block_begins = vec![u32::MAX; fun.blocks.len()];
@@ -299,9 +308,7 @@ impl Compiler {
                 let mut kill = vec![false; fun.stmts.len()];
 
                 // statements in reverse.
-                for stmt_id in fun.blocks.stmts_rev(bb) {
-                    let stmt = stmt_id.get(&fun);
-
+                fun.block_stmts_rev(bb, |stmt| {
                     if stmt.has_value() {
                         kill[stmt.id().usize()] = true;
                         gen [stmt.id().usize()] = false;
@@ -312,7 +319,7 @@ impl Compiler {
                             gen[arg.usize()] = true;
                         });
                     }
-                }
+                });
 
                 // println!("{}:", block.id);
                 // println!(" gen:  {:?}", pretty(&gen));
@@ -429,9 +436,7 @@ impl Compiler {
                 }
 
                 // statements.
-                for stmt_id in fun.blocks.stmts_rev(*bb) {
-                    let stmt = stmt_id.get(&fun);
-
+                fun.block_stmts_rev(*bb, |stmt| {
                     if stmt.has_value() {
                         let start = stmt_indices[stmt.id().usize()];
                         kill(stmt.id(), start, &mut live, &mut intervals)
@@ -443,7 +448,7 @@ impl Compiler {
                             gen(arg, stop, &mut live);
                         });
                     }
-                }
+                });
 
                 for id in fun.stmts.ids() {
                     let start = block_begin;
@@ -458,6 +463,7 @@ impl Compiler {
 
             intervals
         };
+        fun.slow_integrity_check();
 
 
         // register allocation.

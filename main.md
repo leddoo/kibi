@@ -2,12 +2,13 @@
 - todo:
     - ssa form:
         - cleanup:
-            - linked list time.
-                - `Function::retain_stmts[_in_bb](&Stmt -> bool)`.
-                - `Function::insert_[before, after]`.
-                - `Function::stmt_next(StmtId) -> &Stmt`.
-                    - can kill the borrow using `let (id, data) = stmt.read()`.
-                - get rid of Blocks, Stmts, Locals.
+            - get rid of Blocks, Stmts, Locals.
+                - name cleanup.
+            - `Function::insert_[before, after]`.
+            - `Function::stmt_next(StmtId) -> &Stmt`.
+                - can kill the borrow using `let (id, data) = stmt.read()`.
+                - store bb, index on stmt.
+                    - update properly.
             - `Function::[set_]current_bb()`.
             - local_to_reg.
                 - def locals in bb0.
