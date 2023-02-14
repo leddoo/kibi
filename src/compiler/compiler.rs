@@ -58,7 +58,7 @@ impl Compiler {
         let mut fun = {
             let mut ctx = Ctx::new();
             let mut fun = Function::new();
-            let mut bb = fun.blocks.new();
+            let mut bb = fun.new_block();
             self.compile_block(&mut ctx, &mut fun, &mut bb, source, block, false)?;
 
             let nil = fun.add_stmt_at(bb, source, StmtData::LoadNil);
@@ -86,7 +86,7 @@ impl Compiler {
             let mut visited: HashSet<(BlockId, LocalId)> = HashSet::new();
 
             let mut stack = vec![];
-            for bb in fun.blocks.ids() {
+            for bb in fun.block_ids() {
                 fun.block_stmts(bb, |stmt| {
                     let StmtData::SetLocal { dst: lid, src: _ } = stmt.data else { return };
 
@@ -99,7 +99,7 @@ impl Compiler {
             }
 
             let mut phis: Vec<Vec<(LocalId, Vec<(BlockId, Option<StmtId>)>, StmtId)>>
-                = vec![vec![]; fun.blocks.len()];
+                = vec![vec![]; fun.num_blocks()];
 
             while let Some((from_bb, lid)) = stack.pop() {
                 for to_bb in dom_frontiers[from_bb.usize()].iter() {
@@ -111,7 +111,7 @@ impl Compiler {
                         let preds = &preds[to_bb.usize()];
 
                         let map = preds.iter().map(|p| (*p, None)).collect();
-                        let stmt = fun.stmts.new_phi(SourceRange::null(), &[]);
+                        let stmt = fun.new_phi(SourceRange::null(), &[]);
                         to_phis.push((lid, map, stmt));
 
                         let key = (to_bb, lid);
@@ -168,7 +168,7 @@ impl Compiler {
                 }
             }
 
-            let new_names = vec![None; fun.locals.len()];
+            let new_names = vec![None; fun.num_locals()];
             visit(BlockId::ENTRY, new_names, &mut phis, &mut fun, &dom_tree);
         }
         fun.slow_integrity_check();
@@ -178,14 +178,13 @@ impl Compiler {
             for (bb_index, phis) in phis.into_iter().enumerate() {
                 let phis = phis.iter().map(|(_lid, map, stmt_id)| {
                     let map = map.iter().map(|(bb, stmt)| (*bb, stmt.unwrap())).collect::<Vec<_>>();
-                    fun.stmts.set_phi(*stmt_id, &map);
+                    fun.set_phi(*stmt_id, &map);
                     *stmt_id
                 }).collect::<Vec<StmtId>>();
 
                 // @temp
                 for stmt_id in phis.iter().rev() {
-                    let id = fun.blocks.id_from_usize(bb_index);
-                    fun.prepend_stmt(id, *stmt_id);
+                    fun.prepend_stmt(BlockId::from_usize(bb_index), *stmt_id);
                 }
             }
         }
@@ -199,8 +198,8 @@ impl Compiler {
         {
             fn visit(bb: BlockId, fun: &mut Function, idom_tree: &Vec<Vec<BlockId>>) {
                 // inline copies.
-                fun.block_replace_args(bb, |stmts, arg| {
-                    if let StmtData::Copy { src } = stmts.get(*arg).data {
+                fun.block_replace_args(bb, |fun, arg| {
+                    if let StmtData::Copy { src } = arg.get(fun).data {
                         *arg = src;
                     }
                 });
@@ -220,7 +219,7 @@ impl Compiler {
 
         // dead copy elimination.
         {
-            let mut visited = vec![false; fun.stmts.len()];
+            let mut visited = vec![false; fun.num_stmts()];
 
             fun.all_args(|arg| visited[arg.usize()] = true);
 
@@ -256,15 +255,15 @@ impl Compiler {
             }
 
             let mut order   = vec![];
-            let mut visited = vec![false; fun.blocks.len()];
+            let mut visited = vec![false; fun.num_blocks()];
             visit(BlockId::ENTRY, &mut order, &mut visited, &fun, &idoms, &dom_tree);
             order
         };
         fun.slow_integrity_check();
 
         let (block_begins, stmt_indices) = {
-            let mut block_begins = vec![u32::MAX; fun.blocks.len()];
-            let mut stmt_indices = vec![u32::MAX; fun.stmts.len()];
+            let mut block_begins = vec![u32::MAX; fun.num_blocks()];
+            let mut stmt_indices = vec![u32::MAX; fun.num_stmts()];
 
             let mut cursor = 0;
             for bb in &block_order {
@@ -294,8 +293,8 @@ impl Compiler {
 
         // live intervals.
         let intervals = {
-            let mut bb_gen  = Vec::with_capacity(fun.blocks.len());
-            let mut bb_kill = Vec::with_capacity(fun.blocks.len());
+            let mut bb_gen  = Vec::with_capacity(fun.num_blocks());
+            let mut bb_kill = Vec::with_capacity(fun.num_blocks());
 
             fn pretty(set: &Vec<bool>) -> Vec<usize> {
                 set.iter().enumerate()
@@ -303,9 +302,9 @@ impl Compiler {
                 .collect()
             }
 
-            for bb in fun.blocks.ids() {
-                let mut gen  = vec![false; fun.stmts.len()];
-                let mut kill = vec![false; fun.stmts.len()];
+            for bb in fun.block_ids() {
+                let mut gen  = vec![false; fun.num_stmts()];
+                let mut kill = vec![false; fun.num_stmts()];
 
                 // statements in reverse.
                 fun.block_stmts_rev(bb, |stmt| {
@@ -315,7 +314,7 @@ impl Compiler {
                     }
 
                     if !stmt.is_phi() {
-                        stmt.args(&fun.stmts, |arg| {
+                        stmt.args(&fun, |arg| {
                             gen[arg.usize()] = true;
                         });
                     }
@@ -330,8 +329,8 @@ impl Compiler {
             }
 
 
-            let mut bb_live_in  = vec![vec![false; fun.stmts.len()]; fun.blocks.len()];
-            let mut bb_live_out = vec![vec![false; fun.stmts.len()]; fun.blocks.len()];
+            let mut bb_live_in  = vec![vec![false; fun.num_stmts()]; fun.num_blocks()];
+            let mut bb_live_out = vec![vec![false; fun.num_stmts()]; fun.num_blocks()];
             let mut changed = true;
             while changed {
                 changed = false;
@@ -342,7 +341,7 @@ impl Compiler {
                     let gen   = &bb_gen[bb.usize()];
                     let kill  = &bb_kill[bb.usize()];
 
-                    let mut new_live_out = vec![false; fun.stmts.len()];
+                    let mut new_live_out = vec![false; fun.num_stmts()];
                     fun.block_successors(*bb, |succ| {
                         // live_in.
                         for (i, live) in bb_live_in[succ.usize()].iter().enumerate() {
@@ -354,7 +353,7 @@ impl Compiler {
                         // phis.
                         fun.block_stmts_ex(succ, |stmt| {
                             // @todo: try_phi Stmt variant?
-                            if let Some(map) = fun.stmts.try_phi(stmt.id()) {
+                            if let Some(map) = fun.try_phi(stmt.id()) {
                                 let src = map.get(*bb).unwrap();
                                 new_live_out[src.usize()] = true;
                                 return true;
@@ -393,12 +392,12 @@ impl Compiler {
             }
 
 
-            let mut intervals = vec![vec![]; fun.stmts.len()];
+            let mut intervals = vec![vec![]; fun.num_stmts()];
             for bb in block_order.iter() {
                 //let live_in  = &bb_live_in[bb.usize()];
                 let live_out = &bb_live_out[bb.usize()];
 
-                let num_stmts = fun.blocks.num_stmts(*bb);
+                let num_stmts = fun.num_block_stmts(*bb);
 
                 let block_begin = block_begins[bb.usize()];
                 let block_end   = block_begin + num_stmts as u32;
@@ -443,14 +442,14 @@ impl Compiler {
                     }
 
                     if !stmt.is_phi() {
-                        stmt.args(&fun.stmts, |arg| {
+                        stmt.args(&fun, |arg| {
                             let stop = stmt_indices[stmt.id().usize()];
                             gen(arg, stop, &mut live);
                         });
                     }
                 });
 
-                for id in fun.stmts.ids() {
+                for id in fun.stmt_ids() {
                     let start = block_begin;
                     kill(id, start, &mut live, &mut intervals);
                 }
@@ -481,7 +480,7 @@ impl Compiler {
                 .filter_map(|(i, ranges)| {
                     if ranges.len() == 0 { return None }
                     Some(Interval {
-                        stmt: fun.stmts.id_from_usize(i),
+                        stmt:  StmtId::from_usize(i),
                         start: ranges[0].0,
                         stop:  ranges[ranges.len()-1].1,
                         ranges,
@@ -507,7 +506,7 @@ impl Compiler {
             let mut actives = vec![];
             let mut regs    = vec![];
 
-            let mut mapping = vec![u32::MAX; fun.stmts.len()];
+            let mut mapping = vec![u32::MAX; fun.num_stmts()];
 
             for new_int in &intervals {
                 println!("new: {:?} {}..{}", new_int.stmt, new_int.start, new_int.stop);
@@ -635,7 +634,7 @@ impl Compiler {
 
             let reg = |stmt: StmtId| reg_mapping[stmt.usize()] as u8;
 
-            let mut block_offsets = vec![u16::MAX; fun.blocks.len()];
+            let mut block_offsets = vec![u16::MAX; fun.num_blocks()];
 
             for (block_index, bb) in block_order.iter().enumerate() {
                 println!("{}", bb);
@@ -656,7 +655,7 @@ impl Compiler {
                         fun.block_successors(*bb, |succ| {
                             println!(" -> {}", succ);
                             fun.block_stmts_ex(succ, |stmt| {
-                                if let Some(map) = fun.stmts.try_phi(stmt.id()) {
+                                if let Some(map) = fun.try_phi(stmt.id()) {
                                     let dst = reg(stmt.id());
                                     let src = reg(map.get(*bb).unwrap());
                                     println!("r{} -> r{}", src, dst);
@@ -900,9 +899,9 @@ impl Compiler {
             }
 
             AstData::If (iff) => {
-                let mut bb_true = fun.blocks.new();
-                let mut bb_false = fun.blocks.new();
-                let after_if = fun.blocks.new();
+                let mut bb_true = fun.new_block();
+                let mut bb_false = fun.new_block();
+                let after_if = fun.new_block();
 
                 // condition.
                 let cond = self.compile_ast(ctx, fun, bb, &iff.condition, true)?.unwrap();
@@ -944,9 +943,9 @@ impl Compiler {
             }
 
             AstData::While (whilee) => {
-                let mut bb_head  = fun.blocks.new();
-                let mut bb_body  = fun.blocks.new();
-                let bb_after = fun.blocks.new();
+                let mut bb_head  = fun.new_block();
+                let mut bb_body  = fun.new_block();
+                let bb_after = fun.new_block();
 
                 fun.add_stmt(*bb, ast, StmtData::Jump { target: bb_head });
                 *bb = bb_after;
@@ -1006,7 +1005,7 @@ impl Compiler {
 
             // local decls.
             if let AstData::Local(local) = &node.data {
-                let lid = fun.locals.new(local.name, node.source);
+                let lid = fun.new_local(local.name, node.source);
                 ctx.add_decl(local.name, lid);
 
                 let v =

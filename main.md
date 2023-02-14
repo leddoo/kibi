@@ -2,8 +2,6 @@
 - todo:
     - ssa form:
         - cleanup:
-            - get rid of Blocks, Stmts, Locals.
-                - name cleanup.
             - `Function::insert_[before, after]`.
             - `Function::stmt_next(StmtId) -> &Stmt`.
                 - can kill the borrow using `let (id, data) = stmt.read()`.

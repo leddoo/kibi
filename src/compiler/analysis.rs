@@ -47,9 +47,9 @@ pub struct DominanceFrontiers {
 
 impl Function {
     pub fn preds_and_post_order(&self) -> (Predecessors, PostOrder) {
-        let mut preds = vec![vec![]; self.blocks.len()];
+        let mut preds = vec![vec![]; self.num_blocks()];
         let mut post_order = vec![];
-        let mut visited = vec![false; self.blocks.len()];
+        let mut visited = vec![false; self.num_blocks()];
 
         fn visit(fun: &Function, bb: BlockId,
             preds: &mut Vec<Vec<BlockId>>,
@@ -79,7 +79,7 @@ impl Function {
     }
 
     pub fn immediate_dominators(&self, preds: &Predecessors, post_order: &PostOrder, post_indices: &PostOrderIndices) -> ImmediateDominators {
-        let mut doms = vec![None; self.blocks.len()];
+        let mut doms = vec![None; self.num_blocks()];
 
         let bb0 = post_indices[BlockId::ENTRY.usize()];
         doms[bb0.usize()] = Some(bb0);
@@ -124,7 +124,7 @@ impl Function {
             }
         }
 
-        let idom = self.blocks.ids()
+        let idom = self.block_ids()
             .map(|bb| {
                 let post_index      = post_indices[bb.usize()];
                 let idom_post_index = doms[post_index.usize()].unwrap();
@@ -136,9 +136,9 @@ impl Function {
     }
 
     pub fn dominator_tree(&self, idoms: &ImmediateDominators) -> DomTree {
-        let mut tree = vec![vec![]; self.blocks.len()];
+        let mut tree = vec![vec![]; self.num_blocks()];
 
-        for bb in self.blocks.ids().skip(1) {
+        for bb in self.block_ids().skip(1) {
             let idom = idoms[bb.usize()];
             tree[idom.usize()].push(bb);
         }
@@ -147,9 +147,9 @@ impl Function {
     }
 
     pub fn dominance_frontiers(&self, preds: &Predecessors, idoms: &ImmediateDominators) -> DominanceFrontiers {
-        let mut frontiers = vec![vec![]; self.blocks.len()];
+        let mut frontiers = vec![vec![]; self.num_blocks()];
 
-        for bb in self.blocks.ids() {
+        for bb in self.block_ids() {
             let preds = &preds[bb.usize()];
             if preds.len() < 2 { continue }
 
