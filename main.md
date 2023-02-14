@@ -2,7 +2,9 @@
 - todo:
     - ssa form:
         - cleanup:
-            - `Function::insert_[before, after]`.
+            - register allocation.
+                - insert copies.
+                - register constraints/hints.
             - `Function::stmt_next(StmtId) -> &Stmt`.
                 - can kill the borrow using `let (id, data) = stmt.read()`.
                 - store bb, index on stmt.
@@ -13,10 +15,6 @@
             - copy_propagation.
             - dead_copy_elim.
             - liveness.
-            - register allocation.
-                - fix phis.
-                    - insert copies.
-                    - register constraints/hints.
             - codegen.
         - validation:
             - args point to `StmtData::has_output`.

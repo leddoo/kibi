@@ -154,6 +154,19 @@ impl OptStmtId {
     }
 }
 
+impl From<Option<StmtId>> for OptStmtId {
+    #[inline(always)]
+    fn from(value: Option<StmtId>) -> Self {
+        if let Some(id) = value { id.some() }
+        else { OptStmtId::NONE }
+    }
+}
+
+impl From<OptStmtId> for Option<StmtId> {
+    #[inline(always)]
+    fn from(value: OptStmtId) -> Self { value.to_option() }
+}
+
 impl core::fmt::Debug for OptStmtId {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { self.to_option().fmt(f) }
@@ -400,6 +413,19 @@ impl OptBlockId {
     }
 }
 
+impl From<Option<BlockId>> for OptBlockId {
+    #[inline(always)]
+    fn from(value: Option<BlockId>) -> Self {
+        if let Some(id) = value { id.some() }
+        else { OptBlockId::NONE }
+    }
+}
+
+impl From<OptBlockId> for Option<BlockId> {
+    #[inline(always)]
+    fn from(value: OptBlockId) -> Self { value.to_option() }
+}
+
 impl core::fmt::Debug for OptBlockId {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { self.to_option().fmt(f) }
@@ -414,8 +440,8 @@ impl Block {
     pub fn new(id: BlockId) -> Self {
         Block {
             id,
-            first: OptStmtId::NONE,
-            last:  OptStmtId::NONE,
+            first: None.into(),
+            last:  None.into(),
             len:   0,
         }
     }
@@ -484,9 +510,9 @@ impl Function {
         let id = StmtId(self.stmts.len() as u32);
         self.stmts.push(Stmt {
             data, source, id,
-            prev: OptStmtId::NONE,
-            next: OptStmtId::NONE,
-            bb:   OptBlockId::NONE,
+            prev: None.into(),
+            next: None.into(),
+            bb:   None.into(),
         });
         id
     }
@@ -665,7 +691,7 @@ impl Function {
         self.stmts.push(Stmt {
             data, source, id,
             prev: old_last,
-            next: OptStmtId::NONE,
+            next: None.into(),
             bb:   bb.some(),
         });
 
@@ -687,39 +713,104 @@ impl Function {
 
 // mutation
 impl Function {
-    // todo: insert_before. still assert stmt not in block, to detect bugs.
-    // stmt_id must not be in a block.
-    pub fn prepend_stmt(&mut self, bb: BlockId, stmt_id: StmtId) {
-        let block = &mut self.blocks[bb.usize()];
-        let stmt  = &mut self.stmts[stmt_id.usize()];
-        assert!(stmt.bb.to_option().is_none());
+    fn _insert(block: &mut Block, stmts: &mut Vec<Stmt>, stmt_id: StmtId, prev: OptStmtId, next: OptStmtId) {
+        let stmt = &mut stmts[stmt_id.usize()];
+        // @todo-cleanup: stmt.assert_orphan();
+        assert_eq!(stmt.bb, None.into());
         debug_assert!(stmt.id == stmt_id);
-        debug_assert!(stmt.prev.to_option().is_none());
-        debug_assert!(stmt.next.to_option().is_none());
+        debug_assert_eq!(stmt.prev, None.into());
+        debug_assert_eq!(stmt.next, None.into());
 
-        let old_first = block.first;
-        block.first = stmt_id.some();
-        block.len  += 1;
-        stmt.bb     = OptBlockId(block.id.0);
-        stmt.prev   = OptStmtId::NONE;
-        stmt.next   = old_first;
+        stmt.bb   = block.id.some();
+        stmt.prev = prev;
+        stmt.next = next;
+        block.len += 1;
 
-        if let Some(first) = old_first.to_option() {
-            let stmt = &mut self.stmts[first.usize()];
-            debug_assert!(stmt.prev.to_option().is_none());
-            stmt.prev = stmt_id.some();
+        if let Some(prev) = prev.to_option() {
+            stmts[prev.usize()].next = stmt_id.some();
+        }
+        else {
+            block.first = stmt_id.some();
+        }
+
+        if let Some(next) = next.to_option() {
+            stmts[next.usize()].prev = stmt_id.some();
+        }
+        else {
+            block.last = stmt_id.some();
         }
     }
 
-    fn remove_stmt(block: &mut Block, stmts: &mut Vec<Stmt>, stmt_index: usize) -> OptStmtId {
+    pub fn insert_after(&mut self, bb: BlockId, ref_id: OptStmtId, stmt_id: StmtId) {
+        let block = &mut self.blocks[bb.usize()];
+        debug_assert_eq!(block.id, bb);
+
+        let (prev, next) = 
+            if let Some(ref_id) = ref_id.to_option() {
+                let rf = &self.stmts[ref_id.usize()];
+                assert_eq!(rf.bb, bb.some());
+                (ref_id.some(), rf.next)
+            }
+            else {
+                // prepend.
+                (None.into(), block.first)
+            };
+
+        Self::_insert(block, &mut self.stmts, stmt_id, prev, next)
+    }
+
+    pub fn insert_before(&mut self, bb: BlockId, ref_id: OptStmtId, stmt_id: StmtId) {
+        let block = &mut self.blocks[bb.usize()];
+        debug_assert_eq!(block.id, bb);
+
+        let (prev, next) = 
+            if let Some(ref_id) = ref_id.to_option() {
+                let rf = &self.stmts[ref_id.usize()];
+                assert_eq!(rf.bb, bb.some());
+                (rf.prev, ref_id.some())
+            }
+            else {
+                // append.
+                (block.last, None.into())
+            };
+
+        Self::_insert(block, &mut self.stmts, stmt_id, prev, next)
+    }
+
+    pub fn insert_before_terminator(&mut self, bb: BlockId, stmt_id: StmtId) {
+        let block = &mut self.blocks[bb.usize()];
+        debug_assert_eq!(block.id, bb);
+
+        let last_id = block.last.to_option().unwrap();
+        let last = &self.stmts[last_id.usize()];
+        assert!(last.is_terminator());
+        debug_assert_eq!(last.bb, bb.some());
+
+        let (prev, next) = (last.prev, last_id.some());
+        Self::_insert(block, &mut self.stmts, stmt_id, prev, next)
+    }
+
+    #[inline]
+    pub fn prepend_stmt(&mut self, bb: BlockId, stmt_id: StmtId) {
+        self.insert_after(bb, None.into(), stmt_id)
+    }
+
+    #[inline]
+    pub fn append_stmt(&mut self, bb: BlockId, stmt_id: StmtId) {
+        self.insert_before(bb, None.into(), stmt_id)
+    }
+
+
+
+    fn _remove(block: &mut Block, stmts: &mut Vec<Stmt>, stmt_index: usize) -> OptStmtId {
         let stmt = &mut stmts[stmt_index];
         assert!(stmt.bb == block.id.some());
 
         let old_prev = stmt.prev;
         let old_next = stmt.next;
-        stmt.prev = OptStmtId::NONE;
-        stmt.next = OptStmtId::NONE;
-        stmt.bb   = OptBlockId::NONE;
+        stmt.prev = None.into();
+        stmt.next = None.into();
+        stmt.bb   = None.into();
 
         if let Some(prev) = old_prev.to_option() {
             stmts[prev.usize()].next = old_next;
@@ -749,7 +840,7 @@ impl Function {
             let stmt = &self.stmts[current.usize()];
 
             if !f(stmt) {
-                at = Self::remove_stmt(block, &mut self.stmts, current.usize());
+                at = Self::_remove(block, &mut self.stmts, current.usize());
             }
             else {
                 at = stmt.next;
@@ -793,12 +884,12 @@ impl Function {
 
                 // linked list first.
                 if current.some() == block.first {
-                    assert_eq!(stmt.prev, OptStmtId::NONE);
+                    assert_eq!(stmt.prev, None.into());
                 }
 
                 // linked list last.
                 if current.some() == block.last {
-                    assert_eq!(stmt.next, OptStmtId::NONE);
+                    assert_eq!(stmt.next, None.into());
                 }
                 else {
                     let next = stmt.next.to_option().unwrap();
@@ -821,8 +912,8 @@ impl Function {
 
             assert_eq!(stmt_count, block.len());
 
-            if block.first == OptStmtId::NONE {
-                assert_eq!(block.last, OptStmtId::NONE);
+            if block.first == None.into() {
+                assert_eq!(block.last, None.into());
             }
         }
 
@@ -830,9 +921,9 @@ impl Function {
             if !visited[stmt_id.usize()] {
                 let stmt = &self.stmts[stmt_id.usize()];
                 assert_eq!(stmt.id, stmt_id);
-                assert_eq!(stmt.bb, OptBlockId::NONE);
-                assert_eq!(stmt.prev, OptStmtId::NONE);
-                assert_eq!(stmt.next, OptStmtId::NONE);
+                assert_eq!(stmt.bb,   None.into());
+                assert_eq!(stmt.prev, None.into());
+                assert_eq!(stmt.next, None.into());
             }
         }
     }

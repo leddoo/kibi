@@ -176,15 +176,16 @@ impl Compiler {
         // insert phis.
         {
             for (bb_index, phis) in phis.into_iter().enumerate() {
-                let phis = phis.iter().map(|(_lid, map, stmt_id)| {
-                    let map = map.iter().map(|(bb, stmt)| (*bb, stmt.unwrap())).collect::<Vec<_>>();
-                    fun.set_phi(*stmt_id, &map);
-                    *stmt_id
-                }).collect::<Vec<StmtId>>();
+                let block = BlockId::from_usize(bb_index);
+                let mut at = None.into();
 
-                // @temp
-                for stmt_id in phis.iter().rev() {
-                    fun.prepend_stmt(BlockId::from_usize(bb_index), *stmt_id);
+                for (_, map, stmt_id) in phis {
+                    fun.set_phi(stmt_id, 
+                        &map.into_iter().map(|(bb, stmt)|
+                            (bb, stmt.unwrap())).collect::<Vec<_>>());
+
+                    fun.insert_after(block, at, stmt_id);
+                    at = stmt_id.some();
                 }
             }
         }
