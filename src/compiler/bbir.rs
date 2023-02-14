@@ -171,18 +171,25 @@ impl Stmt {
 
     #[inline(always)]
     pub fn read(&self) -> (StmtId, StmtData) { (self.id, self.data) }
+
+    #[inline(always)]
+    pub fn fmt<'a>(&'a self, fun: &'a Function) -> StmtFmt<'a> { StmtFmt(self, fun) }
 }
 
-impl core::fmt::Display for Stmt {
+#[derive(Clone, Copy)]
+pub struct StmtFmt<'a>(pub &'a Stmt, pub &'a Function);
+    
+impl<'a> core::fmt::Display for StmtFmt<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} := ", self.id)?;
+        let StmtFmt (stmt, fun) = self;
+        write!(f, "{} := ", stmt.id).unwrap();
 
         use StmtData::*;
-        match &self.data {
+        match &stmt.data {
             Copy { src } => { write!(f, "copy {}", src) }
 
-            Phi { map_id: map } => {
-                write!(f, "phi p{}", map.0)
+            Phi { map_id } => {
+                write!(f, "phi {}", &fun.phi_maps[map_id.usize()].phi_map())
             }
 
             GetLocal { src }      => { write!(f, "get_local {}", src) }
@@ -327,10 +334,28 @@ impl PhiMapId {
     }
 }
 
+impl PhiMapImpl {
+    #[inline(always)]
+    fn phi_map(&self) -> PhiMap { PhiMap { map: &self.map } }
+}
+
 impl<'a> PhiMap<'a> {
     pub fn get(self, bb: BlockId) -> Option<StmtId> {
         self.iter().find_map(|(from_bb, stmt_id)|
             (*from_bb == bb).then_some(*stmt_id))
+    }
+}
+
+impl<'a> core::fmt::Display for PhiMap<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{{")?;
+        for (i, (bb, stmt)) in self.iter().enumerate() {
+            write!(f, " {}: {}", bb, stmt)?;
+            if i < self.len() - 1 {
+                write!(f, ",")?;
+            }
+        }
+        write!(f, " }}")
     }
 }
 
@@ -475,7 +500,7 @@ impl Function {
 
     pub fn try_phi(&self, stmt: StmtId) -> Option<PhiMap> {
         if let StmtData::Phi { map_id } = self.stmts[stmt.usize()].data {
-            return Some(PhiMap { map: &*self.phi_maps[map_id.usize()] });
+            return Some(self.phi_maps[map_id.usize()].phi_map());
         }
         None
     }
@@ -816,7 +841,7 @@ impl Function {
     pub fn dump(&self) {
         for bb in self.block_ids() {
             println!("{}:", bb);
-            self.block_stmts(bb, |stmt| println!("  {}", stmt));
+            self.block_stmts(bb, |stmt| println!("  {}", stmt.fmt(self)));
         }
     }
 }

@@ -286,7 +286,7 @@ impl Compiler {
             println!("{}:", bb);
 
             fun.block_stmts(*bb, |stmt| {
-                println!("  ({}) {}", stmt_indices[stmt.id().usize()], stmt);
+                println!("  ({}) {}", stmt_indices[stmt.id().usize()], stmt.fmt(&fun));
             });
         }
 

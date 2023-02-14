@@ -14,7 +14,9 @@
             - dead_copy_elim.
             - liveness.
             - register allocation.
-                - fix phi copies.
+                - fix phis.
+                    - insert copies.
+                    - register constraints/hints.
             - codegen.
         - validation:
             - args point to `StmtData::has_output`.
@@ -145,6 +147,10 @@
 
     - all lua functions are objects - env is first upvalue.
 
+    - method binding:
+        - explicit like in javascript.
+        - `let f = obj.meth; f(arg)` is not a method call.
+
     - resumable host code:
         - approach: using `async` for host functions.
         - enables pausing anywhere.
@@ -173,6 +179,30 @@
         - start thinking about proper memory management & pointer safety.
     - closures & upvalues.
         - per-function env.
+
+    - ssra:
+        - add phi moves to preds.
+            - this is to ensure each stmt gets exactly one reg.
+            - will insert unnecessary copies (esp in loops), but that's the trade-off.
+            - add reg constraints for phis & their operands.
+                - note: there's a difference between a register being allocated & assigned.
+                - allocation happens when var becomes live.
+                - assignment can happen earlier, due to register constraints.
+                - when variable becomes live, check if already assigned.
+                - use ref count for allocated registers (constraints).
+        - walk backwards; alloc reg on use; free reg on def.
+        - phis: treat like regular stmts.
+            - ie kill the phi, gen all args.
+            - respect reg constraints, of course.
+        - terminators: if is backward jump, gen `phi[bb]`.
+            - usually, we encounter uses before defs.
+            - but backward jumps violate that assumption.
+            - we only need to handle the phi args though,
+                as the block order puts dominators first.
+        - but: this really is only useful for fast compiles.
+            - the extra copies in loops are kinda dumb, if the rest of the code is "highly optimized".
+            - and for fast compiles, a simple single pass compiler would probably be better.
+                - that handles `a + do end` and `a + foo()`, where `a` may have been captured mutably.
 
 - later:
     - fast strcmp: try ptr_eq first ~ interning.
