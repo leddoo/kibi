@@ -81,6 +81,20 @@ fn main() {
             end
             --]]
 
+            --[[
+
+            var a; var b; var c; var d
+
+            if true:
+                a = c
+                b = d
+            else:
+                b = c
+                a = d
+            end
+
+            --]]
+
             -- --[[
 
             -- bb0

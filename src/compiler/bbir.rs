@@ -62,6 +62,11 @@ pub struct PhiMap<'a> {
     pub map: &'a [(BlockId, StmtId)],
 }
 
+#[derive(Debug, Deref, DerefMut)]
+pub struct PhiMapMut<'a> {
+    pub map: &'a mut [(BlockId, StmtId)],
+}
+
 
 
 // ### Block ###
@@ -372,6 +377,13 @@ impl<'a> core::fmt::Display for PhiMap<'a> {
     }
 }
 
+impl<'a> PhiMapMut<'a> {
+    pub fn get(&self, bb: BlockId) -> Option<StmtId> {
+        self.iter().find_map(|(from_bb, stmt_id)|
+            (*from_bb == bb).then_some(*stmt_id))
+    }
+}
+
 
 
 // --- BlockId ---
@@ -391,6 +403,9 @@ impl BlockId {
         assert!(index < u32::MAX as usize / 2);
         BlockId(index as u32)
     }
+
+    #[inline(always)]
+    pub fn get(self, fun: &Function) -> &Block { &fun.blocks[self.usize()] }
 
     #[inline(always)]
     pub const fn some(self) -> OptBlockId { OptBlockId(self.0) }
@@ -529,6 +544,17 @@ impl Function {
             return Some(self.phi_maps[map_id.usize()].phi_map());
         }
         None
+    }
+
+    #[inline]
+    pub fn try_phi_mut<F: FnOnce(&mut Function, PhiMapMut)>
+        (&mut self, stmt: StmtId, f: F)
+    {
+        if let StmtData::Phi { map_id } = self.stmts[stmt.usize()].data {
+            let mut map = core::mem::take(&mut self.phi_maps[map_id.usize()].map);
+            f(self, PhiMapMut { map: &mut map });
+            self.phi_maps[map_id.usize()] = PhiMapImpl { map };
+        }
     }
 
     // @todo: support Phi2.

@@ -234,6 +234,28 @@ impl Compiler {
         fun.dump();
 
 
+        // insert phi copies.
+        {
+            for bb in fun.block_ids() {
+                let mut at = bb.get(&fun).first();
+                while let Some(current) = at.to_option() {
+                    fun.try_phi_mut(current, |fun, mut map| {
+                        for (from_bb, stmt) in map.iter_mut() {
+                            let copy = fun.new_stmt(SourceRange::null(), StmtData::Copy { src: *stmt });
+                            fun.insert_before_terminator(*from_bb, copy);
+                            *stmt = copy;
+                        }
+                    });
+
+                    at = current.get(&fun).next();
+                }
+            }
+        }
+        println!("insert phi copies");
+        fun.slow_integrity_check();
+        fun.dump();
+
+
         let block_order = {
             fn visit(bb: BlockId, order: &mut Vec<BlockId>, visited: &mut Vec<bool>,
                 fun: &Function, idom: &Vec<BlockId>, idom_tree: &Vec<Vec<BlockId>>,
@@ -493,6 +515,38 @@ impl Compiler {
                 println!("{:?}", int);
             }
 
+
+            let mut constraints = vec![None; fun.num_stmts()];
+            let mut next_constraint_reg = 0u32;
+
+            for bb in fun.block_ids() {
+                fun.block_stmts_ex(bb, |stmt| {
+                    if let Some(map) = fun.try_phi(stmt.id()) {
+                        let constraint_reg = next_constraint_reg;
+                        next_constraint_reg += 1;
+
+                        debug_assert!(constraints[stmt.id().usize()].is_none());
+                        constraints[stmt.id().usize()] = Some(constraint_reg);
+
+                        for (_, src) in map.iter() {
+                            debug_assert!(constraints[src.usize()].is_none());
+                            constraints[src.usize()] = Some(constraint_reg);
+                        }
+
+                        return true;
+                    }
+                    false
+                });
+            }
+
+            println!("constraints:");
+            for (stmt, constraint) in constraints.iter().enumerate() {
+                if let Some(c) = constraint {
+                    println!("  r{}: {}", stmt, c);
+                }
+            }
+
+
             struct ActiveInterval<'a> {
                 ranges: &'a [(u32, u32)],
                 stop:   u32,
@@ -507,10 +561,15 @@ impl Compiler {
             let mut actives = vec![];
             let mut regs    = vec![];
 
+            let mut constraint_regs = vec![None; next_constraint_reg as usize];
+
             let mut mapping = vec![u32::MAX; fun.num_stmts()];
 
             for new_int in &intervals {
                 println!("new: {:?} {}..{}", new_int.stmt, new_int.start, new_int.stop);
+
+                let constraint     = constraints[new_int.stmt.usize()];
+                let constraint_reg = constraint.and_then(|c| constraint_regs[c as usize]);
 
                 // update active intervals.
                 actives.retain_mut(|active: &mut ActiveInterval| {
@@ -532,7 +591,7 @@ impl Compiler {
                             if rng_stop <= new_int.start {
                                 println!("    now inactive");
                                 let next_start = active.ranges[1].0;
-                                if next_start >= new_int.stop {
+                                if next_start >= new_int.stop && constraint.is_none() { // @temp
                                     println!("    new interval fits in hole; freeing register.");
                                     active.allocated = false;
                                     regs[active.reg as usize] = false;
@@ -550,6 +609,7 @@ impl Compiler {
                             let rng_start = active.ranges[0].0;
                             if rng_start <= new_int.start {
                                 println!("    reactivating");
+                                debug_assert!(active.allocated == regs[active.reg as usize]);
                                 active.live      = true;
                                 active.allocated = true;
                                 regs[active.reg as usize] = true;
@@ -557,7 +617,7 @@ impl Compiler {
                             else {
                                 // remains inactive.
                                 // can free register for new interval?
-                                if new_int.stop <= rng_start {
+                                if new_int.stop <= rng_start && constraint.is_none() { // @temp
                                     if active.allocated {
                                         println!("    new interval fits in hole; freeing register.");
                                         active.allocated = false;
@@ -565,7 +625,7 @@ impl Compiler {
                                     }
                                 }
                                 else {
-                                    if !active.allocated {
+                                    if !active.allocated && regs[active.reg as usize] == false {
                                         println!("    new interval intersects next range; reclaiming register.");
                                         active.allocated = true;
                                         regs[active.reg as usize] = true;
@@ -579,7 +639,12 @@ impl Compiler {
                 });
 
                 let reg =
-                    if let Some(reg) = regs.iter().position(|used| *used == false) {
+                    if let Some(reg) = constraint_reg {
+                        assert!(regs[reg as usize] == false);
+                        regs[reg as usize] = true;
+                        reg
+                    }
+                    else if let Some(reg) = regs.iter().position(|used| *used == false) {
                         regs[reg] = true;
                         reg as u32
                     }
@@ -588,6 +653,10 @@ impl Compiler {
                         regs.push(true);
                         reg as u32
                     };
+
+                if let (Some(constraint), None) = (constraint, constraint_reg) {
+                    constraint_regs[constraint as usize] = Some(reg);
+                }
 
                 println!("-> r{}", reg);
 
@@ -638,8 +707,6 @@ impl Compiler {
             let mut block_offsets = vec![u16::MAX; fun.num_blocks()];
 
             for (block_index, bb) in block_order.iter().enumerate() {
-                println!("{}", bb);
-                //block_offsets.push(bcb.current_offset() as u16);
                 block_offsets[bb.usize()] = bcb.current_offset() as u16;
 
                 fun.block_stmts(*bb, |stmt| {
@@ -650,32 +717,14 @@ impl Compiler {
                         return
                     }
 
-                    // @temp: this is broken anyway.
-                    if stmt.is_terminator() {
-                        // phis of successors.
-                        fun.block_successors(*bb, |succ| {
-                            println!(" -> {}", succ);
-                            fun.block_stmts_ex(succ, |stmt| {
-                                if let Some(map) = fun.try_phi(stmt.id()) {
-                                    let dst = reg(stmt.id());
-                                    let src = reg(map.get(*bb).unwrap());
-                                    println!("r{} -> r{}", src, dst);
-
-                                    if dst != src {
-                                        bcb.copy(dst as u8, src as u8);
-                                    }
-                                    return true;
-                                }
-                                false
-                            });
-                        });
-                    }
-
                     let next_bb = block_order.get(block_index + 1).cloned();
 
                     use StmtData::*;
                     match stmt.data {
-                        Copy { src } => bcb.copy(dst, reg(src)),
+                        Copy { src } => {
+                            let src = reg(src);
+                            if dst != src { bcb.copy(dst, src) }
+                        }
 
                         Phi { map_id: _ } => (),
 

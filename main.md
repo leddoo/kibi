@@ -2,34 +2,19 @@
 - todo:
     - ssa form:
         - cleanup:
-            - register allocation.
-                - insert copies.
-                - register constraints/hints.
-            - `Function::stmt_next(StmtId) -> &Stmt`.
-                - can kill the borrow using `let (id, data) = stmt.read()`.
-                - store bb, index on stmt.
-                    - update properly.
-            - `Function::[set_]current_bb()`.
-            - local_to_reg.
+            - fix & extract local_to_reg.
                 - def locals in bb0.
             - copy_propagation.
             - dead_copy_elim.
             - liveness.
+            - ralloc.
             - codegen.
+            - `Function::[set_]current_bb()`.
         - validation:
             - args point to `StmtData::has_output`.
             - check that all args are defined in the cfg.
             - ensure all uses are dominated by their defs.
             - stmts not in multiple blocks.
-        - fix phi copies.
-            - issue: they're parallel assignments, but serialized in code-gen.
-            - insert copies in preds?
-                - feel like that would be the simplest fix.
-                - phis still `gen` those copies, so they have proper live ranges.
-                - reg-alloc processes them sequentially.
-        - fix inner locals.
-            - thinking init to nil in pre-entry, where also init params (no code generated).
-            - may cause extra reg pressure. what really is the issue there?
         - debug:
             - generate info.
             - option to not optimize things out.
