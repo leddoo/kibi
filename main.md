@@ -2,8 +2,7 @@
 - todo:
     - ssa form:
         - cleanup:
-            - fix & extract local_to_reg.
-                - def locals in bb0.
+            - local_to_reg.
             - copy_propagation.
             - dead_copy_elim.
             - liveness.
@@ -158,7 +157,6 @@
         - walk func protos.
     - document & validate invariants.
     - meta tables.
-        - should table indexing use raw_eq?
         - start thinking about proper memory management & pointer safety.
     - closures & upvalues.
         - per-function env.
@@ -391,6 +389,8 @@
     - allocation:
         - concurrent garbage collector (like go).
         - paged size class heap (like mimalloc/tcmalloc).
+    - `Map(K, V)` to enable static opts for map-like tables.
+        - if used for opts, check with `Table.is_map` at start of fn.
 
 - cool stuff:
     - interruptible jump.

@@ -135,11 +135,10 @@ fn main() {
             let one
             let n
             let x
-            let y
             -- bb1
             while x < n:
                 -- bb2
-                -- let y -- broken
+                let y
 
                 -- bb4
                 while y < n:

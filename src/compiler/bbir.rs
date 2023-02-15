@@ -111,6 +111,8 @@ pub struct Function {
     phi_maps:   Vec<PhiMapImpl>,
     blocks:     Vec<Block>,
     locals:     Vec<Local>,
+
+    local_cursor: OptStmtId,
 }
 
 
@@ -496,6 +498,7 @@ impl Function {
             blocks:     vec![],
             phi_maps:   vec![],
             locals:     vec![],
+            local_cursor: None.into(),
         }
     }
 
@@ -685,6 +688,14 @@ impl Function {
     pub fn new_local(&mut self, name: &str, source: SourceRange) -> LocalId {
         let id = LocalId(self.locals.len() as u32);
         self.locals.push(Local { id, name: name.into(), source });
+
+        // "hoist locals".
+        let nil  = self.new_stmt(source, StmtData::LoadNil);
+        let init = self.new_stmt(source, StmtData::SetLocal { dst: id, src: nil });
+        self.insert_after(BlockId::ENTRY, self.local_cursor, nil);
+        self.insert_after(BlockId::ENTRY, nil.some(), init);
+        self.local_cursor = init.some();
+
         id
     }
 }
