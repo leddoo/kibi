@@ -181,7 +181,7 @@ impl<'a> TokenData<'a> {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn is_expr_start(&self) -> bool {
         use TokenData::*;
         match self {
@@ -220,7 +220,7 @@ pub struct ParseError {
 }
 
 impl ParseError {
-    #[inline]
+    #[inline(always)]
     pub fn at(token: &Token, data: ParseErrorData) -> ParseError {
         ParseError { source: token.source, data }
     }
@@ -702,7 +702,7 @@ pub mod ast {
     }
 
     impl Op2Kind {
-        #[inline(always)]
+        #[inline]
         pub fn lprec(self) -> u32 {
             use Op2Kind::*;
             use super::Op2::*;
@@ -728,7 +728,7 @@ pub mod ast {
             }
         }
 
-        #[inline(always)]
+        #[inline]
         pub fn rprec(self) -> u32 {
             use Op2Kind::*;
             use super::Op2::*;

@@ -9,21 +9,29 @@
             - check that all args are defined in the cfg.
             - ensure all uses are dominated by their defs.
             - stmts not in multiple blocks.
+        - some end-to-end tests.
+            - to replace vm tests for now.
+            - the `a + do` thing.
+        - more compiler features:
+            - numbers.
+            - constants.
+            - functions.
+            - lists.
+            - tables.
+            - globals.
         - debug:
             - generate info.
             - option to not optimize things out.
                 - every stmt needs a non-empty live range.
         - other stuff:
-            - constants.
             - vm ops: boolean, orelse.
-            - remove stuff:
-                - old parser/compiler.
-                - bcb blocks.
             - opt:
                 - place loop headers after loop body.
                 - dead code elim.
                 - constant folding.
                 - cse.
+                - register hints.
+            - no-elim stmt flag.
             - impl opt:
                 - `Function::gc`.
                 - arena.

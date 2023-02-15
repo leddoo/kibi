@@ -1221,6 +1221,7 @@ impl VmImpl {
 
 #[cfg(test)]
 mod tests {
+    /*
     use super::*;
 
     fn mk_fib() -> FuncProto {
@@ -1488,7 +1489,6 @@ mod tests {
         }
     }
 
-    /*
     #[test]
     fn lexical_scoping() {
         let mut vm = Vm::new();

@@ -43,7 +43,7 @@ pub struct Ctx<'a> {
 
 
 impl CompileError {
-    #[inline]
+    #[inline(always)]
     pub fn at(ast: &Ast, data: CompileErrorData) -> CompileError {
         CompileError { source: ast.source, data }
     }

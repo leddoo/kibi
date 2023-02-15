@@ -285,7 +285,6 @@ impl StmtData {
     }
 
 
-    #[inline]
     pub fn args<F: FnMut(StmtId)>(&self, fun: &Function, mut f: F) {
         use StmtData::*;
         match self {
@@ -310,7 +309,6 @@ impl StmtData {
         }
     }
 
-    #[inline]
     pub fn replace_args<F: FnMut(&Function, &mut StmtId)>(&mut self, fun: &mut Function, mut f: F) {
         use StmtData::*;
         match self {
@@ -549,7 +547,6 @@ impl Function {
         None
     }
 
-    #[inline]
     pub fn try_phi_mut<F: FnOnce(&mut Function, PhiMapMut)>
         (&mut self, stmt: StmtId, f: F)
     {
@@ -569,7 +566,6 @@ impl Function {
     
 
 
-    #[inline]
     pub fn all_args<F: FnMut(StmtId)>(&self, mut f: F) {
         for block in &self.blocks {
             let mut at = block.first;
@@ -598,7 +594,6 @@ impl Function {
     }
 
 
-    #[inline]
     pub fn block_stmts<F: FnMut(&Stmt)>(&self, bb: BlockId, mut f: F) {
         let mut at = self.blocks[bb.usize()].first;
         while let Some(id) = at.to_option() {
@@ -608,7 +603,6 @@ impl Function {
         }
     }
 
-    #[inline]
     pub fn block_stmts_ex<F: FnMut(&Stmt) -> bool>(&self, bb: BlockId, mut f: F) {
         let mut at = self.blocks[bb.usize()].first;
         while let Some(id) = at.to_option() {
@@ -620,7 +614,6 @@ impl Function {
         }
     }
 
-    #[inline]
     pub fn block_stmts_mut<F: FnMut(&mut Stmt)>(&mut self, bb: BlockId, mut f: F) {
         let mut at = self.blocks[bb.usize()].first;
         while let Some(id) = at.to_option() {
@@ -630,7 +623,6 @@ impl Function {
         }
     }
 
-    #[inline]
     pub fn block_stmts_rev<F: FnMut(&Stmt)>(&self, bb: BlockId, mut f: F) {
         let mut at = self.blocks[bb.usize()].last;
         while let Some(id) = at.to_option() {
@@ -641,7 +633,6 @@ impl Function {
     }
 
 
-    #[inline]
     pub fn block_args<F: FnMut(StmtId)>(&self, bb: BlockId, mut f: F) {
         let mut at = self.blocks[bb.usize()].first;
         while let Some(id) = at.to_option() {
@@ -651,7 +642,6 @@ impl Function {
         }
     }
 
-    #[inline]
     pub fn block_replace_args<F: FnMut(&Function, &mut StmtId)>(&mut self, bb: BlockId, mut f: F) {
         let mut at = self.blocks[bb.usize()].first;
         while let Some(id) = at.to_option() {
@@ -665,7 +655,6 @@ impl Function {
     }
 
 
-    #[inline]
     pub fn block_successors<F: FnMut(BlockId)>(&self, bb: BlockId, mut f: F) {
         let block = &self.blocks[bb.usize()];
 
@@ -827,12 +816,12 @@ impl Function {
         Self::_insert(block, &mut self.stmts, stmt_id, prev, next)
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn prepend_stmt(&mut self, bb: BlockId, stmt_id: StmtId) {
         self.insert_after(bb, None.into(), stmt_id)
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn append_stmt(&mut self, bb: BlockId, stmt_id: StmtId) {
         self.insert_before(bb, None.into(), stmt_id)
     }
@@ -868,7 +857,6 @@ impl Function {
         old_next
     }
 
-    #[inline]
     pub fn retain_block_stmts<F: FnMut(&Stmt) -> bool>(&mut self, bb: BlockId, mut f: F) {
         let block = &mut self.blocks[bb.usize()];
 
@@ -885,7 +873,6 @@ impl Function {
         }
     }
 
-    #[inline]
     pub fn retain_stmts<F: FnMut(&Stmt) -> bool>(&mut self, mut f: F) {
         for bb in 0..self.blocks.len() as u32 {
             self.retain_block_stmts(BlockId(bb), &mut f);

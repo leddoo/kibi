@@ -358,7 +358,6 @@ impl Function {
                 }
             }
 
-            #[inline]
             fn kill(var: StmtId, start: StmtIndex, live: &mut Vec<Option<StmtIndex>>, intervals: &mut Vec<Vec<(StmtIndex, StmtIndex)>>) {
                 let id = var.usize();
                 if let Some(stop) = live[id] {

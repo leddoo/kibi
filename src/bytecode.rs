@@ -166,17 +166,12 @@ impl Instruction {
 
 pub struct ByteCodeBuilder {
     buffer: Vec<Instruction>,
-
-    block_stack: Vec<usize>,
-    blocks:      Vec<(u16, u16)>,
 }
 
 impl ByteCodeBuilder {
     pub fn new() -> Self {
         ByteCodeBuilder {
             buffer: vec![],
-            block_stack: vec![],
-            blocks:      vec![],
         }
     }
 
@@ -353,112 +348,6 @@ impl ByteCodeBuilder {
     }
 
 
-    pub fn begin_block(&mut self) {
-        let block = self.blocks.len();
-        let begin = self.buffer.len() as u16;
-        self.block_stack.push(block);
-        self.blocks.push((begin, u16::MAX));
-    }
-
-    pub fn end_block(&mut self) {
-        let block = self.block_stack.pop().unwrap();
-        let end = self.buffer.len() as u16;
-        self.blocks[block].1 = end;
-    }
-
-    pub fn block<F: FnOnce(&mut ByteCodeBuilder)>(&mut self, f: F) {
-        self.begin_block();
-        f(self);
-        self.end_block();
-    }
-
-    pub fn _block_begin(&self, index: usize) -> u16 {
-        assert!(index < self.block_stack.len());
-        let block = self.block_stack[self.block_stack.len() - 1 - index];
-        self.blocks[block].0
-    }
-
-    const JUMP_BLOCK_END_BIT: usize = 1 << 15;
-
-    pub fn _block_end(&self, index: usize) -> u16 {
-        assert!(index < self.block_stack.len());
-        let block = self.block_stack[self.block_stack.len() - 1 - index];
-        (block | Self::JUMP_BLOCK_END_BIT) as u16
-    }
-
-
-    pub fn exit_block(&mut self, index: usize) {
-        self.jump(self._block_end(index));
-    }
-
-    pub fn exit_true(&mut self, src: u8, index: usize) {
-        self.jump_true(src, self._block_end(index));
-    }
-
-    pub fn exit_false(&mut self, src: u8, index: usize) {
-        self.jump_false(src, self._block_end(index));
-    }
-
-    pub fn exit_eq(&mut self, src1: u8, src2: u8, index: usize) {
-        self.jump_eq(src1, src2, self._block_end(index));
-    }
-
-    pub fn exit_le(&mut self, src1: u8, src2: u8, index: usize) {
-        self.jump_le(src1, src2, self._block_end(index));
-    }
-
-    pub fn exit_lt(&mut self, src1: u8, src2: u8, index: usize) {
-        self.jump_lt(src1, src2, self._block_end(index));
-    }
-
-    pub fn exit_neq(&mut self, src1: u8, src2: u8, index: usize) {
-        self.jump_neq(src1, src2, self._block_end(index));
-    }
-
-    pub fn exit_nle(&mut self, src1: u8, src2: u8, index: usize) {
-        self.jump_nle(src1, src2, self._block_end(index));
-    }
-
-    pub fn exit_nlt(&mut self, src1: u8, src2: u8, index: usize) {
-        self.jump_nlt(src1, src2, self._block_end(index));
-    }
-
-    pub fn repeat_block(&mut self, index: usize) {
-        self.jump(self._block_begin(index));
-    }
-
-    pub fn repeat_true(&mut self, src: u8, index: usize) {
-        self.jump_true(src, self._block_begin(index));
-    }
-
-    pub fn repeat_false(&mut self, src: u8, index: usize) {
-        self.jump_false(src, self._block_begin(index));
-    }
-
-    pub fn repeat_eq(&mut self, src1: u8, src2: u8, index: usize) {
-        self.jump_eq(src1, src2, self._block_begin(index));
-    }
-
-    pub fn repeat_le(&mut self, src1: u8, src2: u8, index: usize) {
-        self.jump_le(src1, src2, self._block_begin(index));
-    }
-
-    pub fn repeat_lt(&mut self, src1: u8, src2: u8, index: usize) {
-        self.jump_lt(src1, src2, self._block_begin(index));
-    }
-
-    pub fn repeat_neq(&mut self, src1: u8, src2: u8, index: usize) {
-        self.jump_neq(src1, src2, self._block_begin(index));
-    }
-
-    pub fn repeat_nle(&mut self, src1: u8, src2: u8, index: usize) {
-        self.jump_nle(src1, src2, self._block_begin(index));
-    }
-
-    pub fn repeat_nlt(&mut self, src1: u8, src2: u8, index: usize) {
-        self.jump_nlt(src1, src2, self._block_begin(index));
-    }
-
 
     #[inline(always)]
     pub fn current_offset(&self) -> usize {
@@ -466,58 +355,8 @@ impl ByteCodeBuilder {
     }
 
 
-    pub fn build(mut self) -> Vec<Instruction> {
+    pub fn build(self) -> Vec<Instruction> {
         assert!(self.buffer.len() < (1 << 16));
-        assert!(self.blocks.len() < (1 << 12));
-
-        assert!(self.block_stack.len() == 0);
-
-        let mut i = 0;
-        while i < self.buffer.len() {
-            let instr = &mut self.buffer[i];
-            i += 1;
-
-            use opcode::*;
-            match instr.opcode() as u8 {
-                JUMP_EQ  | JUMP_LE  | JUMP_LT |
-                JUMP_NEQ | JUMP_NLE | JUMP_NLT => {
-                    let extra = &mut self.buffer[i];
-                    i += 1;
-
-                    assert_eq!(extra.opcode() as u8, EXTRA);
-
-                    let target = extra.u16() as usize;
-                    if target & Self::JUMP_BLOCK_END_BIT != 0 {
-                        let block = target & !Self::JUMP_BLOCK_END_BIT;
-                        let end = self.blocks[block].1;
-                        extra.patch_u16(end);
-                    }
-                }
-
-                JUMP | JUMP_TRUE | JUMP_FALSE => {
-                    let target = instr.u16() as usize;
-                    if target & Self::JUMP_BLOCK_END_BIT != 0 {
-                        let block = target & !Self::JUMP_BLOCK_END_BIT;
-                        let end = self.blocks[block].1;
-                        instr.patch_u16(end);
-                    }
-                }
-
-                NOP | UNREACHABLE | COPY |
-                LOAD_NIL | LOAD_BOOL | LOAD_INT | LOAD_CONST | LOAD_ENV |
-                LIST_NEW | LIST_APPEND |
-                TABLE_NEW |
-                DEF | SET | GET | LEN |
-                ADD | SUB | MUL | DIV | INC | DEC |
-                CMP_EQ | CMP_LE | CMP_LT | CMP_GE | CMP_GT |
-                PACKED_CALL | GATHER_CALL | RET |
-                EXTRA
-                => (),
-
-                0 | END ..= 254 => unreachable!(),
-            }
-        }
-
         self.buffer
     }
 }
