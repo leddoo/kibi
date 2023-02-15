@@ -55,11 +55,10 @@ impl Compiler {
         let mut fun = {
             let mut ctx = Ctx::new();
             let mut fun = Function::new();
-            let mut bb = fun.new_block();
-            self.compile_block(&mut ctx, &mut fun, &mut bb, source, block, false)?;
+            self.compile_block(&mut ctx, &mut fun, source, block, false)?;
 
-            let nil = fun.add_stmt_at(bb, source, StmtData::LoadNil);
-            fun.add_stmt_at(bb, source, StmtData::Return { src: nil });
+            let nil = fun.add_load_nil(source);
+            fun.add_return(source, nil);
 
             fun.dump();
             fun
@@ -97,16 +96,16 @@ impl Compiler {
     }
 
     pub fn compile_ast<'a>(&mut self,
-        ctx: &mut Ctx<'a>, fun: &mut Function, bb: &mut BlockId,
+        ctx: &mut Ctx<'a>, fun: &mut Function,
         ast: &Ast<'a>, need_value: bool,
     ) -> CompileResult<Option<StmtId>> {
         match &ast.data {
             AstData::Nil => {
-                Ok(Some(fun.add_stmt(*bb, ast, StmtData::LoadNil)))
+                Ok(Some(fun.add_load_nil(ast.source)))
             }
 
             AstData::Bool (value) => {
-                Ok(Some(fun.add_stmt(*bb, ast, StmtData::LoadBool { value: *value })))
+                Ok(Some(fun.add_load_bool(ast.source, *value)))
             }
 
             AstData::Number (value) => {
@@ -121,7 +120,7 @@ impl Compiler {
 
             AstData::Ident (name) => {
                 Ok(Some(if let Some(decl) = ctx.find_decl(name) {
-                    fun.add_stmt(*bb, ast, StmtData::GetLocal { src: decl.id })
+                    fun.add_get_local(ast.source, decl.id)
                 }
                 else {
                     unimplemented!()
@@ -144,11 +143,11 @@ impl Compiler {
             }
 
             AstData::Block (block) => {
-                self.compile_block(ctx, fun, bb, ast.source, block, need_value)
+                self.compile_block(ctx, fun, ast.source, block, need_value)
             }
 
             AstData::SubExpr (sub_expr) => {
-                self.compile_ast(ctx, fun, bb, sub_expr, need_value)
+                self.compile_ast(ctx, fun, sub_expr, need_value)
             }
 
             AstData::Local (_) => {
@@ -156,40 +155,40 @@ impl Compiler {
             }
 
             AstData::Op1 (op1) => {
-                let src = self.compile_ast(ctx, fun, bb, &op1.child, true)?.unwrap();
+                let src = self.compile_ast(ctx, fun, &op1.child, true)?.unwrap();
                 let op  = op1.kind.0;
-                Ok(Some(fun.add_stmt(*bb, ast, StmtData::Op1 { op, src })))
+                Ok(Some(fun.add_op1(ast.source, op, src)))
             }
 
             AstData::Op2 (op2) => {
                 match op2.kind {
                     ast::Op2Kind::Assign => {
-                        let value = self.compile_ast(ctx, fun, bb, &op2.children[1], true)?.unwrap();
-                        self.compile_assign(ctx, fun, bb, &op2.children[0], value)?;
+                        let value = self.compile_ast(ctx, fun, &op2.children[1], true)?.unwrap();
+                        self.compile_assign(ctx, fun, &op2.children[0], value)?;
 
                         Ok(if need_value {
-                            Some(fun.add_stmt(*bb, ast, StmtData::LoadNil))
+                            Some(fun.add_load_nil(ast.source))
                         }
                         else { None })
                     }
 
                     ast::Op2Kind::Op2Assign(op) => {
-                        let src1 = self.compile_ast(ctx, fun, bb, &op2.children[0], true)?.unwrap();
-                        let src2 = self.compile_ast(ctx, fun, bb, &op2.children[1], true)?.unwrap();
+                        let src1 = self.compile_ast(ctx, fun, &op2.children[0], true)?.unwrap();
+                        let src2 = self.compile_ast(ctx, fun, &op2.children[1], true)?.unwrap();
 
-                        let value = fun.add_stmt(*bb, ast, StmtData::Op2 { op, src1, src2 });
-                        self.compile_assign(ctx, fun, bb, &op2.children[0], value)?;
+                        let value = fun.add_op2(ast.source, op, src1, src2);
+                        self.compile_assign(ctx, fun, &op2.children[0], value)?;
 
                         Ok(if need_value {
-                            Some(fun.add_stmt(*bb, ast, StmtData::LoadNil))
+                            Some(fun.add_load_nil(ast.source))
                         }
                         else { None })
                     }
 
                     ast::Op2Kind::Op2(op) => {
-                        let src1 = self.compile_ast(ctx, fun, bb, &op2.children[0], true)?.unwrap();
-                        let src2 = self.compile_ast(ctx, fun, bb, &op2.children[1], true)?.unwrap();
-                        Ok(Some(fun.add_stmt(*bb, ast, StmtData::Op2 { op, src1, src2 })))
+                        let src1 = self.compile_ast(ctx, fun, &op2.children[0], true)?.unwrap();
+                        let src2 = self.compile_ast(ctx, fun, &op2.children[1], true)?.unwrap();
+                        Ok(Some(fun.add_op2(ast.source, op, src1, src2)))
                     }
                 }
             }
@@ -215,41 +214,41 @@ impl Compiler {
             }
 
             AstData::If (iff) => {
-                let mut bb_true = fun.new_block();
-                let mut bb_false = fun.new_block();
+                let bb_true = fun.new_block();
+                let bb_false = fun.new_block();
                 let after_if = fun.new_block();
 
                 // condition.
-                let cond = self.compile_ast(ctx, fun, bb, &iff.condition, true)?.unwrap();
-                fun.add_stmt(*bb, ast, StmtData::SwitchBool {
-                    src:      cond,
-                    on_true:  bb_true,
-                    on_false: bb_false,
-                });
-                *bb = after_if;
+                let cond = self.compile_ast(ctx, fun, &iff.condition, true)?.unwrap();
+                fun.add_switch_bool(ast.source, cond, bb_true, bb_false);
+
 
                 // on_true
-                let value_true = self.compile_ast(ctx, fun, &mut bb_true, &iff.on_true, need_value)?;
-                fun.add_stmt_at(bb_true,
-                    iff.on_true.source.end.to_range(),
-                    StmtData::Jump { target: after_if });
+                fun.set_current_block(bb_true);
+                let value_true = self.compile_ast(ctx, fun, &iff.on_true, need_value)?;
+                fun.add_jump(iff.on_true.source.end.to_range(), after_if);
+                let bb_true = fun.get_current_block();
+
 
                 // on_false
+                fun.set_current_block(bb_false);
                 let (value_false, on_false_src) =
                     if let Some(on_false) = &iff.on_false {
-                        let v = self.compile_ast(ctx, fun, &mut bb_false, on_false, need_value)?;
+                        let v = self.compile_ast(ctx, fun, on_false, need_value)?;
                         (v, on_false.source.end.to_range())
                     }
                     else {
                         let source = ast.source.end.to_range();
-                        let v = need_value.then(|| fun.add_stmt_at(bb_false, source, StmtData::LoadNil));
+                        let v = need_value.then(|| fun.add_load_nil(source));
                         (v, source)
                     };
-                fun.add_stmt_at(bb_false, on_false_src,
-                    StmtData::Jump { target: after_if });
+                fun.add_stmt(on_false_src, StmtData::Jump { target: after_if });
+                let bb_false = fun.get_current_block();
 
+
+                fun.set_current_block(after_if);
                 if need_value {
-                    let result = fun.add_phi(after_if, ast, &[
+                    let result = fun.add_phi(ast.source, &[
                         (bb_true,  value_true.unwrap()),
                         (bb_false, value_false.unwrap()),
                     ]);
@@ -259,30 +258,28 @@ impl Compiler {
             }
 
             AstData::While (whilee) => {
-                let mut bb_head  = fun.new_block();
-                let mut bb_body  = fun.new_block();
+                let bb_head  = fun.new_block();
+                let bb_body  = fun.new_block();
                 let bb_after = fun.new_block();
 
-                fun.add_stmt(*bb, ast, StmtData::Jump { target: bb_head });
-                *bb = bb_after;
+                fun.add_jump(ast.source, bb_head);
+
 
                 // head.
-                let cond = self.compile_ast(ctx, fun, &mut bb_head, &whilee.condition, true)?.unwrap();
-                fun.add_stmt(bb_head, ast, StmtData::SwitchBool {
-                    src:      cond,
-                    on_true:  bb_body,
-                    on_false: bb_after,
-                });
+                fun.set_current_block(bb_head);
+                let cond = self.compile_ast(ctx, fun, &whilee.condition, true)?.unwrap();
+                fun.add_switch_bool(ast.source, cond, bb_body, bb_after);
+                let bb_head = fun.get_current_block();
+
 
                 // body.
-                self.compile_ast(ctx, fun, &mut bb_body, &whilee.body, false)?;
-                fun.add_stmt(bb_body, ast, StmtData::Jump { target: bb_head });
+                fun.set_current_block(bb_body);
+                self.compile_ast(ctx, fun, &whilee.body, false)?;
+                fun.add_jump(ast.source, bb_head);
 
-                if need_value {
-                    let result = fun.add_stmt(bb_after, ast, StmtData::LoadNil);
-                    Ok(Some(result))
-                }
-                else { Ok(None) }
+
+                fun.set_current_block(bb_after);
+                Ok(need_value.then(|| fun.add_load_nil(ast.source)))
             }
 
             AstData::Break => {
@@ -306,7 +303,7 @@ impl Compiler {
     }
 
     pub fn compile_block<'a>(&mut self,
-        ctx: &mut Ctx<'a>, fun: &mut Function, bb: &mut BlockId,
+        ctx: &mut Ctx<'a>, fun: &mut Function,
         block_source: SourceRange, block: &ast::Block<'a>, need_value: bool
     ) -> CompileResult<Option<StmtId>> {
         let scope = ctx.begin_scope();
@@ -326,27 +323,27 @@ impl Compiler {
 
                 let v =
                     if let Some(value) = &local.value {
-                        self.compile_ast(ctx, fun, bb, value, true)?.unwrap()
+                        self.compile_ast(ctx, fun, value, true)?.unwrap()
                     }
                     else {
-                        fun.add_stmt(*bb, node, StmtData::LoadNil)
+                        fun.add_load_nil(node.source)
                     };
-                fun.add_stmt(*bb, node, StmtData::SetLocal { dst: lid, src: v });
+                fun.add_set_local(node.source, lid, v);
             }
             else {
-                self.compile_ast(ctx, fun, bb, node, false)?;
+                self.compile_ast(ctx, fun, node, false)?;
             }
         }
 
         // last statement (or expression).
         let result =
             if block.last_is_expr {
-                self.compile_ast(ctx, fun, bb, &block.children[stmts_end], need_value)?
+                self.compile_ast(ctx, fun, &block.children[stmts_end], need_value)?
             }
             else if need_value {
                 let source = block_source.end.to_range();
                 // @todo: return empty tuple.
-                Some(fun.add_stmt_at(*bb, source, StmtData::LoadNil))
+                Some(fun.add_stmt(source, StmtData::LoadNil))
             }
             else { None };
 
@@ -355,13 +352,13 @@ impl Compiler {
     }
 
     pub fn compile_assign<'a>(&mut self,
-        ctx: &mut Ctx<'a>, fun: &mut Function, bb: &mut BlockId,
+        ctx: &mut Ctx<'a>, fun: &mut Function,
         ast: &Ast<'a>, value: StmtId) -> CompileResult<()>
     {
         match &ast.data {
             AstData::Ident (name) => {
                 if let Some(decl) = ctx.find_decl(name) {
-                    fun.add_stmt(*bb, ast, StmtData::SetLocal { dst: decl.id, src: value });
+                    fun.add_set_local(ast.source, decl.id, value);
                 }
                 else {
                     unimplemented!()

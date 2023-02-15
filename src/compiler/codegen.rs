@@ -268,7 +268,8 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
 
 
 pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &RegisterAllocation) -> Vec<Instruction> {
-    let mut bcb = crate::bytecode::ByteCodeBuilder::new();
+    assert_eq!(block_order[0], BlockId::ROOT);
+    assert_eq!(block_order[1], BlockId::REAL_ENTRY);
 
     // @temp
     assert!(regs.num_regs < 128);
@@ -278,8 +279,15 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
 
     let mut block_offsets = vec![u16::MAX; fun.num_blocks()];
 
+    let mut bcb = crate::bytecode::ByteCodeBuilder::new();
+
     for (block_index, bb) in block_order.iter().enumerate() {
         block_offsets[bb.usize()] = bcb.current_offset() as u16;
+
+        // don't generate code for the @param-block.
+        if block_index == 0 {
+            continue;
+        }
 
         fun.block_stmts(*bb, |stmt| {
             let dst = reg(stmt.id());
@@ -305,7 +313,7 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
 
                 LoadNil             => bcb.load_nil(dst),
                 LoadBool  { value } => bcb.load_bool(dst, value),
-                LoatInt   { value: _ } => unimplemented!(),
+                LoadInt   { value: _ } => unimplemented!(),
                 LoadFloat { value: _ } => unimplemented!(),
 
                 Op1 { op: _, src: _ } => unimplemented!(),

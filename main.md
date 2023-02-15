@@ -1,14 +1,11 @@
 
 - todo:
     - ssa form:
-        - cleanup:
-            - `Function::[set_]current_bb()`.
-                - don't generate code for bb0.
         - validation:
             - args point to `StmtData::has_output`.
             - check that all args are defined in the cfg.
             - ensure all uses are dominated by their defs.
-            - stmts not in multiple blocks.
+        - use new compiler.
         - some end-to-end tests.
             - to replace vm tests for now.
             - the `a + do` thing.

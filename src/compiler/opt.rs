@@ -90,7 +90,7 @@ pub fn local2reg_ex(fun: &mut Function, preds: &Predecessors, dom_tree: &DomTree
         }
 
         let new_names = vec![None; fun.num_locals()];
-        visit(BlockId::ENTRY, new_names, &mut phis, fun, &dom_tree);
+        visit(BlockId::ROOT, new_names, &mut phis, fun, &dom_tree);
     }
     fun.slow_integrity_check();
 
@@ -129,7 +129,7 @@ pub fn copy_propagation_ex(fun: &mut Function, dom_tree: &DomTree) {
         }
     }
 
-    visit(BlockId::ENTRY, fun, &dom_tree);
+    visit(BlockId::ROOT, fun, &dom_tree);
     fun.slow_integrity_check();
 }
 

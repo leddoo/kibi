@@ -114,10 +114,10 @@ impl Function {
 
             post_order.push(bb);
         }
-        visit(self, BlockId::ENTRY, &mut preds, &mut post_order, &mut visited);
+        visit(self, BlockId::ROOT, &mut preds, &mut post_order, &mut visited);
 
         for bb in &post_order {
-            if !bb.is_entry() {
+            if !bb.is_root() {
                 assert!(preds[bb.usize()].len() > 0);
             }
         }
@@ -128,7 +128,7 @@ impl Function {
     pub fn immediate_dominators(&self, preds: &Predecessors, post_order: &PostOrder, post_indices: &PostOrderIndices) -> ImmediateDominators {
         let mut doms = vec![None; self.num_blocks()];
 
-        let bb0 = post_indices[BlockId::ENTRY.usize()];
+        let bb0 = post_indices[BlockId::ROOT.usize()];
         doms[bb0.usize()] = Some(bb0);
 
         let mut changed = true;
@@ -136,7 +136,7 @@ impl Function {
             changed = false;
 
             for bb_id in post_order.iter().rev() {
-                if bb_id.is_entry() { continue }
+                if bb_id.is_root() { continue }
 
                 let preds = &preds[bb_id.usize()];
                 let bb = post_indices[bb_id.usize()];
@@ -240,7 +240,7 @@ impl Function {
 
         let mut order   = vec![];
         let mut visited = vec![false; self.num_blocks()];
-        visit(BlockId::ENTRY, &mut order, &mut visited, self, idoms, dom_tree);
+        visit(BlockId::ROOT, &mut order, &mut visited, self, idoms, dom_tree);
         BlockOrder { order }
     }
 

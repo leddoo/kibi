@@ -36,7 +36,7 @@ pub enum StmtData {
 
     LoadNil,
     LoadBool    { value: bool },
-    LoatInt     { value: i64 },
+    LoadInt     { value: i64 },
     LoadFloat   { value: f64 },
 
     Op1         { op: Op1, src: StmtId },
@@ -112,7 +112,8 @@ pub struct Function {
     blocks:     Vec<Block>,
     locals:     Vec<Local>,
 
-    local_cursor: OptStmtId,
+    local_cursor:  OptStmtId,
+    current_block: BlockId,
 }
 
 
@@ -217,7 +218,7 @@ impl<'a> core::fmt::Display for StmtFmt<'a> {
 
             LoadNil             => { write!(f, "load_nil") }
             LoadBool  { value } => { write!(f, "load_bool {}", value) }
-            LoatInt   { value } => { write!(f, "load_int {}", value) }
+            LoadInt   { value } => { write!(f, "load_int {}", value) }
             LoadFloat { value } => { write!(f, "load_float {}", value) }
 
             Op1 { op, src }        => { write!(f, "{} {}",     op.str(), src) }
@@ -255,7 +256,7 @@ impl StmtData {
             GetLocal { src: _ } |
             LoadNil |
             LoadBool { value: _ } |
-            LoatInt { value: _ } |
+            LoadInt { value: _ } |
             LoadFloat { value: _ } |
             Op1 { op: _, src: _ } |
             Op2 { op: _, src1: _, src2: _ } |
@@ -272,7 +273,7 @@ impl StmtData {
             GetLocal { src: _ } |
             LoadNil |
             LoadBool { value: _ } |
-            LoatInt { value: _ } |
+            LoadInt { value: _ } |
             LoadFloat { value: _ } |
             Op1 { op: _, src: _ } |
             Op2 { op: _, src1: _, src2: _ } => true,
@@ -297,7 +298,7 @@ impl StmtData {
 
             LoadNil |
             LoadBool  { value: _ } |
-            LoatInt   { value: _ } |
+            LoadInt   { value: _ } |
             LoadFloat { value: _ } => (),
 
             Op1 { op: _, src }        => { f(*src) }
@@ -327,7 +328,7 @@ impl StmtData {
 
             LoadNil |
             LoadBool  { value: _ } |
-            LoatInt   { value: _ } |
+            LoadInt   { value: _ } |
             LoadFloat { value: _ } => (),
 
 
@@ -389,10 +390,11 @@ impl<'a> PhiMapMut<'a> {
 // --- BlockId ---
 
 impl BlockId {
-    pub const ENTRY: BlockId = BlockId(0);
+    pub const ROOT:       BlockId = BlockId(0);
+    pub const REAL_ENTRY: BlockId = BlockId(1);
 
     #[inline(always)]
-    pub fn is_entry(self) -> bool { self == BlockId::ENTRY }
+    pub fn is_root(self) -> bool { self == BlockId::ROOT }
 
 
     #[inline(always)]
@@ -491,13 +493,26 @@ impl core::fmt::Display for LocalId {
 // common
 impl Function {
     pub fn new() -> Self {
-        Function {
+        let mut fun = Function {
             stmts:      vec![],
             blocks:     vec![],
             phi_maps:   vec![],
             locals:     vec![],
-            local_cursor: None.into(),
-        }
+            local_cursor:  None.into(),
+            current_block: BlockId::ROOT,
+        };
+
+        // block setup:
+        //  - @param-block for locals & params.
+        //  - real entry for user code.
+        let param_block = fun.new_block();
+        let real_entry  = fun.new_block();
+        assert_eq!(param_block, BlockId::ROOT);
+        assert_eq!(real_entry,  BlockId::REAL_ENTRY);
+        fun.add_stmt(SourceRange::null(), StmtData::Jump { target: real_entry });
+        fun.current_block = real_entry;
+
+        fun
     }
 
 
@@ -681,8 +696,8 @@ impl Function {
         // "hoist locals".
         let nil  = self.new_stmt(source, StmtData::LoadNil);
         let init = self.new_stmt(source, StmtData::SetLocal { dst: id, src: nil });
-        self.insert_after(BlockId::ENTRY, self.local_cursor, nil);
-        self.insert_after(BlockId::ENTRY, nil.some(), init);
+        self.insert_after(BlockId::ROOT, self.local_cursor, nil);
+        self.insert_after(BlockId::ROOT, nil.some(), init);
         self.local_cursor = init.some();
 
         id
@@ -692,9 +707,27 @@ impl Function {
 
 // builder
 impl Function {
-    pub fn add_stmt_at(&mut self, bb: BlockId, source: SourceRange, data: StmtData) -> StmtId {
+    #[inline(always)]
+    pub fn get_current_block(&mut self) -> BlockId {
+        self.current_block
+    }
+
+    #[inline(always)]
+    pub fn set_current_block(&mut self, bb: BlockId) {
+        let block = bb.get(self);
+        if let Some(last) = block.last.to_option() {
+            assert!(!last.get(self).is_terminator());
+        }
+
+        self.current_block = bb;
+    }
+
+
+    pub fn add_stmt(&mut self, source: SourceRange, data: StmtData) -> StmtId {
         assert!(self.stmts.len() < u32::MAX as usize / 2);
         let id = StmtId(self.stmts.len() as u32);
+
+        let bb = self.current_block;
 
         let block = &mut self.blocks[bb.usize()];
         let old_last = block.last;
@@ -724,15 +757,71 @@ impl Function {
         id
     }
 
-    pub fn add_stmt(&mut self, bb: BlockId, at: &Ast, data: StmtData) -> StmtId {
-        self.add_stmt_at(bb, at.source, data)
+
+    #[inline]
+    pub fn add_copy(&mut self, source: SourceRange, src: StmtId) -> StmtId {
+        self.add_stmt(source, StmtData::Copy { src })
     }
 
-
-    pub fn add_phi(&mut self, bb: BlockId, at: &Ast, map: &[(BlockId, StmtId)]) -> StmtId {
+    pub fn add_phi(&mut self, source: SourceRange, map: &[(BlockId, StmtId)]) -> StmtId {
         let map_id = PhiMapId(self.phi_maps.len() as u32);
         self.phi_maps.push(PhiMapImpl { map: map.into() });
-        self.add_stmt(bb, at, StmtData::Phi { map_id })
+        self.add_stmt(source, StmtData::Phi { map_id })
+    }
+
+    #[inline]
+    pub fn add_get_local(&mut self, source: SourceRange, src: LocalId) -> StmtId {
+        self.add_stmt(source, StmtData::GetLocal { src })
+    }
+
+    #[inline]
+    pub fn add_set_local(&mut self, source: SourceRange, dst: LocalId, src: StmtId) -> StmtId {
+        self.add_stmt(source, StmtData::SetLocal { dst, src })
+    }
+
+    #[inline]
+    pub fn add_load_nil(&mut self, source: SourceRange) -> StmtId {
+        self.add_stmt(source, StmtData::LoadNil)
+    }
+
+    #[inline]
+    pub fn add_load_bool(&mut self, source: SourceRange, value: bool) -> StmtId {
+        self.add_stmt(source, StmtData::LoadBool { value })
+    }
+
+    #[inline]
+    pub fn add_load_int(&mut self, source: SourceRange, value: i64) -> StmtId {
+        self.add_stmt(source, StmtData::LoadInt { value })
+    }
+
+    #[inline]
+    pub fn add_load_float(&mut self, source: SourceRange, value: f64) -> StmtId {
+        self.add_stmt(source, StmtData::LoadFloat { value })
+    }
+
+    #[inline]
+    pub fn add_op1(&mut self, source: SourceRange, op: Op1, src: StmtId) -> StmtId {
+        self.add_stmt(source, StmtData::Op1 { op, src })
+    }
+
+    #[inline]
+    pub fn add_op2(&mut self, source: SourceRange, op: Op2, src1: StmtId, src2: StmtId) -> StmtId {
+        self.add_stmt(source, StmtData::Op2 { op, src1, src2 })
+    }
+
+    #[inline]
+    pub fn add_jump(&mut self, source: SourceRange, target: BlockId) -> StmtId {
+        self.add_stmt(source, StmtData::Jump { target })
+    }
+
+    #[inline]
+    pub fn add_switch_bool(&mut self, source: SourceRange, src: StmtId, on_true: BlockId, on_false: BlockId) -> StmtId {
+        self.add_stmt(source, StmtData::SwitchBool { src, on_true, on_false })
+    }
+
+    #[inline]
+    pub fn add_return(&mut self, source: SourceRange, src: StmtId) -> StmtId {
+        self.add_stmt(source, StmtData::Return { src })
     }
 }
 
