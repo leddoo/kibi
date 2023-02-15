@@ -180,7 +180,7 @@ impl Compiler {
                 let mut at = None.into();
 
                 for (_, map, stmt_id) in phis {
-                    fun.set_phi(stmt_id, 
+                    fun.set_phi(stmt_id,
                         &map.into_iter().map(|(bb, stmt)|
                             (bb, stmt.unwrap())).collect::<Vec<_>>());
 
@@ -559,7 +559,7 @@ impl Compiler {
             }
 
             let mut actives = vec![];
-            let mut regs    = vec![];
+            let mut regs    = <Vec<bool>>::new();
 
             let mut constraint_regs = vec![None; next_constraint_reg as usize];
 
@@ -571,71 +571,100 @@ impl Compiler {
                 let constraint     = constraints[new_int.stmt.usize()];
                 let constraint_reg = constraint.and_then(|c| constraint_regs[c as usize]);
 
-                // update active intervals.
+                // update live intervals.
+                println!("update live intervals");
                 actives.retain_mut(|active: &mut ActiveInterval| {
-                    println!("  active {:?} r{}({}) {}..{}", active.stmt, active.reg, active.allocated, active.start, active.stop);
+                    if !active.live {
+                        return true;
+                    }
+                    debug_assert!(active.allocated);
+                    debug_assert!(regs[active.reg as usize]);
+
+                    println!("  {:?}({}) r{}({}) {}..{}", active.stmt, active.live, active.reg, active.allocated, active.start, active.stop);
 
                     // expire interval.
                     if active.stop <= new_int.start {
                         println!("    expired");
                         regs[active.reg as usize] = false;
-                        false
+                        return false;
                     }
+
+                    // no longer live.
+                    let rng_stop = active.ranges[0].1;
+                    if rng_stop <= new_int.start {
+                        println!("    now inactive");
+                        // free register if new interval fits in hole.
+                        // note: constraints make this a non-local check,
+                        // so assume new interval doesn't fit, if constrained.
+                        let next_start = active.ranges[1].0;
+                        if next_start >= new_int.stop && constraint.is_none() {
+                            println!("    new interval fits in hole; freeing register.");
+                            active.allocated = false;
+                            regs[active.reg as usize] = false;
+                        }
+
+                        active.ranges = &active.ranges[1..];
+                        active.live   = false;
+                    }
+
+                    return true;
+                });
+
+                println!("update non-live intervals");
+                actives.retain_mut(|active: &mut ActiveInterval| {
+                    if active.live {
+                        return true;
+                    }
+                    println!("  {:?}({}) r{}({}) {}..{}", active.stmt, active.live, active.reg, active.allocated, active.start, active.stop);
+
+                    debug_assert!(!active.allocated || regs[active.reg as usize]);
+
+                    // expire interval.
+                    if active.stop <= new_int.start {
+                        println!("    expired");
+                        if active.allocated {
+                            regs[active.reg as usize] = false;
+                        }
+                        return false;
+                    }
+
+                    // live again?
+                    let rng_start = active.ranges[0].0;
+                    if rng_start <= new_int.start {
+                        println!("    reactivating");
+                        debug_assert!(active.allocated == regs[active.reg as usize]);
+                        active.live      = true;
+                        active.allocated = true;
+                        regs[active.reg as usize] = true;
+                    }
+                    // remains non-live.
                     else {
-                        // active intervals.
-                        if active.live {
-                            debug_assert!(active.allocated);
-                            debug_assert!(regs[active.reg as usize]);
-
-                            let rng_stop = active.ranges[0].1;
-                            if rng_stop <= new_int.start {
-                                println!("    now inactive");
-                                let next_start = active.ranges[1].0;
-                                if next_start >= new_int.stop && constraint.is_none() { // @temp
-                                    println!("    new interval fits in hole; freeing register.");
-                                    active.allocated = false;
-                                    regs[active.reg as usize] = false;
-                                }
-
-                                active.ranges = &active.ranges[1..];
-                                active.live   = false;
+                        // new interval fits in hole?
+                        if new_int.stop <= rng_start {
+                            // try to free register.
+                            // again, be conservative if there are constraints.
+                            if active.allocated && constraint.is_none() {
+                                println!("    new interval fits in hole; freeing register.");
+                                active.allocated = false;
+                                regs[active.reg as usize] = false;
                             }
                         }
-                        // inactive intervals.
+                        // new interval intersects next range.
                         else {
-                            debug_assert!(!active.allocated || regs[active.reg as usize]);
-
-                            // needs to activate?
-                            let rng_start = active.ranges[0].0;
-                            if rng_start <= new_int.start {
-                                println!("    reactivating");
-                                debug_assert!(active.allocated == regs[active.reg as usize]);
-                                active.live      = true;
+                            // @todo: this is broken.
+                            // may be allocated by other non-live active & freed later, if that active expires.
+                            // validation below will detect this, so it's not super urgent.
+                            // consider ref count for registers.
+                            // or a "blocked_regs" set.
+                            if !active.allocated && regs[active.reg as usize] == false {
+                                println!("    new interval intersects next range; reclaiming register.");
                                 active.allocated = true;
                                 regs[active.reg as usize] = true;
                             }
-                            else {
-                                // remains inactive.
-                                // can free register for new interval?
-                                if new_int.stop <= rng_start && constraint.is_none() { // @temp
-                                    if active.allocated {
-                                        println!("    new interval fits in hole; freeing register.");
-                                        active.allocated = false;
-                                        regs[active.reg as usize] = false;
-                                    }
-                                }
-                                else {
-                                    if !active.allocated && regs[active.reg as usize] == false {
-                                        println!("    new interval intersects next range; reclaiming register.");
-                                        active.allocated = true;
-                                        regs[active.reg as usize] = true;
-                                    }
-                                }
-                            }
                         }
-
-                        true
                     }
+
+                    return true;
                 });
 
                 let reg =
