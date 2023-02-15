@@ -1,7 +1,7 @@
 use super::*;
 
 
-pub fn local2reg(fun: &mut Function, preds: &Predecessors, dom_tree: &DomTree, dom_frontiers: &DominanceFrontiers) {
+pub fn local2reg_ex(fun: &mut Function, preds: &Predecessors, dom_tree: &DomTree, dom_frontiers: &DominanceFrontiers) {
     // find phis
     let mut phis = {
         // @temp
@@ -114,7 +114,7 @@ pub fn local2reg(fun: &mut Function, preds: &Predecessors, dom_tree: &DomTree, d
 }
 
 
-pub fn copy_propagation(fun: &mut Function, dom_tree: &DomTree) {
+pub fn copy_propagation_ex(fun: &mut Function, dom_tree: &DomTree) {
     fn visit(bb: BlockId, fun: &mut Function, dom_tree: &Vec<Vec<BlockId>>) {
         // inline copies.
         fun.block_replace_args(bb, |fun, arg| {

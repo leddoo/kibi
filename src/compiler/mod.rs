@@ -3,6 +3,7 @@ pub mod bbir;
 pub mod analysis;
 pub mod compiler;
 pub mod opt;
+pub mod codegen;
 
 pub use parser::*;
 pub use bbir::*;

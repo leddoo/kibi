@@ -283,8 +283,6 @@ impl Function {
         while changed {
             changed = false;
 
-            println!("live iter");
-
             for bb in post_order.iter() {
                 let gen   = &gens[bb.usize()];
                 let kill  = &kills[bb.usize()];
