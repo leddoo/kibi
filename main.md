@@ -2,13 +2,10 @@
 - todo:
     - ssa form:
         - cleanup:
-            - local_to_reg.
-            - copy_propagation.
-            - dead_copy_elim.
-            - liveness.
-            - ralloc.
-            - codegen.
+            - move liveness to `analysis`.
+            - move ralloc & gen bytecode to `codegen`.
             - `Function::[set_]current_bb()`.
+                - don't generate code for bb0.
         - validation:
             - args point to `StmtData::has_output`.
             - check that all args are defined in the cfg.
@@ -31,6 +28,7 @@
                 - cse.
             - impl opt:
                 - arena.
+                - bit vectors.
                 - `Phi2`.
     - new compiler.
         - todo:

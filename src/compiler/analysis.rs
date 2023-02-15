@@ -44,6 +44,12 @@ pub struct DominanceFrontiers {
 }
 
 
+#[derive(Deref)]
+pub struct BlockOrder {
+    order: Vec<BlockId>,
+}
+
+
 
 impl Function {
     pub fn preds_and_post_order(&self) -> (Predecessors, PostOrder) {
@@ -168,6 +174,34 @@ impl Function {
 
         DominanceFrontiers { frontiers }
     }
+
+
+    pub fn block_order_dominators_first(&self, idoms: &ImmediateDominators, dom_tree: &DomTree) -> BlockOrder {
+        fn visit(bb: BlockId, order: &mut Vec<BlockId>, visited: &mut Vec<bool>,
+            fun: &Function, idom: &Vec<BlockId>, idom_tree: &Vec<Vec<BlockId>>,
+        ) {
+            assert!(!visited[bb.usize()]);
+            visited[bb.usize()] = true;
+            order.push(bb);
+
+            fun.block_successors(bb, |succ| {
+                if !visited[succ.usize()] && idom[succ.usize()] == bb {
+                    visit(succ, order, visited, fun, idom, idom_tree);
+                }
+            });
+
+            for child in &idom_tree[bb.usize()] {
+                if !visited[child.usize()] {
+                    visit(*child, order, visited, fun, idom, idom_tree);
+                }
+            }
+        }
+
+        let mut order   = vec![];
+        let mut visited = vec![false; self.num_blocks()];
+        visit(BlockId::ENTRY, &mut order, &mut visited, self, idoms, dom_tree);
+        BlockOrder { order }
+    }
 }
 
 impl PostOrder {
@@ -183,5 +217,28 @@ impl PostOrder {
 impl PostOrderIndex {
     #[inline(always)]
     pub fn usize(self) -> usize { self.value as usize }
+}
+
+
+impl BlockOrder {
+    pub fn block_begins_and_stmt_indices(&self, fun: &Function) -> (Vec<u32>, Vec<u32>) {
+        let mut block_begins = vec![u32::MAX; fun.num_blocks()];
+        let mut stmt_indices = vec![u32::MAX; fun.num_stmts()];
+
+        let mut cursor = 0;
+        for bb in &self.order {
+
+            let block_begin = cursor;
+            block_begins[bb.usize()] = block_begin as u32;
+
+            fun.block_stmts(*bb, |stmt| {
+                stmt_indices[stmt.id().usize()] = cursor;
+                cursor += 1;
+            });
+        }
+        block_begins.push(cursor as u32);
+
+        (block_begins, stmt_indices)
+    }
 }
 

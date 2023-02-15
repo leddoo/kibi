@@ -1,10 +1,6 @@
 use super::*;
 
 
-// @temp
-use std::collections::HashSet;
-
-
 #[derive(Debug)]
 pub struct CompileError {
     pub source: SourceRange,
@@ -77,161 +73,20 @@ impl Compiler {
 
         let dom_tree = fun.dominator_tree(&idoms);
 
-        println!("tree {:?}", *dom_tree);
-
         let dom_frontiers = fun.dominance_frontiers(&preds, &idoms);
 
-        // find phis
-        let mut phis = {
-            let mut visited: HashSet<(BlockId, LocalId)> = HashSet::new();
-
-            let mut stack = vec![];
-            for bb in fun.block_ids() {
-                fun.block_stmts(bb, |stmt| {
-                    let StmtData::SetLocal { dst: lid, src: _ } = stmt.data else { return };
-
-                    let key = (bb, lid);
-                    if !visited.contains(&key) {
-                        visited.insert(key);
-                        stack.push(key);
-                    }
-                });
-            }
-
-            let mut phis: Vec<Vec<(LocalId, Vec<(BlockId, Option<StmtId>)>, StmtId)>>
-                = vec![vec![]; fun.num_blocks()];
-
-            while let Some((from_bb, lid)) = stack.pop() {
-                for to_bb in dom_frontiers[from_bb.usize()].iter() {
-                    let to_bb = *to_bb;
-                    let to_phis = &mut phis[to_bb.usize()];
-
-                    let needs_phi_for_lid = to_phis.iter().find(|(l, _, _)| *l == lid).is_none();
-                    if needs_phi_for_lid {
-                        let preds = &preds[to_bb.usize()];
-
-                        let map = preds.iter().map(|p| (*p, None)).collect();
-                        let stmt = fun.new_phi(SourceRange::null(), &[]);
-                        to_phis.push((lid, map, stmt));
-
-                        let key = (to_bb, lid);
-                        if !visited.contains(&key) {
-                            visited.insert(key);
-                            stack.push(key);
-                        }
-                    }
-                }
-            }
-
-            phis
-        };
-        fun.slow_integrity_check();
-
-        println!("{:?}", phis);
-
-        // rename vars.
-        {
-            fn visit(bb: BlockId, mut new_names: Vec<Option<StmtId>>,
-                phis: &mut Vec<Vec<(LocalId, Vec<(BlockId, Option<StmtId>)>, StmtId)>>,
-                fun: &mut Function, idom_tree: &Vec<Vec<BlockId>>,
-            ) {
-                // update var names.
-                for (lid, _map, stmt) in &phis[bb.usize()] {
-                    new_names[lid.usize()] = Some(*stmt)
-                }
-                fun.block_stmts_mut(bb, |stmt| {
-                    if let StmtData::GetLocal { src } = stmt.data {
-                        let new_name = new_names[src.usize()].unwrap();
-                        stmt.data = StmtData::Copy { src: new_name };
-                        new_names[src.usize()] = Some(stmt.id());
-                    }
-
-                    if let StmtData::SetLocal { dst, src } = stmt.data {
-                        stmt.data = StmtData::Copy { src };
-                        new_names[dst.usize()] = Some(stmt.id());
-                    }
-                });
-
-                // propagate to successors.
-                fun.block_successors(bb, |succ| {
-                    for (l, map, _) in &mut phis[succ.usize()] {
-                        let entry = map.iter_mut().find(|(from, _)| *from == bb).unwrap();
-                        assert!(entry.1.is_none());
-
-                        entry.1 = Some(new_names[l.usize()].unwrap());
-                    }
-                });
-
-                // propagate to dominated blocks.
-                for d in idom_tree[bb.usize()].iter() {
-                    visit(*d, new_names.clone(), phis, fun, idom_tree);
-                }
-            }
-
-            let new_names = vec![None; fun.num_locals()];
-            visit(BlockId::ENTRY, new_names, &mut phis, &mut fun, &dom_tree);
-        }
-        fun.slow_integrity_check();
-
-        // insert phis.
-        {
-            for (bb_index, phis) in phis.into_iter().enumerate() {
-                let block = BlockId::from_usize(bb_index);
-                let mut at = None.into();
-
-                for (_, map, stmt_id) in phis {
-                    fun.set_phi(stmt_id,
-                        &map.into_iter().map(|(bb, stmt)|
-                            (bb, stmt.unwrap())).collect::<Vec<_>>());
-
-                    fun.insert_after(block, at, stmt_id);
-                    at = stmt_id.some();
-                }
-            }
-        }
-        fun.slow_integrity_check();
-
+        opt::local2reg(&mut fun, &preds, &dom_tree, &dom_frontiers);
         println!("local2reg done");
         fun.dump();
 
-
-        // copy propagation.
-        {
-            fn visit(bb: BlockId, fun: &mut Function, idom_tree: &Vec<Vec<BlockId>>) {
-                // inline copies.
-                fun.block_replace_args(bb, |fun, arg| {
-                    if let StmtData::Copy { src } = arg.get(fun).data {
-                        *arg = src;
-                    }
-                });
-
-                // propagate to dominated blocks.
-                for d in idom_tree[bb.usize()].iter() {
-                    visit(*d, fun, idom_tree);
-                }
-            }
-            visit(BlockId::ENTRY, &mut fun, &dom_tree);
-        }
-        fun.slow_integrity_check();
-
+        opt::copy_propagation(&mut fun, &dom_tree);
         println!("copy propagation done");
         fun.dump();
 
-
-        // dead copy elimination.
-        {
-            let mut visited = vec![false; fun.num_stmts()];
-
-            fun.all_args(|arg| visited[arg.usize()] = true);
-
-            fun.retain_stmts(|stmt| {
-                visited[stmt.id().usize()] || !stmt.is_copy()
-            });
-        }
-        fun.slow_integrity_check();
-
+        opt::dead_copy_elim(&mut fun);
         println!("dead copy elim done");
         fun.dump();
+
 
 
         // insert phi copies.
@@ -256,56 +111,12 @@ impl Compiler {
         fun.dump();
 
 
-        let block_order = {
-            fn visit(bb: BlockId, order: &mut Vec<BlockId>, visited: &mut Vec<bool>,
-                fun: &Function, idom: &Vec<BlockId>, idom_tree: &Vec<Vec<BlockId>>,
-            ) {
-                assert!(!visited[bb.usize()]);
-                visited[bb.usize()] = true;
-                order.push(bb);
+        let block_order = fun.block_order_dominators_first(&idoms, &dom_tree);
 
-                fun.block_successors(bb, |succ| {
-                    if !visited[succ.usize()] && idom[succ.usize()] == bb {
-                        visit(succ, order, visited, fun, idom, idom_tree);
-                    }
-                });
-
-                for child in &idom_tree[bb.usize()] {
-                    if !visited[child.usize()] {
-                        visit(*child, order, visited, fun, idom, idom_tree);
-                    }
-                }
-            }
-
-            let mut order   = vec![];
-            let mut visited = vec![false; fun.num_blocks()];
-            visit(BlockId::ENTRY, &mut order, &mut visited, &fun, &idoms, &dom_tree);
-            order
-        };
-        fun.slow_integrity_check();
-
-        let (block_begins, stmt_indices) = {
-            let mut block_begins = vec![u32::MAX; fun.num_blocks()];
-            let mut stmt_indices = vec![u32::MAX; fun.num_stmts()];
-
-            let mut cursor = 0;
-            for bb in &block_order {
-
-                let block_begin = cursor;
-                block_begins[bb.usize()] = block_begin as u32;
-
-                fun.block_stmts(*bb, |stmt| {
-                    stmt_indices[stmt.id().usize()] = cursor;
-                    cursor += 1;
-                });
-            }
-            block_begins.push(cursor as u32);
-
-            (block_begins, stmt_indices)
-        };
+        let (block_begins, stmt_indices) = block_order.block_begins_and_stmt_indices(&fun);
 
         println!("block order:");
-        for bb in &block_order {
+        for bb in &*block_order {
             println!("{}:", bb);
 
             fun.block_stmts(*bb, |stmt| {
@@ -314,16 +125,11 @@ impl Compiler {
         }
 
 
+
         // live intervals.
         let intervals = {
             let mut bb_gen  = Vec::with_capacity(fun.num_blocks());
             let mut bb_kill = Vec::with_capacity(fun.num_blocks());
-
-            fn pretty(set: &Vec<bool>) -> Vec<usize> {
-                set.iter().enumerate()
-                .filter_map(|(i, v)| v.then(|| i))
-                .collect()
-            }
 
             for bb in fun.block_ids() {
                 let mut gen  = vec![false; fun.num_stmts()];
@@ -406,6 +212,12 @@ impl Compiler {
                         bb_live_out[bb.usize()] = new_live_out;
                     }
                 }
+            }
+
+            fn pretty(set: &Vec<bool>) -> Vec<usize> {
+                set.iter().enumerate()
+                .filter_map(|(i, v)| v.then(|| i))
+                .collect()
             }
 
             println!("bb_live:");
