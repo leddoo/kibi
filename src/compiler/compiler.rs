@@ -127,187 +127,16 @@ impl Compiler {
 
 
         // live intervals.
-        let intervals = {
-            let mut bb_gen  = Vec::with_capacity(fun.num_blocks());
-            let mut bb_kill = Vec::with_capacity(fun.num_blocks());
-
-            for bb in fun.block_ids() {
-                let mut gen  = vec![false; fun.num_stmts()];
-                let mut kill = vec![false; fun.num_stmts()];
-
-                // statements in reverse.
-                fun.block_stmts_rev(bb, |stmt| {
-                    if stmt.has_value() {
-                        kill[stmt.id().usize()] = true;
-                        gen [stmt.id().usize()] = false;
-                    }
-
-                    if !stmt.is_phi() {
-                        stmt.args(&fun, |arg| {
-                            gen[arg.usize()] = true;
-                        });
-                    }
-                });
-
-                // println!("{}:", block.id);
-                // println!(" gen:  {:?}", pretty(&gen));
-                // println!(" kill: {:?}", pretty(&kill));
-
-                bb_gen.push(gen);
-                bb_kill.push(kill);
-            }
-
-
-            let mut bb_live_in  = vec![vec![false; fun.num_stmts()]; fun.num_blocks()];
-            let mut bb_live_out = vec![vec![false; fun.num_stmts()]; fun.num_blocks()];
-            let mut changed = true;
-            while changed {
-                changed = false;
-
-                println!("live iter");
-
-                for bb in &*post_order {
-                    let gen   = &bb_gen[bb.usize()];
-                    let kill  = &bb_kill[bb.usize()];
-
-                    let mut new_live_out = vec![false; fun.num_stmts()];
-                    fun.block_successors(*bb, |succ| {
-                        // live_in.
-                        for (i, live) in bb_live_in[succ.usize()].iter().enumerate() {
-                            if *live {
-                                new_live_out[i] = true;
-                            }
-                        }
-
-                        // phis.
-                        fun.block_stmts_ex(succ, |stmt| {
-                            // @todo: try_phi Stmt variant?
-                            if let Some(map) = fun.try_phi(stmt.id()) {
-                                let src = map.get(*bb).unwrap();
-                                new_live_out[src.usize()] = true;
-                                return true;
-                            }
-                            false
-                        });
-                    });
-
-                    let mut new_live_in = new_live_out.clone();
-                    for (i, kill) in kill.iter().enumerate() {
-                        if *kill {
-                            new_live_in[i] = false;
-                        }
-                    }
-                    for (i, gen) in gen.iter().enumerate() {
-                        if *gen {
-                            new_live_in[i] = true;
-                        }
-                    }
-
-                    if new_live_in != bb_live_in[bb.usize()] {
-                        changed = true;
-                        bb_live_in[bb.usize()] = new_live_in;
-                    }
-                    if new_live_out != bb_live_out[bb.usize()] {
-                        changed = true;
-                        bb_live_out[bb.usize()] = new_live_out;
-                    }
-                }
-            }
-
-            fn pretty(set: &Vec<bool>) -> Vec<usize> {
-                set.iter().enumerate()
-                .filter_map(|(i, v)| v.then(|| i))
-                .collect()
-            }
-
-            println!("bb_live:");
-            for (i, (live_in, live_out)) in bb_live_in.iter().zip(&bb_live_out).enumerate() {
-                println!(" {} in:  {:?}", i, pretty(live_in));
-                println!(" {} out: {:?}", i, pretty(live_out));
-            }
-
-
-            let mut intervals = vec![vec![]; fun.num_stmts()];
-            for bb in block_order.iter() {
-                //let live_in  = &bb_live_in[bb.usize()];
-                let live_out = &bb_live_out[bb.usize()];
-
-                let num_stmts = fun.num_block_stmts(*bb);
-
-                let block_begin = block_begins[bb.usize()];
-                let block_end   = block_begin + num_stmts as u32;
-
-                let mut live = live_out.iter().map(|live| {
-                    live.then(|| block_end)
-                }).collect::<Vec<_>>();
-
-                #[inline]
-                fn gen(var: StmtId, stop: u32, live: &mut Vec<Option<u32>>) {
-                    let id = var.usize();
-                    if live[id].is_none() {
-                        live[id] = Some(stop);
-                    }
-                }
-
-                #[inline]
-                fn kill(var: StmtId, start: u32, live: &mut Vec<Option<u32>>, intervals: &mut Vec<Vec<(u32, u32)>>) {
-                    let id = var.usize();
-                    if let Some(stop) = live[id] {
-                        live[id] = None;
-
-                        let interval = &mut intervals[id];
-                        // try to extend.
-                        if let Some((_, old_stop)) = interval.last_mut() {
-                            if *old_stop == start {
-                                *old_stop = stop;
-                                return;
-                            }
-                        }
-                        // need new range.
-                        interval.push((start, stop));
-                        return;
-                    }
-                }
-
-                // statements.
-                fun.block_stmts_rev(*bb, |stmt| {
-                    if stmt.has_value() {
-                        let start = stmt_indices[stmt.id().usize()];
-                        kill(stmt.id(), start, &mut live, &mut intervals)
-                    }
-
-                    if !stmt.is_phi() {
-                        stmt.args(&fun, |arg| {
-                            let stop = stmt_indices[stmt.id().usize()];
-                            gen(arg, stop, &mut live);
-                        });
-                    }
-                });
-
-                for id in fun.stmt_ids() {
-                    let start = block_begin;
-                    kill(id, start, &mut live, &mut intervals);
-                }
-            }
-
-            println!("live intervals");
-            for (bb, int) in intervals.iter().enumerate() {
-                println!(" {}: {:?}", bb, int);
-            }
-
-            intervals
-        };
-        fun.slow_integrity_check();
-
+        let intervals = fun.live_intervals(&post_order, &block_order, &block_begins, &stmt_indices);
 
         // register allocation.
         let (reg_mapping, num_regs) = {
             #[derive(Debug)]
             struct Interval<'a> {
                 stmt: StmtId,
-                start: u32,
-                stop:  u32,
-                ranges: &'a [(u32, u32)],
+                start: StmtIndex,
+                stop:  StmtIndex,
+                ranges: &'a [(StmtIndex, StmtIndex)],
             }
 
             let mut intervals =
@@ -360,14 +189,14 @@ impl Compiler {
 
 
             struct ActiveInterval<'a> {
-                ranges: &'a [(u32, u32)],
-                stop:   u32,
+                ranges: &'a [(StmtIndex, StmtIndex)],
+                stop:   StmtIndex,
                 reg:    u32,
                 live:      bool,
                 allocated: bool,
                 // @temp
                 stmt: StmtId,
-                start: u32,
+                start: StmtIndex,
             }
 
             let mut actives = vec![];

@@ -2,8 +2,10 @@
 - todo:
     - ssa form:
         - cleanup:
-            - move liveness to `analysis`.
             - move ralloc & gen bytecode to `codegen`.
+            - `Function::compile_mut(&mut self)`:
+                - insert phis, compute block order, liveness, reg alloc, gen bytecode.
+                - not idempotent.
             - `Function::[set_]current_bb()`.
                 - don't generate code for bb0.
         - validation:
@@ -27,6 +29,7 @@
                 - constant folding.
                 - cse.
             - impl opt:
+                - `Function::gc`.
                 - arena.
                 - bit vectors.
                 - `Phi2`.
