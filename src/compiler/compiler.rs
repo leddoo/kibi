@@ -51,7 +51,7 @@ impl CompileError {
 
 
 impl Compiler {
-    pub fn compile_chunk(&mut self, source: SourceRange, block: &ast::Block) -> CompileResult<Vec<Instruction>> {
+    pub fn compile_chunk(&mut self, source: SourceRange, block: &ast::Block) -> CompileResult<(Vec<Instruction>, u32)> {
         let mut fun = {
             let mut ctx = Ctx::new();
             let mut fun = Function::new();
@@ -88,11 +88,11 @@ impl Compiler {
         fun.dump();
 
 
-        let code = fun.compile_mut_ex(&post_order, &idoms, &dom_tree);
+        let (code, num_regs) = fun.compile_mut_ex(&post_order, &idoms, &dom_tree);
         println!("bytecode:");
         crate::bytecode::dump(&code);
 
-        Ok(code)
+        Ok((code, num_regs))
     }
 
     pub fn compile_ast<'a>(&mut self,
@@ -109,8 +109,8 @@ impl Compiler {
             }
 
             AstData::Number (value) => {
-                let _ = value;
-                unimplemented!()
+                let value = value.parse().unwrap();
+                Ok(Some(fun.add_load_int(ast.source, value)))
             }
 
             AstData::QuotedString (value) => {

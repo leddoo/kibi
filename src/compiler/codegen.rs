@@ -3,7 +3,7 @@ use super::*;
 
 
 impl Function {
-    pub fn compile_mut_ex(&mut self, post_order: &PostOrder, idoms: &ImmediateDominators, dom_tree: &DomTree) -> Vec<Instruction> {
+    pub fn compile_mut_ex(&mut self, post_order: &PostOrder, idoms: &ImmediateDominators, dom_tree: &DomTree) -> (Vec<Instruction>, u32) {
         // insert phi copies.
         {
             for bb in self.block_ids() {
@@ -23,6 +23,9 @@ impl Function {
         }
         self.slow_integrity_check();
 
+        // @todo-opt: copy propagation & dead copy elim,
+        //  but don't propagate the copies we just inserted back to the phis!
+
 
         let block_order = self.block_order_dominators_first(&idoms, &dom_tree);
 
@@ -35,7 +38,7 @@ impl Function {
 
         let code = generate_bytecode(self, &block_order, &regs);
 
-        code
+        (code, regs.num_regs)
     }
 }
 
@@ -46,6 +49,32 @@ pub struct RegisterAllocation {
 }
 
 pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) -> RegisterAllocation {
+    let mut intervals = live_intervals.intervals.clone();
+
+    let mut joins = (0..fun.num_stmts() as u32).collect::<Vec<_>>();
+    for bb in fun.block_ids() {
+        fun.block_stmts_ex(bb, |stmt| {
+            if let Some(map) = fun.try_phi(stmt.id()) {
+
+                let mut interval = core::mem::take(&mut intervals[stmt.id().usize()]);
+
+                // join phi with args.
+                for (_, src) in map.iter() {
+                    let arg_interval = core::mem::take(&mut intervals[src.usize()]);
+                    interval.extend(arg_interval);
+                    joins[src.usize()] = stmt.id().usize() as u32;
+                }
+                interval.sort_by(|a, b| a.0.cmp(&b.0));
+
+                intervals[stmt.id().usize()] = interval;
+
+                return true;
+            }
+            false
+        });
+    }
+
+
     #[derive(Debug)]
     struct Interval<'a> {
         stmt: StmtId,
@@ -55,7 +84,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
     }
 
     let mut intervals =
-        live_intervals.iter().enumerate()
+        intervals.iter().enumerate()
         .filter_map(|(i, ranges)| {
             if ranges.len() == 0 { return None }
             Some(Interval {
@@ -66,30 +95,6 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
             })
         }).collect::<Vec<_>>();
     intervals.sort_unstable_by(|a, b| a.start.cmp(&b.start));
-
-
-    let mut constraints = vec![None; fun.num_stmts()];
-    let mut next_constraint_reg = 0u32;
-
-    for bb in fun.block_ids() {
-        fun.block_stmts_ex(bb, |stmt| {
-            if let Some(map) = fun.try_phi(stmt.id()) {
-                let constraint_reg = next_constraint_reg;
-                next_constraint_reg += 1;
-
-                debug_assert!(constraints[stmt.id().usize()].is_none());
-                constraints[stmt.id().usize()] = Some(constraint_reg);
-
-                for (_, src) in map.iter() {
-                    debug_assert!(constraints[src.usize()].is_none());
-                    constraints[src.usize()] = Some(constraint_reg);
-                }
-
-                return true;
-            }
-            false
-        });
-    }
 
 
     struct ActiveInterval<'a> {
@@ -106,15 +111,10 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
     let mut actives = vec![];
     let mut regs    = <Vec<bool>>::new();
 
-    let mut constraint_regs = vec![None; next_constraint_reg as usize];
-
     let mut mapping = vec![u32::MAX; fun.num_stmts()];
 
     for new_int in &intervals {
         //println!("new: {:?} {}..{}", new_int.stmt, new_int.start, new_int.stop);
-
-        let constraint     = constraints[new_int.stmt.usize()];
-        let constraint_reg = constraint.and_then(|c| constraint_regs[c as usize]);
 
         // update live intervals.
         //println!("update live intervals");
@@ -125,7 +125,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
             debug_assert!(active.allocated);
             debug_assert!(regs[active.reg as usize]);
 
-            //println!("  {:?}({}) r{}({}) {}..{}", active.stmt, active.live, active.reg, active.allocated, active.start, active.stop);
+            //println!("  {:?}({}) r{}({}) {}..{}", active._stmt, active.live, active.reg, active.allocated, active._start, active.stop);
 
             // expire interval.
             if active.stop <= new_int.start {
@@ -139,10 +139,8 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
             if rng_stop <= new_int.start {
                 //println!("    now inactive");
                 // free register if new interval fits in hole.
-                // note: constraints make this a non-local check,
-                // so assume new interval doesn't fit, if constrained.
                 let next_start = active.ranges[1].0;
-                if next_start >= new_int.stop && constraint.is_none() {
+                if next_start >= new_int.stop {
                     //println!("    new interval fits in hole; freeing register.");
                     active.allocated = false;
                     regs[active.reg as usize] = false;
@@ -160,7 +158,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
             if active.live {
                 return true;
             }
-            //println!("  {:?}({}) r{}({}) {}..{}", active.stmt, active.live, active.reg, active.allocated, active.start, active.stop);
+            //println!("  {:?}({}) r{}({}) {}..{}", active._stmt, active.live, active.reg, active.allocated, active._start, active.stop);
 
             debug_assert!(!active.allocated || regs[active.reg as usize]);
 
@@ -187,8 +185,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
                 // new interval fits in hole?
                 if new_int.stop <= rng_start {
                     // try to free register.
-                    // again, be conservative if there are constraints.
-                    if active.allocated && constraint.is_none() {
+                    if active.allocated {
                         //println!("    new interval fits in hole; freeing register.");
                         active.allocated = false;
                         regs[active.reg as usize] = false;
@@ -213,12 +210,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
         });
 
         let reg =
-            if let Some(reg) = constraint_reg {
-                assert!(regs[reg as usize] == false);
-                regs[reg as usize] = true;
-                reg
-            }
-            else if let Some(reg) = regs.iter().position(|used| *used == false) {
+            if let Some(reg) = regs.iter().position(|used| *used == false) {
                 regs[reg] = true;
                 reg as u32
             }
@@ -227,10 +219,6 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
                 regs.push(true);
                 reg as u32
             };
-
-        if let (Some(constraint), None) = (constraint, constraint_reg) {
-            constraint_regs[constraint as usize] = Some(reg);
-        }
 
         //println!("-> r{}", reg);
 
@@ -259,6 +247,13 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
         }
         for (i, used) in regs.iter().enumerate() {
             assert!(!*used || allocated_by[i].is_some());
+        }
+    }
+
+    for stmt in fun.stmt_ids() {
+        let join = joins[stmt.usize()];
+        if join != stmt.usize() as u32 {
+            mapping[stmt.usize()] = mapping[join as usize];
         }
     }
 
@@ -313,7 +308,7 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
 
                 LoadNil             => bcb.load_nil(dst),
                 LoadBool  { value } => bcb.load_bool(dst, value),
-                LoadInt   { value: _ } => unimplemented!(),
+                LoadInt   { value } => bcb.load_int(dst, value.try_into().unwrap()),
                 LoadFloat { value: _ } => unimplemented!(),
 
                 Op1 { op: _, src: _ } => unimplemented!(),

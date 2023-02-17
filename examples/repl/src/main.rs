@@ -98,7 +98,7 @@ fn main() {
             -- --[[
 
             -- bb0
-            let a; let b; let c
+            let a = 8; let b = 9; let c = 10
 
             if true:
                 -- bb1
@@ -131,14 +131,14 @@ fn main() {
             --[[
 
             -- bb0
-            let a
-            let one
-            let n
-            let x
+            let a = 7
+            let one = 1
+            let n = 10
+            let x = 4
             -- bb1
             while x < n:
                 -- bb2
-                let y
+                let y = 0
 
                 -- bb4
                 while y < n:
@@ -154,6 +154,21 @@ fn main() {
 
             -- bb3
             --]]
+
+            -- --[[
+
+            var n = 10
+            var a = 0
+            var b = 1
+            var i = 0
+            while i < n:
+                var c = a + b
+                a = b
+                b = c
+                i += 1
+            end
+
+            --]]
         "#;
 
         let mut p = compiler::Parser::new(example.as_bytes());
@@ -161,7 +176,15 @@ fn main() {
         //println!("parsed: {:#?}", chunk);
 
         let mut c = compiler::Compiler {};
-        c.compile_chunk(chunk_source, &chunk).unwrap();
+        let (code, num_regs) = c.compile_chunk(chunk_source, &chunk).unwrap();
+
+        let mut vm = Vm::new();
+        vm.just_run_it_bro(FuncDesc {
+            code: FuncCode::ByteCode(code),
+            constants:  vec![],
+            num_params: 0,
+            stack_size: num_regs,
+        });
 
 
         if 1==1 { return }

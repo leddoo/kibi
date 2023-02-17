@@ -61,6 +61,19 @@ impl Vm {
     pub fn check_interrupt(&mut self) -> VmResult<()> {
         self.inner.check_interrupt()
     }
+
+
+    pub fn just_run_it_bro(&mut self, desc: FuncDesc) {
+        let proto = self.inner.func_protos.len();
+        self.inner.func_protos.push(FuncProto {
+            code: desc.code,
+            constants: vec![],
+            num_params: desc.num_params,
+            stack_size: desc.stack_size,
+        });
+        self.inner.push_func(proto);
+        self.inner.call(0, 0, 0).unwrap();
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1156,6 +1169,11 @@ impl VmImpl {
         let frame = self.frames.last().unwrap();
         // @todo-speed: validate in host api & compiler.
         assert!(frame.base + rets + actual_rets <= frame.top);
+
+        // @temp
+        for i in frame.base..frame.top {
+            println!("{:?}", self.stack[i as usize]);
+        }
 
         // check num_rets.
         let num_rets = frame.num_rets;
