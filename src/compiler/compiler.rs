@@ -52,11 +52,13 @@ impl CompileError {
 
 
 impl Compiler {
-    pub fn compile_chunk(&mut self, source: SourceRange, block: &ast::Block) -> CompileResult<(Vec<Instruction>, Vec<Constant>, u32)> {
+    pub fn compile_chunk(&mut self, source: SourceRange, stmts: &[Ast]) -> CompileResult<(Vec<Instruction>, Vec<Constant>, u32)> {
         let mut fun = {
             let mut ctx = Ctx::new();
             let mut fun = Function::new();
-            self.compile_block(&mut ctx, &mut fun, source, block, false)?;
+            let last_is_expr = false;
+            let needs_value  = false;
+            self.compile_block(&mut ctx, &mut fun, source, stmts, last_is_expr, needs_value)?;
 
             let nil = fun.stmt_load_nil(source);
             fun.stmt_return(source, nil);
@@ -155,7 +157,7 @@ impl Compiler {
             }
 
             AstData::Block (block) => {
-                self.compile_block(ctx, fun, ast.source, block, need_value)
+                self.compile_block(ctx, fun, ast.source, &block.children, block.last_is_expr, need_value)
             }
 
             AstData::SubExpr (sub_expr) => {
@@ -326,17 +328,17 @@ impl Compiler {
 
     pub fn compile_block<'a>(&mut self,
         ctx: &mut Ctx<'a>, fun: &mut Function,
-        block_source: SourceRange, block: &ast::Block<'a>, need_value: bool
+        block_source: SourceRange, stmts: &[Ast<'a>], last_is_expr: bool, need_value: bool
     ) -> CompileResult<Option<StmtId>> {
         let scope = ctx.begin_scope();
 
-        let mut stmts_end = block.children.len();
-        if block.last_is_expr { stmts_end -= 1 }
+        let mut stmts_end = stmts.len();
+        if last_is_expr { stmts_end -= 1 }
 
         // visit statements.
         // handle locals.
         for i in 0..stmts_end {
-            let node = &block.children[i];
+            let node = &stmts[i];
 
             // local decls.
             if let AstData::Local(local) = &node.data {
@@ -360,8 +362,8 @@ impl Compiler {
 
         // last statement (or expression).
         let result =
-            if block.last_is_expr {
-                self.compile_ast(ctx, fun, &block.children[stmts_end], need_value)?
+            if last_is_expr {
+                self.compile_ast(ctx, fun, &stmts[stmts_end], need_value)?
             }
             else if need_value {
                 let source = block_source.end.to_range();

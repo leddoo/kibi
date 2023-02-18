@@ -2,8 +2,14 @@
 - todo:
     - ssa form:
         - more compiler features:
+            - calls.
             - functions.
             - tables.
+        - repl stuff:
+            - parser: eof info for multi-line stmts.
+            - don't discard rest of buffer after parsed text.
+            - print return value.
+        - ensure all stmts with a value have a register.
         - validation:
             - args point to `StmtData::has_output`.
             - check that all args are defined in the cfg.

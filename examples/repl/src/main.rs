@@ -31,7 +31,7 @@ mod builtin {
 
 
 fn main() {
-    {
+    if 0==1 {
         let example = r#"
             -- var bar = foo(1, 2+3) / 4
             -- ( a + f ( x ) ( y ) ) ( z )
@@ -183,7 +183,7 @@ fn main() {
         //println!("parsed: {:#?}", chunk);
 
         let mut c = compiler::Compiler {};
-        let (code, constants, num_regs) = c.compile_chunk(chunk_source, &chunk).unwrap();
+        let (code, constants, num_regs) = c.compile_chunk(chunk_source, &chunk.children).unwrap();
 
         let mut vm = Vm::new();
         vm.just_run_it_bro(FuncDesc {
@@ -191,7 +191,7 @@ fn main() {
             constants,
             num_params: 0,
             stack_size: num_regs,
-        });
+        }).unwrap();
 
 
         if 1==1 { return }
@@ -239,7 +239,6 @@ fn main() {
         let t0 = std::time::Instant::now();
         let ic = vm.instruction_counter();
 
-        /*
         let ast = {
             let chunk = buffer.trim();
             if chunk.len() == 0 {
@@ -247,15 +246,19 @@ fn main() {
                 continue;
             }
 
-            match parse_single(chunk) {
-                Ok(ast) => { ast }
+            let mut p = compiler::Parser::new(chunk.as_bytes());
+            match p.parse_expr(0) {
+                Ok(ast) => ast.0,
                 Err(e) => {
-                    match e {
-                        ParseError::Eoi => {
+                    match e.data {
+                        compiler::ParseErrorData::UnexpectedEof => {
                             continue;
                         }
-                        ParseError::Error => {
-                            println!("parse error");
+                        _ => {
+                            println!("parse error at {}:{}-{}:{}: {:?}",
+                                e.source.begin.line, e.source.begin.column,
+                                e.source.end.line,   e.source.end.column,
+                                e.data);
                             buffer.clear();
                             continue;
                         }
@@ -264,16 +267,25 @@ fn main() {
             }
         };
 
-        if let Err(_) = compile_chunk(&[ast], &mut vm) {
-            println!("compile error");
-            buffer.clear();
-            continue;
+        let mut c = compiler::Compiler {};
+        let (code, constants, num_regs) = match c.compile_chunk(ast.source, &[ast]) {
+            Ok(result) => result,
+            Err(e) => {
+                println!("compile error: {:?}", e);
+                buffer.clear();
+                continue;
+            }
         };
         buffer.clear();
-        */
+
 
         running.store(true, core::sync::atomic::Ordering::SeqCst);
-        let result = vm.call();
+        let result = vm.just_run_it_bro(FuncDesc {
+            code: FuncCode::ByteCode(code),
+            constants,
+            num_params: 0,
+            stack_size: num_regs,
+        });
         running.store(false, core::sync::atomic::Ordering::SeqCst);
 
         if let Err(_) = result {

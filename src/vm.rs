@@ -64,7 +64,7 @@ impl Vm {
 
 
     // @temp
-    pub fn just_run_it_bro(&mut self, desc: FuncDesc) {
+    pub fn just_run_it_bro(&mut self, desc: FuncDesc) -> VmResult<()> {
         let constants = desc.constants.into_iter().map(|c| { match c {
             Constant::Nil              => Value::Nil,
             Constant::Bool   { value } => Value::Bool { value },
@@ -79,7 +79,7 @@ impl Vm {
             stack_size: desc.stack_size,
         });
         self.inner.push_func(proto);
-        self.inner.call(0, 0, 0).unwrap();
+        self.inner.call(0, 0, 0)
     }
 }
 
