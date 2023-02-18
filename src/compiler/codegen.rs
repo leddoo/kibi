@@ -288,7 +288,7 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
             let dst = reg(stmt.id());
 
             // @temp
-            if dst == 255 && !stmt.is_terminator() {
+            if dst == 255 && stmt.has_value() {
                 return
             }
 
@@ -310,6 +310,9 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
                 LoadBool  { value } => bcb.load_bool(dst, value),
                 LoadInt   { value } => bcb.load_int(dst, value.try_into().unwrap()),
                 LoadFloat { value: _ } => unimplemented!(),
+
+                ListNew => bcb.list_new(dst),
+                ListAppend { list, value } => bcb.list_append(reg(list), reg(value)),
 
                 Op1 { op: _, src: _ } => unimplemented!(),
 

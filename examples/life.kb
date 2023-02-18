@@ -1,0 +1,13 @@
+let list = [1, 5, 4]
+
+--[[
+fn new_board(w, h)
+    let values = [1, 5, 4]
+    var i = 0
+    while i < w*h:
+        values[i] := 0
+    end
+    return { w, h, values }
+end
+--]]
+

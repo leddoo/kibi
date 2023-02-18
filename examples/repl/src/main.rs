@@ -175,6 +175,9 @@ fn main() {
             end
         "#;
 
+        let _ = example;
+        let example = include_str!("../../life.kb");
+
         let mut p = compiler::Parser::new(example.as_bytes());
         let (chunk_source, chunk) = p.parse_block().unwrap();
         //println!("parsed: {:#?}", chunk);

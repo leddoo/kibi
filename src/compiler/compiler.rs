@@ -133,8 +133,15 @@ impl Compiler {
             }
 
             AstData::List (list) => {
-                let _ = list;
-                unimplemented!()
+                let values = &list.values;
+
+                let list = fun.add_list_new(ast.source);
+                for value in values {
+                    let v = self.compile_ast(ctx, fun, value, true)?.unwrap();
+                    fun.add_list_append(value.source, list, v);
+                }
+
+                Ok(Some(list))
             }
 
             AstData::Table (table) => {
@@ -162,7 +169,7 @@ impl Compiler {
 
             AstData::Op2 (op2) => {
                 match op2.kind {
-                    ast::Op2Kind::Assign => {
+                    ast::Op2Kind::Assign | ast::Op2Kind::Define => {
                         let value = self.compile_ast(ctx, fun, &op2.children[1], true)?.unwrap();
                         self.compile_assign(ctx, fun, &op2.children[0], value)?;
 

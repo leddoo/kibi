@@ -39,6 +39,9 @@ pub enum StmtData {
     LoadInt     { value: i64 },
     LoadFloat   { value: f64 },
 
+    ListNew,
+    ListAppend { list: StmtId, value: StmtId },
+
     Op1         { op: Op1, src: StmtId },
     Op2         { op: Op2, src1: StmtId, src2: StmtId },
 
@@ -148,7 +151,7 @@ impl StmtId {
 impl core::fmt::Display for StmtId {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "r{}", self.0)
+        write!(f, "s{}", self.0)
     }
 }
 
@@ -203,7 +206,10 @@ pub struct StmtFmt<'a>(pub &'a Stmt, pub &'a Function);
 impl<'a> core::fmt::Display for StmtFmt<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let StmtFmt (stmt, fun) = self;
-        write!(f, "{} := ", stmt.id).unwrap();
+
+        write!(f, "{} ", stmt.id)?;
+        if stmt.has_value() { write!(f, ":= ")?; }
+        else                { write!(f, "   ")?; }
 
         use StmtData::*;
         match &stmt.data {
@@ -220,6 +226,9 @@ impl<'a> core::fmt::Display for StmtFmt<'a> {
             LoadBool  { value } => { write!(f, "load_bool {}", value) }
             LoadInt   { value } => { write!(f, "load_int {}", value) }
             LoadFloat { value } => { write!(f, "load_float {}", value) }
+
+            ListNew => { write!(f, "new_list") }
+            ListAppend { list, value } => { write!(f, "list_append {}, {}", list, value) }
 
             Op1 { op, src }        => { write!(f, "{} {}",     op.str(), src) }
             Op2 { op, src1, src2 } => { write!(f, "{} {}, {}", op.str(), src1, src2) }
@@ -258,6 +267,8 @@ impl StmtData {
             LoadBool { value: _ } |
             LoadInt { value: _ } |
             LoadFloat { value: _ } |
+            ListNew |
+            ListAppend { list: _, value: _ } |
             Op1 { op: _, src: _ } |
             Op2 { op: _, src1: _, src2: _ } |
             SetLocal { dst: _, src: _ } => false,
@@ -275,10 +286,12 @@ impl StmtData {
             LoadBool { value: _ } |
             LoadInt { value: _ } |
             LoadFloat { value: _ } |
+            ListNew |
             Op1 { op: _, src: _ } |
             Op2 { op: _, src1: _, src2: _ } => true,
 
             SetLocal { dst: _, src: _ } |
+            ListAppend { list: _, value: _ } |
             Jump { target: _ } |
             SwitchBool { src: _, on_true: _, on_false: _ } |
             Return { src: _ } => false,
@@ -300,6 +313,9 @@ impl StmtData {
             LoadBool  { value: _ } |
             LoadInt   { value: _ } |
             LoadFloat { value: _ } => (),
+
+            ListNew => (),
+            ListAppend { list, value } => { f(*list); f(*value) }
 
             Op1 { op: _, src }        => { f(*src) }
             Op2 { op: _, src1, src2 } => { f(*src1); f(*src2) }
@@ -331,6 +347,8 @@ impl StmtData {
             LoadInt   { value: _ } |
             LoadFloat { value: _ } => (),
 
+            ListNew => (),
+            ListAppend { list, value } => { f(fun, list); f(fun, value) }
 
             Op1 { op: _, src }        => { f(fun, src) }
             Op2 { op: _, src1, src2 } => { f(fun, src1); f(fun, src2) }
@@ -797,6 +815,16 @@ impl Function {
     #[inline]
     pub fn add_load_float(&mut self, source: SourceRange, value: f64) -> StmtId {
         self.add_stmt(source, StmtData::LoadFloat { value })
+    }
+
+    #[inline]
+    pub fn add_list_new(&mut self, source: SourceRange) -> StmtId {
+        self.add_stmt(source, StmtData::ListNew)
+    }
+
+    #[inline]
+    pub fn add_list_append(&mut self, source: SourceRange, list: StmtId, value: StmtId) -> StmtId {
+        self.add_stmt(source, StmtData::ListAppend { list, value })
     }
 
     #[inline]

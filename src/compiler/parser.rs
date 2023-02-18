@@ -71,8 +71,9 @@ pub enum TokenData<'a> {
     OpSlashEq,
     OpSlashSlash,
     OpSlashSlashEq,
-    OpEq,
     FatArrow,
+    ColonEq,
+    OpEq,
     OpEqEq,
     OpNe,
     OpLe,
@@ -81,7 +82,7 @@ pub enum TokenData<'a> {
     OpGt,
     OpNot,
     OpQ,
-    QDot,
+    OpQDot,
     OpQQ,
     OpQQEq,
 }
@@ -111,9 +112,9 @@ impl<'a> TokenData<'a> {
             OpStar | OpStarEq |
             OpSlash | OpSlashEq |
             OpSlashSlash | OpSlashSlashEq |
-            OpEq | FatArrow |
-            OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
-            OpQ | QDot | OpQQ | OpQQEq |
+            FatArrow | ColonEq |
+            OpEq | OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
+            OpQ | OpQDot | OpQQ | OpQQEq |
             OpNot | KwNot |
             Eof | Error
             => false,
@@ -148,9 +149,9 @@ impl<'a> TokenData<'a> {
             OpStar | OpStarEq |
             OpSlash | OpSlashEq |
             OpSlashSlash | OpSlashSlashEq |
-            OpEq | FatArrow |
-            OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
-            OpQ | QDot | OpQQ | OpQQEq |
+            FatArrow | ColonEq |
+            OpEq | OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
+            OpQ | OpQDot | OpQQ | OpQQEq |
             Error
             => false,
         }
@@ -204,9 +205,9 @@ impl<'a> TokenData<'a> {
             KwAnd | KwOr |
             OpPlusEq | OpMinusEq | OpStarEq |
             OpSlash | OpSlashEq | OpSlashSlash | OpSlashSlashEq |
-            OpEq | FatArrow |
-            OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
-            OpQ | QDot | OpQQ | OpQQEq
+            FatArrow | ColonEq |
+            OpEq | OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
+            OpQ | OpQDot | OpQQ | OpQQEq
             => false
         }
     }
@@ -447,7 +448,7 @@ impl<'i> Tokenizer<'i> {
 
             '.' => tok_1!(TokenData::Dot),
             ',' => tok_1!(TokenData::Comma),
-            ':' => tok_1!(TokenData::Colon),
+            ':' => tok_2!(TokenData::Colon, '=', TokenData::ColonEq),
             ';' => tok_1!(TokenData::SemiColon),
             '?' => {
                 self.consume_ch(1);
@@ -465,7 +466,7 @@ impl<'i> Tokenizer<'i> {
                 }
                 else if self.peek_ch_zero(0) == '.' as u8 {
                     self.consume_ch(1);
-                    return self.mk_token(begin_pos, TokenData::QDot);
+                    return self.mk_token(begin_pos, TokenData::OpQDot);
                 }
                 else {
                     return self.mk_token(begin_pos, TokenData::OpQ);
@@ -699,6 +700,7 @@ pub mod ast {
         Op2       (super::Op2),
         Op2Assign (super::Op2),
         Assign,
+        Define,
     }
 
     impl Op2Kind {
@@ -707,8 +709,9 @@ pub mod ast {
             use Op2Kind::*;
             use super::Op2::*;
             match self {
-                Assign          => 100,
-                Op2Assign(_)    => 100,
+                Assign             => 100,
+                Define             => 100,
+                Op2Assign(_)       => 100,
                 Op2(op) => match op {
                     OrElse      => 150,
                     Or          => 200,
@@ -733,8 +736,9 @@ pub mod ast {
             use Op2Kind::*;
             use super::Op2::*;
             match self {
-                Assign          => 100,
-                Op2Assign(_)    => 100,
+                Assign                 => 100,
+                Define                 => 100,
+                Op2Assign(_)           => 100,
                 Op2(op) => match op {
                     OrElse          => 151,
                     Or              => 201,
@@ -885,6 +889,7 @@ impl<'i> Parser<'i> {
             OpSlashEq       => ast::Op2Kind::Op2Assign(Div),
             OpSlashSlash    => ast::Op2Kind::Op2(IntDiv),
             OpSlashSlashEq  => ast::Op2Kind::Op2Assign(IntDiv),
+            ColonEq         => ast::Op2Kind::Define,
             OpEq            => ast::Op2Kind::Assign,
             OpEqEq          => ast::Op2Kind::Op2(CmpEq),
             OpNe            => ast::Op2Kind::Op2(CmpNe),
@@ -1183,7 +1188,7 @@ impl<'i> Parser<'i> {
             }
 
             // opt-chain.
-            if current.data == TokenData::QDot {
+            if current.data == TokenData::OpQDot {
                 self.toker.next();
 
                 let name = self.expect_ident()?;

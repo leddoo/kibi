@@ -3,10 +3,11 @@
     - ssa form:
         - more compiler features:
             - constants.
-            - functions.
-            - lists.
-            - tables.
             - globals.
+            - define.
+            - indexing.
+            - functions.
+            - tables.
         - validation:
             - args point to `StmtData::has_output`.
             - check that all args are defined in the cfg.
