@@ -58,8 +58,8 @@ impl Compiler {
             let mut fun = Function::new();
             self.compile_block(&mut ctx, &mut fun, source, block, false)?;
 
-            let nil = fun.add_load_nil(source);
-            fun.add_return(source, nil);
+            let nil = fun.stmt_load_nil(source);
+            fun.stmt_return(source, nil);
 
             fun.dump();
             fun
@@ -102,26 +102,26 @@ impl Compiler {
     ) -> CompileResult<Option<StmtId>> {
         match &ast.data {
             AstData::Nil => {
-                Ok(Some(fun.add_load_nil(ast.source)))
+                Ok(Some(fun.stmt_load_nil(ast.source)))
             }
 
             AstData::Bool (value) => {
-                Ok(Some(fun.add_load_bool(ast.source, *value)))
+                Ok(Some(fun.stmt_load_bool(ast.source, *value)))
             }
 
             AstData::Number (value) => {
                 let value = value.parse().unwrap();
-                Ok(Some(fun.add_load_int(ast.source, value)))
+                Ok(Some(fun.stmt_load_int(ast.source, value)))
             }
 
             AstData::QuotedString (value) => {
                 let string = fun.add_string(value);
-                Ok(Some(fun.add_load_string(ast.source, string)))
+                Ok(Some(fun.stmt_load_string(ast.source, string)))
             }
 
             AstData::Ident (name) => {
                 Ok(Some(if let Some(decl) = ctx.find_decl(name) {
-                    fun.add_get_local(ast.source, decl.id)
+                    fun.stmt_get_local(ast.source, decl.id)
                 }
                 else {
                     unimplemented!()
@@ -136,10 +136,10 @@ impl Compiler {
             AstData::List (list) => {
                 let values = &list.values;
 
-                let list = fun.add_list_new(ast.source);
+                let list = fun.stmt_list_new(ast.source);
                 for value in values {
                     let v = self.compile_ast(ctx, fun, value, true)?.unwrap();
-                    fun.add_list_append(value.source, list, v);
+                    fun.stmt_list_append(value.source, list, v);
                 }
 
                 Ok(Some(list))
@@ -165,7 +165,7 @@ impl Compiler {
             AstData::Op1 (op1) => {
                 let src = self.compile_ast(ctx, fun, &op1.child, true)?.unwrap();
                 let op  = op1.kind.0;
-                Ok(Some(fun.add_op1(ast.source, op, src)))
+                Ok(Some(fun.stmt_op1(ast.source, op, src)))
             }
 
             AstData::Op2 (op2) => {
@@ -175,7 +175,7 @@ impl Compiler {
                         self.compile_assign(ctx, fun, &op2.children[0], value)?;
 
                         Ok(if need_value {
-                            Some(fun.add_load_nil(ast.source))
+                            Some(fun.stmt_load_nil(ast.source))
                         }
                         else { None })
                     }
@@ -184,11 +184,11 @@ impl Compiler {
                         let src1 = self.compile_ast(ctx, fun, &op2.children[0], true)?.unwrap();
                         let src2 = self.compile_ast(ctx, fun, &op2.children[1], true)?.unwrap();
 
-                        let value = fun.add_op2(ast.source, op, src1, src2);
+                        let value = fun.stmt_op2(ast.source, op, src1, src2);
                         self.compile_assign(ctx, fun, &op2.children[0], value)?;
 
                         Ok(if need_value {
-                            Some(fun.add_load_nil(ast.source))
+                            Some(fun.stmt_load_nil(ast.source))
                         }
                         else { None })
                     }
@@ -196,7 +196,7 @@ impl Compiler {
                     ast::Op2Kind::Op2(op) => {
                         let src1 = self.compile_ast(ctx, fun, &op2.children[0], true)?.unwrap();
                         let src2 = self.compile_ast(ctx, fun, &op2.children[1], true)?.unwrap();
-                        Ok(Some(fun.add_op2(ast.source, op, src1, src2)))
+                        Ok(Some(fun.stmt_op2(ast.source, op, src1, src2)))
                     }
                 }
             }
@@ -228,13 +228,13 @@ impl Compiler {
 
                 // condition.
                 let cond = self.compile_ast(ctx, fun, &iff.condition, true)?.unwrap();
-                fun.add_switch_bool(ast.source, cond, bb_true, bb_false);
+                fun.stmt_switch_bool(ast.source, cond, bb_true, bb_false);
 
 
                 // on_true
                 fun.set_current_block(bb_true);
                 let value_true = self.compile_ast(ctx, fun, &iff.on_true, need_value)?;
-                fun.add_jump(iff.on_true.source.end.to_range(), after_if);
+                fun.stmt_jump(iff.on_true.source.end.to_range(), after_if);
                 let bb_true = fun.get_current_block();
 
 
@@ -247,7 +247,7 @@ impl Compiler {
                     }
                     else {
                         let source = ast.source.end.to_range();
-                        let v = need_value.then(|| fun.add_load_nil(source));
+                        let v = need_value.then(|| fun.stmt_load_nil(source));
                         (v, source)
                     };
                 fun.add_stmt(on_false_src, StmtData::Jump { target: after_if });
@@ -256,7 +256,7 @@ impl Compiler {
 
                 fun.set_current_block(after_if);
                 if need_value {
-                    let result = fun.add_phi(ast.source, &[
+                    let result = fun.stmt_phi(ast.source, &[
                         (bb_true,  value_true.unwrap()),
                         (bb_false, value_false.unwrap()),
                     ]);
@@ -270,24 +270,24 @@ impl Compiler {
                 let bb_body  = fun.new_block();
                 let bb_after = fun.new_block();
 
-                fun.add_jump(ast.source, bb_head);
+                fun.stmt_jump(ast.source, bb_head);
 
 
                 // head.
                 fun.set_current_block(bb_head);
                 let cond = self.compile_ast(ctx, fun, &whilee.condition, true)?.unwrap();
-                fun.add_switch_bool(ast.source, cond, bb_body, bb_after);
+                fun.stmt_switch_bool(ast.source, cond, bb_body, bb_after);
                 let bb_head = fun.get_current_block();
 
 
                 // body.
                 fun.set_current_block(bb_body);
                 self.compile_ast(ctx, fun, &whilee.body, false)?;
-                fun.add_jump(ast.source, bb_head);
+                fun.stmt_jump(ast.source, bb_head);
 
 
                 fun.set_current_block(bb_after);
-                Ok(need_value.then(|| fun.add_load_nil(ast.source)))
+                Ok(need_value.then(|| fun.stmt_load_nil(ast.source)))
             }
 
             AstData::Break => {
@@ -334,9 +334,9 @@ impl Compiler {
                         self.compile_ast(ctx, fun, value, true)?.unwrap()
                     }
                     else {
-                        fun.add_load_nil(node.source)
+                        fun.stmt_load_nil(node.source)
                     };
-                fun.add_set_local(node.source, lid, v);
+                fun.stmt_set_local(node.source, lid, v);
             }
             else {
                 self.compile_ast(ctx, fun, node, false)?;
@@ -366,7 +366,7 @@ impl Compiler {
         match &ast.data {
             AstData::Ident (name) => {
                 if let Some(decl) = ctx.find_decl(name) {
-                    fun.add_set_local(ast.source, decl.id, value);
+                    fun.stmt_set_local(ast.source, decl.id, value);
                 }
                 else {
                     unimplemented!()

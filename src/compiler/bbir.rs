@@ -804,83 +804,83 @@ impl Function {
 
 
     #[inline]
-    pub fn add_copy(&mut self, source: SourceRange, src: StmtId) -> StmtId {
+    pub fn stmt_copy(&mut self, source: SourceRange, src: StmtId) -> StmtId {
         self.add_stmt(source, StmtData::Copy { src })
     }
 
-    pub fn add_phi(&mut self, source: SourceRange, map: &[(BlockId, StmtId)]) -> StmtId {
+    pub fn stmt_phi(&mut self, source: SourceRange, map: &[(BlockId, StmtId)]) -> StmtId {
         let map_id = PhiMapId(self.phi_maps.len() as u32);
         self.phi_maps.push(PhiMapImpl { map: map.into() });
         self.add_stmt(source, StmtData::Phi { map_id })
     }
 
     #[inline]
-    pub fn add_get_local(&mut self, source: SourceRange, src: LocalId) -> StmtId {
+    pub fn stmt_get_local(&mut self, source: SourceRange, src: LocalId) -> StmtId {
         self.add_stmt(source, StmtData::GetLocal { src })
     }
 
     #[inline]
-    pub fn add_set_local(&mut self, source: SourceRange, dst: LocalId, src: StmtId) -> StmtId {
+    pub fn stmt_set_local(&mut self, source: SourceRange, dst: LocalId, src: StmtId) -> StmtId {
         self.add_stmt(source, StmtData::SetLocal { dst, src })
     }
 
     #[inline]
-    pub fn add_load_nil(&mut self, source: SourceRange) -> StmtId {
+    pub fn stmt_load_nil(&mut self, source: SourceRange) -> StmtId {
         self.add_stmt(source, StmtData::LoadNil)
     }
 
     #[inline]
-    pub fn add_load_bool(&mut self, source: SourceRange, value: bool) -> StmtId {
+    pub fn stmt_load_bool(&mut self, source: SourceRange, value: bool) -> StmtId {
         self.add_stmt(source, StmtData::LoadBool { value })
     }
 
     #[inline]
-    pub fn add_load_int(&mut self, source: SourceRange, value: i64) -> StmtId {
+    pub fn stmt_load_int(&mut self, source: SourceRange, value: i64) -> StmtId {
         self.add_stmt(source, StmtData::LoadInt { value })
     }
 
     #[inline]
-    pub fn add_load_float(&mut self, source: SourceRange, value: f64) -> StmtId {
+    pub fn stmt_load_float(&mut self, source: SourceRange, value: f64) -> StmtId {
         self.add_stmt(source, StmtData::LoadFloat { value })
     }
 
     #[inline]
-    pub fn add_load_string(&mut self, source: SourceRange, id: StringId) -> StmtId {
+    pub fn stmt_load_string(&mut self, source: SourceRange, id: StringId) -> StmtId {
         self.add_stmt(source, StmtData::LoadString { id })
     }
 
     #[inline]
-    pub fn add_list_new(&mut self, source: SourceRange) -> StmtId {
+    pub fn stmt_list_new(&mut self, source: SourceRange) -> StmtId {
         self.add_stmt(source, StmtData::ListNew)
     }
 
     #[inline]
-    pub fn add_list_append(&mut self, source: SourceRange, list: StmtId, value: StmtId) -> StmtId {
+    pub fn stmt_list_append(&mut self, source: SourceRange, list: StmtId, value: StmtId) -> StmtId {
         self.add_stmt(source, StmtData::ListAppend { list, value })
     }
 
     #[inline]
-    pub fn add_op1(&mut self, source: SourceRange, op: Op1, src: StmtId) -> StmtId {
+    pub fn stmt_op1(&mut self, source: SourceRange, op: Op1, src: StmtId) -> StmtId {
         self.add_stmt(source, StmtData::Op1 { op, src })
     }
 
     #[inline]
-    pub fn add_op2(&mut self, source: SourceRange, op: Op2, src1: StmtId, src2: StmtId) -> StmtId {
+    pub fn stmt_op2(&mut self, source: SourceRange, op: Op2, src1: StmtId, src2: StmtId) -> StmtId {
         self.add_stmt(source, StmtData::Op2 { op, src1, src2 })
     }
 
     #[inline]
-    pub fn add_jump(&mut self, source: SourceRange, target: BlockId) -> StmtId {
+    pub fn stmt_jump(&mut self, source: SourceRange, target: BlockId) -> StmtId {
         self.add_stmt(source, StmtData::Jump { target })
     }
 
     #[inline]
-    pub fn add_switch_bool(&mut self, source: SourceRange, src: StmtId, on_true: BlockId, on_false: BlockId) -> StmtId {
+    pub fn stmt_switch_bool(&mut self, source: SourceRange, src: StmtId, on_true: BlockId, on_false: BlockId) -> StmtId {
         self.add_stmt(source, StmtData::SwitchBool { src, on_true, on_false })
     }
 
     #[inline]
-    pub fn add_return(&mut self, source: SourceRange, src: StmtId) -> StmtId {
+    pub fn stmt_return(&mut self, source: SourceRange, src: StmtId) -> StmtId {
         self.add_stmt(source, StmtData::Return { src })
     }
 }
