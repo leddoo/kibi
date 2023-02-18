@@ -22,7 +22,7 @@ impl Vm {
             Constant::Nil              => Value::Nil,
             Constant::Bool   { value } => Value::Bool { value },
             Constant::Number { value } => Value::Number { value },
-            Constant::String { value } => self.inner.string_new(value),
+            Constant::String { value } => self.inner.string_new(&value),
         }}).collect();
 
         self.inner.add_func(name, FuncProto {
@@ -63,11 +63,18 @@ impl Vm {
     }
 
 
+    // @temp
     pub fn just_run_it_bro(&mut self, desc: FuncDesc) {
+        let constants = desc.constants.into_iter().map(|c| { match c {
+            Constant::Nil              => Value::Nil,
+            Constant::Bool   { value } => Value::Bool { value },
+            Constant::Number { value } => Value::Number { value },
+            Constant::String { value } => self.inner.string_new(&value),
+        }}).collect();
         let proto = self.inner.func_protos.len();
         self.inner.func_protos.push(FuncProto {
             code: desc.code,
-            constants: vec![],
+            constants,
             num_params: desc.num_params,
             stack_size: desc.stack_size,
         });

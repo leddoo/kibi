@@ -38,6 +38,7 @@ pub enum StmtData {
     LoadBool    { value: bool },
     LoadInt     { value: i64 },
     LoadFloat   { value: f64 },
+    LoadString  { id: StringId },
 
     ListNew,
     ListAppend { list: StmtId, value: StmtId },
@@ -114,10 +115,14 @@ pub struct Function {
     phi_maps:   Vec<PhiMapImpl>,
     blocks:     Vec<Block>,
     locals:     Vec<Local>,
+    strings:    Vec<String>,
 
     local_cursor:  OptStmtId,
     current_block: BlockId,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StringId(u32);
 
 
 
@@ -226,6 +231,7 @@ impl<'a> core::fmt::Display for StmtFmt<'a> {
             LoadBool  { value } => { write!(f, "load_bool {}", value) }
             LoadInt   { value } => { write!(f, "load_int {}", value) }
             LoadFloat { value } => { write!(f, "load_float {}", value) }
+            LoadString { id }   => { write!(f, "load_string {:?}", fun.strings[id.usize()]) }
 
             ListNew => { write!(f, "new_list") }
             ListAppend { list, value } => { write!(f, "list_append {}, {}", list, value) }
@@ -267,6 +273,7 @@ impl StmtData {
             LoadBool { value: _ } |
             LoadInt { value: _ } |
             LoadFloat { value: _ } |
+            LoadString { id: _ } |
             ListNew |
             ListAppend { list: _, value: _ } |
             Op1 { op: _, src: _ } |
@@ -286,6 +293,7 @@ impl StmtData {
             LoadBool { value: _ } |
             LoadInt { value: _ } |
             LoadFloat { value: _ } |
+            LoadString { id: _ } |
             ListNew |
             Op1 { op: _, src: _ } |
             Op2 { op: _, src1: _, src2: _ } => true,
@@ -312,7 +320,8 @@ impl StmtData {
             LoadNil |
             LoadBool  { value: _ } |
             LoadInt   { value: _ } |
-            LoadFloat { value: _ } => (),
+            LoadFloat { value: _ } |
+            LoadString { id: _ } => (),
 
             ListNew => (),
             ListAppend { list, value } => { f(*list); f(*value) }
@@ -345,7 +354,8 @@ impl StmtData {
             LoadNil |
             LoadBool  { value: _ } |
             LoadInt   { value: _ } |
-            LoadFloat { value: _ } => (),
+            LoadFloat { value: _ } |
+            LoadString { id: _ } => (),
 
             ListNew => (),
             ListAppend { list, value } => { f(fun, list); f(fun, value) }
@@ -516,6 +526,7 @@ impl Function {
             blocks:     vec![],
             phi_maps:   vec![],
             locals:     vec![],
+            strings:    vec![],
             local_cursor:  None.into(),
             current_block: BlockId::ROOT,
         };
@@ -550,6 +561,22 @@ impl Function {
 
     #[inline(always)]
     pub fn num_locals(&self) -> usize { self.locals.len() }
+
+
+    #[inline(always)]
+    pub fn num_strings(&self) -> usize { self.strings.len() }
+
+    pub fn add_string(&mut self, value: &str) -> StringId {
+        let found = self.strings.iter().position(|s| s == value);
+        if let Some(index) = found {
+            StringId(index as u32)
+        }
+        else {
+            let id = self.strings.len() as u32;
+            self.strings.push(value.into());
+            StringId(id)
+        }
+    }
 }
 
 
@@ -818,6 +845,11 @@ impl Function {
     }
 
     #[inline]
+    pub fn add_load_string(&mut self, source: SourceRange, id: StringId) -> StmtId {
+        self.add_stmt(source, StmtData::LoadString { id })
+    }
+
+    #[inline]
     pub fn add_list_new(&mut self, source: SourceRange) -> StmtId {
         self.add_stmt(source, StmtData::ListNew)
     }
@@ -1075,6 +1107,22 @@ impl Function {
             println!("{}:", bb);
             self.block_stmts(bb, |stmt| println!("  {}", stmt.fmt(self)));
         }
+    }
+}
+
+
+impl StringId {
+    #[inline(always)]
+    pub fn usize(self) -> usize { self.0 as usize }
+
+    #[inline(always)]
+    pub fn from_usize(index: usize) -> StringId {
+        StringId(index.try_into().unwrap())
+    }
+
+    #[inline(always)]
+    pub fn get<'f>(self, fun: &'f Function) -> &'f str {
+        &fun.strings[self.usize()]
     }
 }
 

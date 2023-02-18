@@ -1,4 +1,5 @@
 use crate::bytecode::Instruction;
+use crate::value::Constant;
 use super::*;
 
 
@@ -51,7 +52,7 @@ impl CompileError {
 
 
 impl Compiler {
-    pub fn compile_chunk(&mut self, source: SourceRange, block: &ast::Block) -> CompileResult<(Vec<Instruction>, u32)> {
+    pub fn compile_chunk(&mut self, source: SourceRange, block: &ast::Block) -> CompileResult<(Vec<Instruction>, Vec<Constant>, u32)> {
         let mut fun = {
             let mut ctx = Ctx::new();
             let mut fun = Function::new();
@@ -88,11 +89,11 @@ impl Compiler {
         fun.dump();
 
 
-        let (code, num_regs) = fun.compile_mut_ex(&post_order, &idoms, &dom_tree);
+        let (code, constants, num_regs) = fun.compile_mut_ex(&post_order, &idoms, &dom_tree);
         println!("bytecode:");
         crate::bytecode::dump(&code);
 
-        Ok((code, num_regs))
+        Ok((code, constants, num_regs))
     }
 
     pub fn compile_ast<'a>(&mut self,
@@ -114,8 +115,8 @@ impl Compiler {
             }
 
             AstData::QuotedString (value) => {
-                let _ = value;
-                unimplemented!()
+                let string = fun.add_string(value);
+                Ok(Some(fun.add_load_string(ast.source, string)))
             }
 
             AstData::Ident (name) => {

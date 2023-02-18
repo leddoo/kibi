@@ -183,12 +183,12 @@ fn main() {
         //println!("parsed: {:#?}", chunk);
 
         let mut c = compiler::Compiler {};
-        let (code, num_regs) = c.compile_chunk(chunk_source, &chunk).unwrap();
+        let (code, constants, num_regs) = c.compile_chunk(chunk_source, &chunk).unwrap();
 
         let mut vm = Vm::new();
         vm.just_run_it_bro(FuncDesc {
             code: FuncCode::ByteCode(code),
-            constants:  vec![],
+            constants,
             num_params: 0,
             stack_size: num_regs,
         });

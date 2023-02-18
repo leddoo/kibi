@@ -99,18 +99,20 @@ impl FuncCode {
 
 
 
+// @temp: move to kbtf.
+
 #[derive(Clone, Debug)]
-pub enum Constant<'c> {
+pub enum Constant {
     Nil,
     Bool   { value: bool    },
     Number { value: f64     },
-    String { value: &'c str },
+    String { value: String },
 }
 
 #[derive(Clone, Debug)]
-pub struct FuncDesc<'c> {
+pub struct FuncDesc {
     pub code:       FuncCode,
-    pub constants:  Vec<Constant<'c>>,
+    pub constants:  Vec<Constant>,
     pub num_params: u32,
     pub stack_size: u32,
 }

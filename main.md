@@ -2,7 +2,7 @@
 - todo:
     - ssa form:
         - more compiler features:
-            - constants.
+            - `add_*` -> `stmt_*`.
             - globals.
             - define.
             - indexing.

@@ -1,9 +1,10 @@
 use crate::bytecode::Instruction;
+use crate::Constant;
 use super::*;
 
 
 impl Function {
-    pub fn compile_mut_ex(&mut self, post_order: &PostOrder, idoms: &ImmediateDominators, dom_tree: &DomTree) -> (Vec<Instruction>, u32) {
+    pub fn compile_mut_ex(&mut self, post_order: &PostOrder, idoms: &ImmediateDominators, dom_tree: &DomTree) -> (Vec<Instruction>, Vec<Constant>, u32) {
         // insert phi copies.
         {
             for bb in self.block_ids() {
@@ -36,9 +37,9 @@ impl Function {
 
         let regs = alloc_regs_linear_scan(self, &live_intervals);
 
-        let code = generate_bytecode(self, &block_order, &regs);
+        let (code, constants) = generate_bytecode(self, &block_order, &regs);
 
-        (code, regs.num_regs)
+        (code, constants, regs.num_regs)
     }
 }
 
@@ -262,7 +263,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
 }
 
 
-pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &RegisterAllocation) -> Vec<Instruction> {
+pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &RegisterAllocation) -> (Vec<Instruction>, Vec<Constant>) {
     assert_eq!(block_order[0], BlockId::ROOT);
     assert_eq!(block_order[1], BlockId::REAL_ENTRY);
 
@@ -275,6 +276,13 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
     let mut block_offsets = vec![u16::MAX; fun.num_blocks()];
 
     let mut bcb = crate::bytecode::ByteCodeBuilder::new();
+
+    // @temp: constants builder (dedup).
+    // @temp: @strings-first.
+    let mut constants = vec![];
+    for i in 0..fun.num_strings() {
+        constants.push(Constant::String { value: StringId::from_usize(i).get(fun).into() });
+    }
 
     for (block_index, bb) in block_order.iter().enumerate() {
         block_offsets[bb.usize()] = bcb.current_offset() as u16;
@@ -308,8 +316,29 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
 
                 LoadNil             => bcb.load_nil(dst),
                 LoadBool  { value } => bcb.load_bool(dst, value),
-                LoadInt   { value } => bcb.load_int(dst, value.try_into().unwrap()),
-                LoadFloat { value: _ } => unimplemented!(),
+
+                LoadInt { value } => {
+                    if let Ok(v) = value.try_into() {
+                        bcb.load_int(dst, v);
+                    }
+                    else {
+                        // @temp: integers.
+                        let c = constants.len();
+                        constants.push(Constant::Number { value: value as f64 });
+                        bcb.load_const(dst, c as u16);
+                    }
+                }
+
+                LoadFloat { value } => {
+                    let c = constants.len();
+                    constants.push(Constant::Number { value });
+                    bcb.load_const(dst, c as u16);
+                }
+
+                LoadString { id } => {
+                    // @strings-first.
+                    bcb.load_const(dst, id.usize() as u16);
+                }
 
                 ListNew => bcb.list_new(dst),
                 ListAppend { list, value } => bcb.list_append(reg(list), reg(value)),
@@ -398,6 +427,6 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
         }
     }
 
-    code
+    (code, constants)
 }
 
