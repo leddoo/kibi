@@ -120,12 +120,16 @@ impl Compiler {
             }
 
             AstData::Ident (name) => {
-                Ok(Some(if let Some(decl) = ctx.find_decl(name) {
-                    fun.stmt_get_local(ast.source, decl.id)
+                if let Some(decl) = ctx.find_decl(name) {
+                    Ok(Some(fun.stmt_get_local(ast.source, decl.id)))
                 }
                 else {
-                    unimplemented!()
-                }))
+                    // @todo-opt: get_global.
+                    let env = fun.stmt_load_env(ast.source);
+                    let name = fun.add_string(name);
+                    let name = fun.stmt_load_string(ast.source, name);
+                    Ok(Some(fun.stmt_get_index(ast.source, env, name)))
+                }
             }
 
             AstData::Tuple (tuple) => {
@@ -172,7 +176,8 @@ impl Compiler {
                 match op2.kind {
                     ast::Op2Kind::Assign | ast::Op2Kind::Define => {
                         let value = self.compile_ast(ctx, fun, &op2.children[1], true)?.unwrap();
-                        self.compile_assign(ctx, fun, &op2.children[0], value)?;
+                        let is_define = op2.kind == ast::Op2Kind::Define;
+                        self.compile_assign(ctx, fun, &op2.children[0], value, is_define)?;
 
                         Ok(if need_value {
                             Some(fun.stmt_load_nil(ast.source))
@@ -185,7 +190,8 @@ impl Compiler {
                         let src2 = self.compile_ast(ctx, fun, &op2.children[1], true)?.unwrap();
 
                         let value = fun.stmt_op2(ast.source, op, src1, src2);
-                        self.compile_assign(ctx, fun, &op2.children[0], value)?;
+                        let is_define = false;
+                        self.compile_assign(ctx, fun, &op2.children[0], value, is_define)?;
 
                         Ok(if need_value {
                             Some(fun.stmt_load_nil(ast.source))
@@ -202,8 +208,11 @@ impl Compiler {
             }
 
             AstData::Field (field) => {
-                let _ = field;
-                unimplemented!()
+                // @todo-opt: get_field?
+                let base  = self.compile_ast(ctx, fun, &field.base, true)?.unwrap();
+                let index = fun.add_string(field.name);
+                let index = fun.stmt_load_string(ast.source, index);
+                Ok(Some(fun.stmt_get_index(ast.source, base, index)))
             }
 
             AstData::OptChain (opt_chain) => {
@@ -212,8 +221,9 @@ impl Compiler {
             }
 
             AstData::Index (index) => {
-                let _ = index;
-                unimplemented!()
+                let base  = self.compile_ast(ctx, fun, &index.base,  true)?.unwrap();
+                let index = self.compile_ast(ctx, fun, &index.index, true)?.unwrap();
+                Ok(Some(fun.stmt_get_index(ast.source, base, index)))
             }
 
             AstData::Call (call) => {
@@ -366,7 +376,7 @@ impl Compiler {
 
     pub fn compile_assign<'a>(&mut self,
         ctx: &mut Ctx<'a>, fun: &mut Function,
-        ast: &Ast<'a>, value: StmtId) -> CompileResult<()>
+        ast: &Ast<'a>, value: StmtId, is_define: bool) -> CompileResult<()>
     {
         match &ast.data {
             AstData::Ident (name) => {
@@ -374,20 +384,34 @@ impl Compiler {
                     fun.stmt_set_local(ast.source, decl.id, value);
                 }
                 else {
-                    unimplemented!()
+                    // @temp: compile error.
+                    assert!(is_define == false);
+
+                    // @todo-opt: set_global.
+                    let env = fun.stmt_load_env(ast.source);
+                    let name = fun.add_string(name);
+                    let name = fun.stmt_load_string(ast.source, name);
+                    fun.stmt_set_index(ast.source, env, name, value, false);
                 }
 
                 Ok(())
             }
 
             AstData::Field (field) => {
-                let _ = field;
-                unimplemented!()
+                // @todo-opt: set_field?
+                let base  = self.compile_ast(ctx, fun, &field.base, true)?.unwrap();
+                let index = fun.add_string(field.name);
+                let index = fun.stmt_load_string(ast.source, index);
+                fun.stmt_set_index(ast.source, base, index, value, is_define);
+                Ok(())
             }
 
             AstData::Index (index) => {
-                let _ = index;
-                unimplemented!()
+                let base  = self.compile_ast(ctx, fun, &index.base, true)?.unwrap();
+                let index = self.compile_ast(ctx, fun, &index.index, true)?.unwrap();
+                fun.stmt_set_index(ast.source, base, index, value, is_define);
+
+                Ok(())
             }
 
             _ => Err(CompileError::at(ast, CompileErrorData::InvalidAssignTarget)),

@@ -2,8 +2,6 @@
 - todo:
     - ssa form:
         - more compiler features:
-            - define, indexing.
-                - don't allow defining globals. only via `ENV.name := value`.
             - functions.
             - tables.
         - validation:

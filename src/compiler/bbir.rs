@@ -44,6 +44,9 @@ pub enum StmtData {
     ListNew,
     ListAppend { list: StmtId, value: StmtId },
 
+    GetIndex { base: StmtId, index: StmtId },
+    SetIndex { base: StmtId, index: StmtId, value: StmtId, is_define: bool },
+
     Op1         { op: Op1, src: StmtId },
     Op2         { op: Op2, src1: StmtId, src2: StmtId },
 
@@ -238,6 +241,13 @@ impl<'a> core::fmt::Display for StmtFmt<'a> {
             ListNew => { write!(f, "new_list") }
             ListAppend { list, value } => { write!(f, "list_append {}, {}", list, value) }
 
+            GetIndex { base, index } => write!(f, "get_index {}, {}", base, index),
+
+            SetIndex { base, index, value, is_define } => {
+                if *is_define { write!(f, "def_index {}, {}, {}", base, index, value) }
+                else          { write!(f, "set_index {}, {}, {}", base, index, value) }
+            }
+
             Op1 { op, src }        => { write!(f, "{} {}",     op.str(), src) }
             Op2 { op, src1, src2 } => { write!(f, "{} {}, {}", op.str(), src1, src2) }
 
@@ -280,6 +290,8 @@ impl StmtData {
             LoadEnv |
             ListNew |
             ListAppend { list: _, value: _ } |
+            GetIndex { base: _, index: _ } |
+            SetIndex { base: _, index: _, value: _, is_define: _ } |
             Op1 { op: _, src: _ } |
             Op2 { op: _, src1: _, src2: _ } => false,
         }
@@ -299,11 +311,13 @@ impl StmtData {
             LoadString { id: _ } |
             LoadEnv |
             ListNew |
+            GetIndex { base: _, index: _ } |
             Op1 { op: _, src: _ } |
             Op2 { op: _, src1: _, src2: _ } => true,
 
             SetLocal { dst: _, src: _ } |
             ListAppend { list: _, value: _ } |
+            SetIndex { base: _, index: _, value: _, is_define: _ } |
             Jump { target: _ } |
             SwitchBool { src: _, on_true: _, on_false: _ } |
             Return { src: _ } => false,
@@ -330,6 +344,9 @@ impl StmtData {
 
             ListNew => (),
             ListAppend { list, value } => { f(*list); f(*value) }
+
+            GetIndex { base, index }                      => { f(*base); f(*index) }
+            SetIndex { base, index, value, is_define: _ } => { f(*base); f(*index); f(*value) }
 
             Op1 { op: _, src }        => { f(*src) }
             Op2 { op: _, src1, src2 } => { f(*src1); f(*src2) }
@@ -365,6 +382,9 @@ impl StmtData {
 
             ListNew => (),
             ListAppend { list, value } => { f(fun, list); f(fun, value) }
+
+            GetIndex { base, index }                      => { f(fun, base); f(fun, index) }
+            SetIndex { base, index, value, is_define: _ } => { f(fun, base); f(fun, index); f(fun, value) }
 
             Op1 { op: _, src }        => { f(fun, src) }
             Op2 { op: _, src1, src2 } => { f(fun, src1); f(fun, src2) }
@@ -868,6 +888,16 @@ impl Function {
     #[inline]
     pub fn stmt_list_append(&mut self, source: SourceRange, list: StmtId, value: StmtId) -> StmtId {
         self.add_stmt(source, StmtData::ListAppend { list, value })
+    }
+
+    #[inline]
+    pub fn stmt_get_index(&mut self, source: SourceRange, base: StmtId, index: StmtId) -> StmtId {
+        self.add_stmt(source, StmtData::GetIndex { base, index })
+    }
+
+    #[inline]
+    pub fn stmt_set_index(&mut self, source: SourceRange, base: StmtId, index: StmtId, value: StmtId, is_define: bool) -> StmtId {
+        self.add_stmt(source, StmtData::SetIndex { base, index, value, is_define })
     }
 
     #[inline]

@@ -1,5 +1,14 @@
 let list = [1, 5, 4, "hi", ENV]
 
+list[5] := list[1] + list[2]
+
+ENV.foo := "the real foo"
+foo = "or is it?"
+foo = 7
+ENV.three := 3
+foo += ENV["three"]
+
+
 --[[
 fn new_board(w, h)
     let values = [1, 5, 4]

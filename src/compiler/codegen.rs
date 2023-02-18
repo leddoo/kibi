@@ -345,6 +345,13 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
                 ListNew => bcb.list_new(dst),
                 ListAppend { list, value } => bcb.list_append(reg(list), reg(value)),
 
+                GetIndex { base, index } => bcb.get(dst, reg(base), reg(index)),
+
+                SetIndex { base, index, value, is_define } => {
+                    if is_define { bcb.def(reg(base), reg(index), reg(value)) }
+                    else         { bcb.set(reg(base), reg(index), reg(value)) }
+                }
+
                 Op1 { op: _, src: _ } => unimplemented!(),
 
                 Op2 { op, src1, src2 } => {
