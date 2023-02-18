@@ -307,6 +307,10 @@ impl Compiler {
                 let _ = fnn;
                 unimplemented!()
             }
+
+            AstData::Env => {
+                Ok(Some(fun.stmt_load_env(ast.source)))
+            }
         }
     }
 
@@ -326,9 +330,6 @@ impl Compiler {
 
             // local decls.
             if let AstData::Local(local) = &node.data {
-                let lid = fun.new_local(local.name, node.source);
-                ctx.add_decl(local.name, lid);
-
                 let v =
                     if let Some(value) = &local.value {
                         self.compile_ast(ctx, fun, value, true)?.unwrap()
@@ -336,6 +337,10 @@ impl Compiler {
                     else {
                         fun.stmt_load_nil(node.source)
                     };
+
+                let lid = fun.new_local(local.name, node.source);
+                ctx.add_decl(local.name, lid);
+
                 fun.stmt_set_local(node.source, lid, v);
             }
             else {

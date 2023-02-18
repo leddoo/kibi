@@ -61,6 +61,7 @@ pub enum TokenData<'a> {
     KwAnd,
     KwOr,
     KwNot,
+    KwEnv,
     OpPlus,
     OpPlusEq,
     OpMinus,
@@ -96,6 +97,7 @@ impl<'a> TokenData<'a> {
             Ident (_) | Number (_) | Bool(_) | Nil | QuotedString(_) |
             RParen | RBracket | RCurly |
             KwBreak | KwContinue | KwReturn |
+            KwEnv |
             KwEnd
             => true,
 
@@ -130,6 +132,7 @@ impl<'a> TokenData<'a> {
             KwDo | KwIf | KwWhile | KwFor |
             KwBreak | KwContinue | KwReturn |
             KwFn |
+            KwEnv |
             OpNot | KwNot |
             Eof
             => true,
@@ -193,6 +196,7 @@ impl<'a> TokenData<'a> {
             KwBreak | KwContinue | KwReturn |
             KwFn |
             KwNot | OpNot |
+            KwEnv |
             OpPlus | OpMinus | OpStar
             => true,
 
@@ -584,6 +588,7 @@ impl<'i> Tokenizer<'i> {
                 "false"     => TokenData::Bool(false),
                 "true"      => TokenData::Bool(true),
                 "nil"       => TokenData::Nil,
+                "ENV"       => TokenData::KwEnv,
 
                 _ => TokenData::Ident(value),
             };
@@ -638,6 +643,7 @@ pub enum AstData<'a> {
     Continue,
     Return      (ast::Return<'a>),
     Fn          (Box<ast::Fn<'a>>),
+    Env,
 }
 
 pub mod ast {
@@ -904,6 +910,7 @@ impl<'i> Parser<'i> {
     }
 
 
+    // bool: terminated (needs no semi-colon).
     pub fn parse_leading_expr(&mut self, prec: u32) -> ParseResult<(Ast<'i>, bool)> {
         let current = *self.toker.peek();
 
@@ -973,7 +980,7 @@ impl<'i> Parser<'i> {
 
             let data = AstData::While(Box::new(ast::While { condition, body }));
             let end = self.expect(TokenData::KwEnd)?.end;
-            return Ok((Ast { source: SourceRange { begin, end }, data }, false));
+            return Ok((Ast { source: SourceRange { begin, end }, data }, true));
         }
 
         // do
@@ -1034,7 +1041,7 @@ impl<'i> Parser<'i> {
 
                 let data = AstData::Fn(Box::new(
                     ast::Fn { name: Some(name), params, body }));
-                return Ok((Ast { source: SourceRange { begin, end }, data }, false));
+                return Ok((Ast { source: SourceRange { begin, end }, data }, true));
             }
             // fn params => expr
             else {
@@ -1118,9 +1125,20 @@ impl<'i> Parser<'i> {
         }
 
 
+        // env.
+        if current.data == TokenData::KwEnv {
+            self.toker.next();
+            return Ok((Ast {
+                source: current.source,
+                data:   AstData::Env,
+            }, false));
+        }
+
+
         Err(ParseError::at(&current, ParseErrorData::ExpectedExpression))
     }
 
+    // bool: terminated (needs no semi-colon).
     pub fn parse_expr(&mut self, prec: u32) -> ParseResult<(Ast<'i>, bool)> {
         let mut result = self.parse_leading_expr(prec)?.0;
 
@@ -1230,6 +1248,7 @@ impl<'i> Parser<'i> {
         return Ok((result, false));
     }
 
+    // bool: ends with comma.
     pub fn parse_comma_exprs(&mut self, until: TokenData) -> ParseResult<(Vec<Ast<'i>>, bool)> {
         let mut result = vec![];
 
@@ -1248,6 +1267,7 @@ impl<'i> Parser<'i> {
         Ok((result, had_comma))
     }
 
+    // bool: ends with comma.
     pub fn parse_kv_exprs(&mut self, until: TokenData) -> ParseResult<(Vec<(Ident<'i>, Ast<'i>)>, bool)> {
         let mut result = vec![];
 
@@ -1356,6 +1376,7 @@ impl<'i> Parser<'i> {
         Ok(Ast { source: SourceRange { begin, end }, data })
     }
 
+    // bool: ends with comma.
     pub fn parse_fn_params(&mut self) -> ParseResult<(Vec<ast::FnParam<'i>>, bool)> {
         let mut result = vec![];
 
@@ -1377,5 +1398,4 @@ impl<'i> Parser<'i> {
         Ok((result, had_comma))
     }
 }
-
 

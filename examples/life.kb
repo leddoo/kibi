@@ -1,4 +1,4 @@
-let list = [1, 5, 4, "hi"]
+let list = [1, 5, 4, "hi", ENV]
 
 --[[
 fn new_board(w, h)

@@ -314,6 +314,8 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
                 GetLocal { src: _ } |
                 SetLocal { dst: _, src: _ } => unimplemented!(),
 
+                LoadEnv => bcb.load_env(dst),
+
                 LoadNil             => bcb.load_nil(dst),
                 LoadBool  { value } => bcb.load_bool(dst, value),
 

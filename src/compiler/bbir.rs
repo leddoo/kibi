@@ -39,6 +39,7 @@ pub enum StmtData {
     LoadInt     { value: i64 },
     LoadFloat   { value: f64 },
     LoadString  { id: StringId },
+    LoadEnv,
 
     ListNew,
     ListAppend { list: StmtId, value: StmtId },
@@ -232,6 +233,7 @@ impl<'a> core::fmt::Display for StmtFmt<'a> {
             LoadInt   { value } => { write!(f, "load_int {}", value) }
             LoadFloat { value } => { write!(f, "load_float {}", value) }
             LoadString { id }   => { write!(f, "load_string {:?}", fun.strings[id.usize()]) }
+            LoadEnv             => { write!(f, "get_env") }
 
             ListNew => { write!(f, "new_list") }
             ListAppend { list, value } => { write!(f, "list_append {}, {}", list, value) }
@@ -269,16 +271,17 @@ impl StmtData {
             Copy { src: _ } |
             Phi { map_id: _ } |
             GetLocal { src: _ } |
+            SetLocal { dst: _, src: _ } |
             LoadNil |
             LoadBool { value: _ } |
             LoadInt { value: _ } |
             LoadFloat { value: _ } |
             LoadString { id: _ } |
+            LoadEnv |
             ListNew |
             ListAppend { list: _, value: _ } |
             Op1 { op: _, src: _ } |
-            Op2 { op: _, src1: _, src2: _ } |
-            SetLocal { dst: _, src: _ } => false,
+            Op2 { op: _, src1: _, src2: _ } => false,
         }
     }
 
@@ -294,6 +297,7 @@ impl StmtData {
             LoadInt { value: _ } |
             LoadFloat { value: _ } |
             LoadString { id: _ } |
+            LoadEnv |
             ListNew |
             Op1 { op: _, src: _ } |
             Op2 { op: _, src1: _, src2: _ } => true,
@@ -321,7 +325,8 @@ impl StmtData {
             LoadBool  { value: _ } |
             LoadInt   { value: _ } |
             LoadFloat { value: _ } |
-            LoadString { id: _ } => (),
+            LoadString { id: _ } |
+            LoadEnv => (),
 
             ListNew => (),
             ListAppend { list, value } => { f(*list); f(*value) }
@@ -350,6 +355,7 @@ impl StmtData {
 
             GetLocal { src: _ } => (),
             SetLocal { dst: _, src } => { f(fun, src) }
+            LoadEnv => (),
 
             LoadNil |
             LoadBool  { value: _ } |
@@ -847,6 +853,11 @@ impl Function {
     #[inline]
     pub fn stmt_load_string(&mut self, source: SourceRange, id: StringId) -> StmtId {
         self.add_stmt(source, StmtData::LoadString { id })
+    }
+
+    #[inline]
+    pub fn stmt_load_env(&mut self, source: SourceRange) -> StmtId {
+        self.add_stmt(source, StmtData::LoadEnv)
     }
 
     #[inline]
