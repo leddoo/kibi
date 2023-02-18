@@ -1,21 +1,20 @@
 
 - todo:
     - ssa form:
-        - validation:
-            - args point to `StmtData::has_output`.
-            - check that all args are defined in the cfg.
-            - ensure all uses are dominated by their defs.
-        - use new compiler.
-        - some end-to-end tests.
-            - to replace vm tests for now.
-            - the `a + do` thing.
         - more compiler features:
-            - numbers.
             - constants.
             - functions.
             - lists.
             - tables.
             - globals.
+        - validation:
+            - args point to `StmtData::has_output`.
+            - check that all args are defined in the cfg.
+            - ensure all uses are dominated by their defs.
+        - some end-to-end tests.
+            - to replace vm tests for now.
+            - the `a + do` thing.
+
         - debug:
             - generate info.
             - option to not optimize things out.
@@ -88,8 +87,48 @@
     - varargs.
 
 
+- design stuff:
+    - Table -> Map & Object?
+        - names are better.
+        - `map.len()` should be equivalent to `map["len"]()`,
+          but that means all Maps contain the `len` key.
+        - yes, definitely better.
+        - so:
+            - get, set, def -> index, assign, define.
+            - Table -> Map.
+            - Object: tbd.
+            - ig `{}` should still be Object.
+                - cause of how objects are used for ad-hoc structs.
+                - struct use case doesn't `len()` or `get()`.
+                  and want to use field syntax, which you don't use for maps.
+                - `Map()` is fine as the map constructor.
+                - ad-hoc structs shouldn't require defs, like in python.
+                  that's not ad-hoc. and if you're going to define the thing more concretely,
+                  you should use a struct anyway.
+            - could constrain objects to string keys.
+                - non-string keys are a map/list use case.
+                - don't want the lua/js integer key situation.
+                - base types:
+                    - list: sequence.
+                    - map: unordered (key, value) pairs.
+                    - object: structured data, ordered, flexible layout, reference type.
+                - supplementary types:
+                    - struct: structured data, ordered, fixed layout, value type.
+                    - box: to turn value types into reference types.
+                    - set: `Map<K, Nil>`.
+                    - maybe: typed arrays, bit vectors, etc.
+    - no bound methods by default.
+        - `obj.method()` is an optimized method call.
+            - uses "method_call" instruction.
+                - same as call for non-method functions.
+        - `obj.method` returns the function.
+            - uses "index" instruction.
+        - `(obj.method)()` is a regular function call.
+            - uses "index" and "call" instructions.
+
+
 - stuff:
-    - lztf:
+    - kbtf:
         - arbitrary jumps.
         - register based.
             - for now: regs 128+ are reserved, later leb128 encoding.
@@ -286,7 +325,7 @@
             - but with inline storage (of state + vtable ptr),
               assuming we can do that on stable rust.
 
-- lztf (luazero transfer format).
+- kbtf (kibi transfer format).
     - similar to wasm/llvm-ir.
     - module oriented.
     - safe to run untrusted modules.

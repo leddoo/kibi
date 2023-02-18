@@ -1,4 +1,4 @@
-use luazero::*;
+use kibi::*;
 
 
 mod builtin {
@@ -95,7 +95,7 @@ fn main() {
 
             --]]
 
-            -- --[[
+            --[[
 
             -- bb0
             let a = 8; let b = 9; let c = 10
@@ -169,6 +169,10 @@ fn main() {
             end
 
             --]]
+
+            if true:
+                i = a + do a += 1; a end
+            end
         "#;
 
         let mut p = compiler::Parser::new(example.as_bytes());

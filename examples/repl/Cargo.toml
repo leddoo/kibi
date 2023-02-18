@@ -5,6 +5,6 @@ edition = "2021"
 publish = false
 
 [dependencies]
-luazero = { path = "../.." }
+kibi = { path = "../.." }
 ctrlc = "3.2.4"
 
