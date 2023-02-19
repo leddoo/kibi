@@ -3,12 +3,16 @@
     - ssa form:
         - more compiler features:
             - calls.
+                - call args id & struct.
+                - vec of call args on function.
+                - basically the same as phis.
             - functions.
             - tables.
         - repl stuff:
             - parser: eof info for multi-line stmts.
             - don't discard rest of buffer after parsed text.
             - print return value.
+            - let/var define globals in repl?
         - ensure all stmts with a value have a register.
         - validation:
             - args point to `StmtData::has_output`.
@@ -17,6 +21,12 @@
         - some end-to-end tests.
             - to replace vm tests for now.
             - the `a + do` thing.
+
+        - upcoming vm changes:
+            - tuples.
+            - tables -> maps.
+            - objects.
+            - `self` & method calls.
 
         - debug:
             - generate info.
@@ -35,7 +45,7 @@
                 - `Function::gc`.
                 - arena.
                 - bit vectors.
-                - `Phi2`.
+                - `Phi2` & `Call0-4`.
     - new compiler.
         - todo:
             - constants:
