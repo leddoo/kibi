@@ -334,7 +334,12 @@ impl Function {
         BlockLiveInOut { live_ins, live_outs }
     }
 
-    pub fn live_intervals_ex(&self, block_order: &BlockOrder, block_begins: &BlockBegins, stmt_indices: &StmtIndices, live_sets: &BlockLiveInOut) -> LiveIntervals {
+    pub fn live_intervals_ex(&self,
+        block_order: &BlockOrder, block_begins: &BlockBegins,
+        stmt_indices: &StmtIndices,
+        live_sets: &BlockLiveInOut,
+        no_empty_intervals: bool,
+    ) -> LiveIntervals {
         let BlockLiveInOut { live_ins: _, live_outs } = live_sets;
 
         let mut intervals = vec![vec![]; self.num_stmts()];
@@ -381,6 +386,9 @@ impl Function {
             self.block_stmts_rev(*bb, |stmt| {
                 if stmt.has_value() {
                     let start = stmt_indices[stmt.id().usize()];
+                    if no_empty_intervals {
+                        gen(stmt.id(), start, &mut live);
+                    }
                     kill(stmt.id(), start, &mut live, &mut intervals)
                 }
 
@@ -401,10 +409,10 @@ impl Function {
         LiveIntervals { intervals }
     }
 
-    pub fn live_intervals(&self, post_order: &PostOrder, block_order: &BlockOrder, block_begins: &BlockBegins, stmt_indices: &StmtIndices) -> LiveIntervals {
+    pub fn live_intervals(&self, post_order: &PostOrder, block_order: &BlockOrder, block_begins: &BlockBegins, stmt_indices: &StmtIndices, no_empty_intervals: bool) -> LiveIntervals {
         let gen_kill = self.block_gen_kill();
         let live_sets = self.block_live_in_out(&post_order, &gen_kill);
-        self.live_intervals_ex(block_order, block_begins, stmt_indices, &live_sets)
+        self.live_intervals_ex(block_order, block_begins, stmt_indices, &live_sets, no_empty_intervals)
     }
 }
 

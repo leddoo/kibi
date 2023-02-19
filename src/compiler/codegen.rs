@@ -10,7 +10,7 @@ impl Function {
         let (block_begins, stmt_indices) = block_order.block_begins_and_stmt_indices(self);
 
 
-        let live_intervals = self.live_intervals(&post_order, &block_order, &block_begins, &stmt_indices);
+        let live_intervals = self.live_intervals(&post_order, &block_order, &block_begins, &stmt_indices, true);
 
         let regs = alloc_regs_linear_scan(self, &live_intervals);
 

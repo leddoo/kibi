@@ -1,7 +1,6 @@
 
 - todo:
     - ssa form:
-        - fix ralloc based dead code elim.
         - more compiler features:
             - functions.
             - tables.
