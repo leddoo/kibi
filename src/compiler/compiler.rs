@@ -63,7 +63,7 @@ impl Compiler {
             let nil = fun.stmt_load_nil(source);
             fun.stmt_return(source, nil);
 
-            fun.dump();
+            //fun.dump();
             fun
         };
 
@@ -79,21 +79,21 @@ impl Compiler {
         let dom_frontiers = fun.dominance_frontiers(&preds, &idoms);
 
         opt::local2reg_ex(&mut fun, &preds, &dom_tree, &dom_frontiers);
-        println!("local2reg done");
-        fun.dump();
+        //println!("local2reg done");
+        //fun.dump();
 
         opt::copy_propagation_ex(&mut fun, &dom_tree);
-        println!("copy propagation done");
-        fun.dump();
+        //println!("copy propagation done");
+        //fun.dump();
 
         opt::dead_copy_elim(&mut fun);
-        println!("dead copy elim done");
-        fun.dump();
+        //println!("dead copy elim done");
+        //fun.dump();
 
 
-        let (code, constants, num_regs) = fun.compile_mut_ex(&post_order, &idoms, &dom_tree);
-        println!("bytecode:");
-        crate::bytecode::dump(&code);
+        let (code, constants, num_regs) = fun.compile_ex(&post_order, &idoms, &dom_tree);
+        //println!("bytecode:");
+        //crate::bytecode::dump(&code);
 
         Ok((code, constants, num_regs))
     }
@@ -246,7 +246,9 @@ impl Compiler {
                 // on_true
                 fun.set_current_block(bb_true);
                 let value_true = self.compile_ast(ctx, fun, &iff.on_true, need_value)?;
-                fun.stmt_jump(iff.on_true.source.end.to_range(), after_if);
+                let on_true_src = iff.on_true.source.end.to_range();
+                let value_true = value_true.map(|v| fun.stmt_phi_arg(on_true_src, v));
+                fun.stmt_jump(on_true_src, after_if);
                 let bb_true = fun.get_current_block();
 
 
@@ -262,7 +264,8 @@ impl Compiler {
                         let v = need_value.then(|| fun.stmt_load_nil(source));
                         (v, source)
                     };
-                fun.add_stmt(on_false_src, StmtData::Jump { target: after_if });
+                let value_false = value_false.map(|v| fun.stmt_phi_arg(on_false_src, v));
+                fun.stmt_jump(on_false_src, after_if);
                 let bb_false = fun.get_current_block();
 
 

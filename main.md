@@ -18,6 +18,12 @@
             - args point to `StmtData::has_output`.
             - check that all args are defined in the cfg.
             - ensure all uses are dominated by their defs.
+            - phi args are unique.
+            - phi has arg for all preds.
+            - return an error instead of panicking.
+        - a logging/tracing system.
+            - so i can keep the prints.
+            - for debugging & precise regression testing.
         - some end-to-end tests.
             - to replace vm tests for now.
             - the `a + do` thing.
@@ -40,12 +46,14 @@
                 - constant folding.
                 - cse.
                 - register hints.
+                - terminator arg -> phi arg.
             - no-elim stmt flag.
             - impl opt:
                 - `Function::gc`.
                 - arena.
                 - bit vectors.
                 - `Phi2` & `Call0-4`.
+            - util function to insert after phis and before phi args.
     - new compiler.
         - todo:
             - constants:

@@ -1,0 +1,24 @@
+
+- meta programming:
+    - definitely want something for the gui (like jsx, but in user land).
+    - want to exploit ability to run code in the compiler.
+        - especially, as there's no "cross compiling".
+        - and maybe serialization for state caching.
+    - issue: querying for definitions of symbols.
+        - 1) cause dynamic.
+            - definitions could change at runtime.
+            - would want to use the same info as the optimizer.
+        - 2) cause unordered.
+            - can't know what macro will output ~ have to constrain access to output.
+            - could make macros ordered.
+                - can only access definitions "above".
+                - nothing above can access macro output.
+                - does get a bit more complicated with imports.
+                - will have to come back to this, once know how regular out-of-order analysis works here.
+    - code repr:
+        - thinking use `Object`s.
+            - structs don't help, would have to box everything.
+        - very flexible.
+        - extensible.
+        - structured -> walkable, editable.
+        - can use proper values, instead of having to serialize them to text.

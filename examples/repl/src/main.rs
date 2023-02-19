@@ -31,7 +31,7 @@ mod builtin {
 
 
 fn main() {
-    if 0==1 {
+    if 1==1 {
         let example = r#"
             -- var bar = foo(1, 2+3) / 4
             -- ( a + f ( x ) ( y ) ) ( z )

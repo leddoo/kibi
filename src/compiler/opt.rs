@@ -101,9 +101,15 @@ pub fn local2reg_ex(fun: &mut Function, preds: &Predecessors, dom_tree: &DomTree
             let mut at = None.into();
 
             for (_, map, stmt_id) in phis {
-                fun.set_phi(stmt_id,
-                    &map.into_iter().map(|(bb, stmt)|
-                        (bb, stmt.unwrap())).collect::<Vec<_>>());
+                let map: Vec<PhiEntry> = map.into_iter().map(|(bb, src)| {
+                    // @todo-src: what source for phi args?
+                    let arg = fun.new_stmt(SourceRange::null(),
+                        StmtData::PhiArg { src: src.unwrap() });
+                    fun.insert_before_terminator(bb, arg);
+                    (bb, arg)
+                }).collect();
+
+                fun.set_phi(stmt_id, &map);
 
                 fun.insert_after(block, at, stmt_id);
                 at = stmt_id.some();

@@ -4,30 +4,7 @@ use super::*;
 
 
 impl Function {
-    pub fn compile_mut_ex(&mut self, post_order: &PostOrder, idoms: &ImmediateDominators, dom_tree: &DomTree) -> (Vec<Instruction>, Vec<Constant>, u32) {
-        // insert phi copies.
-        {
-            for bb in self.block_ids() {
-                let mut at = bb.get(self).first();
-                while let Some(current) = at.to_option() {
-                    self.try_phi_mut(current, |fun, mut map| {
-                        for (from_bb, stmt) in map.iter_mut() {
-                            let copy = fun.new_stmt(SourceRange::null(), StmtData::Copy { src: *stmt });
-                            fun.insert_before_terminator(*from_bb, copy);
-                            *stmt = copy;
-                        }
-                    });
-
-                    at = current.get(self).next();
-                }
-            }
-        }
-        self.slow_integrity_check();
-
-        // @todo-opt: copy propagation & dead copy elim,
-        //  but don't propagate the copies we just inserted back to the phis!
-
-
+    pub fn compile_ex(&self, post_order: &PostOrder, idoms: &ImmediateDominators, dom_tree: &DomTree) -> (Vec<Instruction>, Vec<Constant>, u32) {
         let block_order = self.block_order_dominators_first(&idoms, &dom_tree);
 
         let (block_begins, stmt_indices) = block_order.block_begins_and_stmt_indices(self);
@@ -51,24 +28,115 @@ pub struct RegisterAllocation {
 
 pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) -> RegisterAllocation {
     let mut intervals = live_intervals.intervals.clone();
+    let mut joins     = fun.stmt_ids().collect::<Vec<_>>();
+    let mut hints     = fun.stmt_ids().collect::<Vec<_>>();
 
-    let mut joins = (0..fun.num_stmts() as u32).collect::<Vec<_>>();
+    fn rep(stmt: StmtId, joins: &Vec<StmtId>) -> StmtId {
+        let mut at = stmt;
+        loop {
+            let join = joins[at.usize()];
+            if join == at {
+                return at;
+            }
+            else {
+                at = join;
+            }
+        }
+    }
+
+    fn join(a: StmtId, b: StmtId, joins: &mut Vec<StmtId>, intervals: &mut Vec<Vec<(StmtIndex, StmtIndex)>>) -> bool {
+        let rep_a = rep(a, joins);
+        let rep_b = rep(b, joins);
+        if rep_a == rep_b {
+            return true;
+        }
+
+        let int_a = &intervals[rep_a.usize()];
+        let int_b = &intervals[rep_b.usize()];
+
+        // merge intervals, checking for overlap.
+        let mut new_int = Vec::with_capacity(int_a.len() + int_b.len());
+        let mut at_a = 0;
+        let mut at_b = 0;
+        while at_a < int_a.len() || at_b < int_b.len() {
+            if at_a >= int_a.len() {
+                new_int.push(int_b[at_b]);
+                at_b += 1;
+            }
+            else if at_b >= int_b.len() {
+                new_int.push(int_a[at_a]);
+                at_a += 1;
+            }
+            else {
+                let (begin_a, end_a) = int_a[at_a];
+                let (begin_b, end_b) = int_b[at_b];
+                // a starts before b?
+                if begin_a < begin_b {
+                    // a ends before b?
+                    if end_a < begin_b {
+                        new_int.push((begin_a, end_a));
+                        at_a += 1;
+                    }
+                    // a ends at b?
+                    else if end_a == begin_b {
+                        // can merge intervals.
+                        new_int.push((begin_a, end_b));
+                        at_a += 1;
+                        at_b += 1;
+                    }
+                    // overlap.
+                    else {
+                        println!("overlap of {},{} with {},{}", begin_a,end_a, begin_b,end_b);
+                        return false;
+                    }
+                }
+                // b starts before a.
+                else if begin_b < begin_a {
+                    // b ends before a?
+                    if end_b < begin_a {
+                        new_int.push((begin_b, end_b));
+                        at_b += 1;
+                    }
+                    // b ends at a?
+                    else if end_b == begin_a {
+                        // can merge intervals.
+                        new_int.push((begin_b, end_a));
+                        at_a += 1;
+                        at_b += 1;
+                    }
+                    // overlap.
+                    else {
+                        println!("overlap of {},{} with {},{}", begin_a,end_a, begin_b,end_b);
+                        return false;
+                    }
+                }
+                // overlap.
+                else {
+                    println!("overlap of {},{} with {},{}", begin_a,end_a, begin_b,end_b);
+                    return false;
+                }
+            }
+        }
+
+        intervals[rep_b.usize()].clear();
+        intervals[rep_a.usize()] = new_int;
+        joins[rep_b.usize()] = rep_a;
+
+        return true;
+    }
+
+
     for bb in fun.block_ids() {
         fun.block_stmts_ex(bb, |stmt| {
             if let Some(map) = fun.try_phi(stmt.id()) {
-
-                let mut interval = core::mem::take(&mut intervals[stmt.id().usize()]);
-
                 // join phi with args.
-                for (_, src) in map.iter() {
-                    let arg_interval = core::mem::take(&mut intervals[src.usize()]);
-                    interval.extend(arg_interval);
-                    joins[src.usize()] = stmt.id().usize() as u32;
+                for (_, arg) in map.iter() {
+                    let StmtData::PhiArg { src: arg_src } = arg.get(fun).data else { unreachable!() };
+                    hints[arg_src.usize()] = *arg;
+
+                    let joined = join(stmt.id(), *arg, &mut joins, &mut intervals);
+                    assert!(joined);
                 }
-                interval.sort_by(|a, b| a.0.cmp(&b.0));
-
-                intervals[stmt.id().usize()] = interval;
-
                 return true;
             }
             false
@@ -183,8 +251,39 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
             }
             // remains non-live.
             else {
+                // check interval overlap.
+                let mut no_overlap = new_int.stop <= rng_start;
+
+                // todo: how much does this help?
+                // check range overlap.
+                if !no_overlap {
+                    let int_a = new_int.ranges;
+                    let int_b = active.ranges;
+
+                    no_overlap = true;
+
+                    let mut at_a = 0;
+                    let mut at_b = 0;
+                    while at_a < int_a.len() && at_b < int_b.len() {
+                        let (begin_a, end_a) = int_a[at_a];
+                        let (begin_b, end_b) = int_b[at_b];
+
+                        if end_a <= begin_b {
+                            at_a += 1;
+                        }
+                        else if end_b <= begin_a {
+                            at_b += 1;
+                        }
+                        else {
+                            //println!("intersecion: {},{} {},{}", begin_a, end_a, begin_b, end_b);
+                            no_overlap = false;
+                            break;
+                        }
+                    }
+                }
+
                 // new interval fits in hole?
-                if new_int.stop <= rng_start {
+                if no_overlap {
                     // try to free register.
                     if active.allocated {
                         //println!("    new interval fits in hole; freeing register.");
@@ -210,18 +309,66 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
             return true;
         });
 
-        let reg =
-            if let Some(reg) = regs.iter().position(|used| *used == false) {
-                regs[reg] = true;
-                reg as u32
-            }
-            else {
-                let reg = regs.len();
-                regs.push(true);
-                reg as u32
-            };
 
-        //println!("-> r{}", reg);
+        let reg = 'find_reg: {
+            // todo: how much does this help?
+            if 1==1
+            {
+
+            // regular hint.
+            {
+                let reg_hint = hints[new_int.stmt.usize()];
+                let reg = mapping[reg_hint.usize()];
+                if reg != u32::MAX && regs[reg as usize] == false {
+                    break 'find_reg reg;
+                }
+            }
+
+            // first arg hint.
+            'first_arg: {
+                let first_arg = match new_int.stmt.get(fun).data {
+                    StmtData::Copy  { src }                 => src,
+                    StmtData::PhiArg { src }                => src,
+                    StmtData::Op1 { op: _, src }            => src,
+                    StmtData::Op2 { op: _,  src1, src2: _ } => src1,
+                    _ => break 'first_arg,
+                };
+
+                let reg = mapping[first_arg.usize()];
+                if reg != u32::MAX && regs[reg as usize] == false {
+                    break 'find_reg reg;
+                }
+            }
+
+            // phi hint.
+            if let Some(map) = fun.try_phi(new_int.stmt) {
+                for (_, arg) in map.iter() {
+                    let StmtData::PhiArg { src } = arg.get(fun).data else { unreachable!() };
+
+                    let reg = mapping[src.usize()];
+                    if reg != u32::MAX && regs[reg as usize] == false {
+                        break 'find_reg reg;
+                    }
+                }
+            }
+
+            }
+
+            // reuse register.
+            if let Some(reg) = regs.iter().position(|used| *used == false) {
+                break 'find_reg reg as u32;
+            }
+
+            // alloc new register.
+            let reg = regs.len() as u32;
+            regs.push(false);
+            reg
+        };
+
+        assert!(regs[reg as usize] == false);
+        regs[reg as usize] = true;
+
+        // println!("{} -> r{}", new_int.stmt, reg);
 
         actives.push(ActiveInterval {
             ranges: new_int.ranges,
@@ -252,9 +399,9 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
     }
 
     for stmt in fun.stmt_ids() {
-        let join = joins[stmt.usize()];
-        if join != stmt.usize() as u32 {
-            mapping[stmt.usize()] = mapping[join as usize];
+        let rep = rep(stmt, &joins);
+        if stmt != rep {
+            mapping[stmt.usize()] = mapping[rep.usize()];
         }
     }
 
@@ -304,7 +451,7 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
 
             use StmtData::*;
             match stmt.data {
-                Copy { src } => {
+                Copy { src } | PhiArg { src } => {
                     let src = reg(src);
                     if dst != src { bcb.copy(dst, src) }
                 }
