@@ -1177,11 +1177,6 @@ impl VmImpl {
         // @todo-speed: validate in host api & compiler.
         assert!(frame.base + rets + actual_rets <= frame.top);
 
-        // @temp
-        for i in frame.base..frame.top {
-            println!("{:?}", self.stack[i as usize]);
-        }
-
         // check num_rets.
         let num_rets = frame.num_rets;
         if actual_rets < frame.num_rets {

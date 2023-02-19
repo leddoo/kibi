@@ -364,18 +364,27 @@ impl ByteCodeBuilder {
 
 pub fn dump(code: &[Instruction]) {
     let mut pc = 0;
+
+    macro_rules! next_instr {
+        () => {{
+            let instr = code[pc];
+            pc += 1;
+            instr
+        }};
+    }
+
+    macro_rules! next_instr_extra {
+        () => {{
+            let extra = next_instr!();
+            assert_eq!(extra.opcode() as u8, crate::bytecode::opcode::EXTRA);
+            extra
+        }};
+    }
+
     while pc < code.len() {
         print!("{:02}: ", pc);
 
-        let instr = code[pc];
-        pc += 1;
-
-        let mut instr_extra = || {
-            let extra = code[pc];
-            pc += 1;
-            assert_eq!(extra.opcode() as u8, crate::bytecode::opcode::EXTRA);
-            extra
-        };
+        let instr = next_instr!();
 
         use crate::bytecode::opcode::*;
         match instr.opcode() as u8 {
@@ -533,37 +542,37 @@ pub fn dump(code: &[Instruction]) {
 
             JUMP_EQ => {
                 let (src1, src2) = instr.c2();
-                let target = instr_extra().u16();
+                let target = next_instr_extra!().u16();
                 println!("  jump_eq r{}, r{}, {}", src1, src2, target);
             }
 
             JUMP_LE => {
                 let (src1, src2) = instr.c2();
-                let target = instr_extra().u16();
+                let target = next_instr_extra!().u16();
                 println!("  jump_le r{}, r{}, {}", src1, src2, target);
             }
 
             JUMP_LT => {
                 let (src1, src2) = instr.c2();
-                let target = instr_extra().u16();
+                let target = next_instr_extra!().u16();
                 println!("  jump_le r{}, r{}, {}", src1, src2, target);
             }
 
             JUMP_NEQ => {
                 let (src1, src2) = instr.c2();
-                let target = instr_extra().u16();
+                let target = next_instr_extra!().u16();
                 println!("  jump_le r{}, r{}, {}", src1, src2, target);
             }
 
             JUMP_NLE => {
                 let (src1, src2) = instr.c2();
-                let target = instr_extra().u16();
+                let target = next_instr_extra!().u16();
                 println!("  jump_nle r{}, r{}, {}", src1, src2, target);
             }
 
             JUMP_NLT => {
                 let (src1, src2) = instr.c2();
-                let target = instr_extra().u16();
+                let target = next_instr_extra!().u16();
                 println!("  jump_nlt r{}, r{}, {}", src1, src2, target);
             }
 
@@ -573,7 +582,22 @@ pub fn dump(code: &[Instruction]) {
             }
 
             GATHER_CALL => {
-                unimplemented!()
+                let (func, rets, num_rets) = instr.c3();
+
+                let num_args = next_instr_extra!();
+                let num_args = num_args.u16();
+
+                print!("  call r{}, [", func);
+
+                for i in 0..num_args {
+                    let arg = next_instr_extra!();
+                    print!("r{}", arg.u16());
+                    if i < num_args - 1 {
+                        print!(", ");
+                    }
+                }
+
+                println!("], r{}, {}", rets, num_rets);
             }
 
             RET => {

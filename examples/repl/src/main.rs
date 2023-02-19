@@ -6,7 +6,7 @@ mod builtin {
 
     pub(crate) fn print(vm: &mut Vm) -> VmResult<u32> {
         vm.generic_print(0);
-        return Ok(0);
+        return Ok(1);
     }
     pub(crate) const PRINT: FuncDesc = FuncDesc {
         code: FuncCode::Native(NativeFuncPtrEx(print)),
@@ -18,7 +18,7 @@ mod builtin {
     pub(crate) fn println(vm: &mut Vm) -> VmResult<u32> {
         vm.generic_print(0);
         println!();
-        return Ok(0);
+        return Ok(1);
     }
     pub(crate) const PRINTLN: FuncDesc = FuncDesc {
         code: FuncCode::Native(NativeFuncPtrEx(println)),
@@ -186,6 +186,9 @@ fn main() {
         let (code, constants, num_regs) = c.compile_chunk(chunk_source, &chunk.children).unwrap();
 
         let mut vm = Vm::new();
+        vm.add_func("print", builtin::PRINT);
+        vm.add_func("println", builtin::PRINTLN);
+
         vm.just_run_it_bro(FuncDesc {
             code: FuncCode::ByteCode(code),
             constants,

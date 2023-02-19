@@ -48,6 +48,8 @@ pub enum StmtData {
     GetIndex { base: StmtId, index: StmtId },
     SetIndex { base: StmtId, index: StmtId, value: StmtId, is_define: bool },
 
+    Call { func: StmtId, args_id: StmtListId },
+
     Op1         { op: Op1, src: StmtId },
     Op2         { op: Op2, src1: StmtId, src2: StmtId },
 
@@ -71,6 +73,21 @@ struct PhiMapImpl {
 #[derive(Clone, Copy, Debug, Deref)]
 pub struct PhiMap<'a> {
     pub map: &'a [PhiEntry],
+}
+
+
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+#[repr(transparent)]
+pub struct StmtListId(u32);
+
+#[derive(Deref, DerefMut)]
+struct StmtListImpl {
+    values: Vec<StmtId>,
+}
+
+#[derive(Clone, Copy, Debug, Deref)]
+pub struct StmtList<'a> {
+    pub values: &'a [StmtId],
 }
 
 
@@ -115,6 +132,7 @@ struct Local {
 pub struct Function {
     stmts:      Vec<Stmt>,
     phi_maps:   Vec<PhiMapImpl>,
+    stmt_lists: Vec<StmtListImpl>,
     blocks:     Vec<Block>,
     locals:     Vec<Local>,
     strings:    Vec<String>,
@@ -222,9 +240,7 @@ impl<'a> core::fmt::Display for StmtFmt<'a> {
         match &stmt.data {
             Copy { src } => { write!(f, "copy {}", src) }
 
-            Phi { map_id } => {
-                write!(f, "phi {}", &fun.phi_maps[map_id.usize()].phi_map())
-            }
+            Phi { map_id } => { write!(f, "phi {}", map_id.get(fun)) }
 
             PhiArg { src } => write!(f, "phi_arg {}", src),
 
@@ -247,6 +263,8 @@ impl<'a> core::fmt::Display for StmtFmt<'a> {
                 if *is_define { write!(f, "def_index {}, {}, {}", base, index, value) }
                 else          { write!(f, "set_index {}, {}, {}", base, index, value) }
             }
+
+            Call { func, args_id } => write!(f, "call {}, {}", func, args_id.get(fun)),
 
             Op1 { op, src }        => { write!(f, "{} {}",     op.str(), src) }
             Op2 { op, src1, src2 } => { write!(f, "{} {}, {}", op.str(), src1, src2) }
@@ -298,6 +316,7 @@ impl StmtData {
             ListAppend { list: _, value: _ } |
             GetIndex { base: _, index: _ } |
             SetIndex { base: _, index: _, value: _, is_define: _ } |
+            Call { func: _, args_id: _ } |
             Op1 { op: _, src: _ } |
             Op2 { op: _, src1: _, src2: _ } => false,
         }
@@ -319,6 +338,7 @@ impl StmtData {
             LoadEnv |
             ListNew |
             GetIndex { base: _, index: _ } |
+            Call { func: _, args_id: _ } |
             Op1 { op: _, src: _ } |
             Op2 { op: _, src1: _, src2: _ } => true,
 
@@ -337,7 +357,7 @@ impl StmtData {
         match self {
             Copy { src } => { f(*src) }
 
-            Phi { map_id: map } => { for (_, src) in &*fun.phi_maps[map.usize()] { f(*src) } }
+            Phi { map_id } => { for (_, src) in map_id.get(fun).iter() { f(*src) } }
 
             PhiArg { src } => { f(*src) }
 
@@ -356,6 +376,8 @@ impl StmtData {
 
             GetIndex { base, index }                      => { f(*base); f(*index) }
             SetIndex { base, index, value, is_define: _ } => { f(*base); f(*index); f(*value) }
+
+            Call { func, args_id } => { f(*func); for arg in args_id.get(fun).iter() { f(*arg) } }
 
             Op1 { op: _, src }        => { f(*src) }
             Op2 { op: _, src1, src2 } => { f(*src1); f(*src2) }
@@ -402,6 +424,16 @@ impl StmtData {
 
             GetIndex { base, index }                      => { f(fun, base); f(fun, index) }
             SetIndex { base, index, value, is_define: _ } => { f(fun, base); f(fun, index); f(fun, value) }
+
+            Call { func, args_id } => {
+                f(fun, func);
+
+                let mut args = core::mem::take(&mut *fun.stmt_lists[args_id.usize()]);
+                for arg in &mut args {
+                    f(fun, arg)
+                }
+                fun.stmt_lists[args_id.usize()] = StmtListImpl { values: args };
+            }
 
             Op1 { op: _, src }        => { f(fun, src) }
             Op2 { op: _, src1, src2 } => { f(fun, src1); f(fun, src2) }
@@ -456,6 +488,31 @@ impl<'a> core::fmt::Display for PhiMap<'a> {
         write!(f, " }}")
     }
 }
+
+
+impl StmtListId {
+    #[inline(always)]
+    pub fn usize(self) -> usize { self.0 as usize }
+
+    #[inline]
+    pub fn get<'s>(self, fun: &'s Function) -> StmtList<'s> {
+        StmtList { values: &fun.stmt_lists[self.usize()] }
+    }
+}
+
+impl<'a> core::fmt::Display for StmtList<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[")?;
+        for (i, stmt) in self.iter().enumerate() {
+            write!(f, " {}", stmt)?;
+            if i < self.len() - 1 {
+                write!(f, ",")?;
+            }
+        }
+        write!(f, " ]")
+    }
+}
+
 
 
 
@@ -569,6 +626,7 @@ impl Function {
             stmts:      vec![],
             blocks:     vec![],
             phi_maps:   vec![],
+            stmt_lists: vec![],
             locals:     vec![],
             strings:    vec![],
             local_cursor:  None.into(),
@@ -657,7 +715,16 @@ impl Function {
         let StmtData::Phi { map_id } = self.stmts[stmt.usize()].data else { unreachable!() };
         self.phi_maps[map_id.usize()] = PhiMapImpl::new(map, self);
     }
-    
+
+
+    pub fn new_call(&mut self, source: SourceRange, func: StmtId, args: &[StmtId]) -> StmtId {
+        let args_id = StmtListId(self.stmt_lists.len() as u32);
+        self.stmt_lists.push(StmtListImpl { values: args.into() });
+        self.new_stmt(source, StmtData::Call { func, args_id })
+    }
+
+    // @todo: try_call
+    // @todo: set_call
 
 
     pub fn all_args<F: FnMut(StmtId)>(&self, mut f: F) {
@@ -911,6 +978,13 @@ impl Function {
     #[inline]
     pub fn stmt_set_index(&mut self, source: SourceRange, base: StmtId, index: StmtId, value: StmtId, is_define: bool) -> StmtId {
         self.add_stmt(source, StmtData::SetIndex { base, index, value, is_define })
+    }
+
+    #[inline]
+    pub fn stmt_call(&mut self, source: SourceRange, func: StmtId, args: &[StmtId]) -> StmtId {
+        let args_id = StmtListId(self.stmt_lists.len() as u32);
+        self.stmt_lists.push(StmtListImpl { values: args.into() });
+        self.add_stmt(source, StmtData::Call { func, args_id })
     }
 
     #[inline]

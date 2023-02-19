@@ -15,6 +15,9 @@ d = d + b
 d = d + c
 d = d + d
 
+let x
+if true: x = print("d is ") end
+if true: x = println(d)   end
     
 let values = [1, 5, 4]
 var i = 0

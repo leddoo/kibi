@@ -499,6 +499,11 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
                     else         { bcb.set(reg(base), reg(index), reg(value)) }
                 }
 
+                Call { func, args_id } => {
+                    let args: Vec<u8> = args_id.get(fun).iter().map(|arg| reg(*arg)).collect();
+                    bcb.gather_call(reg(func), &args, dst, 1);
+                }
+
                 Op1 { op: _, src: _ } => unimplemented!(),
 
                 Op2 { op, src1, src2 } => {

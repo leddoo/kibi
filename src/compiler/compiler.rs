@@ -229,8 +229,12 @@ impl Compiler {
             }
 
             AstData::Call (call) => {
-                let _ = call;
-                unimplemented!()
+                let func = self.compile_ast(ctx, fun, &call.func, true)?.unwrap();
+                let mut args = vec![];
+                for arg in &call.args {
+                    args.push(self.compile_ast(ctx, fun, arg, true)?.unwrap());
+                }
+                Ok(Some(fun.stmt_call(ast.source, func, &args)))
             }
 
             AstData::If (iff) => {

@@ -1,11 +1,8 @@
 
 - todo:
     - ssa form:
+        - fix ralloc based dead code elim.
         - more compiler features:
-            - calls.
-                - call args id & struct.
-                - vec of call args on function.
-                - basically the same as phis.
             - functions.
             - tables.
         - repl stuff:
