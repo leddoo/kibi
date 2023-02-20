@@ -16,7 +16,6 @@ impl Vm {
     }
 
 
-    #[inline]
     pub fn add_func(&mut self, name: &str, desc: FuncDesc) {
         let constants = desc.constants.into_iter().map(|c| { match c {
             Constant::Nil              => Value::Nil,
@@ -1025,6 +1024,12 @@ impl VmImpl {
                             result = Ok(());
                             break;
                         }
+                    }
+
+                    NEW_FUNCTION => {
+                        let (dst, proto) = instr.c1u16();
+                        let fun = self.func_new(proto as usize);
+                        *self.reg(dst) = fun;
                     }
 
                     // @todo-speed: this inserts a check to reduce dispatch table size.

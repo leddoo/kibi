@@ -1025,12 +1025,18 @@ impl<'i> Parser<'i> {
         if let TokenData::KwFn = current.data {
             self.toker.next();
 
-            // fn name ( params ) ':'? block end
-            if let (TokenData::Ident(name), TokenData::LParen)
-                = (self.toker.peek().data, self.toker.peek_next().data)
-            {
-                self.toker.next();
-                self.toker.next();
+            let at   = self.toker.peek();
+            let next = self.toker.peek_next();
+
+            // fn name? ( params ) ':'? block end
+            if at.is_ident() && next.data == TokenData::LParen
+            || at.data == TokenData::LParen {
+                let name =
+                    if let TokenData::Ident(name) = at.data {
+                        self.toker.next();
+                        Some(name)
+                    } else { None };
+                self.expect(TokenData::LParen).unwrap();
 
                 let params = self.parse_fn_params()?.0;
                 self.expect(TokenData::RParen)?;
@@ -1040,7 +1046,7 @@ impl<'i> Parser<'i> {
                 let end = self.expect(TokenData::KwEnd)?.end;
 
                 let data = AstData::Fn(Box::new(
-                    ast::Fn { name: Some(name), params, body }));
+                    ast::Fn { name, params, body }));
                 return Ok((Ast { source: SourceRange { begin, end }, data }, true));
             }
             // fn params => expr

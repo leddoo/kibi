@@ -46,7 +46,9 @@ pub mod opcode {
     pub const PACKED_CALL:      u8 = 36;
     pub const GATHER_CALL:      u8 = 37;
     pub const RET:              u8 = 38;
-    pub const END:              u8 = 39;
+
+    pub const NEW_FUNCTION:     u8 = 39;
+    pub const END:              u8 = 40;
 
     pub const EXTRA:            u8 = 255;
 }
@@ -88,11 +90,6 @@ impl Instruction {
     #[inline(always)]
     pub fn _c3(self) -> u32 {
         (self.0 >> 24) & 0xff
-    }
-
-    #[inline(always)]
-    pub fn _u16(self) -> u32 {
-        (self.0 >> 16) & 0xffff
     }
 
     #[inline(always)]
@@ -149,7 +146,7 @@ impl Instruction {
 
     #[inline(always)]
     pub fn c1u16(self) -> (u32, u32) {
-        (self._c1(), self._u16())
+        (self._c1(), self.u16())
     }
 
     #[inline(always)]
@@ -159,7 +156,7 @@ impl Instruction {
 
     #[inline(always)]
     pub fn u16(self) -> u32 {
-        self._u16()
+        (self.0 >> 16) & 0xffff
     }
 }
 
@@ -220,6 +217,11 @@ impl ByteCodeBuilder {
 
     pub fn table_new(&mut self, dst: u8) {
         self.buffer.push(Instruction::encode_c1(opcode::TABLE_NEW, dst));
+    }
+
+
+    pub fn new_function(&mut self, dst: u8, proto: u16) {
+        self.buffer.push(Instruction::encode_c1u16(opcode::NEW_FUNCTION, dst, proto));
     }
 
 
@@ -603,6 +605,11 @@ pub fn dump(code: &[Instruction]) {
             RET => {
                 let (rets, num_rets) = instr.c2();
                 println!("  ret r{}, {}", rets, num_rets);
+            }
+
+            NEW_FUNCTION => {
+                let (dst, proto) = instr.c1u16();
+                println!("  new_function r{}, f{}", dst, proto);
             }
 
             // @todo-speed: this inserts a check to reduce dispatch table size.

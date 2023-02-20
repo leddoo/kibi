@@ -37,6 +37,40 @@ ENV.three := 3
 foo += ENV["three"]
 
 
+ENV.greet := fn (name)
+    print("hey, ")
+    print(name)
+    println("!")
+end
+
+println(greet)
+greet("weirdo")
+
+ENV.unused_param := fn(a, b, c)
+    print("a: ")
+    print(a)
+    print(", c: ")
+    print(c)
+    println("")
+end
+
+unused_param(4, 8, 16)
+
+--[[
+ENV.fib := fn(n)
+    let a = 0
+    let b = 1
+    let i = 0
+    while i < n:
+        let c = a + b
+        a = b
+        b = c
+        i += 1
+    end
+end
+--]]
+
+
 --[[
 fn new_board(w, h)
     let values = [1, 5, 4]

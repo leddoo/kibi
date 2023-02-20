@@ -1,5 +1,3 @@
-use crate::bytecode::Instruction;
-use crate::value::Constant;
 use super::*;
 
 
@@ -33,6 +31,7 @@ pub struct Decl<'a> {
 
 
 pub struct Compiler {
+    module: Module,
 }
 
 
@@ -52,50 +51,21 @@ impl CompileError {
 
 
 impl Compiler {
-    pub fn compile_chunk(&mut self, source: SourceRange, stmts: &[Ast]) -> CompileResult<(Vec<Instruction>, Vec<Constant>, u32)> {
-        let mut fun = {
-            let mut ctx = Ctx::new();
-            let mut fun = Function::new();
-            let last_is_expr = false;
-            let needs_value  = false;
-            self.compile_block(&mut ctx, &mut fun, source, stmts, last_is_expr, needs_value)?;
-
-            let nil = fun.stmt_load_nil(source);
-            fun.stmt_return(source, nil);
-
-            //fun.dump();
-            fun
+    pub fn compile_chunk(source: SourceRange, stmts: &[Ast]) -> CompileResult<Module> {
+        let mut this = Compiler {
+            module: Module::new()
         };
 
+        let mut ctx = Ctx::new();
+        let mut fun = this.module.new_function();
+        let last_is_expr = false;
+        let needs_value  = false;
+        this.compile_block(&mut ctx, &mut fun, source, stmts, last_is_expr, needs_value)?;
 
-        let (preds, post_order) = fun.preds_and_post_order();
+        let nil = fun.stmt_load_nil(source);
+        fun.stmt_return(source, nil);
 
-        let post_indices = post_order.indices();
-
-        let idoms = fun.immediate_dominators(&preds, &post_order, &post_indices);
-
-        let dom_tree = fun.dominator_tree(&idoms);
-
-        let dom_frontiers = fun.dominance_frontiers(&preds, &idoms);
-
-        opt::local2reg_ex(&mut fun, &preds, &dom_tree, &dom_frontiers);
-        //println!("local2reg done");
-        //fun.dump();
-
-        opt::copy_propagation_ex(&mut fun, &dom_tree);
-        //println!("copy propagation done");
-        //fun.dump();
-
-        opt::dead_copy_elim(&mut fun);
-        //println!("dead copy elim done");
-        //fun.dump();
-
-
-        let (code, constants, num_regs) = fun.compile_ex(&post_order, &idoms, &dom_tree);
-        //println!("bytecode:");
-        //crate::bytecode::dump(&code);
-
-        Ok((code, constants, num_regs))
+        Ok(this.module)
     }
 
     pub fn compile_ast<'a>(&mut self,
@@ -323,8 +293,19 @@ impl Compiler {
             }
 
             AstData::Fn (fnn) => {
-                let _ = fnn;
-                unimplemented!()
+                let mut inner_fun = self.module.new_function();
+                let mut inner_ctx = Ctx::new();
+
+                for param in &fnn.params {
+                    let id = inner_fun.new_param(param.name, SourceRange::null());
+                    inner_ctx.add_decl(param.name, id);
+                }
+
+
+                let value = self.compile_ast(&mut inner_ctx, &mut inner_fun, &fnn.body, true)?.unwrap();
+                inner_fun.stmt_return(ast.source, value);
+
+                Ok(Some(fun.stmt_new_function(ast.source, inner_fun.id())))
             }
 
             AstData::Env => {

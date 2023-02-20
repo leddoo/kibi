@@ -22,3 +22,7 @@
         - extensible.
         - structured -> walkable, editable.
         - can use proper values, instead of having to serialize them to text.
+
+- proof types would actually be really interesting.
+    - cause dependent types do occur pretty often in dynamic languages.
+    - for value types (tuples, structs).

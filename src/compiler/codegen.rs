@@ -4,7 +4,7 @@ use super::*;
 
 
 impl Function {
-    pub fn compile_ex(&self, post_order: &PostOrder, idoms: &ImmediateDominators, dom_tree: &DomTree) -> (Vec<Instruction>, Vec<Constant>, u32) {
+    pub fn compile_ex(&self, post_order: &PostOrder, idoms: &ImmediateDominators, dom_tree: &DomTree, fun_protos: &[u32]) -> (Vec<Instruction>, Vec<Constant>, u32) {
         let block_order = self.block_order_dominators_first(&idoms, &dom_tree);
 
         let (block_begins, stmt_indices) = block_order.block_begins_and_stmt_indices(self);
@@ -14,7 +14,7 @@ impl Function {
 
         let regs = alloc_regs_linear_scan(self, &live_intervals);
 
-        let (code, constants) = generate_bytecode(self, &block_order, &regs);
+        let (code, constants) = generate_bytecode(self, &block_order, &regs, fun_protos);
 
         (code, constants, regs.num_regs)
     }
@@ -135,6 +135,9 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
                     hints[arg_src.usize()] = *arg;
 
                     let joined = join(stmt.id(), *arg, &mut joins, &mut intervals);
+                    if !joined {
+                        println!("failed to join {} with {}", stmt.id(), arg);
+                    }
                     assert!(joined);
                 }
                 return true;
@@ -410,7 +413,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
 }
 
 
-pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &RegisterAllocation) -> (Vec<Instruction>, Vec<Constant>) {
+pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &RegisterAllocation, fun_protos: &[u32]) -> (Vec<Instruction>, Vec<Constant>) {
     assert_eq!(block_order[0], BlockId::ROOT);
     assert_eq!(block_order[1], BlockId::REAL_ENTRY);
 
@@ -491,6 +494,8 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
 
                 ListNew => bcb.list_new(dst),
                 ListAppend { list, value } => bcb.list_append(reg(list), reg(value)),
+
+                NewFunction { id } => bcb.new_function(dst, fun_protos[id.usize()].try_into().unwrap()),
 
                 GetIndex { base, index } => bcb.get(dst, reg(base), reg(index)),
 
@@ -581,6 +586,7 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
             ADD | SUB | MUL | DIV | INC | DEC |
             CMP_EQ | CMP_LE | CMP_LT | CMP_GE | CMP_GT |
             PACKED_CALL | GATHER_CALL | RET |
+            NEW_FUNCTION |
             EXTRA
             => (),
 

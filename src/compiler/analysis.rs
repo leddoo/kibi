@@ -331,6 +331,20 @@ impl Function {
             }
         }
 
+        // @temp: hella unstable hack to make sure params are assigned the right registers.
+        {
+            let live_out = &mut live_outs[BlockId::ROOT.usize()];
+            let mut i = 0;
+            self.block_stmts_ex(BlockId::ROOT, |stmt| {
+                if i < self.num_params() {
+                    live_out[stmt.id().usize()] = true;
+                    i += 1;
+                    return true;
+                }
+                false
+            });
+        }
+
         BlockLiveInOut { live_ins, live_outs }
     }
 

@@ -1,9 +1,18 @@
 
 - todo:
     - ssa form:
+        - remove PhiArg:
+            - remove interval joins for now.
+            - implement parallel copy.
+            - add swap instruction.
         - more compiler features:
-            - functions.
             - tables.
+        - cleanup:
+            - switch to `NonZeroU32`?
+                - the `Opt*Id` things are really dumb.
+                - kinda annoying how user has to worry about zero though.
+                - maybe go with that fake `NonMaxU32` technique.
+            - macro for u32 based ids.
         - repl stuff:
             - parser: eof info for multi-line stmts.
             - don't discard rest of buffer after parsed text.
@@ -17,6 +26,11 @@
             - phi args are unique.
             - phi has arg for all preds.
             - return an error instead of panicking.
+            - all params have a `load_nil` in the entry block.
+                - or switch to `Param` & `Local` instructions?
+                - would be a lot saner.
+                - could get rid of entry block.
+                - is just a bit more complicated for constant propagation & local2reg.
         - a logging/tracing system.
             - so i can keep the prints.
             - for debugging & precise regression testing.

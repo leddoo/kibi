@@ -182,19 +182,15 @@ fn main() {
         let (chunk_source, chunk) = p.parse_block().unwrap();
         //println!("parsed: {:#?}", chunk);
 
-        let mut c = compiler::Compiler {};
-        let (code, constants, num_regs) = c.compile_chunk(chunk_source, &chunk.children).unwrap();
+        let module = compiler::Compiler::compile_chunk(chunk_source, &chunk.children).unwrap();
 
         let mut vm = Vm::new();
         vm.add_func("print", builtin::PRINT);
         vm.add_func("println", builtin::PRINTLN);
 
-        vm.just_run_it_bro(FuncDesc {
-            code: FuncCode::ByteCode(code),
-            constants,
-            num_params: 0,
-            stack_size: num_regs,
-        }).unwrap();
+        module.temp_load(&mut vm);
+
+        vm.call().unwrap();
 
 
         if 1==1 { return }
@@ -270,8 +266,7 @@ fn main() {
             }
         };
 
-        let mut c = compiler::Compiler {};
-        let (code, constants, num_regs) = match c.compile_chunk(ast.source, &[ast]) {
+        let module = match compiler::Compiler::compile_chunk(ast.source, &[ast]) {
             Ok(result) => result,
             Err(e) => {
                 println!("compile error: {:?}", e);
@@ -283,12 +278,8 @@ fn main() {
 
 
         running.store(true, core::sync::atomic::Ordering::SeqCst);
-        let result = vm.just_run_it_bro(FuncDesc {
-            code: FuncCode::ByteCode(code),
-            constants,
-            num_params: 0,
-            stack_size: num_regs,
-        });
+        module.temp_load(&mut vm);
+        let result = vm.call();
         running.store(false, core::sync::atomic::Ordering::SeqCst);
 
         if let Err(_) = result {

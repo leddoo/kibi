@@ -1,3 +1,4 @@
+use core::cell::{RefCell, Ref, RefMut};
 use derive_more::{Deref, DerefMut};
 use super::*;
 
@@ -44,6 +45,8 @@ pub enum StmtData {
 
     ListNew,
     ListAppend { list: StmtId, value: StmtId },
+
+    NewFunction { id: FunctionId },
 
     GetIndex { base: StmtId, index: StmtId },
     SetIndex { base: StmtId, index: StmtId, value: StmtId, is_define: bool },
@@ -129,7 +132,12 @@ struct Local {
 
 // ### Function ###
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FunctionId(u32);
+
 pub struct Function {
+    id: FunctionId,
+
     stmts:      Vec<Stmt>,
     phi_maps:   Vec<PhiMapImpl>,
     stmt_lists: Vec<StmtListImpl>,
@@ -137,12 +145,28 @@ pub struct Function {
     locals:     Vec<Local>,
     strings:    Vec<String>,
 
-    local_cursor:  OptStmtId,
+    param_cursor: OptStmtId,
+    num_params:   u32,
+
+    local_cursor: OptStmtId,
+
     current_block: BlockId,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StringId(u32);
+
+
+
+// ### Module ###
+
+pub struct Module {
+    inner: RefCell<ModuleInner>,
+}
+
+struct ModuleInner {
+    functions: Vec<&'static RefCell<Function>>,
+}
 
 
 
@@ -257,6 +281,8 @@ impl<'a> core::fmt::Display for StmtFmt<'a> {
             ListNew => { write!(f, "new_list") }
             ListAppend { list, value } => { write!(f, "list_append {}, {}", list, value) }
 
+            NewFunction { id } => write!(f, "new_function {}", id),
+
             GetIndex { base, index } => write!(f, "get_index {}, {}", base, index),
 
             SetIndex { base, index, value, is_define } => {
@@ -314,6 +340,7 @@ impl StmtData {
             LoadEnv |
             ListNew |
             ListAppend { list: _, value: _ } |
+            NewFunction { id: _ } |
             GetIndex { base: _, index: _ } |
             SetIndex { base: _, index: _, value: _, is_define: _ } |
             Call { func: _, args_id: _ } |
@@ -337,6 +364,7 @@ impl StmtData {
             LoadString { id: _ } |
             LoadEnv |
             ListNew |
+            NewFunction { id: _ } |
             GetIndex { base: _, index: _ } |
             Call { func: _, args_id: _ } |
             Op1 { op: _, src: _ } |
@@ -373,6 +401,8 @@ impl StmtData {
 
             ListNew => (),
             ListAppend { list, value } => { f(*list); f(*value) }
+
+            NewFunction { id: _ } => (),
 
             GetIndex { base, index }                      => { f(*base); f(*index) }
             SetIndex { base, index, value, is_define: _ } => { f(*base); f(*index); f(*value) }
@@ -421,6 +451,8 @@ impl StmtData {
 
             ListNew => (),
             ListAppend { list, value } => { f(fun, list); f(fun, value) }
+
+            NewFunction { id: _ } => (),
 
             GetIndex { base, index }                      => { f(fun, base); f(fun, index) }
             SetIndex { base, index, value, is_define: _ } => { f(fun, base); f(fun, index); f(fun, value) }
@@ -621,15 +653,18 @@ impl core::fmt::Display for LocalId {
 
 // common
 impl Function {
-    pub fn new() -> Self {
+    fn new(id: FunctionId) -> Self {
         let mut fun = Function {
+            id,
             stmts:      vec![],
             blocks:     vec![],
             phi_maps:   vec![],
             stmt_lists: vec![],
             locals:     vec![],
             strings:    vec![],
-            local_cursor:  None.into(),
+            param_cursor: None.into(),
+            num_params:   0,
+            local_cursor: None.into(),
             current_block: BlockId::ROOT,
         };
 
@@ -646,6 +681,9 @@ impl Function {
         fun
     }
 
+    #[inline(always)]
+    pub fn id(&self) -> FunctionId { self.id }
+
 
     #[inline(always)]
     pub fn num_stmts(&self) -> usize { self.stmts.len() }
@@ -660,6 +698,9 @@ impl Function {
     #[inline(always)]
     pub fn block_ids(&self) -> BlockIdIter { BlockIdIter { at: 0, end: self.blocks.len() as u32 } }
 
+
+    #[inline(always)]
+    pub fn num_params(&self) -> usize { self.num_params as usize }
 
     #[inline(always)]
     pub fn num_locals(&self) -> usize { self.locals.len() }
@@ -835,16 +876,31 @@ impl Function {
 
 // locals
 impl Function {
+    fn _insert_local(&mut self, source: SourceRange, at: OptStmtId, id: LocalId) -> OptStmtId {
+        let nil  = self.new_stmt(source, StmtData::LoadNil);
+        let init = self.new_stmt(source, StmtData::SetLocal { dst: id, src: nil });
+        self.insert_after(BlockId::ROOT, at, nil);
+        self.insert_after(BlockId::ROOT, nil.some(), init);
+        init.some()
+    }
+
+    pub fn new_param(&mut self, name: &str, source: SourceRange) -> LocalId {
+        let id = LocalId(self.locals.len() as u32);
+        self.locals.push(Local { id, name: name.into(), source });
+
+        // "hoist params".
+        self.param_cursor = self._insert_local(source, self.param_cursor, id);
+        self.num_params  += 1;
+
+        id
+    }
+
     pub fn new_local(&mut self, name: &str, source: SourceRange) -> LocalId {
         let id = LocalId(self.locals.len() as u32);
         self.locals.push(Local { id, name: name.into(), source });
 
         // "hoist locals".
-        let nil  = self.new_stmt(source, StmtData::LoadNil);
-        let init = self.new_stmt(source, StmtData::SetLocal { dst: id, src: nil });
-        self.insert_after(BlockId::ROOT, self.local_cursor, nil);
-        self.insert_after(BlockId::ROOT, nil.some(), init);
-        self.local_cursor = init.some();
+        self.local_cursor = self._insert_local(source, self.local_cursor, id);
 
         id
     }
@@ -968,6 +1024,11 @@ impl Function {
     #[inline]
     pub fn stmt_list_append(&mut self, source: SourceRange, list: StmtId, value: StmtId) -> StmtId {
         self.add_stmt(source, StmtData::ListAppend { list, value })
+    }
+
+    #[inline]
+    pub fn stmt_new_function(&mut self, source: SourceRange, id: FunctionId) -> StmtId {
+        self.add_stmt(source, StmtData::NewFunction { id })
     }
 
     #[inline]
@@ -1252,6 +1313,19 @@ impl Function {
 }
 
 
+impl FunctionId {
+    #[inline(always)]
+    pub const fn usize(self) -> usize { self.0 as usize }
+}
+
+impl core::fmt::Display for FunctionId {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "f{}", self.0)
+    }
+}
+
+
 impl StringId {
     #[inline(always)]
     pub fn usize(self) -> usize { self.0 as usize }
@@ -1266,6 +1340,97 @@ impl StringId {
         &fun.strings[self.usize()]
     }
 }
+
+
+
+// --- Module ---
+
+impl Module {
+    pub fn new() -> Module {
+        Module { inner: RefCell::new(ModuleInner {
+            functions: vec![],
+        })}
+    }
+
+    pub fn new_function(&self) -> RefMut<'static, Function> {
+        let mut this = self.inner.borrow_mut();
+        let id = FunctionId(this.functions.len() as u32);
+        let function = Box::leak(Box::new(RefCell::new(Function::new(id))));
+        let result = function.borrow_mut();
+        this.functions.push(function);
+        result
+    }
+
+    pub fn read_function(&self, symbol_id: FunctionId) -> Ref<'static, Function> {
+        let this = self.inner.borrow();
+        this.functions[symbol_id.usize()].borrow()
+    }
+
+    pub fn write_function(&self, symbol_id: FunctionId) -> RefMut<'static, Function> {
+        let this = self.inner.borrow();
+        this.functions[symbol_id.usize()].borrow_mut()
+    }
+
+    pub fn temp_load(self, vm: &mut crate::Vm) {
+        let this = self.inner.borrow();
+
+        let mut fun_protos = vec![];
+        for i in 0..this.functions.len() {
+            fun_protos.push((vm.inner.func_protos.len() + i) as u32);
+        }
+
+        for fun in this.functions.iter() {
+            let mut fun = fun.borrow_mut();
+            //fun.dump();
+
+            let (preds, post_order) = fun.preds_and_post_order();
+
+            let post_indices = post_order.indices();
+
+            let idoms = fun.immediate_dominators(&preds, &post_order, &post_indices);
+
+            let dom_tree = fun.dominator_tree(&idoms);
+
+            let dom_frontiers = fun.dominance_frontiers(&preds, &idoms);
+
+            opt::local2reg_ex(&mut fun, &preds, &dom_tree, &dom_frontiers);
+            //println!("local2reg done");
+            //fun.dump();
+
+            opt::copy_propagation_ex(&mut fun, &dom_tree);
+            //println!("copy propagation done");
+            //fun.dump();
+
+            opt::dead_copy_elim(&mut fun);
+            //println!("dead copy elim done");
+            //fun.dump();
+
+            let (code, constants, num_regs) = fun.compile_ex(&post_order, &idoms, &dom_tree, &fun_protos);
+            //println!("bytecode:");
+            //crate::bytecode::dump(&code);
+
+            use crate::{Constant, Value};
+            let constants = constants.into_iter().map(|c| { match c {
+                Constant::Nil              => Value::Nil,
+                Constant::Bool   { value } => Value::Bool { value },
+                Constant::Number { value } => Value::Number { value },
+                Constant::String { value } => vm.inner.string_new(&value),
+            }}).collect();
+
+            vm.inner.func_protos.push(crate::FuncProto {
+                code: crate::FuncCode::ByteCode(code),
+                constants,
+                num_params: fun.num_params,
+                stack_size: num_regs,
+            });
+        }
+
+        assert_eq!(vm.inner.func_protos.len(), *fun_protos.last().unwrap() as usize + 1);
+
+        vm.inner.push_func(fun_protos[0] as usize);
+    }
+}
+
 
 
 
