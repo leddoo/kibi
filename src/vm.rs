@@ -723,6 +723,15 @@ impl VmImpl {
                         *self.reg(dst) = *self.reg(src);
                     }
 
+                    SWAP => {
+                        let (dst, src) = instr.c2();
+                        // @todo-speed: remove checks.
+                        let dst_val = *self.reg(dst);
+                        let src_val = *self.reg(src);
+                        *self.reg(dst) = src_val;
+                        *self.reg(src) = dst_val;
+                    }
+
 
                     LOAD_NIL => {
                         let dst = instr.c1();

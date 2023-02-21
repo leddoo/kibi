@@ -48,7 +48,8 @@ pub mod opcode {
     pub const RET:              u8 = 38;
 
     pub const NEW_FUNCTION:     u8 = 39;
-    pub const END:              u8 = 40;
+    pub const SWAP:             u8 = 40;
+    pub const END:              u8 = 41;
 
     pub const EXTRA:            u8 = 255;
 }
@@ -182,6 +183,10 @@ impl ByteCodeBuilder {
 
     pub fn copy(&mut self, dst: u8, src: u8) {
         self.buffer.push(Instruction::encode_c2(opcode::COPY, dst, src));
+    }
+
+    pub fn swap(&mut self, dst: u8, src: u8) {
+        self.buffer.push(Instruction::encode_c2(opcode::SWAP, dst, src));
     }
 
 
@@ -401,6 +406,11 @@ pub fn dump(code: &[Instruction]) {
             COPY => {
                 let (dst, src) = instr.c2();
                 println!("  copy r{}, r{}", dst, src);
+            }
+
+            SWAP => {
+                let (dst, src) = instr.c2();
+                println!("  swap r{}, r{}", dst, src);
             }
 
 
