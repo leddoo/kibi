@@ -296,7 +296,7 @@ impl Function {
                         }
                     }
 
-                    // phis.
+                    // phis: gen bb's args.
                     self.block_stmts_ex(succ, |stmt| {
                         // @todo: try_phi Stmt variant?
                         if let Some(map) = self.try_phi(stmt.id()) {
@@ -397,9 +397,42 @@ impl Function {
             }
 
             // statements.
+            let mut parallel_copy_pos = None;
+            let mut phi_pos           = None;
             self.block_stmts_rev(*bb, |stmt| {
+                let stmt_pos = stmt_indices[stmt.id().usize()];
+
+                let stmt_pos =
+                    if stmt.is_phi() {
+                        if let Some(phi_pos) = phi_pos {
+                            phi_pos
+                        }
+                        else {
+                            phi_pos = Some(stmt_pos);
+                            stmt_pos
+                        }
+                    }
+                    else if let StmtData::ParallelCopy { src: _, copy_id: id } = stmt.data {
+                        if let Some((current_id, current_pos)) = parallel_copy_pos {
+                            if current_id == id {
+                                current_pos
+                            }
+                            else {
+                                parallel_copy_pos = Some((id, stmt_pos));
+                                stmt_pos
+                            }
+                        }
+                        else {
+                            parallel_copy_pos = Some((id, stmt_pos));
+                            stmt_pos
+                        }
+                    }
+                    else {
+                        stmt_pos
+                    };
+
                 if stmt.has_value() {
-                    let start = stmt_indices[stmt.id().usize()];
+                    let start = stmt_pos;
                     if no_empty_intervals {
                         gen(stmt.id(), start, &mut live);
                     }
@@ -408,7 +441,7 @@ impl Function {
 
                 if !stmt.is_phi() {
                     stmt.args(self, |arg| {
-                        let stop = stmt_indices[stmt.id().usize()];
+                        let stop = stmt_pos;
                         gen(arg, stop, &mut live);
                     });
                 }

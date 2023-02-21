@@ -101,14 +101,7 @@ pub fn local2reg_ex(fun: &mut Function, preds: &Predecessors, dom_tree: &DomTree
             let mut at = None.into();
 
             for (_, map, stmt_id) in phis {
-                let map: Vec<PhiEntry> = map.into_iter().map(|(bb, src)| {
-                    // @todo-src: what source for phi args?
-                    let arg = fun.new_stmt(SourceRange::null(),
-                        StmtData::PhiArg { src: src.unwrap() });
-                    fun.insert_before_terminator(bb, arg);
-                    (bb, arg)
-                }).collect();
-
+                let map: Vec<PhiEntry> = map.into_iter().map(|(bb, src)| { (bb, src.unwrap()) }).collect();
                 fun.set_phi(stmt_id, &map);
 
                 fun.insert_after(block, at, stmt_id);
@@ -125,7 +118,11 @@ pub fn copy_propagation_ex(fun: &mut Function, dom_tree: &DomTree) {
         // inline copies.
         fun.block_replace_args(bb, |fun, arg| {
             if let StmtData::Copy { src } = arg.get(fun).data {
-                *arg = src;
+                let mut new_arg = src;
+                while let StmtData::Copy { src } = new_arg.get(fun).data {
+                    new_arg = src;
+                }
+                *arg = new_arg;
             }
         });
 

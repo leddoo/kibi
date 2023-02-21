@@ -221,7 +221,6 @@ impl Compiler {
                 fun.set_current_block(bb_true);
                 let value_true = self.compile_ast(ctx, fun, &iff.on_true, need_value)?;
                 let on_true_src = iff.on_true.source.end.to_range();
-                let value_true = value_true.map(|v| fun.stmt_phi_arg(on_true_src, v));
                 fun.stmt_jump(on_true_src, after_if);
                 let bb_true = fun.get_current_block();
 
@@ -238,7 +237,6 @@ impl Compiler {
                         let v = need_value.then(|| fun.stmt_load_nil(source));
                         (v, source)
                     };
-                let value_false = value_false.map(|v| fun.stmt_phi_arg(on_false_src, v));
                 fun.stmt_jump(on_false_src, after_if);
                 let bb_false = fun.get_current_block();
 

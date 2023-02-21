@@ -9,21 +9,33 @@ impl Function {
 
         let (block_begins, stmt_indices) = block_order.block_begins_and_stmt_indices(self);
 
+        // println!("block order:");
+        // for bb in block_order.iter() {
+        //     println!("{}", bb);
+        //     self.block_stmts(*bb, |stmt| {
+        //         println!("  ({}) {}", stmt_indices[stmt.id().usize()], stmt.fmt(self));
+        //     });
+        // }
 
         let live_intervals = self.live_intervals(&post_order, &block_order, &block_begins, &stmt_indices, true);
+
+        // println!("live:");
+        // for (i, interval) in live_intervals.iter().enumerate() {
+        //     println!("s{i}: {interval:?}");
+        // }
 
         let regs = alloc_regs_linear_scan(self, &live_intervals);
 
         let (code, constants) = generate_bytecode(self, &block_order, &regs, fun_protos);
 
-        (code, constants, regs.num_regs)
+        (code, constants, regs.num_regs as u32)
     }
 }
 
 
 pub struct RegisterAllocation {
     pub mapping:  Vec<u32>,
-    pub num_regs: u32,
+    pub num_regs: usize,
 }
 
 pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) -> RegisterAllocation {
@@ -126,13 +138,18 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
     }
 
 
+    // phi hints.
     for bb in fun.block_ids() {
-        fun.block_stmts_ex(bb, |stmt| {
+        fun.block_stmts(bb, |stmt| {
             if let Some(map) = fun.try_phi(stmt.id()) {
                 // join phi with args.
                 for (_, arg) in map.iter() {
-                    let StmtData::PhiArg { src: arg_src } = arg.get(fun).data else { unreachable!() };
-                    hints[arg_src.usize()] = *arg;
+                    if let StmtData::Copy { src } |
+                           StmtData::ParallelCopy { src, copy_id: _ }
+                        = arg.get(fun).data
+                    {
+                        hints[src.usize()] = *arg;
+                    }
 
                     let joined = join(stmt.id(), *arg, &mut joins, &mut intervals);
                     if !joined {
@@ -140,9 +157,12 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
                     }
                     assert!(joined);
                 }
-                return true;
             }
-            false
+            else if let Some(src) = stmt.try_any_copy() {
+                if hints[src.usize()] == src {
+                    hints[src.usize()] = stmt.id();
+                }
+            }
         });
     }
 
@@ -156,7 +176,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
     }
 
     let mut intervals =
-        intervals.iter().enumerate()
+        live_intervals.iter().enumerate()
         .filter_map(|(i, ranges)| {
             if ranges.len() == 0 { return None }
             Some(Interval {
@@ -331,7 +351,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
             'first_arg: {
                 let first_arg = match new_int.stmt.get(fun).data {
                     StmtData::Copy  { src }                 => src,
-                    StmtData::PhiArg { src }                => src,
+                    StmtData::ParallelCopy { src, copy_id: _ } => src,
                     StmtData::Op1 { op: _, src }            => src,
                     StmtData::Op2 { op: _,  src1, src2: _ } => src1,
                     _ => break 'first_arg,
@@ -340,18 +360,6 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
                 let reg = mapping[first_arg.usize()];
                 if reg != u32::MAX && regs[reg as usize] == false {
                     break 'find_reg reg;
-                }
-            }
-
-            // phi hint.
-            if let Some(map) = fun.try_phi(new_int.stmt) {
-                for (_, arg) in map.iter() {
-                    let StmtData::PhiArg { src } = arg.get(fun).data else { unreachable!() };
-
-                    let reg = mapping[src.usize()];
-                    if reg != u32::MAX && regs[reg as usize] == false {
-                        break 'find_reg reg;
-                    }
                 }
             }
 
@@ -409,7 +417,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
     }
 
     //println!("register allocation done. used {} registers.", regs.len());
-    RegisterAllocation { mapping, num_regs: regs.len() as u32 }
+    RegisterAllocation { mapping, num_regs: regs.len() }
 }
 
 
@@ -442,24 +450,52 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
             continue;
         }
 
-        fun.block_stmts(*bb, |stmt| {
+        let next_bb = block_order.get(block_index + 1).cloned();
+
+        let mut stmt_cursor = bb.get(fun).first();
+
+        while let Some(stmt_id) = stmt_cursor.to_option() {
+            let stmt = stmt_id.get(fun);
+            stmt_cursor = stmt.next();
+
+            if let StmtData::ParallelCopy { src, copy_id } = stmt.data {
+                let mut copied_to = vec![vec![]; regs.num_regs];
+                copied_to[reg(src) as usize].push(reg(stmt_id));
+
+                while let Some(at) = stmt_cursor.to_option() {
+                    let copy_stmt = at.get(fun);
+                    let StmtData::ParallelCopy { src, copy_id: cid } = copy_stmt.data else { break };
+                    if cid != copy_id { break }
+
+                    copied_to[reg(src) as usize].push(reg(at));
+
+                    stmt_cursor = copy_stmt.next();
+                }
+
+                impl_parallel_copy(regs.num_regs, &copied_to, &mut bcb);
+                
+
+                continue;
+            }
+            // else (no parallel copy):
+
             let dst = reg(stmt.id());
 
             // @temp
             if dst == 255 && stmt.has_value() {
-                return
+                continue;
             }
-
-            let next_bb = block_order.get(block_index + 1).cloned();
 
             use StmtData::*;
             match stmt.data {
-                Copy { src } | PhiArg { src } => {
+                Copy { src } => {
                     let src = reg(src);
                     if dst != src { bcb.copy(dst, src) }
                 }
 
                 Phi { map_id: _ } => (),
+
+                ParallelCopy { src: _, copy_id: _ } => unreachable!(),
 
                 GetLocal { src: _ } |
                 SetLocal { dst: _, src: _ } => unimplemented!(),
@@ -550,7 +586,7 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
                     bcb.ret(reg(src), 1);
                 }
             }
-        });
+        }
     }
 
     let mut code = bcb.build();
@@ -578,7 +614,7 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
                 instr.patch_u16(block_offsets[block]);
             }
 
-            NOP | UNREACHABLE | COPY |
+            NOP | UNREACHABLE | COPY | SWAP |
             LOAD_NIL | LOAD_BOOL | LOAD_INT | LOAD_CONST | LOAD_ENV |
             LIST_NEW | LIST_APPEND |
             TABLE_NEW |
@@ -595,5 +631,94 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
     }
 
     (code, constants)
+}
+
+fn impl_parallel_copy(num_regs: usize, copied_to: &[Vec<u8>], bcb: &mut crate::ByteCodeBuilder) {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    enum WriteStatus {
+        None,
+        Writing,
+        Written,
+        Cycle      { prev: u8 },
+        CycleStart { last: u8 },
+    }
+
+    // returns whether `src -> dst` is in a cycle starting at src0.
+    fn copy_paths(src0: usize, src: usize, dst: usize, copied_to: &[Vec<u8>], status: &mut [WriteStatus], bcb: &mut crate::ByteCodeBuilder) -> bool {
+        // this detects if we try to write into a "forwarded" register.
+        // i.e. walked into a self-cycle from outside (indeg > 1).
+        assert_ne!(dst, src);
+        // detect other indeg > 1 cases.
+        assert_eq!(status[dst], WriteStatus::None);
+
+        // cycle?
+        if dst == src0 {
+            status[dst] = WriteStatus::CycleStart { last: src as u8 };
+            true
+        }
+        else {
+            status[dst] = WriteStatus::Writing;
+
+            let mut cycle = false;
+
+            // write dsts's dsts.
+            let dst_dsts = &copied_to[dst];
+            for dst_dst in dst_dsts.iter().copied() {
+                // cycle?
+                if copy_paths(src0, dst, dst_dst as usize, copied_to, status, bcb) {
+                    assert!(!cycle);
+                    cycle = true;
+                }
+            }
+
+            if cycle {
+                status[dst] = WriteStatus::Cycle { prev: src as u8 };
+            }
+            else {
+                status[dst] = WriteStatus::Written;
+                bcb.copy(dst as u8, src as u8);
+            }
+
+            cycle
+        }
+    }
+
+    let mut status = vec![WriteStatus::None; num_regs];
+    
+    // copy paths.
+    for src in 0..num_regs {
+        let dsts = &copied_to[src];
+
+        if dsts.len() == 1 && dsts[0] as usize == src {
+            assert_eq!(status[src], WriteStatus::None);
+            status[src] = WriteStatus::Written;
+        }
+        else if status[src] == WriteStatus::None {
+            let mut cycle = false;
+            for dst in dsts.iter().copied() {
+                if copy_paths(src, src, dst as usize, &copied_to, &mut status, bcb) {
+                    assert!(!cycle);
+                    cycle = true;
+                }
+            }
+        }
+    }
+
+    for src0 in 0..num_regs {
+        if let WriteStatus::CycleStart { last } = status[src0] {
+            bcb.swap(src0 as u8, last);
+
+            let mut at = last as usize;
+            loop {
+                let WriteStatus::Cycle { prev } = status[at] else { unreachable!() };
+                if prev as usize == src0 {
+                    break
+                }
+                bcb.swap(at as u8, prev);
+
+                at = prev as usize;
+            }
+        }
+    }
 }
 

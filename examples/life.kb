@@ -1,40 +1,64 @@
-let a = 8; let b = 9; let c = 10
-if true:
-    a += b
-    while b > c:
-        b -= c / a
+ENV.fib := fn(n)
+    let a = 0
+    let b = 1
+    let i = 0
+    while i < n:
+        let c = a + b
+        a = b
+        b = c
+        i += 1
     end
-else:
-    a = c / a
-    b = false
+    a
 end
 
-let d = if true: a end
-d = d + a
-d = d + b
-d = d + c
-d = d + d
+(fn():
+    let a = 8; let b = 9; let c = 10
+    if true:
+        a += b
+        while b > c:
+            b -= c / a
+        end
+    else:
+        a = c / a
+        b = false
+    end
 
-print("d is ")
-println(d)
+    let d = if true: a end
+    d = d + a
+    d = d + b
+    d = d + c
+    d = d + d
 
-let values = [1, 5, 4]
-var i = 0
-while i < d*d:
-    values[i] := 0
-    i += 1
-end
+    print("d is ")
+    println(d)
+end)()
+
+(fn():
+    println("doing the loop thing")
+    let values = [1, 5, 4]
+    let d = 7
+    var i = 0
+    while i < d*d:
+        values[i] := 0
+        i += 1
+    end
+end)()
 
 
-let list = [1, 5, 4, "hi", ENV]
+(fn():
+    println("doing the other list thing")
+    let list = [1, 5, 4, "hi", ENV]
 
-list[5] := list[1] + list[2]
+    list[5] := list[1] + list[2]
+end)()
 
-ENV.foo := "the real foo"
-foo = "or is it?"
-foo = 7
-ENV.three := 3
-foo += ENV["three"]
+(fn():
+    ENV.foo := "the real foo"
+    foo = "or is it?"
+    foo = 7
+    ENV.three := 3
+    foo += ENV["three"]
+end)()
 
 
 ENV.greet := fn (name)
@@ -56,19 +80,45 @@ end
 
 unused_param(4, 8, 16)
 
---[[
-ENV.fib := fn(n)
-    let a = 0
-    let b = 1
-    let i = 0
-    while i < n:
-        let c = a + b
+(fn():
+    let a = 1
+    let b = 2
+    let c = 3
+    let n = 0
+    while a < 3:
+        let d = a
         a = b
         b = c
-        i += 1
+        c = d
+        n += 1
+    end
+    print(a)
+    print(b)
+    print(c)
+    print(" ")
+    println(n)
+end)()
+
+let i = 0
+while i < 15:
+    print("fib(")
+    print(i)
+    print(") = ")
+    println(fib(i))
+    i += 1
+end
+
+
+fn()
+    let a
+    let b
+    while false:
+        let c = a
+        a = b
+        b = c
     end
 end
---]]
+
 
 
 --[[

@@ -31,7 +31,8 @@ pub enum StmtData {
     Copy        { src: StmtId },
 
     Phi         { map_id: PhiMapId },
-    PhiArg      { src: StmtId },
+
+    ParallelCopy { src: StmtId, copy_id: u32 },
 
     GetLocal    { src: LocalId },
     SetLocal    { dst: LocalId, src: StmtId },
@@ -145,6 +146,8 @@ pub struct Function {
     locals:     Vec<Local>,
     strings:    Vec<String>,
 
+    last_parallel_copy_id: u32,
+
     param_cursor: OptStmtId,
     num_params:   u32,
 
@@ -192,6 +195,9 @@ impl StmtId {
 
     #[inline(always)]
     pub fn get(self, fun: &Function) -> &Stmt { &fun.stmts[self.usize()] }
+
+    #[inline(always)]
+    pub fn get_mut(self, fun: &mut Function) -> &mut Stmt { &mut fun.stmts[self.usize()] }
 
     #[inline(always)]
     pub const fn some(self) -> OptStmtId { OptStmtId(self.0) }
@@ -266,7 +272,7 @@ impl<'a> core::fmt::Display for StmtFmt<'a> {
 
             Phi { map_id } => { write!(f, "phi {}", map_id.get(fun)) }
 
-            PhiArg { src } => write!(f, "phi_arg {}", src),
+            ParallelCopy { src, copy_id: id } => write!(f, "parallel_copy {} ({})", src, id),
 
             GetLocal { src }      => { write!(f, "get_local {}", src) }
             SetLocal { dst, src } => { write!(f, "set_local {}, {}", dst, src) }
@@ -310,13 +316,22 @@ impl StmtData {
     }
 
     #[inline(always)]
+    pub fn is_parallel_copy(&self) -> bool {
+        if let StmtData::ParallelCopy { src: _, copy_id: _ } = self { true } else { false }
+    }
+
+    #[inline(always)]
     pub fn is_phi(&self) -> bool {
         if let StmtData::Phi { map_id: _ } = self { true } else { false }
     }
 
     #[inline(always)]
-    pub fn is_phi_arg(&self) -> bool {
-        if let StmtData::PhiArg { src: _ } = self { true } else { false }
+    pub fn try_any_copy(&self) -> Option<StmtId> {
+        match self {
+            StmtData::Copy { src }                     => Some(*src),
+            StmtData::ParallelCopy { src, copy_id: _ } => Some(*src),
+            _ => None,
+        }
     }
 
     #[inline(always)]
@@ -329,7 +344,7 @@ impl StmtData {
 
             Copy { src: _ } |
             Phi { map_id: _ } |
-            PhiArg { src: _ } |
+            ParallelCopy { src: _, copy_id: _ } |
             GetLocal { src: _ } |
             SetLocal { dst: _, src: _ } |
             LoadNil |
@@ -355,7 +370,7 @@ impl StmtData {
         match self {
             Copy { src: _ } |
             Phi { map_id: _ } |
-            PhiArg { src: _ } |
+            ParallelCopy { src: _, copy_id: _ } |
             GetLocal { src: _ } |
             LoadNil |
             LoadBool { value: _ } |
@@ -387,7 +402,7 @@ impl StmtData {
 
             Phi { map_id } => { for (_, src) in map_id.get(fun).iter() { f(*src) } }
 
-            PhiArg { src } => { f(*src) }
+            ParallelCopy { src, copy_id: _ } => { f(*src) }
 
             GetLocal { src: _ } => (),
             SetLocal { dst: _, src } => { f(*src) }
@@ -423,21 +438,15 @@ impl StmtData {
         match self {
             Copy { src } => { f(fun, src) }
 
-            Phi { map_id: _ } => {
-                // @todo: allow this?
-                //  user should not change phis.
-                //  that can break register allocation.
-                //  changing phi inputs is done by changing the corresponding PhiArgs.
-                /*
+            Phi { map_id } => {
                 let mut map = core::mem::take(&mut *fun.phi_maps[map_id.usize()]);
                 for (_, src) in &mut map {
                     f(fun, src)
                 }
                 fun.phi_maps[map_id.usize()] = PhiMapImpl { map };
-                */
             }
 
-            PhiArg { src } => { f(fun, src) }
+            ParallelCopy { src, copy_id: _ } => { f(fun, src) }
 
             GetLocal { src: _ } => (),
             SetLocal { dst: _, src } => { f(fun, src) }
@@ -489,14 +498,6 @@ impl PhiMapId {
 }
 
 impl PhiMapImpl {
-    #[inline]
-    fn new(map: &[PhiEntry], fun: &Function) -> PhiMapImpl {
-        for (_, stmt) in map {
-            assert!(stmt.get(fun).is_phi_arg());
-        }
-        PhiMapImpl { map: map.into() }
-    }
-
     #[inline(always)]
     fn phi_map(&self) -> PhiMap { PhiMap { map: &self.map } }
 }
@@ -662,6 +663,7 @@ impl Function {
             stmt_lists: vec![],
             locals:     vec![],
             strings:    vec![],
+            last_parallel_copy_id: 0,
             param_cursor: None.into(),
             num_params:   0,
             local_cursor: None.into(),
@@ -720,6 +722,12 @@ impl Function {
             StringId(id)
         }
     }
+
+    #[inline]
+    pub fn new_parallel_copy_id(&mut self) -> u32 {
+        self.last_parallel_copy_id += 1;
+        self.last_parallel_copy_id
+    }
 }
 
 
@@ -739,7 +747,7 @@ impl Function {
 
     pub fn new_phi(&mut self, source: SourceRange, map: &[PhiEntry]) -> StmtId {
         let map_id = PhiMapId(self.phi_maps.len() as u32);
-        self.phi_maps.push(PhiMapImpl::new(map, self));
+        self.phi_maps.push(PhiMapImpl { map: map.into() });
         self.new_stmt(source, StmtData::Phi { map_id })
     }
 
@@ -754,7 +762,7 @@ impl Function {
     // @todo: def_phi variant.
     pub fn set_phi(&mut self, stmt: StmtId, map: &[PhiEntry]) {
         let StmtData::Phi { map_id } = self.stmts[stmt.usize()].data else { unreachable!() };
-        self.phi_maps[map_id.usize()] = PhiMapImpl::new(map, self);
+        self.phi_maps[map_id.usize()] = PhiMapImpl { map: map.into() };
     }
 
 
@@ -860,7 +868,7 @@ impl Function {
     pub fn block_successors<F: FnMut(BlockId)>(&self, bb: BlockId, mut f: F) {
         let block = &self.blocks[bb.usize()];
 
-        let Some(last) = block.last.to_option() else { return };
+        let Some(last) = block.last.to_option() else { unreachable!() };
 
         use StmtData::*;
         match last.get(self).data {
@@ -870,6 +878,36 @@ impl Function {
 
             _ => { unreachable!("called successors on unterminated block") }
         }
+    }
+
+    pub fn block_first_phi(&self, bb: BlockId) -> OptStmtId {
+        if let Some(first) = bb.get(self).first.to_option() {
+            if first.get(self).is_phi() {
+                return first.some();
+            }
+        }
+        OptStmtId::NONE
+    }
+
+    pub fn block_last_phi(&self, bb: BlockId) -> OptStmtId {
+        let mut result = OptStmtId::NONE;
+        self.block_stmts_ex(bb, |stmt| {
+            if stmt.is_phi() {
+                result = stmt.id.some();
+                true
+            }
+            else { false }
+        });
+        result
+    }
+
+    pub fn block_terminator(&self, bb: BlockId) -> OptStmtId {
+        if let Some(last) = bb.get(self).last.to_option() {
+            if last.get(self).is_terminator() {
+                return last.some();
+            }
+        }
+        OptStmtId::NONE
     }
 }
 
@@ -891,6 +929,10 @@ impl Function {
         // "hoist params".
         self.param_cursor = self._insert_local(source, self.param_cursor, id);
         self.num_params  += 1;
+
+        if self.local_cursor.to_option().is_none() {
+            self.local_cursor = self.param_cursor;
+        }
 
         id
     }
@@ -967,13 +1009,8 @@ impl Function {
 
     pub fn stmt_phi(&mut self, source: SourceRange, map: &[PhiEntry]) -> StmtId {
         let map_id = PhiMapId(self.phi_maps.len() as u32);
-        self.phi_maps.push(PhiMapImpl::new(map, self));
+        self.phi_maps.push(PhiMapImpl { map: map.into() });
         self.add_stmt(source, StmtData::Phi { map_id })
-    }
-
-    #[inline]
-    pub fn stmt_phi_arg(&mut self, source: SourceRange, src: StmtId) -> StmtId {
-        self.add_stmt(source, StmtData::PhiArg { src })
     }
 
     #[inline]
@@ -1229,7 +1266,6 @@ impl Function {
             assert_eq!(block.id, bb);
 
             let mut in_phis = true;
-            let mut in_phi_args = false;
             let mut has_terminator = false;
             let mut stmt_count = 0;
 
@@ -1263,18 +1299,8 @@ impl Function {
                 // phis.
                 if stmt.is_phi() {
                     assert!(in_phis);
-                    for (_, arg) in self.try_phi(stmt.id()).unwrap().iter() {
-                        let arg = arg.get(self);
-                        assert!(arg.is_phi_arg());
-                    }
                 }
                 else { in_phis = false; }
-
-                // phi args.
-                if !stmt.is_phi_arg() {
-                    assert!(!in_phi_args || stmt.is_terminator());
-                }
-                else { in_phi_args = true }
 
                 // terminator.
                 if stmt.is_terminator() {
@@ -1383,6 +1409,10 @@ impl Module {
             let mut fun = fun.borrow_mut();
             //fun.dump();
 
+            // for local in &fun.locals {
+            //     println!("{:?}", local);
+            // }
+
             let (preds, post_order) = fun.preds_and_post_order();
 
             let post_indices = post_order.indices();
@@ -1404,6 +1434,8 @@ impl Module {
             opt::dead_copy_elim(&mut fun);
             //println!("dead copy elim done");
             //fun.dump();
+
+            transform::convert_to_cssa_naive(&mut fun, &preds);
 
             let (code, constants, num_regs) = fun.compile_ex(&post_order, &idoms, &dom_tree, &fun_protos);
             //println!("bytecode:");

@@ -1,12 +1,10 @@
 
 - todo:
     - ssa form:
-        - remove PhiArg:
-            - remove interval joins for now.
-            - implement parallel copy.
-            - add swap instruction.
-        - more compiler features:
-            - tables.
+        - param instruction.
+            - they're not nil!
+            - then might as well add local instructions -> get rid of fake entry.
+        - tables.
         - cleanup:
             - switch to `NonZeroU32`?
                 - the `Opt*Id` things are really dumb.
@@ -18,6 +16,7 @@
             - don't discard rest of buffer after parsed text.
             - print return value.
             - let/var define globals in repl?
+        - assert cfg has no critical edges.
         - ensure all stmts with a value have a register.
         - validation:
             - args point to `StmtData::has_output`.
@@ -31,6 +30,7 @@
                 - would be a lot saner.
                 - could get rid of entry block.
                 - is just a bit more complicated for constant propagation & local2reg.
+            - phi maps & stmt lists are uniquely owned.
         - a logging/tracing system.
             - so i can keep the prints.
             - for debugging & precise regression testing.
