@@ -434,7 +434,15 @@ impl Function {
                 if stmt.has_value() {
                     let start = stmt_pos;
                     if no_empty_intervals {
-                        gen(stmt.id(), start, &mut live);
+                        let mut stop = start;
+                        if stmt.is_parallel_copy() {
+                            // parallel copies have the same start position.
+                            // if one is unused (start == stop), its register may be
+                            // released and made available for other copies in the
+                            // same parallel group, which is no good.
+                            stop = StmtIndex { value: start.value + 1 };
+                        }
+                        gen(stmt.id(), stop, &mut live);
                     }
                     kill(stmt.id(), start, &mut live, &mut intervals)
                 }

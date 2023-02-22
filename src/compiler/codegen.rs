@@ -138,19 +138,12 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
     }
 
 
-    // phi hints.
+    // phi joins & copy hints.
     for bb in fun.block_ids() {
         fun.block_stmts(bb, |stmt| {
             if let Some(map) = fun.try_phi(stmt.id()) {
                 // join phi with args.
                 for (_, arg) in map.iter() {
-                    if let StmtData::Copy { src } |
-                           StmtData::ParallelCopy { src, copy_id: _ }
-                        = arg.get(fun).data
-                    {
-                        hints[src.usize()] = *arg;
-                    }
-
                     let joined = join(stmt.id(), *arg, &mut joins, &mut intervals);
                     if !joined {
                         println!("failed to join {} with {}", stmt.id(), arg);
@@ -340,15 +333,20 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
 
             // regular hint.
             {
+                // @todo-opt: do rep thing after hint construction.
                 let reg_hint = hints[new_int.stmt.usize()];
-                let reg = mapping[reg_hint.usize()];
-                if reg != u32::MAX && regs[reg as usize] == false {
-                    break 'find_reg reg;
+                if reg_hint != new_int.stmt {
+                    let reg_hint = rep(reg_hint, &joins);
+                    let reg = mapping[reg_hint.usize()];
+                    if reg != u32::MAX && regs[reg as usize] == false {
+                        break 'find_reg reg;
+                    }
                 }
             }
 
             // first arg hint.
             'first_arg: {
+
                 let first_arg = match new_int.stmt.get(fun).data {
                     StmtData::Copy  { src }                 => src,
                     StmtData::ParallelCopy { src, copy_id: _ } => src,
@@ -365,7 +363,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
 
             }
 
-            // reuse register.
+            // reuse some register.
             if let Some(reg) = regs.iter().position(|used| *used == false) {
                 break 'find_reg reg as u32;
             }
@@ -424,6 +422,10 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
 pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &RegisterAllocation, fun_protos: &[u32]) -> (Vec<Instruction>, Vec<Constant>) {
     assert_eq!(block_order[0], BlockId::ROOT);
     assert_eq!(block_order[1], BlockId::REAL_ENTRY);
+
+    // for stmt in fun.stmt_ids() {
+    //     println!("{}: r{}", stmt, regs.mapping[stmt.usize()]);
+    // }
 
     // @temp
     assert!(regs.num_regs < 128);
@@ -635,82 +637,76 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
 
 fn impl_parallel_copy(num_regs: usize, copied_to: &[Vec<u8>], bcb: &mut crate::ByteCodeBuilder) {
     #[derive(Clone, Copy, Debug, PartialEq)]
-    enum WriteStatus {
+    enum Status {
         None,
-        Writing,
-        Written,
+        Visited, // but not written to.
+        Path,
         Cycle      { prev: u8 },
         CycleStart { last: u8 },
     }
 
-    // returns whether `src -> dst` is in a cycle starting at src0.
-    fn copy_paths(src0: usize, src: usize, dst: usize, copied_to: &[Vec<u8>], status: &mut [WriteStatus], bcb: &mut crate::ByteCodeBuilder) -> bool {
-        // this detects if we try to write into a "forwarded" register.
-        // i.e. walked into a self-cycle from outside (indeg > 1).
-        assert_ne!(dst, src);
-        // detect other indeg > 1 cases.
-        assert_eq!(status[dst], WriteStatus::None);
+    let mut status = vec![Status::None; num_regs];
 
-        // cycle?
-        if dst == src0 {
-            status[dst] = WriteStatus::CycleStart { last: src as u8 };
-            true
-        }
-        else {
-            status[dst] = WriteStatus::Writing;
 
-            let mut cycle = false;
+    // returns whether `src` is in a cycle starting at `src0`.
+    fn copy_paths(src0: usize, src: usize, copied_to: &[Vec<u8>], status: &mut [Status], bcb: &mut crate::ByteCodeBuilder) -> bool {
+        debug_assert_eq!(status[src], Status::None);
+        status[src] = Status::Visited;
 
-            // write dsts's dsts.
-            let dst_dsts = &copied_to[dst];
-            for dst_dst in dst_dsts.iter().copied() {
-                // cycle?
-                if copy_paths(src0, dst, dst_dst as usize, copied_to, status, bcb) {
-                    assert!(!cycle);
-                    cycle = true;
-                }
+        let mut cycle = false;
+        for dst in copied_to[src].iter().copied() {
+            let dst = dst as usize;
+
+            if dst == src0 {
+                assert!(cycle == false);
+                cycle = true;
+
+                assert_eq!(status[src0], Status::Visited);
+                status[src0] = Status::CycleStart { last: src as u8 };
             }
-
-            if cycle {
-                status[dst] = WriteStatus::Cycle { prev: src as u8 };
-            }
-            else {
-                status[dst] = WriteStatus::Written;
+            else if status[dst] == Status::Visited {
+                status[dst] = Status::Path;
                 bcb.copy(dst as u8, src as u8);
             }
+            else {
+                assert_eq!(status[dst], Status::None);
 
-            cycle
-        }
-    }
-
-    let mut status = vec![WriteStatus::None; num_regs];
-    
-    // copy paths.
-    for src in 0..num_regs {
-        let dsts = &copied_to[src];
-
-        if dsts.len() == 1 && dsts[0] as usize == src {
-            assert_eq!(status[src], WriteStatus::None);
-            status[src] = WriteStatus::Written;
-        }
-        else if status[src] == WriteStatus::None {
-            let mut cycle = false;
-            for dst in dsts.iter().copied() {
-                if copy_paths(src, src, dst as usize, &copied_to, &mut status, bcb) {
-                    assert!(!cycle);
+                let new_cycle = copy_paths(src0, dst, copied_to, status, bcb);
+                if new_cycle {
+                    assert!(cycle == false);
                     cycle = true;
+
+                    status[dst] = Status::Cycle { prev: src as u8 };
+                }
+                else {
+                    status[dst] = Status::Path;
+                    bcb.copy(dst as u8, src as u8);
                 }
             }
+            debug_assert!(status[dst] != Status::None && status[dst] != Status::Visited);
+        }
+
+        cycle
+    }
+    for src in 0..num_regs {
+        if status[src] == Status::None {
+            copy_paths(src, src, copied_to, &mut status, bcb);
         }
     }
-
+    
+    // copy cycles.
     for src0 in 0..num_regs {
-        if let WriteStatus::CycleStart { last } = status[src0] {
+        if let Status::CycleStart { last } = status[src0] {
+            // self-cycle, don't need any swaps.
+            if last as usize == src0 {
+                continue;
+            }
+
             bcb.swap(src0 as u8, last);
 
             let mut at = last as usize;
             loop {
-                let WriteStatus::Cycle { prev } = status[at] else { unreachable!() };
+                let Status::Cycle { prev } = status[at] else { unreachable!() };
                 if prev as usize == src0 {
                     break
                 }
