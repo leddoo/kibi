@@ -926,11 +926,13 @@ impl Function {
         let id = LocalId(self.locals.len() as u32);
         self.locals.push(Local { id, name: name.into(), source });
 
+        let old_param_cursor = self.param_cursor;
+
         // "hoist params".
         self.param_cursor = self._insert_local(source, self.param_cursor, id);
         self.num_params  += 1;
 
-        if self.local_cursor.to_option().is_none() {
+        if self.local_cursor == old_param_cursor {
             self.local_cursor = self.param_cursor;
         }
 

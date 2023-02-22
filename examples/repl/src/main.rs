@@ -31,171 +31,6 @@ mod builtin {
 
 
 fn main() {
-    if 1==1 {
-        let example = r#"
-            -- var bar = foo(1, 2+3) / 4
-            -- ( a + f ( x ) ( y ) ) ( z )
-            -- ()
-            -- (a)
-            -- (a,)
-            -- (a,b)=(b,a)
-            -- a[0] = foo.bar
-            -- true == false or false and true
-            -- do var i = 0; i += 1; i *= 2; i end
-            -- if true: print(42) end
-            -- if a == false: true else false end
-            -- if a==1: one elif a==2: two else three end
-            -- while true: print(hi) end
-            -- return
-            -- return 42
-            -- let foo = (return 42) or 7
-            -- ;-a;
-            -- ;-a.foo;
-            -- ;-a+foo;
-            -- a + not b
-            -- not a or b and not c
-            -- nil ?? a <= false ?? true
-            -- a?.foo
-            -- fn foo(a, b): a + b end
-            -- fn a, b => a + b
-            -- [a, b,]
-            -- { a, b: c }
-            -- print("hi")
-
-            --[[
-                a
-                --[[
-                    b
-                --]]
-                c
-            --]]
-
-            --[[
-            let a = true or false
-            let b
-            if a:
-                a
-            else:
-                b = a
-                b += true
-            end
-            --]]
-
-            --[[
-
-            var a; var b; var c; var d
-
-            if true:
-                a = c
-                b = d
-            else:
-                b = c
-                a = d
-            end
-
-            --]]
-
-            --[[
-
-            -- bb0
-            let a = 8; let b = 9; let c = 10
-
-            if true:
-                -- bb1
-                a += b
-
-                -- bb4
-                while b > c:
-                    -- bb5
-                    b -= c / a
-                end
-
-                -- bb6
-            else:
-                -- bb2
-                a = c / a
-                b = false
-            end
-
-            -- bb3
-            let d = if true: a end -- bb7/8
-
-            -- bb9
-            a + a
-            b + b
-            c + c
-            d + d
-
-            --]]
-
-            --[[
-
-            -- bb0
-            let a = 7
-            let one = 1
-            let n = 10
-            let x = 4
-            -- bb1
-            while x < n:
-                -- bb2
-                let y = 0
-
-                -- bb4
-                while y < n:
-                    -- bb5
-                    a += a
-                    y += one
-                end
-
-                -- bb6
-                a *= a
-                x += one
-            end
-
-            -- bb3
-            --]]
-
-            -- --[[
-
-            var n = 10
-            var a = 0
-            var b = 1
-            var i = 0
-            while i < n:
-                var c = a + b
-                a = b
-                b = c
-                i += 1
-            end
-
-            --]]
-
-            if true:
-                i = a + do a += 1; a end
-            end
-        "#;
-
-        let _ = example;
-        let example = include_str!("../../life.kb");
-
-        let mut p = compiler::Parser::new(example.as_bytes());
-        let (chunk_source, chunk) = p.parse_block().unwrap();
-        //println!("parsed: {:#?}", chunk);
-
-        let module = compiler::Compiler::compile_chunk(chunk_source, &chunk.children).unwrap();
-
-        let mut vm = Vm::new();
-        vm.add_func("print", builtin::PRINT);
-        vm.add_func("println", builtin::PRINTLN);
-
-        module.temp_load(&mut vm);
-
-        vm.call().unwrap();
-
-
-        if 1==1 { return }
-    }
-
     let mut vm = Vm::new();
 
     vm.add_func("print", builtin::PRINT);
@@ -206,6 +41,31 @@ fn main() {
         num_params: 0,
         stack_size: 0,
     });
+
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 {
+        assert_eq!(args.len(), 2);
+
+        let path = &args[1];
+        let source = std::fs::read_to_string(path).unwrap();
+
+        let t0 = std::time::Instant::now();
+
+        let mut p = compiler::Parser::new(source.as_bytes());
+        let (chunk_source, chunk) = p.parse_block().unwrap();
+
+        let module = compiler::Compiler::compile_chunk(chunk_source, &chunk.children).unwrap();
+        module.temp_load(&mut vm);
+        let dt_compile = t0.elapsed();
+
+        vm.call().unwrap();
+        let dt_run = t0.elapsed();
+
+        println!("compile: {:?}", dt_compile);
+        println!("run:     {:?}", dt_run);
+
+        return;
+    }
 
 
     let running = &*Box::leak(Box::new(core::sync::atomic::AtomicBool::new(false)));

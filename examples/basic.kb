@@ -1,0 +1,87 @@
+println("hello, weirdo")
+
+
+
+let a = 6
+let b = 9
+if a < b:
+    println(10*a + b)
+end
+
+
+
+(fn(a, b, c)
+    print("a: ")
+    print(a)
+    print(", c: ")
+    print(c)
+    println("")
+end)(1, 2, 3)
+
+
+
+-- @todo-syntax: `global foo = 5` or something
+ENV.foo := 5
+foo += 3
+print("foo: ")
+println(foo)
+
+
+
+-- @todo-syntax: `fn fib(n)`.
+ENV.fib := fn(n)
+    var a = 0
+    var b = 1
+    var i = 0
+    while i < n:
+        var c = a + b
+        a = b
+        b = c
+        i += 1
+    end
+    a
+end
+
+var i = 0
+while i < 15:
+    print("fib(")
+    print(i)
+    print(") = ")
+    println(fib(i))
+    i += 1
+end
+    
+
+
+let list = [1, 5, 4, "hi", ENV]
+list[5] := list[1] + list[2]    -- `list[5] = ...` would error.
+
+println(list[0])
+println(list[1])
+println(list[2])
+println(list[3])
+println(list[4])
+println(list[5])
+
+
+
+(fn():
+    var a = 1
+    var b = 2
+    var c = 3
+    var n = 0
+    while a < 3:
+        let d = a
+        a = b
+        b = c
+        c = d
+        n += 1
+    end
+    print(a)
+    print(b)
+    print(c)
+    print(" ")
+    println(n)
+end)()
+
+

@@ -1,21 +1,25 @@
 
 - todo:
     - ssa form:
-        - param instruction.
-            - they're not nil!
-            - then might as well add local instructions -> get rid of fake entry.
-        - tables.
-        - cleanup:
-            - switch to `NonZeroU32`?
-                - the `Opt*Id` things are really dumb.
-                - kinda annoying how user has to worry about zero though.
-                - maybe go with that fake `NonMaxU32` technique.
-            - macro for u32 based ids.
         - repl stuff:
             - parser: eof info for multi-line stmts.
             - don't discard rest of buffer after parsed text.
             - print return value.
             - let/var define globals in repl?
+        - param instruction.
+            - they're not nil!
+            - then might as well add local instructions -> get rid of fake entry.
+        - tables.
+        - cleanup:
+            - this document.
+            - switch to `NonZeroU32`?
+                - the `Opt*Id` things are really dumb.
+                - kinda annoying how user has to worry about zero though.
+                - maybe go with that fake `NonMaxU32` technique.
+            - macro for u32 based ids.
+        - `get_field` != `get_index`:
+            - fields are string only.
+            - `map.len` ≠ `map["len"]`.
         - assert cfg has no critical edges.
         - ensure all stmts with a value have a register.
         - validation:

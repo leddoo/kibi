@@ -1,135 +1,98 @@
-ENV.fib := fn(n)
-    let a = 0
-    let b = 1
-    let i = 0
-    while i < n:
-        let c = a + b
-        a = b
-        b = c
-        i += 1
-    end
-    a
-end
-
-(fn():
-    let a = 8; let b = 9; let c = 10
-    if true:
-        a += b
-        while b > c:
-            b -= c / a
-        end
-    else:
-        a = c / a
-        b = false
-    end
-
-    let d = if true: a end
-    d = d + a
-    d = d + b
-    d = d + c
-    d = d + d
-
-    print("d is ")
-    println(d)
-end)()
-
-(fn():
-    println("doing the loop thing")
-    let values = [1, 5, 4]
-    let d = 7
-    var i = 0
-    while i < d*d:
-        values[i] := 0
-        i += 1
-    end
-end)()
-
-
-(fn():
-    println("doing the other list thing")
-    let list = [1, 5, 4, "hi", ENV]
-
-    list[5] := list[1] + list[2]
-end)()
-
-(fn():
-    ENV.foo := "the real foo"
-    foo = "or is it?"
-    foo = 7
-    ENV.three := 3
-    foo += ENV["three"]
-end)()
-
-
-ENV.greet := fn (name)
-    print("hey, ")
-    print(name)
-    println("!")
-end
-
-println(greet)
-greet("weirdo")
-
-ENV.unused_param := fn(a, b, c)
-    print("a: ")
-    print(a)
-    print(", c: ")
-    print(c)
-    println("")
-end
-
-unused_param(4, 8, 16)
-
-(fn():
-    let a = 1
-    let b = 2
-    let c = 3
-    let n = 0
-    while a < 3:
-        let d = a
-        a = b
-        b = c
-        c = d
-        n += 1
-    end
-    print(a)
-    print(b)
-    print(c)
-    print(" ")
-    println(n)
-end)()
-
-let i = 0
-while i < 15:
-    print("fib(")
-    print(i)
-    print(") = ")
-    println(fib(i))
-    i += 1
-end
-
-
-fn()
-    let a
-    let b
-    while false:
-        let c = a
-        a = b
-        b = c
-    end
-end
-
-
-
---[[
-fn new_board(w, h)
-    let values = [1, 5, 4]
+-- @todo: use an object.
+ENV.mk_board := fn(w, h)
+    let values = []
     var i = 0
     while i < w*h:
         values[i] := 0
         i += 1
     end
-    return { w, h, values }
+    values
 end
---]]
+
+ENV.board_print := fn(board, w, h)
+    var y = 0
+    while y < h:
+        var x = 0
+        while x < w:
+            print(if board[y*w + x] > 0: "#" else "." end)
+            x += 1
+        end
+        println("")
+
+        y += 1
+    end
+
+    println("")
+end
+
+ENV.board_get := fn(board, w, h, x, y)
+    if   x <  0: x += w
+    elif x >= w: x -= w end
+
+    if   y <  0: y += h
+    elif y >= h: y -= h end
+
+    board[y*w + x]
+end
+
+ENV.board_step := fn(board, w, h)
+    let new_board = mk_board(w, h);
+
+    var y = 0
+    while y < h:
+        var x = 0
+        while x < w:
+            let neighbors =
+                  board_get(board, w, h, x - 1, y - 1)
+                + board_get(board, w, h, x    , y - 1)
+                + board_get(board, w, h, x + 1, y - 1)
+                + board_get(board, w, h, x - 1, y    )
+                + board_get(board, w, h, x + 1, y    )
+                + board_get(board, w, h, x - 1, y + 1)
+                + board_get(board, w, h, x    , y + 1)
+                + board_get(board, w, h, x + 1, y + 1)
+
+            let cell = board[y*w + x]
+            if neighbors == 3:
+                new_board[y*w + x] = 1
+            elif cell == 1:
+                if neighbors == 2:
+                    new_board[y*w + x] = 1
+                end
+            end
+
+            x += 1
+        end
+
+        y += 1
+    end
+
+    new_board
+end
+
+ENV.sleep := fn()
+    var i = 0
+    while i < 500000:
+        i += 1
+    end
+end
+
+
+var w = 10
+var h = 10
+var board = mk_board(w, h)
+
+board[3*w + 1] = 1
+board[3*w + 2] = 1
+board[3*w + 3] = 1
+board[2*w + 3] = 1
+board[1*w + 2] = 1
+
+var i = 0
+while i < 20:
+    board_print(board, w, h)
+    board = board_step(board, w, h)
+    sleep()
+    i += 1
+end
 
