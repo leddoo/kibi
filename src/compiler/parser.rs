@@ -227,6 +227,9 @@ pub struct ParseError {
 impl ParseError {
     #[inline(always)]
     pub fn at(token: &Token, data: ParseErrorData) -> ParseError {
+        if token.is_eof() {
+            return ParseError { source: token.source, data: ParseErrorData::UnexpectedEof };
+        }
         ParseError { source: token.source, data }
     }
 }
@@ -264,6 +267,11 @@ impl<'i> Tokenizer<'i> {
         toker.current_token = toker._next_token();
         toker.next_token    = toker._next_token();
         toker
+    }
+
+    #[inline(always)]
+    pub fn at_end(&self) -> bool {
+        self.current_token.is_eof()
     }
 
     #[inline(always)]
@@ -849,6 +857,11 @@ impl<'i> Parser<'i> {
         Self {
             toker: Tokenizer::new(input)
         }
+    }
+
+    #[inline(always)]
+    pub fn at_end(&self) -> bool {
+        self.toker.at_end()
     }
 
     pub fn expect_ident(&mut self) -> ParseResult<Ident<'i>> {

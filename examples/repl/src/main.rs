@@ -107,7 +107,15 @@ fn main() {
 
             let mut p = compiler::Parser::new(chunk.as_bytes());
             match p.parse_expr(0) {
-                Ok(ast) => ast.0,
+                Ok(ast) => {
+                    if !p.at_end() {
+                        println!("unexpected trailing input");
+                        buffer.clear();
+                        continue;
+                    }
+
+                    ast.0
+                },
                 Err(e) => {
                     match e.data {
                         compiler::ParseErrorData::UnexpectedEof => {

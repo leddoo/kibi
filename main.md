@@ -1,17 +1,15 @@
 
 - todo:
+    - next steps.
+        - clean up this doc.
+        - what needs work?
+
     - ssa form:
-        - repl stuff:
-            - parser: eof info for multi-line stmts.
-            - don't discard rest of buffer after parsed text.
-            - print return value.
-            - let/var define globals in repl?
         - param instruction.
             - they're not nil!
             - then might as well add local instructions -> get rid of fake entry.
         - tables.
         - cleanup:
-            - this document.
             - switch to `NonZeroU32`?
                 - the `Opt*Id` things are really dumb.
                 - kinda annoying how user has to worry about zero though.
