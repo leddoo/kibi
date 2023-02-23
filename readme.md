@@ -1,0 +1,3 @@
+- lua/js inspired scripting language.
+- with a focus on sandboxing, perf & sane defaults.
+- it's not done.
