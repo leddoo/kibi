@@ -1,16 +1,15 @@
 
 - next steps:
     - compiler cleanup (ids, param stmt, validation).
-    - `do` & `break`.
+        - `Option<PostOrderIndex>`.
     - trace logging.
     - debug info.
+        - better source info (eg: `ast::Block::source`, `ast::Op1::op_source`).
     - debugging.
 
 - todo:
-    - remove Block.
-        - return `Vec<Ast>`, no more last_is_expr.
-        - `ast::Do`.
-        - `ast::IfBranch::is_do`.
+    - local not expr.
+    - `break` scopes.
 
 
 - decisions to make:

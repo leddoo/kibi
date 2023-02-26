@@ -1417,7 +1417,7 @@ impl Module {
 
             let (preds, post_order) = fun.preds_and_post_order();
 
-            let post_indices = post_order.indices();
+            let post_indices = fun.post_order_indices(&post_order);
 
             let idoms = fun.immediate_dominators(&preds, &post_order, &post_indices);
 

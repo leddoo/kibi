@@ -51,9 +51,9 @@ fn main() {
 
         let t0 = std::time::Instant::now();
 
-        let (chunk_source, chunk) = compiler::Parser::parse_chunk(source.as_bytes()).unwrap();
+        let chunk = compiler::Parser::parse_chunk(source.as_bytes()).unwrap();
 
-        let module = compiler::Compiler::compile_chunk(chunk_source, &chunk.children).unwrap();
+        let module = compiler::Compiler::compile_chunk(&chunk.stmts).unwrap();
         module.temp_load(&mut vm);
         let dt_compile = t0.elapsed();
 
@@ -124,7 +124,7 @@ fn main() {
             }
         };
 
-        let module = match compiler::Compiler::compile_chunk(ast.source, &[ast]) {
+        let module = match compiler::Compiler::compile_chunk(&[ast]) {
             Ok(result) => result,
             Err(e) => {
                 println!("compile error: {:?}", e);

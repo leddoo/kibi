@@ -6,7 +6,7 @@ ENV.mk_board := fn(w, h)
         values[i] := 0
         i += 1
     end
-    values
+    return values
 end
 
 ENV.board_print := fn(board, w, h)
@@ -32,7 +32,7 @@ ENV.board_get := fn(board, w, h, x, y)
     if   y <  0: y += h
     elif y >= h: y -= h end
 
-    board[y*w + x]
+    return board[y*w + x]
 end
 
 ENV.board_step := fn(board, w, h)
@@ -67,7 +67,7 @@ ENV.board_step := fn(board, w, h)
         y += 1
     end
 
-    new_board
+    return new_board
 end
 
 ENV.sleep := fn()

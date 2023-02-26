@@ -39,7 +39,7 @@ ENV.fib := fn(n)
         b = c
         i += 1
     end
-    a
+    return a
 end
 
 var i = 0

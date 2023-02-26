@@ -125,6 +125,14 @@ impl Function {
         (Predecessors { preds }, PostOrder { blocks: post_order })
     }
 
+    pub fn post_order_indices(&self, post_order: &PostOrder) -> PostOrderIndices {
+        let mut indices = vec![PostOrderIndex::NONE; self.num_blocks()];
+        for (index, bb) in post_order.blocks.iter().enumerate() {
+            indices[bb.usize()] = PostOrderIndex { value: index as u32 };
+        }
+        PostOrderIndices { indices }
+    }
+
     pub fn immediate_dominators(&self, preds: &Predecessors, post_order: &PostOrder, post_indices: &PostOrderIndices) -> ImmediateDominators {
         let mut doms = vec![None; self.num_blocks()];
 
@@ -173,10 +181,15 @@ impl Function {
 
         let idom = self.block_ids()
             .map(|bb| {
-                let post_index      = post_indices[bb.usize()];
-                let idom_post_index = doms[post_index.usize()].unwrap();
-                let idom            = post_order[idom_post_index.usize()];
-                idom
+                let post_index = post_indices[bb.usize()];
+                if post_index != PostOrderIndex::NONE {
+                    let idom_post_index = doms[post_index.usize()].unwrap();
+                    let idom            = post_order[idom_post_index.usize()];
+                    idom
+                }
+                else {
+                    BlockId::ROOT
+                }
             })
             .collect::<Vec<BlockId>>();
         ImmediateDominators { idom }
@@ -468,16 +481,6 @@ impl Function {
         let gen_kill = self.block_gen_kill();
         let live_sets = self.block_live_in_out(&post_order, &gen_kill);
         self.live_intervals_ex(block_order, block_begins, stmt_indices, &live_sets, no_empty_intervals)
-    }
-}
-
-impl PostOrder {
-    pub fn indices(&self) -> PostOrderIndices {
-        let mut indices = vec![PostOrderIndex::NONE; self.blocks.len()];
-        for (index, bb) in self.blocks.iter().enumerate() {
-            indices[bb.usize()] = PostOrderIndex { value: index as u32 };
-        }
-        PostOrderIndices { indices }
     }
 }
 

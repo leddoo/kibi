@@ -592,7 +592,7 @@ pub enum AstData<'a> {
     Tuple       (Box<ast::Tuple<'a>>),
     List        (Box<ast::List<'a>>),
     Table       (Box<ast::Table<'a>>),
-    Block       (Box<ast::Block<'a>>),
+    Do          (Box<ast::Block<'a>>),
     SubExpr     (Box<Ast<'a>>),
     Local       (Box<ast::Local<'a>>),
     Op1         (Box<ast::Op1<'a>>),
@@ -614,12 +614,6 @@ pub mod ast {
     use super::*;
 
     #[derive(Clone, Debug)]
-    pub struct Block<'a> {
-        pub children: Vec<Ast<'a>>,
-        pub last_is_expr: bool,
-    }
-
-    #[derive(Clone, Debug)]
     pub struct Tuple<'a> {
         pub values: Vec<Ast<'a>>,
     }
@@ -632,6 +626,13 @@ pub mod ast {
     #[derive(Clone, Debug)]
     pub struct Table<'a> {
         pub values: Vec<(Ident<'a>, Ast<'a>)>,
+    }
+
+
+    #[derive(Clone, Debug)]
+    pub struct Block<'a> {
+        pub stmts: Vec<Ast<'a>>,
+        pub is_do: bool,
     }
 
 
@@ -755,14 +756,14 @@ pub mod ast {
     #[derive(Clone, Debug)]
     pub struct If<'a> {
         pub condition: Ast<'a>,
-        pub on_true:   Ast<'a>,
-        pub on_false:  Option<Ast<'a>>,
+        pub on_true:   Block<'a>,
+        pub on_false:  Option<Block<'a>>,
     }
 
     #[derive(Clone, Debug)]
     pub struct While<'a> {
         pub condition: Ast<'a>,
-        pub body:      Ast<'a>,
+        pub body:      Vec<Ast<'a>>,
     }
 
 
@@ -781,7 +782,7 @@ pub mod ast {
     pub struct Fn<'a> {
         pub name:   Option<&'a str>,
         pub params: Vec<FnParam<'a>>,
-        pub body:   Ast<'a>,
+        pub body:   Vec<Ast<'a>>,
     }
 
     #[derive(Clone, Debug)]
@@ -913,37 +914,37 @@ impl<'p, 'i> Parser<'p, 'i> {
 
 
     // bool: terminated (needs no semi-colon).
-    fn parse_leading_expr(&mut self, prec: u32) -> ParseResult<(Ast<'i>, bool)> {
+    fn parse_leading_expr(&mut self, prec: u32) -> ParseResult<Ast<'i>> {
         let current = *self.next()?;
 
         // ident.
         if let TokenData::Ident(ident) = current.data {
             let source = current.source;
-            return Ok((Ast { source, data: AstData::Ident(ident) }, false));
+            return Ok(Ast { source, data: AstData::Ident(ident) });
         }
 
         // number.
         if let TokenData::Number(value) = current.data {
             let source = current.source;
-            return Ok((Ast { source, data: AstData::Number(value) }, false));
+            return Ok(Ast { source, data: AstData::Number(value) });
         }
 
         // bool.
         if let TokenData::Bool(value) = current.data {
             let source = current.source;
-            return Ok((Ast { source, data: AstData::Bool(value) }, false));
+            return Ok(Ast { source, data: AstData::Bool(value) });
         }
 
         // nil.
         if let TokenData::Nil = current.data {
             let source = current.source;
-            return Ok((Ast { source, data: AstData::Nil }, false));
+            return Ok(Ast { source, data: AstData::Nil });
         }
 
         // string.
         if let TokenData::QuotedString(value) = current.data {
             let source = current.source;
-            return Ok((Ast { source, data: AstData::QuotedString(value) }, false));
+            return Ok(Ast { source, data: AstData::QuotedString(value) });
         }
 
         let begin = current.source.begin;
@@ -960,45 +961,45 @@ impl<'p, 'i> Parser<'p, 'i> {
                 };
 
             let end = self.expect(TokenData::RParen)?.end;
-            return Ok((Ast { source: SourceRange { begin, end }, data }, false));
+            return Ok(Ast { source: SourceRange { begin, end }, data });
         }
 
         // if
         if let TokenData::KwIf = current.data {
-            return Ok((self.parse_if_as_ast(begin)?, true));
+            return self.parse_if_as_ast(begin);
         }
 
         // while
         if let TokenData::KwWhile = current.data {
-            let condition = self.parse_expr(0)?.0;
+            let condition = self.parse_expr(0)?;
             self.expect(TokenData::Colon)?;
 
-            let body = self.parse_block_as_ast()?;
+            let body = self.parse_block(false)?.stmts;
 
             let data = AstData::While(Box::new(ast::While { condition, body }));
             let end = self.expect(TokenData::KwEnd)?.end;
-            return Ok((Ast { source: SourceRange { begin, end }, data }, true));
+            return Ok(Ast { source: SourceRange { begin, end }, data });
         }
 
         // do
         if let TokenData::KwDo = current.data {
-            let block = self.parse_block()?.1;
-            let data = AstData::Block(Box::new(block));
+            let block = self.parse_block(true)?;
+            let data = AstData::Do(Box::new(block));
 
             let end = self.expect(TokenData::KwEnd)?.end;
-            return Ok((Ast { source: SourceRange { begin, end }, data }, true));
+            return Ok(Ast { source: SourceRange { begin, end }, data });
         }
 
         // break
         if let TokenData::KwBreak = current.data {
             let source = current.source;
-            return Ok((Ast { source, data: AstData::Break }, false));
+            return Ok(Ast { source, data: AstData::Break });
         }
 
         // continue
         if let TokenData::KwContinue = current.data {
             let source = current.source;
-            return Ok((Ast { source, data: AstData::Continue }, false));
+            return Ok(Ast { source, data: AstData::Continue });
         }
 
         // return
@@ -1008,14 +1009,14 @@ impl<'p, 'i> Parser<'p, 'i> {
             let mut value = None;
             if let Some(at) = self.peek(0) {
                 if at.is_expr_start()  {
-                    let v = self.parse_expr(0)?.0;
+                    let v = self.parse_expr(0)?;
                     end = v.source.end;
                     value = Some(Box::new(v));
                 }
             }
 
             let data = AstData::Return(ast::Return { value });
-            return Ok((Ast { source: SourceRange { begin, end }, data }, false));
+            return Ok(Ast { source: SourceRange { begin, end }, data });
         }
 
         // functions
@@ -1037,24 +1038,24 @@ impl<'p, 'i> Parser<'p, 'i> {
                 self.expect(TokenData::RParen)?;
                 self.next_if(TokenData::Colon);
 
-                let body = self.parse_block_as_ast()?;
+                let body = self.parse_block(false)?.stmts;
                 let end = self.expect(TokenData::KwEnd)?.end;
 
                 let data = AstData::Fn(Box::new(
                     ast::Fn { name, params, body }));
-                return Ok((Ast { source: SourceRange { begin, end }, data }, true));
+                return Ok(Ast { source: SourceRange { begin, end }, data });
             }
             // fn params => expr
             else {
                 let params = self.parse_fn_params()?.0;
                 self.expect(TokenData::FatArrow)?;
 
-                let body = self.parse_expr(0)?.0;
+                let body = self.parse_expr(0)?;
                 let end = body.source.end;
 
                 let data = AstData::Fn(Box::new(
-                    ast::Fn { name: None, params, body }));
-                return Ok((Ast { source: SourceRange { begin, end }, data }, false));
+                    ast::Fn { name: None, params, body: vec![body] }));
+                return Ok(Ast { source: SourceRange { begin, end }, data });
             }
         }
 
@@ -1064,7 +1065,7 @@ impl<'p, 'i> Parser<'p, 'i> {
             let end = self.expect(TokenData::RBracket)?.end;
 
             let data = AstData::List(Box::new(ast::List { values }));
-            return Ok((Ast { source: SourceRange { begin, end }, data }, false));
+            return Ok(Ast { source: SourceRange { begin, end }, data });
         }
 
         // table.
@@ -1073,7 +1074,7 @@ impl<'p, 'i> Parser<'p, 'i> {
             let end = self.expect(TokenData::RCurly)?.end;
 
             let data = AstData::Table(Box::new(ast::Table { values }));
-            return Ok((Ast { source: SourceRange { begin, end }, data }, false));
+            return Ok(Ast { source: SourceRange { begin, end }, data });
         }
 
         // prefix operators.
@@ -1082,11 +1083,11 @@ impl<'p, 'i> Parser<'p, 'i> {
                 unimplemented!()
             }
 
-            let value = self.parse_expr(ast::PREC_PREFIX)?.0;
+            let value = self.parse_expr(ast::PREC_PREFIX)?;
 
             let end = value.source.end;
             let data = AstData::Op1(Box::new(ast::Op1 { kind: op1, child: value }));
-            return Ok((Ast { source: SourceRange { begin, end }, data }, false));
+            return Ok(Ast { source: SourceRange { begin, end }, data });
         }
 
         // local ::= (let | var) ident (= expr)? (;)?
@@ -1104,26 +1105,26 @@ impl<'p, 'i> Parser<'p, 'i> {
 
             let mut value = None;
             if self.next_if(TokenData::OpEq) {
-                let v = self.parse_expr(0)?.0;
+                let v = self.parse_expr(0)?;
                 end = v.source.end;
                 value = Some(v);
             }
 
-            return Ok((Ast {
+            return Ok(Ast {
                 source: SourceRange { begin, end },
                 data: AstData::Local(Box::new(ast::Local {
                     name: name.value, value, kind,
                 })),
-            }, false));
+            });
         }
 
 
         // env.
         if current.data == TokenData::KwEnv {
-            return Ok((Ast {
+            return Ok(Ast {
                 source: current.source,
                 data:   AstData::Env,
-            }, false));
+            });
         }
 
 
@@ -1131,8 +1132,8 @@ impl<'p, 'i> Parser<'p, 'i> {
     }
 
     // bool: terminated (needs no semi-colon).
-    pub fn parse_expr(&mut self, prec: u32) -> ParseResult<(Ast<'i>, bool)> {
-        let mut result = self.parse_leading_expr(prec)?.0;
+    pub fn parse_expr(&mut self, prec: u32) -> ParseResult<Ast<'i>> {
+        let mut result = self.parse_leading_expr(prec)?;
 
         loop {
             // binary operator.
@@ -1140,7 +1141,7 @@ impl<'p, 'i> Parser<'p, 'i> {
                 if op2.lprec() >= prec {
                     self.next().unwrap();
 
-                    let other = self.parse_expr(op2.rprec())?.0;
+                    let other = self.parse_expr(op2.rprec())?;
                     let begin = result.source.begin;
                     let end   = other.source.end;
                     result = Ast {
@@ -1219,7 +1220,7 @@ impl<'p, 'i> Parser<'p, 'i> {
             if current.data == TokenData::LBracket {
                 self.next().unwrap();
 
-                let index = self.parse_expr(0)?.0;
+                let index = self.parse_expr(0)?;
 
                 let begin = result.source.begin;
                 let end   = self.expect(TokenData::RBracket)?.end;
@@ -1236,8 +1237,7 @@ impl<'p, 'i> Parser<'p, 'i> {
             break;
         }
 
-        // @todo-complete: h2 terminated?
-        return Ok((result, false));
+        return Ok(result);
     }
 
     // bool: ends with comma.
@@ -1246,7 +1246,7 @@ impl<'p, 'i> Parser<'p, 'i> {
 
         let mut had_comma = true;
         while had_comma && !self.peek_if(0, until) {
-            result.push(self.parse_expr(0)?.0);
+            result.push(self.parse_expr(0)?);
 
             if !self.next_if(TokenData::Comma) {
                 had_comma = false;
@@ -1265,7 +1265,7 @@ impl<'p, 'i> Parser<'p, 'i> {
             let key = self.expect_ident()?;
 
             if self.next_if(TokenData::Colon) {
-                let value = self.parse_expr(0)?.0;
+                let value = self.parse_expr(0)?;
                 result.push((key, value));
             }
             else {
@@ -1280,25 +1280,20 @@ impl<'p, 'i> Parser<'p, 'i> {
         Ok((result, had_comma))
     }
 
-    pub fn parse_block(&mut self) -> ParseResult<(SourceRange, ast::Block<'i>)> {
+    pub fn parse_block(&mut self, is_do: bool) -> ParseResult<ast::Block<'i>> {
         let Some(begin) = self.peek(0) else {
-            return Ok((SourceRange::null(), ast::Block { children: vec![], last_is_expr: false }))
+            return Ok(ast::Block { stmts: vec![], is_do });
         };
 
         let begin = begin.source.begin;
         let mut end = begin;
 
-        let mut result = vec![];
+        let mut stmts = vec![];
 
-        let mut non_terminated: Option<SourcePos> = None;
-        loop {
+        let mut terminated = true;
+        while terminated {
             let Some(at) = self.peek(0).copied() else { break };
             if at.is_block_end() { break }
-
-            if let Some(pos) = non_terminated {
-                let source = SourceRange { begin: pos, end: pos };
-                return Err(ParseError { source, data: ParseErrorData::Expected(TokenData::Semicolon) });
-            }
 
             // empty stmt.
             if at.data == TokenData::Semicolon {
@@ -1308,33 +1303,25 @@ impl<'p, 'i> Parser<'p, 'i> {
             }
             // expr stmt
             else {
-                let (expr, mut terminated) = self.parse_expr(0)?;
-                if self.next_if(TokenData::Semicolon) {
-                    terminated = true;
-                }
+                let expr = self.parse_expr(0)?;
+                terminated = self.next_if(TokenData::Semicolon);
 
-                if !terminated {
-                    non_terminated = Some(expr.source.end);
-                }
                 end = expr.source.end;
-                result.push(expr);
+                stmts.push(expr);
             }
         }
 
-        let range = SourceRange { begin, end };
-        Ok((range, ast::Block { children: result, last_is_expr: non_terminated.is_some() }))
-    }
+        // @todo-dbg-info
+        let _ = end;
 
-    pub fn parse_block_as_ast(&mut self) -> ParseResult<Ast<'i>> {
-        let (source, block) = self.parse_block()?;
-        Ok(Ast { source, data: AstData::Block(Box::new(block)) })
+        Ok(ast::Block { stmts, is_do })
     }
 
     pub fn parse_if(&mut self) -> ParseResult<(SourcePos, ast::If<'i>)> {
-        let condition = self.parse_expr(0)?.0;
+        let condition = self.parse_expr(0)?;
         self.expect(TokenData::Colon)?;
 
-        let on_true = self.parse_block_as_ast()?;
+        let on_true = self.parse_block(false)?;
 
         let (end, on_false) = {
             let at = self.next()?;
@@ -1342,12 +1329,12 @@ impl<'p, 'i> Parser<'p, 'i> {
             if at.data == TokenData::KwElif {
                 let begin = at.source.begin;
                 let body = self.parse_if_as_ast(begin)?;
-                (body.source.end, Some(body))
+                (body.source.end, Some(ast::Block { stmts: vec![body], is_do: false }))
             }
             else if at.data == TokenData::KwElse {
                 self.next_if(TokenData::Colon);
 
-                let body = self.parse_block_as_ast()?;
+                let body = self.parse_block(false)?;
                 let end = self.expect(TokenData::KwEnd)?.end;
                 (end, Some(body))
             }
@@ -1391,7 +1378,7 @@ impl<'p, 'i> Parser<'p, 'i> {
         let tokens = Tokenizer::tokenize(input, true)?;
         let mut p = Parser::new(&tokens);
 
-        let (result, _) = p.parse_expr(0)?;
+        let result = p.parse_expr(0)?;
 
         if let Some(tok) = p.peek(0) {
             return Err(ParseError::at_pos(tok.source.begin, ParseErrorData::TrailingInput));
@@ -1399,10 +1386,10 @@ impl<'p, 'i> Parser<'p, 'i> {
         Ok(result)
     }
 
-    pub fn parse_chunk(input: &'i [u8]) -> ParseResult<(SourceRange, ast::Block<'i>)> {
+    pub fn parse_chunk(input: &'i [u8]) -> ParseResult<ast::Block<'i>> {
         let tokens = Tokenizer::tokenize(input, true)?;
         let mut p = Parser::new(&tokens);
-        p.parse_block()
+        p.parse_block(false)
     }
 }
 

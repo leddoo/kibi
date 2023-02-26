@@ -51,16 +51,17 @@ impl CompileError {
 
 
 impl Compiler {
-    pub fn compile_chunk(source: SourceRange, stmts: &[Ast]) -> CompileResult<Module> {
+    pub fn compile_chunk(stmts: &[Ast]) -> CompileResult<Module> {
         let mut this = Compiler {
             module: Module::new()
         };
 
+        let source = SourceRange::null();
+
         let mut ctx = Ctx::new();
         let mut fun = this.module.new_function();
-        let last_is_expr = false;
         let needs_value  = false;
-        this.compile_block(&mut ctx, &mut fun, source, stmts, last_is_expr, needs_value)?;
+        this.compile_do_block(&mut ctx, &mut fun, source, false, stmts, needs_value)?;
 
         let nil = fun.stmt_load_nil(source);
         fun.stmt_return(source, nil);
@@ -126,8 +127,8 @@ impl Compiler {
                 unimplemented!()
             }
 
-            AstData::Block (block) => {
-                self.compile_block(ctx, fun, ast.source, &block.children, block.last_is_expr, need_value)
+            AstData::Do (doo) => {
+                self.compile_block(ctx, fun, ast.source, doo, need_value)
             }
 
             AstData::SubExpr (sub_expr) => {
@@ -219,8 +220,8 @@ impl Compiler {
 
                 // on_true
                 fun.set_current_block(bb_true);
-                let value_true = self.compile_ast(ctx, fun, &iff.on_true, need_value)?;
-                let on_true_src = iff.on_true.source.end.to_range();
+                let value_true = self.compile_block(ctx, fun, ast.source, &iff.on_true, need_value)?;
+                let on_true_src = SourceRange::null(); // @todo-dbg-info
                 fun.stmt_jump(on_true_src, after_if);
                 let bb_true = fun.get_current_block();
 
@@ -229,8 +230,8 @@ impl Compiler {
                 fun.set_current_block(bb_false);
                 let (value_false, on_false_src) =
                     if let Some(on_false) = &iff.on_false {
-                        let v = self.compile_ast(ctx, fun, on_false, need_value)?;
-                        (v, on_false.source.end.to_range())
+                        let v = self.compile_block(ctx, fun, ast.source, on_false, need_value)?;
+                        (v, SourceRange::null()) // @todo-dbg-info
                     }
                     else {
                         let source = ast.source.end.to_range();
@@ -269,7 +270,7 @@ impl Compiler {
 
                 // body.
                 fun.set_current_block(bb_body);
-                self.compile_ast(ctx, fun, &whilee.body, false)?;
+                self.compile_do_block(ctx, fun, ast.source, false, &whilee.body, false)?;
                 fun.stmt_jump(ast.source, bb_head);
 
 
@@ -286,8 +287,19 @@ impl Compiler {
             }
 
             AstData::Return (returnn) => {
-                let _ = returnn;
-                unimplemented!()
+                let value =
+                    if let Some(value) = &returnn.value {
+                        self.compile_ast(ctx, fun, value, true)?.unwrap()
+                    }
+                    else {
+                        fun.stmt_load_nil(ast.source)
+                    };
+                fun.stmt_return(ast.source, value);
+
+                let new_block = fun.new_block();
+                fun.set_current_block(new_block);
+
+                Ok(need_value.then(|| fun.stmt_load_nil(ast.source)))
             }
 
             AstData::Fn (fnn) => {
@@ -300,7 +312,8 @@ impl Compiler {
                 }
 
 
-                let value = self.compile_ast(&mut inner_ctx, &mut inner_fun, &fnn.body, true)?.unwrap();
+                let value = self.compile_do_block(&mut inner_ctx, &mut inner_fun,
+                    ast.source, false, &fnn.body, true)?.unwrap();
                 inner_fun.stmt_return(ast.source, value);
 
                 Ok(Some(fun.stmt_new_function(ast.source, inner_fun.id())))
@@ -312,54 +325,57 @@ impl Compiler {
         }
     }
 
-    pub fn compile_block<'a>(&mut self,
+    pub fn compile_do_block<'a>(&mut self,
         ctx: &mut Ctx<'a>, fun: &mut Function,
-        block_source: SourceRange, stmts: &[Ast<'a>], last_is_expr: bool, need_value: bool
+        block_source: SourceRange, is_do: bool, stmts: &[Ast<'a>], need_value: bool
     ) -> CompileResult<Option<StmtId>> {
         let scope = ctx.begin_scope();
 
-        let mut stmts_end = stmts.len();
-        if last_is_expr { stmts_end -= 1 }
+        if !is_do && need_value && stmts.len() == 1 {
+            let result = self.compile_ast(ctx, fun, &stmts[0], true);
+            ctx.end_scope(scope);
+            return result;
+        }
+
+        assert!(!is_do);
 
         // visit statements.
         // handle locals.
-        for i in 0..stmts_end {
-            let node = &stmts[i];
-
+        for stmt in stmts.iter() {
             // local decls.
-            if let AstData::Local(local) = &node.data {
+            if let AstData::Local(local) = &stmt.data {
                 let v =
                     if let Some(value) = &local.value {
                         self.compile_ast(ctx, fun, value, true)?.unwrap()
                     }
                     else {
-                        fun.stmt_load_nil(node.source)
+                        fun.stmt_load_nil(stmt.source)
                     };
 
-                let lid = fun.new_local(local.name, node.source);
+                let lid = fun.new_local(local.name, stmt.source);
                 ctx.add_decl(local.name, lid);
 
-                fun.stmt_set_local(node.source, lid, v);
+                fun.stmt_set_local(stmt.source, lid, v);
             }
             else {
-                self.compile_ast(ctx, fun, node, false)?;
+                self.compile_ast(ctx, fun, stmt, false)?;
             }
         }
 
-        // last statement (or expression).
-        let result =
-            if last_is_expr {
-                self.compile_ast(ctx, fun, &stmts[stmts_end], need_value)?
-            }
-            else if need_value {
-                let source = block_source.end.to_range();
-                // @todo: return empty tuple.
-                Some(fun.add_stmt(source, StmtData::LoadNil))
-            }
-            else { None };
+        let result = need_value.then(|| {
+            let source = block_source.end.to_range();
+            fun.add_stmt(source, StmtData::LoadNil)
+        });
 
         ctx.end_scope(scope);
         Ok(result)
+    }
+
+    pub fn compile_block<'a>(&mut self,
+        ctx: &mut Ctx<'a>, fun: &mut Function,
+        block_source: SourceRange, block: &ast::Block<'a>, need_value: bool
+    ) -> CompileResult<Option<StmtId>> {
+        self.compile_do_block(ctx, fun, block_source, block.is_do, &block.stmts, need_value)
     }
 
     pub fn compile_assign<'a>(&mut self,
