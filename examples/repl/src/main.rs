@@ -51,8 +51,7 @@ fn main() {
 
         let t0 = std::time::Instant::now();
 
-        let mut p = compiler::Parser::new(source.as_bytes());
-        let (chunk_source, chunk) = p.parse_block().unwrap();
+        let (chunk_source, chunk) = compiler::Parser::parse_chunk(source.as_bytes()).unwrap();
 
         let module = compiler::Compiler::compile_chunk(chunk_source, &chunk.children).unwrap();
         module.temp_load(&mut vm);
@@ -105,17 +104,8 @@ fn main() {
                 continue;
             }
 
-            let mut p = compiler::Parser::new(chunk.as_bytes());
-            match p.parse_expr(0) {
-                Ok(ast) => {
-                    if !p.at_end() {
-                        println!("unexpected trailing input");
-                        buffer.clear();
-                        continue;
-                    }
-
-                    ast.0
-                },
+            match compiler::Parser::parse_single(chunk.as_bytes()) {
+                Ok(ast) => ast,
                 Err(e) => {
                     match e.data {
                         compiler::ParseErrorData::UnexpectedEof => {

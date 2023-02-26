@@ -16,20 +16,10 @@ impl<'a> Token<'a> {
     }
 }
 
-impl<'a> Default for Token<'a> {
-    fn default() -> Self {
-        let zero = SourcePos { line: 0, column: 0 };
-        let source = SourceRange { begin: zero, end: zero };
-        Token { source, data: TokenData::Error }
-    }
-}
-
 
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TokenData<'a> {
-    Eof,
-    Error,
     Ident  (&'a str),
     Number (&'a str),
     Bool   (bool),
@@ -44,7 +34,7 @@ pub enum TokenData<'a> {
     Dot,
     Comma,
     Colon,
-    SemiColon,
+    Semicolon,
     KwEnd,
     KwLet, KwVar,
     KwDo,
@@ -89,7 +79,7 @@ pub enum TokenData<'a> {
 }
 
 impl<'a> TokenData<'a> {
-    pub fn semi_colon_after(&self) -> bool {
+    pub fn semicolon_after(&self) -> bool {
         use TokenData::*;
         match self {
             // anything that can mark the end
@@ -102,7 +92,7 @@ impl<'a> TokenData<'a> {
             => true,
 
             LParen | LBracket | LCurly |
-            Dot | Comma | Colon | SemiColon |
+            Dot | Comma | Colon | Semicolon |
             KwLet | KwVar |
             KwDo |
             KwIf | KwElif | KwElse |
@@ -117,13 +107,12 @@ impl<'a> TokenData<'a> {
             FatArrow | ColonEq |
             OpEq | OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
             OpQ | OpQDot | OpQQ | OpQQEq |
-            OpNot | KwNot |
-            Eof | Error
+            OpNot | KwNot
             => false,
         }
     }
 
-    pub fn semi_colon_before(&self) -> bool {
+    pub fn semicolon_before(&self) -> bool {
         use TokenData::*;
         match self {
             Ident (_) | Number (_) | Bool(_) | Nil | QuotedString(_) |
@@ -133,8 +122,7 @@ impl<'a> TokenData<'a> {
             KwBreak | KwContinue | KwReturn |
             KwFn |
             KwEnv |
-            OpNot | KwNot |
-            Eof
+            OpNot | KwNot
             => true,
 
             // unless the next token indicates
@@ -142,7 +130,7 @@ impl<'a> TokenData<'a> {
             RParen |
             RBracket |
             RCurly |
-            Dot | Comma | Colon | SemiColon |
+            Dot | Comma | Colon | Semicolon |
             KwEnd |
             KwElif | KwElse |
             KwIn |
@@ -154,20 +142,9 @@ impl<'a> TokenData<'a> {
             OpSlashSlash | OpSlashSlashEq |
             FatArrow | ColonEq |
             OpEq | OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
-            OpQ | OpQDot | OpQQ | OpQQEq |
-            Error
+            OpQ | OpQDot | OpQQ | OpQQEq
             => false,
         }
-    }
-
-    #[inline(always)]
-    pub fn is_eof(&self) -> bool {
-        if let TokenData::Eof = self { true } else { false }
-    }
-
-    #[inline(always)]
-    pub fn is_error(&self) -> bool {
-        if let TokenData::Error = self { true } else { false }
     }
 
     #[inline(always)]
@@ -180,7 +157,7 @@ impl<'a> TokenData<'a> {
     pub fn is_block_end(&self) -> bool {
         use TokenData::*;
         match self {
-            KwEnd | KwElse | KwElif | Eof => true,
+            KwEnd | KwElse | KwElif => true,
             _ => false,
         }
     }
@@ -200,9 +177,8 @@ impl<'a> TokenData<'a> {
             OpPlus | OpMinus | OpStar
             => true,
 
-            Eof | Error |
             RParen | RBracket | RCurly |
-            Dot | Comma | Colon | SemiColon |
+            Dot | Comma | Colon | Semicolon |
             KwEnd |
             KwElif | KwElse |
             KwIn |
@@ -226,10 +202,17 @@ pub struct ParseError {
 
 impl ParseError {
     #[inline(always)]
+    pub fn eof() -> ParseError {
+        ParseError { source: SourceRange::null(), data: ParseErrorData::UnexpectedEof }
+    }
+
+    #[inline(always)]
+    pub fn at_pos(pos: SourcePos, data: ParseErrorData) -> ParseError {
+        ParseError { source: pos.to_range(), data }
+    }
+
+    #[inline(always)]
     pub fn at(token: &Token, data: ParseErrorData) -> ParseError {
-        if token.is_eof() {
-            return ParseError { source: token.source, data: ParseErrorData::UnexpectedEof };
-        }
         ParseError { source: token.source, data }
     }
 }
@@ -239,6 +222,9 @@ pub enum ParseErrorData {
     Expected(TokenData<'static>),
     ExpectedExpression,
     UnexpectedEof,
+    UnexpectedChar,
+    TrailingInput,
+    TempWonkyString,
 }
 
 pub type ParseResult<T> = Result<T, ParseError>;
@@ -252,71 +238,15 @@ pub struct Tokenizer<'i> {
     line: u32,
     line_begin: usize,
 
-    current_token: Token<'i>,
-    next_token:    Token<'i>,
+    tokens: Vec<Token<'i>>,
 }
 
 impl<'i> Tokenizer<'i> {
     pub fn new(input: &'i [u8]) -> Self {
-        let mut toker = Tokenizer {
+        Tokenizer {
             input, cursor: 0,
             line: 1, line_begin: 0,
-            current_token: Default::default(),
-            next_token:    Default::default(),
-        };
-        toker.current_token = toker._next_token();
-        toker.next_token    = toker._next_token();
-        toker
-    }
-
-    #[inline(always)]
-    pub fn at_end(&self) -> bool {
-        self.current_token.is_eof()
-    }
-
-    #[inline(always)]
-    pub fn peek(&self) -> &Token<'i> {
-        &self.current_token
-    }
-
-    #[inline(always)]
-    pub fn peek_next(&self) -> &Token<'i> {
-        &self.next_token
-    }
-
-    #[inline(always)]
-    pub fn next(&mut self) -> Token<'i> {
-        let result = self.current_token;
-        self._advance();
-        result
-    }
-
-    #[inline(always)]
-    pub fn next_if(&mut self, kind: TokenData) -> bool {
-        if self.current_token.data == kind {
-            self.next();
-            return true
-        }
-        false
-    }
-
-    fn _advance(&mut self) {
-        if self.current_token.is_eof() { return }
-
-        let current = &self.current_token;
-        let next    = &self.next_token;
-
-        // insert semi-colon.
-        if current.source.end.line < next.source.begin.line
-        && current.semi_colon_after()
-        && next.semi_colon_before() {
-            // @auto-semi-colon-collapsed-range
-            let pos = current.source.end;
-            self.current_token = Token::new(pos, pos, TokenData::SemiColon);
-        }
-        else {
-            self.current_token = self.next_token;
-            self.next_token    = self._next_token();
+            tokens: vec![],
         }
     }
 
@@ -419,11 +349,31 @@ impl<'i> Tokenizer<'i> {
         else { false }
     }
 
-    fn _next_token(&mut self) -> Token<'i> {
+    pub fn run(&mut self, insert_semicolons: bool) -> ParseResult<()> {
+        while let Some(tok) = self.next_token()? {
+            if insert_semicolons {
+                if let Some(prev) = self.tokens.last() {
+                    if prev.source.end.line < tok.source.begin.line
+                    && prev.semicolon_after()
+                    && tok.semicolon_before() {
+                        self.tokens.push(Token {
+                            data: TokenData::Semicolon,
+                            source: prev.source.end.to_range(),
+                        });
+                    }
+                }
+            }
+
+            self.tokens.push(tok);
+        }
+        Ok(())
+    }
+
+    fn next_token(&mut self) -> ParseResult<Option<Token<'i>>> {
         self.skip_whitespace();
 
         let Some(at) = self.peek_ch(0) else {
-            return self.mk_token(self.pos(), TokenData::Eof);
+            return Ok(None);
         };
 
         let begin_offset = self.cursor;
@@ -432,7 +382,7 @@ impl<'i> Tokenizer<'i> {
         macro_rules! tok_1 {
             ($td: expr) => {{
                 self.consume_ch(1);
-                return self.mk_token(begin_pos, $td);
+                return Ok(Some(self.mk_token(begin_pos, $td)));
             }};
         }
 
@@ -442,10 +392,10 @@ impl<'i> Tokenizer<'i> {
 
                 if self.peek_ch_zero(0) == $cont as u8 {
                     self.consume_ch(1);
-                    return self.mk_token(begin_pos, $td_cont);
+                    return Ok(Some(self.mk_token(begin_pos, $td_cont)));
                 }
                 else {
-                    return self.mk_token(begin_pos, $td);
+                    return Ok(Some(self.mk_token(begin_pos, $td)));
                 }
             }};
         }
@@ -461,7 +411,7 @@ impl<'i> Tokenizer<'i> {
             '.' => tok_1!(TokenData::Dot),
             ',' => tok_1!(TokenData::Comma),
             ':' => tok_2!(TokenData::Colon, '=', TokenData::ColonEq),
-            ';' => tok_1!(TokenData::SemiColon),
+            ';' => tok_1!(TokenData::Semicolon),
             '?' => {
                 self.consume_ch(1);
 
@@ -470,18 +420,18 @@ impl<'i> Tokenizer<'i> {
 
                     if self.peek_ch_zero(0) == '=' as u8 {
                         self.consume_ch(1);
-                        return self.mk_token(begin_pos, TokenData::OpQQEq);
+                        return Ok(Some(self.mk_token(begin_pos, TokenData::OpQQEq)));
                     }
                     else {
-                        return self.mk_token(begin_pos, TokenData::OpQQ);
+                        return Ok(Some(self.mk_token(begin_pos, TokenData::OpQQ)));
                     }
                 }
                 else if self.peek_ch_zero(0) == '.' as u8 {
                     self.consume_ch(1);
-                    return self.mk_token(begin_pos, TokenData::OpQDot);
+                    return Ok(Some(self.mk_token(begin_pos, TokenData::OpQDot)));
                 }
                 else {
-                    return self.mk_token(begin_pos, TokenData::OpQ);
+                    return Ok(Some(self.mk_token(begin_pos, TokenData::OpQ)));
                 }
             }
 
@@ -494,21 +444,21 @@ impl<'i> Tokenizer<'i> {
 
                 if self.peek_ch_zero(0) == '=' as u8 {
                     self.consume_ch(1);
-                    return self.mk_token(begin_pos, TokenData::OpSlashEq);
+                    return Ok(Some(self.mk_token(begin_pos, TokenData::OpSlashEq)));
                 }
                 else if self.peek_ch_zero(0) == '/' as u8 {
                     self.consume_ch(1);
 
                     if self.peek_ch_zero(0) == '=' as u8 {
                         self.consume_ch(1);
-                        return self.mk_token(begin_pos, TokenData::OpSlashSlashEq);
+                        return Ok(Some(self.mk_token(begin_pos, TokenData::OpSlashSlashEq)));
                     }
                     else {
-                        return self.mk_token(begin_pos, TokenData::OpSlashSlash);
+                        return Ok(Some(self.mk_token(begin_pos, TokenData::OpSlashSlash)));
                     }
                 }
                 else {
-                    return self.mk_token(begin_pos, TokenData::OpSlash);
+                    return Ok(Some(self.mk_token(begin_pos, TokenData::OpSlash)));
                 }
             }
 
@@ -517,14 +467,14 @@ impl<'i> Tokenizer<'i> {
 
                 if self.peek_ch_zero(0) == '>' as u8 {
                     self.consume_ch(1);
-                    return self.mk_token(begin_pos, TokenData::FatArrow);
+                    return Ok(Some(self.mk_token(begin_pos, TokenData::FatArrow)));
                 }
                 else if self.peek_ch_zero(0) == '=' as u8 {
                     self.consume_ch(1);
-                    return self.mk_token(begin_pos, TokenData::OpEqEq);
+                    return Ok(Some(self.mk_token(begin_pos, TokenData::OpEqEq)));
                 }
                 else {
-                    return self.mk_token(begin_pos, TokenData::OpEq);
+                    return Ok(Some(self.mk_token(begin_pos, TokenData::OpEq)));
                 }
             }
 
@@ -537,7 +487,7 @@ impl<'i> Tokenizer<'i> {
 
                 loop {
                     let Some(at) = self.peek_ch(0) else {
-                        return self.mk_token(begin_pos, TokenData::Error);
+                        return Err(ParseError::eof());
                     };
 
                     self.consume_ch(1);
@@ -546,10 +496,10 @@ impl<'i> Tokenizer<'i> {
                         let value = &self.input[begin_offset+1 .. self.cursor-1];
 
                         let Ok(value) = core::str::from_utf8(value) else {
-                            return self.mk_token(begin_pos, TokenData::Error);
+                            return Err(ParseError::at_pos(begin_pos, ParseErrorData::TempWonkyString));
                         };
 
-                        return self.mk_token(begin_pos, TokenData::QuotedString(value));
+                        return Ok(Some(self.mk_token(begin_pos, TokenData::QuotedString(value))));
                     }
 
                     if at == '\\' as u8 {
@@ -600,7 +550,7 @@ impl<'i> Tokenizer<'i> {
 
                 _ => TokenData::Ident(value),
             };
-            return self.mk_token(begin_pos, data);
+            return Ok(Some(self.mk_token(begin_pos, data)));
         }
 
         // number
@@ -610,11 +560,17 @@ impl<'i> Tokenizer<'i> {
 
             let value = &self.input[begin_offset..self.cursor];
             let value = unsafe { core::str::from_utf8_unchecked(value) };
-            return self.mk_token(begin_pos, TokenData::Number(value));
+            return Ok(Some(self.mk_token(begin_pos, TokenData::Number(value))));
         }
 
         self.consume_ch(1);
-        self.mk_token(begin_pos, TokenData::Error)
+        Err(ParseError { source: begin_pos.to_range(), data: ParseErrorData::UnexpectedChar })
+    }
+
+    pub fn tokenize(input: &'i [u8], insert_semicolons: bool) -> ParseResult<Vec<Token<'i>>> {
+        let mut toker = Self::new(input);
+        toker.run(insert_semicolons)?;
+        Ok(toker.tokens)
     }
 }
 
@@ -848,42 +804,75 @@ impl<'i> Ident<'i> {
 }
 
 
-pub struct Parser<'i> {
-    toker: Tokenizer<'i>,
+pub struct Parser<'p, 'i> {
+    tokens: &'p [Token<'i>],
+    cursor: usize,
 }
 
-impl<'i> Parser<'i> {
-    pub fn new(input: &'i [u8]) -> Self {
-        Self {
-            toker: Tokenizer::new(input)
+impl<'p, 'i> Parser<'p, 'i> {
+    pub fn new(tokens: &'p [Token<'i>]) -> Self {
+        Self { tokens, cursor: 0 }
+    }
+
+    fn peek(&self, offset: usize) -> Option<&Token<'i>> {
+        self.tokens.get(self.cursor + offset)
+    }
+
+    fn peek_or_eof(&self, offset: usize) -> ParseResult<&Token<'i>> {
+        self.tokens.get(self.cursor + offset).ok_or(ParseError::eof())
+    }
+
+    fn peek_if(&self, offset: usize, kind: TokenData<'static>) -> bool {
+        if let Some(at) = self.peek(offset) {
+            return at.data == kind;
         }
+        false
     }
 
-    #[inline(always)]
-    pub fn at_end(&self) -> bool {
-        self.toker.at_end()
+    fn next(&mut self) -> ParseResult<&Token<'i>> {
+        let result = self.tokens.get(self.cursor).ok_or(ParseError::eof());
+        self.cursor += 1;
+        result
     }
 
-    pub fn expect_ident(&mut self) -> ParseResult<Ident<'i>> {
-        let tok = self.toker.next();
+    fn next_if(&mut self, kind: TokenData<'static>) -> bool {
+        if let Some(at) = self.peek(0) {
+            if at.data == kind {
+                self.cursor += 1;
+                return true;
+            }
+        }
+        false
+    }
+
+    fn next_if_ident(&mut self) -> Option<&'i str> {
+        if let Some(Token { data: TokenData::Ident(name), source: _ }) = self.tokens.get(self.cursor) {
+            self.cursor += 1;
+            return Some(name);
+        }
+        None
+    }
+
+    fn expect_ident(&mut self) -> ParseResult<Ident<'i>> {
+        let tok = self.next()?;
         if let TokenData::Ident(value) = tok.data {
             return Ok(Ident { source: tok.source, value });
         }
         Err(ParseError::at(&tok, ParseErrorData::Expected(TokenData::Ident(""))))
     }
 
-    pub fn expect(&mut self, kind: TokenData<'static>) -> ParseResult<SourceRange> {
-        let tok = self.toker.next();
+    fn expect(&mut self, kind: TokenData<'static>) -> ParseResult<SourceRange> {
+        let tok = self.next()?;
         if tok.data == kind {
             return Ok(tok.source);
         }
         Err(ParseError::at(&tok, ParseErrorData::Expected(kind)))
     }
 
-    pub fn peek_op1(&mut self) -> Option<ast::Op1Kind> {
+    fn peek_op1(&mut self) -> Option<ast::Op1Kind> {
         use TokenData::*;
         use super::Op1::*;
-        Some(match self.toker.peek().data {
+        Some(match self.peek(0)?.data {
             KwNot   => ast::Op1Kind(BoolNot),
             OpNot   => ast::Op1Kind(BitNot),
             OpMinus => ast::Op1Kind(Neg),
@@ -892,10 +881,10 @@ impl<'i> Parser<'i> {
         })
     }
 
-    pub fn peek_op2(&mut self) -> Option<ast::Op2Kind> {
+    fn peek_op2(&mut self) -> Option<ast::Op2Kind> {
         use TokenData::*;
         use super::Op2::*;
-        Some(match self.toker.peek().data {
+        Some(match self.peek(0)?.data {
             KwAnd           => ast::Op2Kind::Op2(And),
             KwOr            => ast::Op2Kind::Op2(Or),
             OpPlus          => ast::Op2Kind::Op2(Add),
@@ -924,36 +913,36 @@ impl<'i> Parser<'i> {
 
 
     // bool: terminated (needs no semi-colon).
-    pub fn parse_leading_expr(&mut self, prec: u32) -> ParseResult<(Ast<'i>, bool)> {
-        let current = *self.toker.peek();
+    fn parse_leading_expr(&mut self, prec: u32) -> ParseResult<(Ast<'i>, bool)> {
+        let current = *self.next()?;
 
         // ident.
         if let TokenData::Ident(ident) = current.data {
-            let source = self.toker.next().source;
+            let source = current.source;
             return Ok((Ast { source, data: AstData::Ident(ident) }, false));
         }
 
         // number.
         if let TokenData::Number(value) = current.data {
-            let source = self.toker.next().source;
+            let source = current.source;
             return Ok((Ast { source, data: AstData::Number(value) }, false));
         }
 
         // bool.
         if let TokenData::Bool(value) = current.data {
-            let source = self.toker.next().source;
+            let source = current.source;
             return Ok((Ast { source, data: AstData::Bool(value) }, false));
         }
 
         // nil.
         if let TokenData::Nil = current.data {
-            let source = self.toker.next().source;
+            let source = current.source;
             return Ok((Ast { source, data: AstData::Nil }, false));
         }
 
         // string.
         if let TokenData::QuotedString(value) = current.data {
-            let source = self.toker.next().source;
+            let source = current.source;
             return Ok((Ast { source, data: AstData::QuotedString(value) }, false));
         }
 
@@ -961,8 +950,6 @@ impl<'i> Parser<'i> {
 
         // tuples & sub-expr.
         if let TokenData::LParen = current.data {
-            self.toker.next();
-
             let (values, had_comma) = self.parse_comma_exprs(TokenData::RParen)?;
             let data =
                 if values.len() == 1 && !had_comma {
@@ -978,14 +965,11 @@ impl<'i> Parser<'i> {
 
         // if
         if let TokenData::KwIf = current.data {
-            self.toker.next();
             return Ok((self.parse_if_as_ast(begin)?, true));
         }
 
         // while
         if let TokenData::KwWhile = current.data {
-            self.toker.next();
-
             let condition = self.parse_expr(0)?.0;
             self.expect(TokenData::Colon)?;
 
@@ -998,8 +982,6 @@ impl<'i> Parser<'i> {
 
         // do
         if let TokenData::KwDo = current.data {
-            self.toker.next();
-
             let block = self.parse_block()?.1;
             let data = AstData::Block(Box::new(block));
 
@@ -1009,25 +991,27 @@ impl<'i> Parser<'i> {
 
         // break
         if let TokenData::KwBreak = current.data {
-            let source = self.toker.next().source;
+            let source = current.source;
             return Ok((Ast { source, data: AstData::Break }, false));
         }
 
         // continue
         if let TokenData::KwContinue = current.data {
-            let source = self.toker.next().source;
+            let source = current.source;
             return Ok((Ast { source, data: AstData::Continue }, false));
         }
 
         // return
         if let TokenData::KwReturn = current.data {
-            let mut end = self.toker.next().source.end;
+            let mut end = current.source.end;
 
             let mut value = None;
-            if self.toker.peek().is_expr_start() {
-                let v = self.parse_expr(0)?.0;
-                end = v.source.end;
-                value = Some(Box::new(v));
+            if let Some(at) = self.peek(0) {
+                if at.is_expr_start()  {
+                    let v = self.parse_expr(0)?.0;
+                    end = v.source.end;
+                    value = Some(Box::new(v));
+                }
             }
 
             let data = AstData::Return(ast::Return { value });
@@ -1036,24 +1020,22 @@ impl<'i> Parser<'i> {
 
         // functions
         if let TokenData::KwFn = current.data {
-            self.toker.next();
-
-            let at   = self.toker.peek();
-            let next = self.toker.peek_next();
+            let at   = self.peek_or_eof(0)?;
+            let next = self.peek_or_eof(1)?;
 
             // fn name? ( params ) ':'? block end
             if at.is_ident() && next.data == TokenData::LParen
             || at.data == TokenData::LParen {
                 let name =
                     if let TokenData::Ident(name) = at.data {
-                        self.toker.next();
+                        self.next().unwrap();
                         Some(name)
                     } else { None };
                 self.expect(TokenData::LParen).unwrap();
 
                 let params = self.parse_fn_params()?.0;
                 self.expect(TokenData::RParen)?;
-                self.toker.next_if(TokenData::Colon);
+                self.next_if(TokenData::Colon);
 
                 let body = self.parse_block_as_ast()?;
                 let end = self.expect(TokenData::KwEnd)?.end;
@@ -1078,8 +1060,6 @@ impl<'i> Parser<'i> {
 
         // list.
         if let TokenData::LBracket = current.data {
-            self.toker.next();
-
             let values = self.parse_comma_exprs(TokenData::RBracket)?.0;
             let end = self.expect(TokenData::RBracket)?.end;
 
@@ -1089,8 +1069,6 @@ impl<'i> Parser<'i> {
 
         // table.
         if let TokenData::LCurly = current.data {
-            self.toker.next();
-
             let values = self.parse_kv_exprs(TokenData::RCurly)?.0;
             let end = self.expect(TokenData::RCurly)?.end;
 
@@ -1103,7 +1081,6 @@ impl<'i> Parser<'i> {
             if ast::PREC_PREFIX < prec {
                 unimplemented!()
             }
-            self.toker.next();
 
             let value = self.parse_expr(ast::PREC_PREFIX)?.0;
 
@@ -1120,16 +1097,13 @@ impl<'i> Parser<'i> {
                 TokenData::KwVar => ast::LocalKind::Var,
                 _ => unreachable!()
             };
-            self.toker.next();
 
             let name = self.expect_ident()?;
 
             let mut end = name.source.end;
 
             let mut value = None;
-            if self.toker.peek().data == TokenData::OpEq {
-                self.toker.next();
-
+            if self.next_if(TokenData::OpEq) {
                 let v = self.parse_expr(0)?.0;
                 end = v.source.end;
                 value = Some(v);
@@ -1146,7 +1120,6 @@ impl<'i> Parser<'i> {
 
         // env.
         if current.data == TokenData::KwEnv {
-            self.toker.next();
             return Ok((Ast {
                 source: current.source,
                 data:   AstData::Env,
@@ -1165,7 +1138,7 @@ impl<'i> Parser<'i> {
             // binary operator.
             if let Some(op2) = self.peek_op2() {
                 if op2.lprec() >= prec {
-                    self.toker.next();
+                    self.next().unwrap();
 
                     let other = self.parse_expr(op2.rprec())?.0;
                     let begin = result.source.begin;
@@ -1186,11 +1159,11 @@ impl<'i> Parser<'i> {
                 break;
             }
 
-            let current = self.toker.peek();
+            let Some(current) = self.peek(0) else { break };
 
             // call.
             if current.data == TokenData::LParen {
-                self.toker.next();
+                self.next().unwrap();
 
                 let args = self.parse_comma_exprs(TokenData::RParen)?.0;
 
@@ -1208,7 +1181,7 @@ impl<'i> Parser<'i> {
 
             // field.
             if current.data == TokenData::Dot {
-                self.toker.next();
+                self.next().unwrap();
 
                 let name = self.expect_ident()?;
 
@@ -1226,7 +1199,7 @@ impl<'i> Parser<'i> {
 
             // opt-chain.
             if current.data == TokenData::OpQDot {
-                self.toker.next();
+                self.next().unwrap();
 
                 let name = self.expect_ident()?;
 
@@ -1244,7 +1217,7 @@ impl<'i> Parser<'i> {
 
             // index.
             if current.data == TokenData::LBracket {
-                self.toker.next();
+                self.next().unwrap();
 
                 let index = self.parse_expr(0)?.0;
 
@@ -1268,17 +1241,14 @@ impl<'i> Parser<'i> {
     }
 
     // bool: ends with comma.
-    pub fn parse_comma_exprs(&mut self, until: TokenData) -> ParseResult<(Vec<Ast<'i>>, bool)> {
+    pub fn parse_comma_exprs(&mut self, until: TokenData<'static>) -> ParseResult<(Vec<Ast<'i>>, bool)> {
         let mut result = vec![];
 
         let mut had_comma = true;
-        while had_comma && self.toker.peek().data != until {
+        while had_comma && !self.peek_if(0, until) {
             result.push(self.parse_expr(0)?.0);
 
-            if self.toker.peek().data == TokenData::Comma {
-                self.toker.next();
-            }
-            else {
+            if !self.next_if(TokenData::Comma) {
                 had_comma = false;
             }
         }
@@ -1287,14 +1257,14 @@ impl<'i> Parser<'i> {
     }
 
     // bool: ends with comma.
-    pub fn parse_kv_exprs(&mut self, until: TokenData) -> ParseResult<(Vec<(Ident<'i>, Ast<'i>)>, bool)> {
+    pub fn parse_kv_exprs(&mut self, until: TokenData<'static>) -> ParseResult<(Vec<(Ident<'i>, Ast<'i>)>, bool)> {
         let mut result = vec![];
 
         let mut had_comma = true;
-        while had_comma && self.toker.peek().data != until {
+        while had_comma && !self.peek_if(0, until) {
             let key = self.expect_ident()?;
 
-            if self.toker.next_if(TokenData::Colon) {
+            if self.next_if(TokenData::Colon) {
                 let value = self.parse_expr(0)?.0;
                 result.push((key, value));
             }
@@ -1302,10 +1272,7 @@ impl<'i> Parser<'i> {
                 result.push((key, key.to_ast()));
             }
 
-            if self.toker.peek().data == TokenData::Comma {
-                self.toker.next();
-            }
-            else {
+            if !self.next_if(TokenData::Comma) {
                 had_comma = false;
             }
         }
@@ -1314,28 +1281,35 @@ impl<'i> Parser<'i> {
     }
 
     pub fn parse_block(&mut self) -> ParseResult<(SourceRange, ast::Block<'i>)> {
-        let mut result = vec![];
+        let Some(begin) = self.peek(0) else {
+            return Ok((SourceRange::null(), ast::Block { children: vec![], last_is_expr: false }))
+        };
 
-        let begin = self.toker.peek().source.begin;
+        let begin = begin.source.begin;
         let mut end = begin;
 
+        let mut result = vec![];
+
         let mut non_terminated: Option<SourcePos> = None;
-        while !self.toker.peek().is_block_end() {
+        loop {
+            let Some(at) = self.peek(0).copied() else { break };
+            if at.is_block_end() { break }
+
             if let Some(pos) = non_terminated {
                 let source = SourceRange { begin: pos, end: pos };
-                return Err(ParseError { source, data: ParseErrorData::Expected(TokenData::SemiColon) });
+                return Err(ParseError { source, data: ParseErrorData::Expected(TokenData::Semicolon) });
             }
 
             // empty stmt.
-            if self.toker.peek().data == TokenData::SemiColon {
-                let source = self.toker.next().source;
+            if at.data == TokenData::Semicolon {
+                self.next().unwrap();
+                let source = at.source;
                 end = source.end;
             }
             // expr stmt
             else {
                 let (expr, mut terminated) = self.parse_expr(0)?;
-                if self.toker.peek().data == TokenData::SemiColon {
-                    self.toker.next();
+                if self.next_if(TokenData::Semicolon) {
                     terminated = true;
                 }
 
@@ -1363,22 +1337,22 @@ impl<'i> Parser<'i> {
         let on_true = self.parse_block_as_ast()?;
 
         let (end, on_false) = {
-            let at = self.toker.peek();
+            let at = self.next()?;
+
             if at.data == TokenData::KwElif {
-                let begin = self.toker.next().source.begin;
+                let begin = at.source.begin;
                 let body = self.parse_if_as_ast(begin)?;
                 (body.source.end, Some(body))
             }
             else if at.data == TokenData::KwElse {
-                self.toker.next();
-                self.toker.next_if(TokenData::Colon);
+                self.next_if(TokenData::Colon);
 
                 let body = self.parse_block_as_ast()?;
                 let end = self.expect(TokenData::KwEnd)?.end;
                 (end, Some(body))
             }
             else if at.data == TokenData::KwEnd {
-                let end = self.toker.next().source.end;
+                let end = at.source.end;
                 (end, None)
             }
             else {
@@ -1400,21 +1374,35 @@ impl<'i> Parser<'i> {
         let mut result = vec![];
 
         let mut had_comma = true;
-        while let TokenData::Ident(name) = self.toker.peek().data {
-            if !had_comma { break }
-            self.toker.next();
-
+        while had_comma {
+            let Some(name) = self.next_if_ident() else { break };
             result.push(ast::FnParam { name });
 
-            if self.toker.peek().data == TokenData::Comma {
-                self.toker.next();
-            }
-            else {
+            if !self.next_if(TokenData::Comma) {
                 had_comma = false;
             }
         }
 
         Ok((result, had_comma))
+    }
+
+
+    pub fn parse_single(input: &'i [u8]) -> ParseResult<Ast<'i>> {
+        let tokens = Tokenizer::tokenize(input, true)?;
+        let mut p = Parser::new(&tokens);
+
+        let (result, _) = p.parse_expr(0)?;
+
+        if let Some(tok) = p.peek(0) {
+            return Err(ParseError::at_pos(tok.source.begin, ParseErrorData::TrailingInput));
+        }
+        Ok(result)
+    }
+
+    pub fn parse_chunk(input: &'i [u8]) -> ParseResult<(SourceRange, ast::Block<'i>)> {
+        let tokens = Tokenizer::tokenize(input, true)?;
+        let mut p = Parser::new(&tokens);
+        p.parse_block()
     }
 }
 

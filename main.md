@@ -1,11 +1,16 @@
 
 - next steps:
     - compiler cleanup (ids, param stmt, validation).
+    - `do` & `break`.
     - trace logging.
     - debug info.
+    - debugging.
 
 - todo:
-    - tbd.
+    - remove Block.
+        - return `Vec<Ast>`, no more last_is_expr.
+        - `ast::Do`.
+        - `ast::IfBranch::is_do`.
 
 
 - decisions to make:
@@ -99,6 +104,10 @@
     - tests.
 
 - ideas:
+    - reverse debugging:
+        - start with snapshots + outputs of external functions.
+        - perf wise, that would be a bit like a stop-the-world gc - not ideal, but good enough, maybe.
+        - cancel snapshot if there's a non-serializable host function in the call stack.
     - resumable host code:
         - enables pausing code anywhere -> preemptive multi-tasking.
         - maybe using async for ergonomics.
@@ -119,4 +128,7 @@
         - with inline counter.
     - freezing & read-only refs.
     - get/set object properties.
+    - `do` block constraints:
+        - restrict variable "capture": `[&a, &mut b]`.
+        - if use that, can't return from outer function either. maybe.
 
