@@ -337,7 +337,7 @@ impl Compiler {
             return result;
         }
 
-        assert!(!is_do);
+        assert!(!is_do || !need_value);
 
         // visit statements.
         // handle locals.

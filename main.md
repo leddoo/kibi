@@ -1,6 +1,7 @@
 
 - next steps:
-    - compiler cleanup (ids, param stmt, validation).
+    - compiler cleanup.
+        - ids.
         - `Option<PostOrderIndex>`.
     - trace logging.
     - debug info.
@@ -8,8 +9,9 @@
     - debugging.
 
 - todo:
-    - local not expr.
     - `break` scopes.
+    - `param` stmt.
+    - ssa validation.
 
 
 - decisions to make:

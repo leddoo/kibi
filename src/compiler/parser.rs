@@ -35,7 +35,6 @@ pub enum TokenData<'a> {
     Comma,
     Colon,
     Semicolon,
-    KwEnd,
     KwLet, KwVar,
     KwDo,
     KwIf,
@@ -47,6 +46,7 @@ pub enum TokenData<'a> {
     KwBreak,
     KwContinue,
     KwReturn,
+    KwEnd,
     KwFn,
     KwAnd,
     KwOr,
@@ -118,8 +118,9 @@ impl<'a> TokenData<'a> {
             Ident (_) | Number (_) | Bool(_) | Nil | QuotedString(_) |
             LParen | LBracket | LCurly |
             KwLet | KwVar |
-            KwDo | KwIf | KwWhile | KwFor |
+            KwDo | KwIf | KwElif | KwElse | KwWhile | KwFor |
             KwBreak | KwContinue | KwReturn |
+            KwEnd |
             KwFn |
             KwEnv |
             OpNot | KwNot
@@ -131,8 +132,6 @@ impl<'a> TokenData<'a> {
             RBracket |
             RCurly |
             Dot | Comma | Colon | Semicolon |
-            KwEnd |
-            KwElif | KwElse |
             KwIn |
             KwAnd | KwOr |
             OpPlus | OpPlusEq |
@@ -1090,34 +1089,6 @@ impl<'p, 'i> Parser<'p, 'i> {
             return Ok(Ast { source: SourceRange { begin, end }, data });
         }
 
-        // local ::= (let | var) ident (= expr)? (;)?
-        if current.data == TokenData::KwLet
-        || current.data == TokenData::KwVar {
-            let kind = match current.data {
-                TokenData::KwLet => ast::LocalKind::Let,
-                TokenData::KwVar => ast::LocalKind::Var,
-                _ => unreachable!()
-            };
-
-            let name = self.expect_ident()?;
-
-            let mut end = name.source.end;
-
-            let mut value = None;
-            if self.next_if(TokenData::OpEq) {
-                let v = self.parse_expr(0)?;
-                end = v.source.end;
-                value = Some(v);
-            }
-
-            return Ok(Ast {
-                source: SourceRange { begin, end },
-                data: AstData::Local(Box::new(ast::Local {
-                    name: name.value, value, kind,
-                })),
-            });
-        }
-
 
         // env.
         if current.data == TokenData::KwEnv {
@@ -1300,6 +1271,34 @@ impl<'p, 'i> Parser<'p, 'i> {
                 self.next().unwrap();
                 let source = at.source;
                 end = source.end;
+            }
+            // local ::= (let | var) ident (= expr)? (;)?
+            else if at.data == TokenData::KwLet
+            ||      at.data == TokenData::KwVar {
+                let kind = match at.data {
+                    TokenData::KwLet => ast::LocalKind::Let,
+                    TokenData::KwVar => ast::LocalKind::Var,
+                    _ => unreachable!()
+                };
+                self.next().unwrap();
+
+                let name = self.expect_ident()?;
+
+                let mut end = name.source.end;
+
+                let mut value = None;
+                if self.next_if(TokenData::OpEq) {
+                    let v = self.parse_expr(0)?;
+                    end = v.source.end;
+                    value = Some(v);
+                }
+
+                stmts.push(Ast {
+                    source: SourceRange { begin, end },
+                    data: AstData::Local(Box::new(ast::Local {
+                        name: name.value, value, kind,
+                    })),
+                });
             }
             // expr stmt
             else {
