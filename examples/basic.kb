@@ -10,7 +10,7 @@ end
 
 
 
-(fn(a, b, c)
+(fn(a, b, c):
     print("a: ")
     print(a)
     print(", c: ")
@@ -29,7 +29,7 @@ println(foo)
 
 
 -- @todo-syntax: `fn fib(n)`.
-ENV.fib := fn(n)
+ENV.fib := fn(n):
     var a = 0
     var b = 1
     var i = 0
@@ -50,7 +50,7 @@ while i < 15:
     println(fib(i))
     i += 1
 end
-    
+
 
 
 let list = [1, 5, 4, "hi", ENV]
@@ -110,13 +110,13 @@ end)()
 
 (fn doer():
     print("doer: ")
-    do
+    do:
         break
         undefined()
     end
     print("1, ")
 
-    let a = do
+    let a = do:
         print("x, ")
         break break 42
         undefined()
@@ -124,9 +124,9 @@ end)()
     print(a)
     print(", ")
 
-    let b = do
+    let b = do:
         if a > 0:
-            do
+            do:
                 print("4, ")
                 break
                 undefined()
@@ -137,6 +137,18 @@ end)()
     end
     print(b)
     print(", ")
+
+    let c =
+        if b > 0 do:
+            print("c, ")
+            break 7
+            undefined()
+        else:
+            49
+        end
+    print(c)
+    print(", ")
+
     println("kk.")
 end)()
 

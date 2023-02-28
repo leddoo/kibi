@@ -435,7 +435,7 @@ impl Compiler {
     }
 
     pub fn compile_if_block<'a>(&mut self, ctx: &mut Ctx<'a>, fun: &mut Function,
-        block_source: SourceRange, block: &ast::Block<'a>, need_value: bool
+        block_source: SourceRange, block: &ast::IfBlock<'a>, need_value: bool
     ) -> CompileResult<Option<StmtId>> {
         if block.is_do {
             self.compile_do_block(ctx, fun, block_source, &block.stmts, need_value)

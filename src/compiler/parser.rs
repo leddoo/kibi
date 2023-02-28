@@ -631,7 +631,6 @@ pub mod ast {
     #[derive(Clone, Debug)]
     pub struct Block<'a> {
         pub stmts: Vec<Ast<'a>>,
-        pub is_do: bool,
     }
 
 
@@ -753,10 +752,16 @@ pub mod ast {
 
 
     #[derive(Clone, Debug)]
+    pub struct IfBlock<'a> {
+        pub stmts: Vec<Ast<'a>>,
+        pub is_do: bool,
+    }
+
+    #[derive(Clone, Debug)]
     pub struct If<'a> {
         pub condition: Ast<'a>,
-        pub on_true:   Block<'a>,
-        pub on_false:  Option<Block<'a>>,
+        pub on_true:   IfBlock<'a>,
+        pub on_false:  Option<IfBlock<'a>>,
     }
 
     #[derive(Clone, Debug)]
@@ -973,7 +978,7 @@ impl<'p, 'i> Parser<'p, 'i> {
             let condition = self.parse_expr(0)?;
             self.expect(TokenData::Colon)?;
 
-            let body = self.parse_block(false)?.stmts;
+            let body = self.parse_block()?.stmts;
 
             let data = AstData::While(Box::new(ast::While { condition, body }));
             let end = self.expect(TokenData::KwEnd)?.end;
@@ -982,7 +987,9 @@ impl<'p, 'i> Parser<'p, 'i> {
 
         // do
         if let TokenData::KwDo = current.data {
-            let block = self.parse_block(true)?;
+            self.expect(TokenData::Colon)?;
+
+            let block = self.parse_block()?;
             let data = AstData::Do(Box::new(block));
 
             let end = self.expect(TokenData::KwEnd)?.end;
@@ -1045,9 +1052,9 @@ impl<'p, 'i> Parser<'p, 'i> {
 
                 let params = self.parse_fn_params()?.0;
                 self.expect(TokenData::RParen)?;
-                self.next_if(TokenData::Colon);
+                self.expect(TokenData::Colon)?;
 
-                let body = self.parse_block(false)?.stmts;
+                let body = self.parse_block()?.stmts;
                 let end = self.expect(TokenData::KwEnd)?.end;
 
                 let data = AstData::Fn(Box::new(
@@ -1112,7 +1119,6 @@ impl<'p, 'i> Parser<'p, 'i> {
         Err(ParseError::at(&current, ParseErrorData::ExpectedExpression))
     }
 
-    // bool: terminated (needs no semi-colon).
     pub fn parse_expr(&mut self, prec: u32) -> ParseResult<Ast<'i>> {
         let mut result = self.parse_leading_expr(prec)?;
 
@@ -1261,9 +1267,9 @@ impl<'p, 'i> Parser<'p, 'i> {
         Ok((result, had_comma))
     }
 
-    pub fn parse_block(&mut self, is_do: bool) -> ParseResult<ast::Block<'i>> {
+    pub fn parse_block(&mut self) -> ParseResult<ast::Block<'i>> {
         let Some(begin) = self.peek(0) else {
-            return Ok(ast::Block { stmts: vec![], is_do });
+            return Ok(ast::Block { stmts: vec![] });
         };
 
         let begin = begin.source.begin;
@@ -1323,14 +1329,22 @@ impl<'p, 'i> Parser<'p, 'i> {
         // @todo-dbg-info
         let _ = end;
 
-        Ok(ast::Block { stmts, is_do })
+        Ok(ast::Block { stmts })
+    }
+
+    // consumes `do` & colon.
+    pub fn parse_if_block(&mut self) -> ParseResult<ast::IfBlock<'i>> {
+        let is_do = self.next_if(TokenData::KwDo);
+        self.expect(TokenData::Colon)?;
+
+        let block = self.parse_block()?;
+        Ok(ast::IfBlock { stmts: block.stmts, is_do })
     }
 
     pub fn parse_if(&mut self) -> ParseResult<(SourcePos, ast::If<'i>)> {
         let condition = self.parse_expr(0)?;
-        self.expect(TokenData::Colon)?;
 
-        let on_true = self.parse_block(false)?;
+        let on_true = self.parse_if_block()?;
 
         let (end, on_false) = {
             let at = self.next()?;
@@ -1338,12 +1352,10 @@ impl<'p, 'i> Parser<'p, 'i> {
             if at.data == TokenData::KwElif {
                 let begin = at.source.begin;
                 let body = self.parse_if_as_ast(begin)?;
-                (body.source.end, Some(ast::Block { stmts: vec![body], is_do: false }))
+                (body.source.end, Some(ast::IfBlock { stmts: vec![body], is_do: false }))
             }
             else if at.data == TokenData::KwElse {
-                self.next_if(TokenData::Colon);
-
-                let body = self.parse_block(false)?;
+                let body = self.parse_if_block()?;
                 let end = self.expect(TokenData::KwEnd)?.end;
                 (end, Some(body))
             }
@@ -1398,7 +1410,7 @@ impl<'p, 'i> Parser<'p, 'i> {
     pub fn parse_chunk(input: &'i [u8]) -> ParseResult<ast::Block<'i>> {
         let tokens = Tokenizer::tokenize(input, true)?;
         let mut p = Parser::new(&tokens);
-        p.parse_block(false)
+        p.parse_block()
     }
 }
 

@@ -5,15 +5,12 @@
     - debugging.
 
 - todo:
-    - compiler cleanup.
-        - reg & optreg.
-        - what else?
-        - kbtf.
+    - labeled break.
     - tuples.
+    - kbtf & validation.
     - trace logging.
 
 - decisions to make:
-    - require `:` in do, if, etc?
     - kwargs?
     - use atomic for interrupt?
         - really not executed that often.
@@ -46,18 +43,8 @@
     - box.
 
 - compiler backlog:
-    - id cleanup:
-        - macro for definitions.
-        - consider the NonZeroU32 based NonMaxU32 for ids, so option just works.
-    - param & local statements.
-        - params are not always nil!
-        - elim locals in local2reg pass.
-        - params can't be eliminated, have to be at start of bb0.
-        - get rid of fake entry.
-        - support local & get/set_local.
     - compile:
         - assert cfg has no critical edges.
-        - assert all statements with a value have a register.
     - validation:
         - phi maps & stmt lists uniquely owned.
         - return error instead of panicking.
@@ -101,7 +88,6 @@
     - tests.
 
 - low priority backlog:
-    - `if do` syntax.
 
 - ideas:
     - reverse debugging:

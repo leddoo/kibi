@@ -1,5 +1,5 @@
 -- @todo: use an object.
-ENV.mk_board := fn(w, h)
+ENV.mk_board := fn(w, h):
     let values = []
     var i = 0
     while i < w*h:
@@ -9,12 +9,12 @@ ENV.mk_board := fn(w, h)
     return values
 end
 
-ENV.board_print := fn(board, w, h)
+ENV.board_print := fn(board, w, h):
     var y = 0
     while y < h:
         var x = 0
         while x < w:
-            print(if board[y*w + x] > 0: "#" else "." end)
+            print(if board[y*w + x] > 0: "#" else: "." end)
             x += 1
         end
         println("")
@@ -25,7 +25,7 @@ ENV.board_print := fn(board, w, h)
     println("")
 end
 
-ENV.board_get := fn(board, w, h, x, y)
+ENV.board_get := fn(board, w, h, x, y):
     if   x <  0: x += w
     elif x >= w: x -= w end
 
@@ -35,8 +35,8 @@ ENV.board_get := fn(board, w, h, x, y)
     return board[y*w + x]
 end
 
-ENV.board_step := fn(board, w, h)
-    let new_board = mk_board(w, h);
+ENV.board_step := fn(board, w, h):
+    let new_board = mk_board(w, h)
 
     var y = 0
     while y < h:
@@ -70,7 +70,7 @@ ENV.board_step := fn(board, w, h)
     return new_board
 end
 
-ENV.sleep := fn()
+ENV.sleep := fn():
     var i = 0
     while i < 500000:
         i += 1
@@ -92,6 +92,7 @@ var i = 0
 while i < 20:
     board_print(board, w, h)
     board = board_step(board, w, h)
+    break
     sleep()
     i += 1
 end
