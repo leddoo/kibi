@@ -6,7 +6,6 @@
 
 - todo:
     - compiler cleanup.
-        - ids.
         - reg & optreg.
         - what else?
         - kbtf.

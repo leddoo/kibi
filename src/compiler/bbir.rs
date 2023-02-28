@@ -6,14 +6,7 @@ use super::*;
 
 // ### Statement ###
 
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-#[repr(transparent)]
-pub struct StmtId(u32);
-
-#[derive(Clone, Copy, PartialEq, PartialOrd)]
-#[repr(transparent)]
-pub struct OptStmtId(u32);
-
+crate::macros::define_id!(StmtId, OptStmtId, "s{}");
 
 #[derive(Clone, Debug, Deref, DerefMut)]
 pub struct Stmt {
@@ -100,12 +93,7 @@ pub struct StmtList<'a> {
 
 // ### Block ###
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct BlockId(u32);
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct OptBlockId(u32);
-
+crate::macros::define_id!(BlockId, OptBlockId, "bb{}");
 
 #[derive(Clone, Debug)]
 pub struct Block {
@@ -119,9 +107,7 @@ pub struct Block {
 
 // ### Local ###
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LocalId(u32);
-
+crate::macros::define_id!(LocalId, "l{}");
 
 #[allow(dead_code)] // @temp
 #[derive(Debug)]
@@ -135,8 +121,7 @@ struct Local {
 
 // ### Function ###
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct FunctionId(u32);
+crate::macros::define_id!(FunctionId, "fn{}");
 
 pub struct Function {
     id: FunctionId,
@@ -158,8 +143,7 @@ pub struct Function {
     current_block: BlockId,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StringId(u32);
+crate::macros::define_id!(StringId);
 
 
 
@@ -183,65 +167,6 @@ pub struct BlockIdIter { at: u32, end: u32 }
 
 
 
-// --- StmtId ---
-
-impl StmtId {
-    #[inline(always)]
-    pub const fn usize(self) -> usize { self.0 as usize }
-
-    #[inline(always)]
-    pub fn from_usize(index: usize) -> StmtId {
-        assert!(index < u32::MAX as usize / 2);
-        StmtId(index as u32)
-    }
-
-    #[inline(always)]
-    pub fn get(self, fun: &Function) -> &Stmt { &fun.stmts[self.usize()] }
-
-    #[inline(always)]
-    pub fn get_mut(self, fun: &mut Function) -> &mut Stmt { &mut fun.stmts[self.usize()] }
-
-    #[inline(always)]
-    pub const fn some(self) -> OptStmtId { OptStmtId(self.0) }
-}
-
-impl core::fmt::Display for StmtId {
-    #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "s{}", self.0)
-    }
-}
-
-
-impl OptStmtId {
-    pub const NONE: OptStmtId = OptStmtId(u32::MAX);
-
-    #[inline(always)]
-    pub fn to_option(self) -> Option<StmtId> {
-        (self != Self::NONE).then_some(StmtId(self.0))
-    }
-}
-
-impl From<Option<StmtId>> for OptStmtId {
-    #[inline(always)]
-    fn from(value: Option<StmtId>) -> Self {
-        if let Some(id) = value { id.some() }
-        else { OptStmtId::NONE }
-    }
-}
-
-impl From<OptStmtId> for Option<StmtId> {
-    #[inline(always)]
-    fn from(value: OptStmtId) -> Self { value.to_option() }
-}
-
-impl core::fmt::Debug for OptStmtId {
-    #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { self.to_option().fmt(f) }
-}
-
-
-
 // --- Stmt ---
 
 impl Stmt {
@@ -257,11 +182,20 @@ impl Stmt {
     pub fn fmt<'a>(&'a self, fun: &'a Function) -> StmtFmt<'a> { StmtFmt(self, fun) }
 }
 
+impl StmtId {
+    #[inline(always)]
+    pub fn get(self, fun: &Function) -> &Stmt { &fun.stmts[self.usize()] }
+
+    #[inline(always)]
+    pub fn get_mut(self, fun: &mut Function) -> &mut Stmt { &mut fun.stmts[self.usize()] }
+}
+
+
 #[derive(Clone, Copy)]
 pub struct StmtFmt<'a>(pub &'a Stmt, pub &'a Function);
     
 impl<'a> core::fmt::Display for StmtFmt<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let StmtFmt (stmt, fun) = self;
 
         write!(f, "{} ", stmt.id)?;
@@ -535,7 +469,7 @@ impl<'a> PhiMap<'a> {
 }
 
 impl<'a> core::fmt::Display for PhiMap<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{{")?;
         for (i, (bb, stmt)) in self.iter().enumerate() {
             write!(f, " {}: {}", bb, stmt)?;
@@ -559,7 +493,7 @@ impl StmtListId {
 }
 
 impl<'a> core::fmt::Display for StmtList<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "[")?;
         for (i, stmt) in self.iter().enumerate() {
             write!(f, " {}", stmt)?;
@@ -584,54 +518,7 @@ impl BlockId {
 
 
     #[inline(always)]
-    pub const fn usize(self) -> usize { self.0 as usize }
-
-    #[inline(always)]
-    pub fn from_usize(index: usize) -> BlockId {
-        assert!(index < u32::MAX as usize / 2);
-        BlockId(index as u32)
-    }
-
-    #[inline(always)]
     pub fn get(self, fun: &Function) -> &Block { &fun.blocks[self.usize()] }
-
-    #[inline(always)]
-    pub const fn some(self) -> OptBlockId { OptBlockId(self.0) }
-}
-
-impl core::fmt::Display for BlockId {
-    #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "bb{}", self.0)
-    }
-}
-
-
-impl OptBlockId {
-    pub const NONE: OptBlockId = OptBlockId(u32::MAX);
-
-    #[inline(always)]
-    pub fn to_option(self) -> Option<BlockId> {
-        (self != Self::NONE).then_some(BlockId(self.0))
-    }
-}
-
-impl From<Option<BlockId>> for OptBlockId {
-    #[inline(always)]
-    fn from(value: Option<BlockId>) -> Self {
-        if let Some(id) = value { id.some() }
-        else { OptBlockId::NONE }
-    }
-}
-
-impl From<OptBlockId> for Option<BlockId> {
-    #[inline(always)]
-    fn from(value: OptBlockId) -> Self { value.to_option() }
-}
-
-impl core::fmt::Debug for OptBlockId {
-    #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { self.to_option().fmt(f) }
 }
 
 
@@ -657,24 +544,7 @@ impl Block {
 
 
 
-// --- LocalId ---
-
-impl LocalId {
-    #[inline(always)]
-    pub fn usize(self) -> usize { self.0 as usize }
-}
-
-impl core::fmt::Display for LocalId {
-    #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "l{}", self.0)
-    }
-}
-
-
-
 // --- Function ---
-
 
 // common
 impl Function {
@@ -1494,28 +1364,7 @@ impl Function {
 }
 
 
-impl FunctionId {
-    #[inline(always)]
-    pub const fn usize(self) -> usize { self.0 as usize }
-}
-
-impl core::fmt::Display for FunctionId {
-    #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "f{}", self.0)
-    }
-}
-
-
 impl StringId {
-    #[inline(always)]
-    pub fn usize(self) -> usize { self.0 as usize }
-
-    #[inline(always)]
-    pub fn from_usize(index: usize) -> StringId {
-        StringId(index.try_into().unwrap())
-    }
-
     #[inline(always)]
     pub fn get<'f>(self, fun: &'f Function) -> &'f str {
         &fun.strings[self.usize()]
