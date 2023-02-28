@@ -18,6 +18,9 @@ mod macros {
 
             impl $name {
                 #[inline(always)]
+                pub const fn value(self) -> u32 { self.0 }
+
+                #[inline(always)]
                 pub const fn usize(self) -> usize { self.0 as usize }
 
                 #[inline(always)]

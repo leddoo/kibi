@@ -33,8 +33,10 @@ impl Function {
 }
 
 
+crate::macros::define_id!(Reg, OptReg, "r{}");
+
 pub struct RegisterAllocation {
-    pub mapping:  Vec<u32>,
+    pub mapping:  Vec<OptReg>,
     pub num_regs: usize,
 }
 
@@ -185,7 +187,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
     struct ActiveInterval<'a> {
         ranges: &'a [(StmtIndex, StmtIndex)],
         stop:   StmtIndex,
-        reg:    u32,
+        reg:    Reg,
         live:      bool,
         allocated: bool,
         // @temp
@@ -196,14 +198,14 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
     let mut actives = vec![];
     let mut regs    = vec![false; fun.num_params()];
 
-    let mut mapping = vec![u32::MAX; fun.num_stmts()];
+    let mut mapping = vec![OptReg::NONE; fun.num_stmts()];
 
     // assign params.
     {
         let mut i = 0;
         fun.block_stmts_ex(BlockId::ENTRY, |stmt| {
             if stmt.is_param() {
-                mapping[stmt.id().usize()] = i;
+                mapping[stmt.id().usize()] = Reg(i).some();
                 i += 1;
                 return true;
             }
@@ -222,14 +224,14 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
                 return true;
             }
             debug_assert!(active.allocated);
-            debug_assert!(regs[active.reg as usize]);
+            debug_assert!(regs[active.reg.usize()]);
 
             //println!("  {:?}({}) r{}({}) {}..{}", active._stmt, active.live, active.reg, active.allocated, active._start, active.stop);
 
             // expire interval.
             if active.stop <= new_int.start {
                 //println!("    expired");
-                regs[active.reg as usize] = false;
+                regs[active.reg.usize()] = false;
                 return false;
             }
 
@@ -242,7 +244,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
                 if next_start >= new_int.stop {
                     //println!("    new interval fits in hole; freeing register.");
                     active.allocated = false;
-                    regs[active.reg as usize] = false;
+                    regs[active.reg.usize()] = false;
                 }
 
                 active.ranges = &active.ranges[1..];
@@ -259,13 +261,13 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
             }
             //println!("  {:?}({}) r{}({}) {}..{}", active._stmt, active.live, active.reg, active.allocated, active._start, active.stop);
 
-            debug_assert!(!active.allocated || regs[active.reg as usize]);
+            debug_assert!(!active.allocated || regs[active.reg.usize()]);
 
             // expire interval.
             if active.stop <= new_int.start {
                 //println!("    expired");
                 if active.allocated {
-                    regs[active.reg as usize] = false;
+                    regs[active.reg.usize()] = false;
                 }
                 return false;
             }
@@ -274,10 +276,10 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
             let rng_start = active.ranges[0].0;
             if rng_start <= new_int.start {
                 //println!("    reactivating");
-                debug_assert!(active.allocated == regs[active.reg as usize]);
+                debug_assert!(active.allocated == regs[active.reg.usize()]);
                 active.live      = true;
                 active.allocated = true;
-                regs[active.reg as usize] = true;
+                regs[active.reg.usize()] = true;
             }
             // remains non-live.
             else {
@@ -318,7 +320,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
                     if active.allocated {
                         //println!("    new interval fits in hole; freeing register.");
                         active.allocated = false;
-                        regs[active.reg as usize] = false;
+                        regs[active.reg.usize()] = false;
                     }
                 }
                 // new interval intersects next range.
@@ -328,10 +330,10 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
                     // validation below will detect this, so it's not super urgent.
                     // consider ref count for registers.
                     // or a "blocked_regs" set.
-                    if !active.allocated && regs[active.reg as usize] == false {
+                    if !active.allocated && regs[active.reg.usize()] == false {
                         //println!("    new interval intersects next range; reclaiming register.");
                         active.allocated = true;
-                        regs[active.reg as usize] = true;
+                        regs[active.reg.usize()] = true;
                     }
                 }
             }
@@ -342,11 +344,8 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
 
         let reg = 'find_reg: {
             // pre-assigned.
-            {
-                let reg = mapping[new_int.stmt.usize()];
-                if reg != u32::MAX {
-                    break 'find_reg reg;
-                }
+            if let Some(reg) = mapping[new_int.stmt.usize()].to_option() {
+                break 'find_reg reg;
             }
 
             // todo: how much does this help?
@@ -359,9 +358,10 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
                 let reg_hint = hints[new_int.stmt.usize()];
                 if reg_hint != new_int.stmt {
                     let reg_hint = rep(reg_hint, &joins);
-                    let reg = mapping[reg_hint.usize()];
-                    if reg != u32::MAX && regs[reg as usize] == false {
-                        break 'find_reg reg;
+                    if let Some(reg) = mapping[reg_hint.usize()].to_option() {
+                        if regs[reg.usize()] == false {
+                            break 'find_reg reg;
+                        }
                     }
                 }
             }
@@ -377,9 +377,10 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
                     _ => break 'first_arg,
                 };
 
-                let reg = mapping[first_arg.usize()];
-                if reg != u32::MAX && regs[reg as usize] == false {
-                    break 'find_reg reg;
+                if let Some(reg) = mapping[first_arg.usize()].to_option() {
+                    if regs[reg.usize()] == false {
+                        break 'find_reg reg;
+                    }
                 }
             }
 
@@ -387,17 +388,17 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
 
             // reuse some register.
             if let Some(reg) = regs.iter().position(|used| *used == false) {
-                break 'find_reg reg as u32;
+                break 'find_reg Reg(reg as u32);
             }
 
             // alloc new register.
             let reg = regs.len() as u32;
             regs.push(false);
-            reg
+            Reg(reg)
         };
 
-        assert!(regs[reg as usize] == false);
-        regs[reg as usize] = true;
+        assert!(regs[reg.usize()] == false);
+        regs[reg.usize()] = true;
 
         // println!("{} -> r{}", new_int.stmt, reg);
 
@@ -412,14 +413,14 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
             _start: new_int.start,
         });
 
-        mapping[new_int.stmt.usize()] = reg;
+        mapping[new_int.stmt.usize()] = reg.some();
 
 
         // @temp
         let mut allocated_by = vec![None; regs.len()];
         for active in &actives {
             if active.allocated {
-                let reg = active.reg as usize;
+                let reg = active.reg.usize();
                 assert!(allocated_by[reg].is_none());
                 allocated_by[reg] = Some(active._stmt);
             }
@@ -449,10 +450,17 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
     // }
 
     // @temp
-    assert!(regs.num_regs < 128);
+    const NO_REG: u8 = 127;
+    assert!(regs.num_regs < NO_REG as usize);
     assert!(block_order.len() < u16::MAX as usize / 2);
 
-    let reg = |stmt: StmtId| regs.mapping[stmt.usize()] as u8;
+    // returns `NO_REG`, if no register was assigned.
+    // if `NO_REG` ends up in the bytecode (which would be a bug),
+    // the validator will detect this.
+    let reg = |stmt: StmtId| {
+        regs.mapping[stmt.usize()].to_option()
+        .unwrap_or(Reg(NO_REG as u32)).value() as u8
+    };
 
     let mut block_offsets = vec![u16::MAX; fun.num_blocks()];
 
@@ -500,7 +508,7 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
             let dst = reg(stmt.id());
 
             // @temp
-            if dst == 255 && stmt.has_value() {
+            if dst == NO_REG && stmt.has_value() {
                 continue;
             }
 
