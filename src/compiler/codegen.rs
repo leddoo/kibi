@@ -40,8 +40,8 @@ pub struct RegisterAllocation {
     pub num_regs: usize,
 }
 
-pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) -> RegisterAllocation {
-    let mut intervals = live_intervals.intervals.clone();
+pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals) -> RegisterAllocation {
+    let mut intervals = intervals.intervals.clone();
     let mut joins     = fun.stmt_ids().collect::<Vec<_>>();
     let mut hints     = fun.stmt_ids().collect::<Vec<_>>();
 
@@ -171,7 +171,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
     }
 
     let mut intervals =
-        live_intervals.iter().enumerate()
+        intervals.iter().enumerate()
         .filter_map(|(i, ranges)| {
             if ranges.len() == 0 { return None }
             Some(Interval {
@@ -226,7 +226,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
             debug_assert!(active.allocated);
             debug_assert!(regs[active.reg.usize()]);
 
-            //println!("  {:?}({}) r{}({}) {}..{}", active._stmt, active.live, active.reg, active.allocated, active._start, active.stop);
+            //println!("  {:?}({}) {}({}) {}..{}", active._stmt, active.live, active.reg, active.allocated, active._start, active.stop);
 
             // expire interval.
             if active.stop <= new_int.start {
@@ -259,7 +259,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
             if active.live {
                 return true;
             }
-            //println!("  {:?}({}) r{}({}) {}..{}", active._stmt, active.live, active.reg, active.allocated, active._start, active.stop);
+            //println!("  {:?}({}) {}({}) {}..{}", active._stmt, active.live, active.reg, active.allocated, active._start, active.stop);
 
             debug_assert!(!active.allocated || regs[active.reg.usize()]);
 
@@ -400,7 +400,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
         assert!(regs[reg.usize()] == false);
         regs[reg.usize()] = true;
 
-        // println!("{} -> r{}", new_int.stmt, reg);
+        //println!("{} -> {}", new_int.stmt, reg);
 
         actives.push(ActiveInterval {
             ranges: new_int.ranges,
@@ -446,7 +446,7 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
     assert_eq!(block_order[0], BlockId::ENTRY);
 
     // for stmt in fun.stmt_ids() {
-    //     println!("{}: r{}", stmt, regs.mapping[stmt.usize()]);
+    //     println!("{}: {}", stmt, regs.mapping[stmt.usize()]);
     // }
 
     // @temp
