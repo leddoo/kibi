@@ -6,8 +6,11 @@
 
 - todo:
     - compiler cleanup.
-        - `param` stmt.
+        - validate
+            - bb0: params | locals | rest.
+            - arg.has_value.
         - ids.
+        - reg & optreg.
         - what else?
         - kbtf.
     - tuples.
@@ -60,8 +63,6 @@
         - assert cfg has no critical edges.
         - assert all statements with a value have a register.
     - validation:
-        - args: defined in dominator bb, has_output.
-        - phis: one arg for all preds.
         - phi maps & stmt lists uniquely owned.
         - return error instead of panicking.
     - trace logging:

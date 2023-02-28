@@ -112,7 +112,7 @@ impl ImmediateDominators {
     #[inline]
     pub fn get(&self, bb: BlockId) -> Option<BlockId> {
         let idom = self.idom[bb.usize()];
-        (bb == BlockId::ROOT || idom != bb).then_some(idom)
+        (bb.is_entry() || idom != bb).then_some(idom)
     }
 
     #[inline]
@@ -166,7 +166,7 @@ impl Function {
 
             post_order.push(bb);
         }
-        visit(self, BlockId::ROOT, &mut post_order, &mut visited);
+        visit(self, BlockId::ENTRY, &mut post_order, &mut visited);
 
         PostOrder { blocks: post_order }
     }
@@ -182,7 +182,7 @@ impl Function {
     pub fn immediate_dominators(&self, preds: &Predecessors, post_order: &PostOrder, post_indices: &PostOrderIndices) -> ImmediateDominators {
         let mut doms = vec![None; self.num_blocks()];
 
-        let bb0 = post_indices.get_unck(BlockId::ROOT);
+        let bb0 = post_indices.get_unck(BlockId::ENTRY);
         doms[bb0.usize()] = Some(bb0);
 
         let mut changed = true;
@@ -190,7 +190,7 @@ impl Function {
             changed = false;
 
             for bb_id in post_order.iter().rev().copied() {
-                if bb_id.is_root() { continue }
+                if bb_id.is_entry() { continue }
 
                 let preds = &preds[bb_id.usize()];
                 let bb = post_indices.get_unck(bb_id);
@@ -299,7 +299,7 @@ impl Function {
 
         let mut order   = vec![];
         let mut visited = vec![false; self.num_blocks()];
-        visit(BlockId::ROOT, &mut order, &mut visited, self, idoms, dom_tree);
+        visit(BlockId::ENTRY, &mut order, &mut visited, self, idoms, dom_tree);
         BlockOrder { order }
     }
 
@@ -388,20 +388,6 @@ impl Function {
                     live_outs[bb.usize()] = new_live_out;
                 }
             }
-        }
-
-        // @temp: hella unstable hack to make sure params are assigned the right registers.
-        {
-            let live_out = &mut live_outs[BlockId::ROOT.usize()];
-            let mut i = 0;
-            self.block_stmts_ex(BlockId::ROOT, |stmt| {
-                if i < self.num_params() {
-                    live_out[stmt.id().usize()] = true;
-                    i += 1;
-                    return true;
-                }
-                false
-            });
         }
 
         BlockLiveInOut { live_ins, live_outs }

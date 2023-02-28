@@ -34,6 +34,8 @@ pub enum StmtData {
 
     ParallelCopy { src: StmtId, copy_id: u32 },
 
+    Param       { id: LocalId },
+    Local       { id: LocalId },
     GetLocal    { src: LocalId },
     SetLocal    { dst: LocalId, src: StmtId },
 
@@ -274,6 +276,8 @@ impl<'a> core::fmt::Display for StmtFmt<'a> {
 
             ParallelCopy { src, copy_id: id } => write!(f, "parallel_copy {} ({})", src, id),
 
+            Param { id }      => { write!(f, "param {}", id) }
+            Local { id }      => { write!(f, "local {}", id) }
             GetLocal { src }      => { write!(f, "get_local {}", src) }
             SetLocal { dst, src } => { write!(f, "set_local {}, {}", dst, src) }
 
@@ -321,6 +325,11 @@ impl StmtData {
     }
 
     #[inline(always)]
+    pub fn is_param(&self) -> bool {
+        if let StmtData::Param { id: _ } = self { true } else { false }
+    }
+
+    #[inline(always)]
     pub fn is_phi(&self) -> bool {
         if let StmtData::Phi { map_id: _ } = self { true } else { false }
     }
@@ -345,6 +354,8 @@ impl StmtData {
             Copy { src: _ } |
             Phi { map_id: _ } |
             ParallelCopy { src: _, copy_id: _ } |
+            Param { id: _ } |
+            Local { id: _ } |
             GetLocal { src: _ } |
             SetLocal { dst: _, src: _ } |
             LoadNil |
@@ -371,6 +382,8 @@ impl StmtData {
             Copy { src: _ } |
             Phi { map_id: _ } |
             ParallelCopy { src: _, copy_id: _ } |
+            Param { id: _ } |
+            Local { id: _ } |
             GetLocal { src: _ } |
             LoadNil |
             LoadBool { value: _ } |
@@ -404,7 +417,10 @@ impl StmtData {
 
             ParallelCopy { src, copy_id: _ } => { f(*src) }
 
+            Param { id: _ } |
+            Local { id: _ } |
             GetLocal { src: _ } => (),
+
             SetLocal { dst: _, src } => { f(*src) }
 
             LoadNil |
@@ -448,8 +464,12 @@ impl StmtData {
 
             ParallelCopy { src, copy_id: _ } => { f(fun, src) }
 
+            Param { id: _ } |
+            Local { id: _ } |
             GetLocal { src: _ } => (),
+
             SetLocal { dst: _, src } => { f(fun, src) }
+
             LoadEnv => (),
 
             LoadNil |
@@ -552,11 +572,10 @@ impl<'a> core::fmt::Display for StmtList<'a> {
 // --- BlockId ---
 
 impl BlockId {
-    pub const ROOT:       BlockId = BlockId(0);
-    pub const REAL_ENTRY: BlockId = BlockId(1);
+    pub const ENTRY: BlockId = BlockId(0);
 
     #[inline(always)]
-    pub fn is_root(self) -> bool { self == BlockId::ROOT }
+    pub fn is_entry(self) -> bool { self == BlockId::ENTRY }
 
 
     #[inline(always)]
@@ -667,18 +686,9 @@ impl Function {
             param_cursor: None.into(),
             num_params:   0,
             local_cursor: None.into(),
-            current_block: BlockId::ROOT,
+            current_block: BlockId::ENTRY,
         };
-
-        // block setup:
-        //  - @param-block for locals & params.
-        //  - real entry for user code.
-        let param_block = fun.new_block();
-        let real_entry  = fun.new_block();
-        assert_eq!(param_block, BlockId::ROOT);
-        assert_eq!(real_entry,  BlockId::REAL_ENTRY);
-        fun.add_stmt(SourceRange::null(), StmtData::Jump { target: real_entry });
-        fun.current_block = real_entry;
+        fun.new_block();
 
         fun
     }
@@ -923,7 +933,7 @@ impl Function {
 
         // mark.
         let mut visited = vec![false; self.blocks.len()];
-        visit(self, BlockId::ROOT, &mut visited);
+        visit(self, BlockId::ENTRY, &mut visited);
 
         // sweep.
         let mut new_ids = vec![None; self.blocks.len()];
@@ -1003,14 +1013,6 @@ impl Function {
 
 // locals
 impl Function {
-    fn _insert_local(&mut self, source: SourceRange, at: OptStmtId, id: LocalId) -> OptStmtId {
-        let nil  = self.new_stmt(source, StmtData::LoadNil);
-        let init = self.new_stmt(source, StmtData::SetLocal { dst: id, src: nil });
-        self.insert_after(BlockId::ROOT, at, nil);
-        self.insert_after(BlockId::ROOT, nil.some(), init);
-        init.some()
-    }
-
     pub fn new_param(&mut self, name: &str, source: SourceRange) -> LocalId {
         let id = LocalId(self.locals.len() as u32);
         self.locals.push(Local { id, name: name.into(), source });
@@ -1018,7 +1020,9 @@ impl Function {
         let old_param_cursor = self.param_cursor;
 
         // "hoist params".
-        self.param_cursor = self._insert_local(source, self.param_cursor, id);
+        let param = self.new_stmt(source, StmtData::Param { id });
+        self.insert_after(BlockId::ENTRY, self.param_cursor, param);
+        self.param_cursor = param.some();
         self.num_params  += 1;
 
         if self.local_cursor == old_param_cursor {
@@ -1033,7 +1037,9 @@ impl Function {
         self.locals.push(Local { id, name: name.into(), source });
 
         // "hoist locals".
-        self.local_cursor = self._insert_local(source, self.local_cursor, id);
+        let local = self.new_stmt(source, StmtData::Local { id });
+        self.insert_after(BlockId::ENTRY, self.local_cursor, local);
+        self.local_cursor = local.some();
 
         id
     }

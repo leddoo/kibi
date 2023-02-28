@@ -57,6 +57,7 @@ fn main() {
         module.temp_load(&mut vm);
         let dt_compile = t0.elapsed();
 
+        let t0 = std::time::Instant::now();
         vm.call().unwrap();
         let dt_run = t0.elapsed();
 

@@ -9,6 +9,7 @@ pub fn local2reg_ex(fun: &mut Function, preds: &Predecessors, dom_tree: &DomTree
 
         let mut visited: HashSet<(BlockId, LocalId)> = HashSet::new();
 
+        // collect defs.
         let mut stack = vec![];
         for bb in fun.block_ids() {
             fun.block_stmts(bb, |stmt| {
@@ -22,22 +23,25 @@ pub fn local2reg_ex(fun: &mut Function, preds: &Predecessors, dom_tree: &DomTree
             });
         }
 
+        // phis for each bb.
         let mut phis: Vec<Vec<(LocalId, Vec<(BlockId, Option<StmtId>)>, StmtId)>>
             = vec![vec![]; fun.num_blocks()];
 
+        // for each def, create phis in dom frontier.
         while let Some((from_bb, lid)) = stack.pop() {
-            for to_bb in dom_frontiers[from_bb.usize()].iter() {
-                let to_bb = *to_bb;
+            for to_bb in dom_frontiers[from_bb.usize()].iter().copied() {
                 let to_phis = &mut phis[to_bb.usize()];
 
-                let needs_phi_for_lid = to_phis.iter().find(|(l, _, _)| *l == lid).is_none();
-                if needs_phi_for_lid {
+                let local_was_new = to_phis.iter().find(|(l, _, _)| *l == lid).is_none();
+                if local_was_new {
                     let preds = &preds[to_bb.usize()];
 
+                    // init phi.
                     let map = preds.iter().map(|p| (*p, None)).collect();
                     let stmt = fun.new_phi(SourceRange::null(), &[]);
                     to_phis.push((lid, map, stmt));
 
+                    // to_bb now defines the local.
                     let key = (to_bb, lid);
                     if !visited.contains(&key) {
                         visited.insert(key);
@@ -60,18 +64,25 @@ pub fn local2reg_ex(fun: &mut Function, preds: &Predecessors, dom_tree: &DomTree
             for (lid, _map, stmt) in &phis[bb.usize()] {
                 new_names[lid.usize()] = Some(*stmt)
             }
-            fun.block_stmts_mut(bb, |stmt| {
-                if let StmtData::GetLocal { src } = stmt.data {
+            fun.block_stmts_mut(bb, |stmt| { match stmt.data {
+                StmtData::Param { id } |
+                StmtData::Local { id } => {
+                    new_names[id.usize()] = Some(stmt.id());
+                }
+
+                StmtData::GetLocal { src } => {
                     let new_name = new_names[src.usize()].unwrap();
                     stmt.data = StmtData::Copy { src: new_name };
                     new_names[src.usize()] = Some(stmt.id());
                 }
 
-                if let StmtData::SetLocal { dst, src } = stmt.data {
+                StmtData::SetLocal { dst, src } => {
                     stmt.data = StmtData::Copy { src };
                     new_names[dst.usize()] = Some(stmt.id());
                 }
-            });
+
+                _ => (),
+            }});
 
             // propagate to successors.
             fun.block_successors(bb, |succ| {
@@ -90,7 +101,7 @@ pub fn local2reg_ex(fun: &mut Function, preds: &Predecessors, dom_tree: &DomTree
         }
 
         let new_names = vec![None; fun.num_locals()];
-        visit(BlockId::ROOT, new_names, &mut phis, fun, &dom_tree);
+        visit(BlockId::ENTRY, new_names, &mut phis, fun, &dom_tree);
     }
 
     // insert phis.
@@ -131,7 +142,7 @@ pub fn copy_propagation_ex(fun: &mut Function, dom_tree: &DomTree) {
         }
     }
 
-    visit(BlockId::ROOT, fun, &dom_tree);
+    visit(BlockId::ENTRY, fun, &dom_tree);
     fun.slow_integrity_check();
 }
 

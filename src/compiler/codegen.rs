@@ -194,9 +194,23 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
     }
 
     let mut actives = vec![];
-    let mut regs    = <Vec<bool>>::new();
+    let mut regs    = vec![false; fun.num_params()];
 
     let mut mapping = vec![u32::MAX; fun.num_stmts()];
+
+    // assign params.
+    {
+        let mut i = 0;
+        fun.block_stmts_ex(BlockId::ENTRY, |stmt| {
+            if stmt.is_param() {
+                mapping[stmt.id().usize()] = i;
+                i += 1;
+                return true;
+            }
+            false
+        });
+        assert_eq!(i, fun.num_params() as u32);
+    }
 
     for new_int in &intervals {
         //println!("new: {:?} {}..{}", new_int.stmt, new_int.start, new_int.stop);
@@ -327,6 +341,14 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
 
 
         let reg = 'find_reg: {
+            // pre-assigned.
+            {
+                let reg = mapping[new_int.stmt.usize()];
+                if reg != u32::MAX {
+                    break 'find_reg reg;
+                }
+            }
+
             // todo: how much does this help?
             if 1==1
             {
@@ -420,8 +442,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, live_intervals: &LiveIntervals) ->
 
 
 pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &RegisterAllocation, fun_protos: &[u32]) -> (Vec<Instruction>, Vec<Constant>) {
-    assert_eq!(block_order[0], BlockId::ROOT);
-    assert_eq!(block_order[1], BlockId::REAL_ENTRY);
+    assert_eq!(block_order[0], BlockId::ENTRY);
 
     // for stmt in fun.stmt_ids() {
     //     println!("{}: r{}", stmt, regs.mapping[stmt.usize()]);
@@ -446,11 +467,6 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
 
     for (block_index, bb) in block_order.iter().enumerate() {
         block_offsets[bb.usize()] = bcb.current_offset() as u16;
-
-        // don't generate code for the @param-block.
-        if block_index == 0 {
-            continue;
-        }
 
         let next_bb = block_order.get(block_index + 1).cloned();
 
@@ -498,6 +514,9 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
                 Phi { map_id: _ } => (),
 
                 ParallelCopy { src: _, copy_id: _ } => unreachable!(),
+
+                Param { id: _ } |
+                Local { id: _ } => (),
 
                 GetLocal { src: _ } |
                 SetLocal { dst: _, src: _ } => unimplemented!(),
