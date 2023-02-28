@@ -5,12 +5,12 @@
     - debugging.
 
 - todo:
-    - `if do`.
-    - ssa validation.
     - compiler cleanup.
         - `param` stmt.
         - ids.
         - what else?
+        - kbtf.
+    - tuples.
     - trace logging.
 
 - decisions to make:
@@ -102,6 +102,9 @@
         - hash slot prediction.
         - hidden classes?
     - tests.
+
+- low priority backlog:
+    - `if do` syntax.
 
 - ideas:
     - reverse debugging:

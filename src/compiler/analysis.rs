@@ -119,6 +119,21 @@ impl ImmediateDominators {
     pub fn is_unreachable(&self, bb: BlockId) -> bool {
         self.get(bb).is_none()
     }
+
+    pub fn is_dominated_by(&self, bb: BlockId, dom: BlockId) -> bool {
+        let mut at = bb;
+        loop {
+            if at == dom {
+                return true;
+            }
+
+            let idom = self.idom[at.usize()];
+            if at == idom {
+                return false;
+            }
+            at = idom;
+        }
+    }
 }
 
 

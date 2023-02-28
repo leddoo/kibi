@@ -1350,8 +1350,14 @@ impl Function {
 // other
 impl Function {
     pub fn slow_integrity_check(&self) {
+        let preds = self.predecessors();
+        let post_order = self.post_order();
+        let post_indices = self.post_order_indices(&post_order);
+        let idom = self.immediate_dominators(&preds, &post_order, &post_indices);
+
         let mut visited = vec![false; self.stmts.len()];
 
+        // validate blocks.
         for bb in self.block_ids() {
             let block = &self.blocks[bb.usize()];
             assert_eq!(block.id, bb);
@@ -1362,12 +1368,13 @@ impl Function {
 
             let mut at = block.first;
             while let Some(current) = at.to_option() {
+                stmt_count += 1;
+
+                // only in one bb.
                 assert!(!visited[current.usize()]);
                 visited[current.usize()] = true;
 
-                stmt_count += 1;
-
-                // ids.
+                // stmt & bb ids.
                 let stmt = &self.stmts[current.usize()];
                 assert_eq!(stmt.id, current);
                 assert_eq!(stmt.bb, bb.some());
@@ -1381,6 +1388,7 @@ impl Function {
                 if current.some() == block.last {
                     assert_eq!(stmt.next, None.into());
                 }
+                // linked list prev/next.
                 else {
                     let next = stmt.next.to_option().unwrap();
                     let next = &self.stmts[next.usize()];
@@ -1390,10 +1398,32 @@ impl Function {
                 // phis.
                 if stmt.is_phi() {
                     assert!(in_phis);
+
+                    // one arg for each pred.
+                    // pred dominated by arg's bb.
+                    let preds = &preds[bb.usize()];
+                    let mut visited = vec![false; preds.len()];
+                    let phi_map = self.try_phi(stmt.id).unwrap();
+                    for (from_bb, src) in phi_map.iter().copied() {
+                        let pred = preds.iter().position(|p| *p == from_bb).unwrap();
+                        assert!(visited[pred] == false);
+                        visited[pred] = true;
+
+                        let src_bb = src.get(self).bb.to_option().unwrap();
+                        assert!(idom.is_dominated_by(from_bb, src_bb));
+                    }
                 }
                 else { in_phis = false; }
 
-                // terminator.
+                // bb dominated by (non-phi) arg bbs.
+                if !stmt.is_phi() {
+                    stmt.args(self, |arg| {
+                        let arg_bb = arg.get(self).bb.to_option().unwrap();
+                        assert!(idom.is_dominated_by(bb, arg_bb))
+                    });
+                }
+
+                // terminator: at most one.
                 if stmt.is_terminator() {
                     assert!(!has_terminator);
                     has_terminator = true;
@@ -1409,6 +1439,7 @@ impl Function {
             }
         }
 
+        // validate statements that are not in blocks.
         for stmt_id in self.stmt_ids() {
             if !visited[stmt_id.usize()] {
                 let stmt = &self.stmts[stmt_id.usize()];

@@ -92,7 +92,6 @@ pub fn local2reg_ex(fun: &mut Function, preds: &Predecessors, dom_tree: &DomTree
         let new_names = vec![None; fun.num_locals()];
         visit(BlockId::ROOT, new_names, &mut phis, fun, &dom_tree);
     }
-    fun.slow_integrity_check();
 
     // insert phis.
     {
