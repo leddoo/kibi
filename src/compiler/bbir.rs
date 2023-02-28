@@ -330,6 +330,11 @@ impl StmtData {
     }
 
     #[inline(always)]
+    pub fn is_local(&self) -> bool {
+        if let StmtData::Local { id: _ } = self { true } else { false }
+    }
+
+    #[inline(always)]
     pub fn is_phi(&self) -> bool {
         if let StmtData::Phi { map_id: _ } = self { true } else { false }
     }
@@ -1368,7 +1373,10 @@ impl Function {
             let block = &self.blocks[bb.usize()];
             assert_eq!(block.id, bb);
 
-            let mut in_phis = true;
+            let mut in_params = bb.is_entry();
+            let mut in_locals = false;
+
+            let mut in_phis = !bb.is_entry();
             let mut has_terminator = false;
             let mut stmt_count = 0;
 
@@ -1401,6 +1409,21 @@ impl Function {
                     assert_eq!(next.prev, current.some());
                 }
 
+                // params & locals.
+                if stmt.is_param() {
+                    assert!(in_params);
+                }
+                else if in_params {
+                    in_params = false;
+                    in_locals = true;
+                }
+                if stmt.is_local() {
+                    assert!(in_locals);
+                }
+                else if !in_params {
+                    in_locals = false;
+                }
+
                 // phis.
                 if stmt.is_phi() {
                     assert!(in_phis);
@@ -1415,7 +1438,9 @@ impl Function {
                         assert!(visited[pred] == false);
                         visited[pred] = true;
 
-                        let src_bb = src.get(self).bb.to_option().unwrap();
+                        let src = src.get(self);
+                        assert!(src.has_value());
+                        let src_bb = src.bb.to_option().unwrap();
                         assert!(idom.is_dominated_by(from_bb, src_bb));
                     }
                 }
@@ -1424,8 +1449,10 @@ impl Function {
                 // bb dominated by (non-phi) arg bbs.
                 if !stmt.is_phi() {
                     stmt.args(self, |arg| {
-                        let arg_bb = arg.get(self).bb.to_option().unwrap();
-                        assert!(idom.is_dominated_by(bb, arg_bb))
+                        let arg = arg.get(self);
+                        assert!(arg.has_value());
+                        let arg_bb = arg.bb.to_option().unwrap();
+                        assert!(idom.is_dominated_by(bb, arg_bb));
                     });
                 }
 

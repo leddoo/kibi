@@ -6,9 +6,6 @@
 
 - todo:
     - compiler cleanup.
-        - validate
-            - bb0: params | locals | rest.
-            - arg.has_value.
         - ids.
         - reg & optreg.
         - what else?
