@@ -22,7 +22,6 @@ impl PostOrderIndex {
     pub const NONE: PostOrderIndex = PostOrderIndex { value: u32::MAX };
 }
 
-#[derive(Deref)]
 pub struct PostOrderIndices {
     pub indices: Vec<PostOrderIndex>,
 }
@@ -30,7 +29,6 @@ pub struct PostOrderIndices {
 
 // ### dominance ###
 
-#[derive(Deref)]
 pub struct ImmediateDominators {
     pub idom: Vec<BlockId>,
 }
@@ -92,37 +90,70 @@ pub struct LiveIntervals {
 
 
 
+impl PostOrderIndices {
+    #[inline]
+    pub fn get_unck(&self, bb: BlockId) -> PostOrderIndex {
+        self.indices[bb.usize()]
+    }
+
+    #[inline]
+    pub fn get(&self, bb: BlockId) -> Option<PostOrderIndex> {
+        let index = self.indices[bb.usize()];
+        (index != PostOrderIndex::NONE).then_some(index)
+    }
+}
+
+impl ImmediateDominators {
+    #[inline]
+    pub fn get_unck(&self, bb: BlockId) -> BlockId {
+        self.idom[bb.usize()]
+    }
+
+    #[inline]
+    pub fn get(&self, bb: BlockId) -> Option<BlockId> {
+        let idom = self.idom[bb.usize()];
+        (bb == BlockId::ROOT || idom != bb).then_some(idom)
+    }
+
+    #[inline]
+    pub fn is_unreachable(&self, bb: BlockId) -> bool {
+        self.get(bb).is_none()
+    }
+}
+
+
 impl Function {
-    pub fn preds_and_post_order(&self) -> (Predecessors, PostOrder) {
+    pub fn predecessors(&self) -> Predecessors {
         let mut preds = vec![vec![]; self.num_blocks()];
+
+        for bb in self.block_ids() {
+            self.block_successors(bb, |succ|
+                preds[succ.usize()].push(bb));
+        }
+
+        Predecessors { preds }
+    }
+
+    pub fn post_order(&self) -> PostOrder {
         let mut post_order = vec![];
         let mut visited = vec![false; self.num_blocks()];
 
         fn visit(fun: &Function, bb: BlockId,
-            preds: &mut Vec<Vec<BlockId>>,
             post_order: &mut Vec<BlockId>,
             visited: &mut Vec<bool>,
         ) {
             fun.block_successors(bb, |succ| {
-                preds[succ.usize()].push(bb);
-
                 if !visited[succ.usize()] {
                     visited[succ.usize()] = true;
-                    visit(fun, succ, preds, post_order, visited);
+                    visit(fun, succ, post_order, visited);
                 }
             });
 
             post_order.push(bb);
         }
-        visit(self, BlockId::ROOT, &mut preds, &mut post_order, &mut visited);
+        visit(self, BlockId::ROOT, &mut post_order, &mut visited);
 
-        for bb in &post_order {
-            if !bb.is_root() {
-                assert!(preds[bb.usize()].len() > 0);
-            }
-        }
-
-        (Predecessors { preds }, PostOrder { blocks: post_order })
+        PostOrder { blocks: post_order }
     }
 
     pub fn post_order_indices(&self, post_order: &PostOrder) -> PostOrderIndices {
@@ -136,23 +167,23 @@ impl Function {
     pub fn immediate_dominators(&self, preds: &Predecessors, post_order: &PostOrder, post_indices: &PostOrderIndices) -> ImmediateDominators {
         let mut doms = vec![None; self.num_blocks()];
 
-        let bb0 = post_indices[BlockId::ROOT.usize()];
+        let bb0 = post_indices.get_unck(BlockId::ROOT);
         doms[bb0.usize()] = Some(bb0);
 
         let mut changed = true;
         while changed {
             changed = false;
 
-            for bb_id in post_order.iter().rev() {
+            for bb_id in post_order.iter().rev().copied() {
                 if bb_id.is_root() { continue }
 
                 let preds = &preds[bb_id.usize()];
-                let bb = post_indices[bb_id.usize()];
+                let bb = post_indices.get_unck(bb_id);
 
-                let mut new_dom = post_indices[preds[0].usize()];
+                let mut new_dom = post_indices.get_unck(preds[0]);
 
-                for pred_id in preds.iter().skip(1) {
-                    let pred = post_indices[pred_id.usize()];
+                for pred_id in preds.iter().skip(1).copied() {
+                    let Some(pred) = post_indices.get(pred_id) else { continue };
 
                     // intersect.
                     if doms[pred.usize()].is_some() {
@@ -181,17 +212,13 @@ impl Function {
 
         let idom = self.block_ids()
             .map(|bb| {
-                let post_index = post_indices[bb.usize()];
-                if post_index != PostOrderIndex::NONE {
+                if let Some(post_index) = post_indices.get(bb) {
                     let idom_post_index = doms[post_index.usize()].unwrap();
                     let idom            = post_order[idom_post_index.usize()];
                     idom
                 }
-                else {
-                    BlockId::ROOT
-                }
-            })
-            .collect::<Vec<BlockId>>();
+                else { bb } // unreachable.
+            }).collect();
         ImmediateDominators { idom }
     }
 
@@ -199,8 +226,9 @@ impl Function {
         let mut tree = vec![vec![]; self.num_blocks()];
 
         for bb in self.block_ids().skip(1) {
-            let idom = idoms[bb.usize()];
-            tree[idom.usize()].push(bb);
+            if let Some(idom) = idoms.get(bb) {
+                tree[idom.usize()].push(bb);
+            }
         }
 
         DomTree { tree }
@@ -213,15 +241,18 @@ impl Function {
             let preds = &preds[bb.usize()];
             if preds.len() < 2 { continue }
 
-            let idom = idoms[bb.usize()];
-            for pred in preds {
-                let mut at = *pred;
+            let Some(idom) = idoms.get(bb) else { continue };
+
+            for pred in preds.iter().copied() {
+                if idoms.is_unreachable(pred) { continue }
+
+                let mut at = pred;
                 while at != idom {
                     let df = &mut frontiers[at.usize()];
                     if !df.contains(&bb) {
                         df.push(bb);
                     }
-                    at = idoms[at.usize()];
+                    at = idoms.get_unck(at);
                 }
             }
         }
@@ -232,21 +263,21 @@ impl Function {
 
     pub fn block_order_dominators_first(&self, idoms: &ImmediateDominators, dom_tree: &DomTree) -> BlockOrder {
         fn visit(bb: BlockId, order: &mut Vec<BlockId>, visited: &mut Vec<bool>,
-            fun: &Function, idom: &Vec<BlockId>, idom_tree: &Vec<Vec<BlockId>>,
+            fun: &Function, idom: &ImmediateDominators, dom_tree: &DomTree,
         ) {
             assert!(!visited[bb.usize()]);
             visited[bb.usize()] = true;
             order.push(bb);
 
             fun.block_successors(bb, |succ| {
-                if !visited[succ.usize()] && idom[succ.usize()] == bb {
-                    visit(succ, order, visited, fun, idom, idom_tree);
+                if !visited[succ.usize()] && idom.get_unck(succ) == bb {
+                    visit(succ, order, visited, fun, idom, dom_tree);
                 }
             });
 
-            for child in &idom_tree[bb.usize()] {
+            for child in &dom_tree[bb.usize()] {
                 if !visited[child.usize()] {
-                    visit(*child, order, visited, fun, idom, idom_tree);
+                    visit(*child, order, visited, fun, idom, dom_tree);
                 }
             }
         }
