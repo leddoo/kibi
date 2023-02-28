@@ -1,18 +1,17 @@
 
 - next steps:
-    - compiler cleanup.
-        - ids.
-        - `Option<PostOrderIndex>`.
-    - trace logging.
     - debug info.
         - better source info (eg: `ast::Block::source`, `ast::Op1::op_source`).
     - debugging.
 
 - todo:
-    - `break` scopes.
-    - `param` stmt.
+    - `if do`.
     - ssa validation.
-
+    - compiler cleanup.
+        - `param` stmt.
+        - ids.
+        - what else?
+    - trace logging.
 
 - decisions to make:
     - require `:` in do, if, etc?

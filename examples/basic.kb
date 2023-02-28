@@ -85,3 +85,58 @@ println(list[5])
 end)()
 
 
+(fn whiler():
+    print("whiler: ")
+    while true:
+        break
+        undefined()
+    end
+    print("1, ")
+
+    var running = true
+    while running:
+        print("x, ")
+        while true:
+            print("y, ")
+            break
+        end
+        print("z, ")
+        running = false
+        continue
+        undefined()
+    end
+    println("kk.")
+end)()
+
+(fn doer():
+    print("doer: ")
+    do
+        break
+        undefined()
+    end
+    print("1, ")
+
+    let a = do
+        print("x, ")
+        break break 42
+        undefined()
+    end
+    print(a)
+    print(", ")
+
+    let b = do
+        if a > 0:
+            do
+                print("4, ")
+                break
+            end
+            break 69
+        end
+        undefined()
+    end
+    print(b)
+    print(", ")
+    println("kk.")
+end)()
+
+

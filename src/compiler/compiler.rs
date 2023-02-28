@@ -12,6 +12,9 @@ pub struct CompileError {
 pub enum CompileErrorData {
     UnexpectedLocal,
     InvalidAssignTarget,
+    NoBreakTarget,
+    NoContinueTarget,
+    BreakTargetTakesNoValue,
 }
 
 pub type CompileResult<T> = Result<T, CompileError>;
@@ -38,6 +41,17 @@ pub struct Compiler {
 pub struct Ctx<'a> {
     scope: ScopeId,
     decls: Vec<Decl<'a>>,
+    break_scopes: Vec<BreakScope>,
+}
+
+
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+pub struct BreakScopeId(u32);
+
+struct BreakScope {
+    bb_after:    BlockId,
+    bb_continue: OptBlockId,
+    values:      Option<Vec<PhiEntry>>,
 }
 
 
@@ -46,6 +60,11 @@ impl CompileError {
     #[inline(always)]
     pub fn at(ast: &Ast, data: CompileErrorData) -> CompileError {
         CompileError { source: ast.source, data }
+    }
+
+    #[inline(always)]
+    pub fn at_range(source: SourceRange, data: CompileErrorData) -> CompileError {
+        CompileError { source, data }
     }
 }
 
@@ -56,15 +75,12 @@ impl Compiler {
             module: Module::new()
         };
 
-        let source = SourceRange::null();
-
         let mut ctx = Ctx::new();
         let mut fun = this.module.new_function();
-        let needs_value  = false;
-        this.compile_do_block(&mut ctx, &mut fun, source, false, stmts, needs_value)?;
+        this.compile_block(&mut ctx, &mut fun, stmts)?;
 
-        let nil = fun.stmt_load_nil(source);
-        fun.stmt_return(source, nil);
+        let nil = fun.stmt_load_nil(SourceRange::null());
+        fun.stmt_return(SourceRange::null(), nil);
 
         Ok(this.module)
     }
@@ -128,7 +144,7 @@ impl Compiler {
             }
 
             AstData::Do (doo) => {
-                self.compile_block(ctx, fun, ast.source, doo, need_value)
+                self.compile_do_block(ctx, fun, ast.source, &doo.stmts, need_value)
             }
 
             AstData::SubExpr (sub_expr) => {
@@ -220,7 +236,7 @@ impl Compiler {
 
                 // on_true
                 fun.set_current_block(bb_true);
-                let value_true = self.compile_block(ctx, fun, ast.source, &iff.on_true, need_value)?;
+                let value_true = self.compile_if_block(ctx, fun, ast.source, &iff.on_true, need_value)?;
                 let on_true_src = SourceRange::null(); // @todo-dbg-info
                 fun.stmt_jump(on_true_src, after_if);
                 let bb_true = fun.get_current_block();
@@ -230,7 +246,7 @@ impl Compiler {
                 fun.set_current_block(bb_false);
                 let (value_false, on_false_src) =
                     if let Some(on_false) = &iff.on_false {
-                        let v = self.compile_block(ctx, fun, ast.source, on_false, need_value)?;
+                        let v = self.compile_if_block(ctx, fun, ast.source, on_false, need_value)?;
                         (v, SourceRange::null()) // @todo-dbg-info
                     }
                     else {
@@ -268,22 +284,52 @@ impl Compiler {
                 let bb_head = fun.get_current_block();
 
 
+                let bs = ctx.begin_break_scope(bb_after, bb_head.some(), false);
+
                 // body.
                 fun.set_current_block(bb_body);
-                self.compile_do_block(ctx, fun, ast.source, false, &whilee.body, false)?;
+                self.compile_block(ctx, fun, &whilee.body)?;
                 fun.stmt_jump(ast.source, bb_head);
+
+                ctx.end_break_scope(bs);
 
 
                 fun.set_current_block(bb_after);
                 Ok(need_value.then(|| fun.stmt_load_nil(ast.source)))
             }
 
-            AstData::Break => {
-                unimplemented!()
+            AstData::Break(value) => {
+                let value =
+                    if let Some(v) = &value.value {
+                        Some(self.compile_ast(ctx, fun, v, true)?.unwrap())
+                    } else { None };
+
+                let scope = ctx.current_break_scope(ast.source)?;
+                let bb_break = scope.bb_after;
+
+                if let Some(values) = &mut scope.values {
+                    let value = value.unwrap_or_else(||
+                        fun.stmt_load_nil(ast.source));
+                    values.push((fun.get_current_block(), value));
+                }
+                else if value.is_some() {
+                    return Err(CompileError::at(ast, CompileErrorData::BreakTargetTakesNoValue));
+                }
+
+                fun.stmt_jump(ast.source, bb_break);
+
+                let bb_unreach = fun.new_block();
+                fun.set_current_block(bb_unreach);
+                Ok(need_value.then(|| fun.stmt_load_nil(ast.source)))
             }
 
             AstData::Continue => {
-                unimplemented!()
+                let bb_continue = ctx.current_continue_target(ast.source)?;
+                fun.stmt_jump(ast.source, bb_continue);
+
+                let bb_unreach = fun.new_block();
+                fun.set_current_block(bb_unreach);
+                Ok(need_value.then(|| fun.stmt_load_nil(ast.source)))
             }
 
             AstData::Return (returnn) => {
@@ -312,8 +358,8 @@ impl Compiler {
                 }
 
 
-                let value = self.compile_do_block(&mut inner_ctx, &mut inner_fun,
-                    ast.source, false, &fnn.body, true)?.unwrap();
+                let value = self.compile_value_block(&mut inner_ctx, &mut inner_fun,
+                    ast.source, &fnn.body, true)?.unwrap();
                 inner_fun.stmt_return(ast.source, value);
 
                 Ok(Some(fun.stmt_new_function(ast.source, inner_fun.id())))
@@ -325,22 +371,9 @@ impl Compiler {
         }
     }
 
-    pub fn compile_do_block<'a>(&mut self,
-        ctx: &mut Ctx<'a>, fun: &mut Function,
-        block_source: SourceRange, is_do: bool, stmts: &[Ast<'a>], need_value: bool
-    ) -> CompileResult<Option<StmtId>> {
+    pub fn compile_block<'a>(&mut self, ctx: &mut Ctx<'a>, fun: &mut Function, stmts: &[Ast<'a>]) -> CompileResult<()> {
         let scope = ctx.begin_scope();
 
-        if !is_do && need_value && stmts.len() == 1 {
-            let result = self.compile_ast(ctx, fun, &stmts[0], true);
-            ctx.end_scope(scope);
-            return result;
-        }
-
-        assert!(!is_do || !need_value);
-
-        // visit statements.
-        // handle locals.
         for stmt in stmts.iter() {
             // local decls.
             if let AstData::Local(local) = &stmt.data {
@@ -362,20 +395,54 @@ impl Compiler {
             }
         }
 
-        let result = need_value.then(|| {
-            let source = block_source.end.to_range();
-            fun.add_stmt(source, StmtData::LoadNil)
-        });
-
         ctx.end_scope(scope);
-        Ok(result)
+        Ok(())
     }
 
-    pub fn compile_block<'a>(&mut self,
-        ctx: &mut Ctx<'a>, fun: &mut Function,
+    pub fn compile_do_block<'a>(&mut self, ctx: &mut Ctx<'a>, fun: &mut Function,
+        block_source: SourceRange, stmts: &[Ast<'a>], need_value: bool
+    ) -> CompileResult<Option<StmtId>> {
+        let bb_after = fun.new_block();
+
+        let bs = ctx.begin_break_scope(bb_after, None.into(), need_value);
+        self.compile_block(ctx, fun, stmts)?;
+        let values = ctx.end_break_scope(bs);
+
+        let default_block = fun.get_current_block();
+        let default_value = need_value.then(||
+            fun.stmt_load_nil(block_source));
+        fun.stmt_jump(block_source, bb_after);
+        fun.set_current_block(bb_after);
+
+        if need_value {
+            let mut values = values.unwrap();
+            values.push((default_block, default_value.unwrap()));
+            Ok(Some(fun.stmt_phi(block_source, &values)))
+        }
+        else { Ok(None) }
+    }
+
+    pub fn compile_value_block<'a>(&mut self, ctx: &mut Ctx<'a>, fun: &mut Function,
+        block_source: SourceRange, stmts: &[Ast<'a>], need_value: bool
+    ) -> CompileResult<Option<StmtId>> {
+        if stmts.len() == 1 {
+            self.compile_ast(ctx, fun, &stmts[0], need_value)
+        }
+        else {
+            self.compile_block(ctx, fun, stmts)?;
+            Ok(need_value.then(|| fun.stmt_load_nil(block_source)))
+        }
+    }
+
+    pub fn compile_if_block<'a>(&mut self, ctx: &mut Ctx<'a>, fun: &mut Function,
         block_source: SourceRange, block: &ast::Block<'a>, need_value: bool
     ) -> CompileResult<Option<StmtId>> {
-        self.compile_do_block(ctx, fun, block_source, block.is_do, &block.stmts, need_value)
+        if block.is_do {
+            self.compile_do_block(ctx, fun, block_source, &block.stmts, need_value)
+        }
+        else {
+            self.compile_value_block(ctx, fun, block_source, &block.stmts, need_value)
+        }
     }
 
     pub fn compile_assign<'a>(&mut self,
@@ -429,6 +496,7 @@ impl<'a> Ctx<'a> {
         Ctx {
             scope: ScopeId(0),
             decls: vec![],
+            break_scopes: vec![],
         }
     }
 
@@ -449,6 +517,33 @@ impl<'a> Ctx<'a> {
         assert_eq!(self.scope, scope);
         self.decls.retain(|decl| decl.scope < self.scope);
         self.scope.0 -= 1;
+    }
+
+    fn begin_break_scope(&mut self, bb_after: BlockId, bb_continue: OptBlockId, need_value: bool) -> BreakScopeId {
+        let values = need_value.then(|| vec![]);
+        self.break_scopes.push(BreakScope { bb_after, bb_continue, values });
+        BreakScopeId(self.break_scopes.len() as u32)
+    }
+
+    fn end_break_scope(&mut self, scope: BreakScopeId) -> Option<Vec<PhiEntry>> {
+        assert_eq!(self.break_scopes.len(), scope.0 as usize);
+        self.break_scopes.pop().unwrap().values
+    }
+
+    fn current_break_scope(&mut self, source: SourceRange) -> CompileResult<&mut BreakScope> {
+        if let Some(scope) = self.break_scopes.last_mut() {
+            return Ok(scope);
+        }
+        return Err(CompileError::at_range(source, CompileErrorData::NoBreakTarget));
+    }
+
+    fn current_continue_target(&self, source: SourceRange) -> CompileResult<BlockId> {
+        for scope in self.break_scopes.iter().rev() {
+            if let Some(bb_continue) = scope.bb_continue.to_option() {
+                return Ok(bb_continue);
+            }
+        }
+        return Err(CompileError::at_range(source, CompileErrorData::NoContinueTarget));
     }
 }
 

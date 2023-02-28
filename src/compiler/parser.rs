@@ -602,7 +602,7 @@ pub enum AstData<'a> {
     Call        (Box<ast::Call<'a>>),
     If          (Box<ast::If<'a>>),
     While       (Box<ast::While<'a>>),
-    Break,
+    Break       (ast::Break<'a>),
     Continue,
     Return      (ast::Return<'a>),
     Fn          (Box<ast::Fn<'a>>),
@@ -991,8 +991,18 @@ impl<'p, 'i> Parser<'p, 'i> {
 
         // break
         if let TokenData::KwBreak = current.data {
-            let source = current.source;
-            return Ok(Ast { source, data: AstData::Break });
+            let mut source = current.source;
+
+            let mut value = None;
+            if let Some(at) = self.peek(0) {
+                if at.is_expr_start() {
+                    let v = self.parse_expr(0)?;
+                    source.end = v.source.end;
+                    value = Some(Box::new(v));
+                }
+            }
+
+            return Ok(Ast { source, data: AstData::Break(ast::Break { value }) });
         }
 
         // continue

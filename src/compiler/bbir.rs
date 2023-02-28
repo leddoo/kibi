@@ -909,6 +909,95 @@ impl Function {
         }
         OptStmtId::NONE
     }
+
+
+    pub fn remove_unreachable_blocks(&mut self) {
+        fn visit(fun: &Function, bb: BlockId, visited: &mut [bool]) {
+            visited[bb.usize()] = true;
+            fun.block_successors(bb, |succ| {
+                if !visited[succ.usize()] {
+                    visit(fun, succ, visited);
+                }
+            });
+        }
+
+        // mark.
+        let mut visited = vec![false; self.blocks.len()];
+        visit(self, BlockId::ROOT, &mut visited);
+
+        // sweep.
+        let mut new_ids = vec![None; self.blocks.len()];
+        let mut next_id = BlockId(0);
+        self.blocks.retain_mut(|block| {
+            if visited[block.id.usize()] {
+                new_ids[block.id.usize()] = Some(next_id);
+                block.id = next_id;
+
+                next_id.0 += 1;
+                return true;
+            }
+            false
+        });
+
+        // rename.
+        // @todo-perf: do this per block, can skip if not renamed.
+        for stmt in self.stmt_ids() {
+            let stmt = stmt.get_mut(self);
+
+            // update bb & linked list.
+            // @todo: free up the old statements.
+            if let Some(old_bb) = stmt.bb.to_option() {
+                if let Some(new_id) = new_ids[old_bb.usize()] {
+                    stmt.bb = new_id.some();
+                }
+                else {
+                    stmt.bb   = None.into();
+                    stmt.prev = None.into();
+                    stmt.next = None.into();
+                    // @temp.
+                    stmt.data = StmtData::LoadNil;
+                }
+            }
+
+            // phis.
+            if stmt.is_phi() {
+                use StmtData::*;
+                match &mut stmt.data {
+                    Phi { map_id } => {
+                        let map = map_id.usize();
+                        let map = &mut self.phi_maps[map];
+                        map.retain_mut(|(from_bb, _)| {
+                            if let Some(new_id) = new_ids[from_bb.usize()] {
+                                *from_bb = new_id;
+                                return true;
+                            }
+                            false
+                        });
+                    }
+
+                    _ => unreachable!(),
+                }
+            }
+            // terminators.
+            else if stmt.is_terminator() {
+                use StmtData::*;
+                match &mut stmt.data {
+                    Jump { target } => {
+                        *target = new_ids[target.usize()].unwrap();
+                    }
+                    SwitchBool { src: _, on_true, on_false } => {
+                        *on_true  = new_ids[on_true.usize()].unwrap();
+                        *on_false = new_ids[on_false.usize()].unwrap();
+                    }
+                    Return { src: _ } => {}
+
+                    _ => unreachable!(),
+                }
+            }
+        }
+
+        self.slow_integrity_check();
+    }
 }
 
 
@@ -1411,11 +1500,16 @@ impl Module {
             let mut fun = fun.borrow_mut();
             //fun.dump();
 
+            fun.remove_unreachable_blocks();
+            //fun.dump();
+
             // for local in &fun.locals {
             //     println!("{:?}", local);
             // }
 
-            let (preds, post_order) = fun.preds_and_post_order();
+            let preds = fun.predecessors();
+
+            let post_order = fun.post_order();
 
             let post_indices = fun.post_order_indices(&post_order);
 
