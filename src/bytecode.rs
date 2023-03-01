@@ -49,7 +49,8 @@ pub mod opcode {
 
     pub const NEW_FUNCTION:     u8 = 39;
     pub const SWAP:             u8 = 40;
-    pub const END:              u8 = 41;
+    pub const TUPLE_NEW:        u8 = 41;
+    pub const END:              u8 = 42;
 
     pub const EXTRA:            u8 = 255;
 }
@@ -217,6 +218,15 @@ impl ByteCodeBuilder {
 
     pub fn list_append(&mut self, list: u8, value: u8) {
         self.buffer.push(Instruction::encode_c2(opcode::LIST_APPEND, list, value));
+    }
+
+
+    pub fn tuple_new(&mut self, dst: u8, values: &[u8]) {
+        assert!(values.len() < 128);
+        self.buffer.push(Instruction::encode_c1u16(opcode::TUPLE_NEW, dst, values.len() as u16));
+        for v in values {
+            self.buffer.push(Instruction::encode_u16(opcode::EXTRA, *v as u16));
+        }
     }
 
 
@@ -449,6 +459,22 @@ pub fn dump(code: &[Instruction]) {
             LIST_APPEND => {
                 let (list, value) = instr.c2();
                 println!("  list_append r{}, r{}", list, value);
+            }
+            
+
+            TUPLE_NEW => {
+                let (dst, len) = instr.c1u16();
+                print!("  tuple_new r{}, [", dst);
+
+                for i in 0..len {
+                    let v = next_instr_extra!();
+                    print!("r{}", v.u16());
+                    if i < len - 1 {
+                        print!(", ");
+                    }
+                }
+
+                println!("]");
             }
 
 

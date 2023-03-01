@@ -575,9 +575,10 @@ impl<'i> Tokenizer<'i> {
 
 
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deref)]
 pub struct Ast<'a> {
     pub source: SourceRange,
+    #[deref]
     pub data:   AstData<'a>,
 }
 
@@ -607,6 +608,13 @@ pub enum AstData<'a> {
     Return      (ast::Return<'a>),
     Fn          (Box<ast::Fn<'a>>),
     Env,
+}
+
+impl<'a> AstData<'a> {
+    #[inline(always)]
+    pub fn is_local(&self) -> bool {
+        if let AstData::Local(_) = self { true } else { false }
+    }
 }
 
 pub mod ast {
@@ -1278,9 +1286,13 @@ impl<'p, 'i> Parser<'p, 'i> {
         let mut stmts = vec![];
 
         let mut terminated = true;
-        while terminated {
+        loop {
             let Some(at) = self.peek(0).copied() else { break };
             if at.is_block_end() { break }
+
+            if !terminated {
+                return Err(ParseError::at_pos(end, ParseErrorData::Expected(TokenData::Semicolon)));
+            }
 
             // empty stmt.
             if at.data == TokenData::Semicolon {

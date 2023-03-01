@@ -122,8 +122,11 @@ impl Compiler {
             }
 
             AstData::Tuple (tuple) => {
-                let _ = tuple;
-                unimplemented!()
+                let mut values = vec![];
+                for v in &tuple.values {
+                    values.push(self.compile_ast(ctx, fun, v, true)?.unwrap());
+                }
+                Ok(Some(fun.stmt_tuple_new(ast.source, &values)))
             }
 
             AstData::List (list) => {
@@ -164,14 +167,40 @@ impl Compiler {
             AstData::Op2 (op2) => {
                 match op2.kind {
                     ast::Op2Kind::Assign | ast::Op2Kind::Define => {
-                        let value = self.compile_ast(ctx, fun, &op2.children[1], true)?.unwrap();
-                        let is_define = op2.kind == ast::Op2Kind::Define;
-                        self.compile_assign(ctx, fun, &op2.children[0], value, is_define)?;
+                        if let AstData::Tuple(lhs) = &op2.children[0].data {
+                            if op2.kind != ast::Op2Kind::Assign {
+                                // todo: error.
+                                unimplemented!()
+                            }
 
-                        Ok(if need_value {
-                            Some(fun.stmt_load_nil(ast.source))
+                            let lhs = &lhs.values;
+
+                            if let AstData::Tuple(rhs) = &op2.children[1].data {
+                                let rhs = &rhs.values;
+                                if lhs.len() != rhs.len() {
+                                    // todo: error.
+                                    unimplemented!()
+                                }
+
+                                let mut values = Vec::with_capacity(rhs.len());
+                                for v in rhs {
+                                    values.push(self.compile_ast(ctx, fun, v, true)?.unwrap());
+                                }
+
+                                for i in 0..lhs.len() {
+                                    self.compile_assign(ctx, fun, &lhs[i], values[i], false)?;
+                                }
+                            }
+                            else {
+                                unimplemented!()
+                            }
                         }
-                        else { None })
+                        else {
+                            let value = self.compile_ast(ctx, fun, &op2.children[1], true)?.unwrap();
+                            let is_define = op2.kind == ast::Op2Kind::Define;
+                            self.compile_assign(ctx, fun, &op2.children[0], value, is_define)?;
+                        }
+                        Ok(need_value.then(|| fun.stmt_load_nil(ast.source)))
                     }
 
                     ast::Op2Kind::Op2Assign(op) => {
@@ -182,10 +211,7 @@ impl Compiler {
                         let is_define = false;
                         self.compile_assign(ctx, fun, &op2.children[0], value, is_define)?;
 
-                        Ok(if need_value {
-                            Some(fun.stmt_load_nil(ast.source))
-                        }
-                        else { None })
+                        Ok(need_value.then(|| fun.stmt_load_nil(ast.source)))
                     }
 
                     ast::Op2Kind::Op2(op) => {
@@ -425,7 +451,7 @@ impl Compiler {
     pub fn compile_value_block<'a>(&mut self, ctx: &mut Ctx<'a>, fun: &mut Function,
         block_source: SourceRange, stmts: &[Ast<'a>], need_value: bool
     ) -> CompileResult<Option<StmtId>> {
-        if stmts.len() == 1 {
+        if stmts.len() == 1 && !stmts[0].is_local() {
             self.compile_ast(ctx, fun, &stmts[0], need_value)
         }
         else {

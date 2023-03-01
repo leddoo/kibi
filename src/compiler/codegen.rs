@@ -560,6 +560,11 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
                 ListNew => bcb.list_new(dst),
                 ListAppend { list, value } => bcb.list_append(reg(list), reg(value)),
 
+                TupleNew { values } => {
+                    let values: Vec<u8> = values.get(fun).iter().map(|arg| reg(*arg)).collect();
+                    bcb.tuple_new(dst, &values);
+                }
+
                 NewFunction { id } => bcb.new_function(dst, fun_protos[id.usize()].try_into().unwrap()),
 
                 GetIndex { base, index } => bcb.get(dst, reg(base), reg(index)),
@@ -646,6 +651,7 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
             NOP | UNREACHABLE | COPY | SWAP |
             LOAD_NIL | LOAD_BOOL | LOAD_INT | LOAD_CONST | LOAD_ENV |
             LIST_NEW | LIST_APPEND |
+            TUPLE_NEW |
             TABLE_NEW |
             DEF | SET | GET | LEN |
             ADD | SUB | MUL | DIV | INC | DEC |

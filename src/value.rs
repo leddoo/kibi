@@ -9,6 +9,7 @@ pub(crate) enum Value {
     Number { value: f64    },
     String { index: usize  },
     List   { index: usize  },
+    Tuple  { index: usize  },
     Table  { index: usize  },
     Func   { proto: usize  },
     // Fiber
@@ -30,6 +31,7 @@ pub(crate) enum GcObjectData {
     Nil,
     Free  { next:  Option<usize> },
     List  { values: Vec<Value> },
+    Tuple { values: Vec<Value> },
     Table  (TableData),
     String { value: String },
 }

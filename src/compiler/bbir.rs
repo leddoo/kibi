@@ -42,6 +42,8 @@ pub enum StmtData {
     ListNew,
     ListAppend { list: StmtId, value: StmtId },
 
+    TupleNew { values: StmtListId },
+
     NewFunction { id: FunctionId },
 
     GetIndex { base: StmtId, index: StmtId },
@@ -225,6 +227,8 @@ impl<'a> core::fmt::Display for StmtFmt<'a> {
             ListNew => { write!(f, "new_list") }
             ListAppend { list, value } => { write!(f, "list_append {}, {}", list, value) }
 
+            TupleNew { values } => write!(f, "tuple_new {}", values.get(fun)),
+
             NewFunction { id } => write!(f, "new_function {}", id),
 
             GetIndex { base, index } => write!(f, "get_index {}, {}", base, index),
@@ -305,6 +309,7 @@ impl StmtData {
             LoadEnv |
             ListNew |
             ListAppend { list: _, value: _ } |
+            TupleNew { values: _ } |
             NewFunction { id: _ } |
             GetIndex { base: _, index: _ } |
             SetIndex { base: _, index: _, value: _, is_define: _ } |
@@ -331,6 +336,7 @@ impl StmtData {
             LoadString { id: _ } |
             LoadEnv |
             ListNew |
+            TupleNew { values: _ } |
             NewFunction { id: _ } |
             GetIndex { base: _, index: _ } |
             Call { func: _, args_id: _ } |
@@ -372,12 +378,14 @@ impl StmtData {
             ListNew => (),
             ListAppend { list, value } => { f(*list); f(*value) }
 
+            TupleNew { values } => { values.each(fun, f) }
+
             NewFunction { id: _ } => (),
 
             GetIndex { base, index }                      => { f(*base); f(*index) }
             SetIndex { base, index, value, is_define: _ } => { f(*base); f(*index); f(*value) }
 
-            Call { func, args_id } => { f(*func); for arg in args_id.get(fun).iter() { f(*arg) } }
+            Call { func, args_id } => { f(*func); args_id.each(fun, f) }
 
             Op1 { op: _, src }        => { f(*src) }
             Op2 { op: _, src1, src2 } => { f(*src1); f(*src2) }
@@ -420,20 +428,14 @@ impl StmtData {
             ListNew => (),
             ListAppend { list, value } => { f(fun, list); f(fun, value) }
 
+            TupleNew { values } => { values.each_mut(fun, f) }
+
             NewFunction { id: _ } => (),
 
             GetIndex { base, index }                      => { f(fun, base); f(fun, index) }
             SetIndex { base, index, value, is_define: _ } => { f(fun, base); f(fun, index); f(fun, value) }
 
-            Call { func, args_id } => {
-                f(fun, func);
-
-                let mut args = core::mem::take(&mut *fun.stmt_lists[args_id.usize()]);
-                for arg in &mut args {
-                    f(fun, arg)
-                }
-                fun.stmt_lists[args_id.usize()] = StmtListImpl { values: args };
-            }
+            Call { func, args_id } => { f(fun, func); args_id.each_mut(fun, f) }
 
             Op1 { op: _, src }        => { f(fun, src) }
             Op2 { op: _, src1, src2 } => { f(fun, src1); f(fun, src2) }
@@ -489,6 +491,22 @@ impl StmtListId {
     #[inline]
     pub fn get<'s>(self, fun: &'s Function) -> StmtList<'s> {
         StmtList { values: &fun.stmt_lists[self.usize()] }
+    }
+
+    #[inline]
+    pub fn each<F: FnMut(StmtId)>(self, fun: &Function, mut f: F) {
+        for v in &*fun.stmt_lists[self.usize()] {
+            f(*v)
+        }
+    }
+
+    #[inline]
+    pub fn each_mut<F: FnMut(&Function, &mut StmtId)>(self, fun: &mut Function, mut f: F) {
+        let mut stmts = core::mem::take(&mut *fun.stmt_lists[self.usize()]);
+        for stmt in &mut stmts {
+            f(fun, stmt)
+        }
+        fun.stmt_lists[self.usize()] = StmtListImpl { values: stmts };
     }
 }
 
@@ -1033,6 +1051,13 @@ impl Function {
     #[inline]
     pub fn stmt_list_append(&mut self, source: SourceRange, list: StmtId, value: StmtId) -> StmtId {
         self.add_stmt(source, StmtData::ListAppend { list, value })
+    }
+
+    #[inline]
+    pub fn stmt_tuple_new(&mut self, source: SourceRange, values: &[StmtId]) -> StmtId {
+        let values_id = StmtListId(self.stmt_lists.len() as u32);
+        self.stmt_lists.push(StmtListImpl { values: values.into() });
+        self.add_stmt(source, StmtData::TupleNew { values: values_id })
     }
 
     #[inline]

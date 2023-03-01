@@ -398,6 +398,21 @@ impl VmImpl {
                 print!("{}", value);
             }
             Value::List   { index } => print!("<List {}>", index),
+            Value::Tuple  { index } => {
+                let GcObjectData::Tuple { values } = &self.heap[index].data else { unreachable!() };
+                print!("(");
+                if values.len() == 1 {
+                    self.generic_print(values[0]);
+                    print!(",)");
+                }
+                else {
+                    for (i, v) in values.iter().enumerate() {
+                        self.generic_print(*v);
+                        if i < values.len() - 1 { print!(", ") }
+                    }
+                    print!(")");
+                }
+            },
             Value::Table  { index } => print!("<Table {}>", index),
             Value::Func   { proto } => print!("<Func {}>", proto),
         }
@@ -482,6 +497,27 @@ impl VmImpl {
 
         Ok((values.len() as f64).into())
     }
+    
+
+    fn tuple_new(&mut self, values: Vec<Value>) -> Value {
+        // @todo-cleanup: alloc utils.
+        let index = self.heap_alloc();
+        self.heap[index].data = GcObjectData::Tuple { values };
+        Value::Tuple { index }
+    }
+
+    fn tuple_get(&mut self, tuple: Value, index: Value) -> VmResult<Value> {
+        let Value::Tuple { index: tuple_index } = tuple else { return Err(VmError::InvalidOperation) };
+
+        // @todo-cleanup: value utils.
+        let object = &mut self.heap[tuple_index];
+        let GcObjectData::Tuple { values } = &mut object.data else { unreachable!() };
+
+        let Value::Number { value: index } = index else { return Err(VmError::InvalidOperation) };
+
+        let value = *values.get(index as usize).ok_or(VmError::InvalidOperation)?;
+        Ok(value)
+    }
 
 
     fn table_new(&mut self) -> Value {
@@ -565,6 +601,9 @@ impl VmImpl {
         // @todo-cleanup: value utils.
         if let Value::List { index: _ } = obj {
             self.list_get(obj, key)
+        }
+        else if let Value::Tuple { index: _ } = obj {
+            self.tuple_get(obj, key)
         }
         // @todo-cleanup: value utils.
         else if let Value::Table { index: _ } = obj {
@@ -775,6 +814,19 @@ impl VmImpl {
                         // @todo-speed: remove checks.
                         let (list, value) = self.reg2(instr.c2());
                         vm_try!(self.list_append(list, value));
+                    }
+
+
+                    TUPLE_NEW => {
+                        let (dst, len) = instr.c1u16();
+
+                        let mut values = Vec::with_capacity(len as usize);
+                        for _ in 0..len {
+                            let v = self.next_instr_extra();
+                            values.push(*self.reg(v.u16()));
+                        }
+
+                        *self.reg(dst) = self.tuple_new(values);
                     }
 
 

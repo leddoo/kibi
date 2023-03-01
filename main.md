@@ -5,8 +5,11 @@
     - debugging.
 
 - todo:
-    - labeled break.
     - tuples.
+        - destructuring.
+        - remove multi-ret.
+    - labeled break.
+    - fix prefix operators.
     - kbtf & validation.
     - trace logging.
 
@@ -88,6 +91,8 @@
     - tests.
 
 - low priority backlog:
+    - `IfBlock` -> `ValueBlock` use for functions?
+    - `_` for discarding values.
 
 - ideas:
     - reverse debugging:
