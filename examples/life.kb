@@ -89,11 +89,10 @@ board[2*w + 3] = 1
 board[1*w + 2] = 1
 
 var i = 0
-while i < 20:
+while i < 2:
     board_print(board, w, h)
     board = board_step(board, w, h)
-    break
-    sleep()
+    --sleep()
     i += 1
 end
 

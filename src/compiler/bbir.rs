@@ -1485,6 +1485,8 @@ impl Module {
             //fun.dump();
 
             transform::convert_to_cssa_naive(&mut fun, &preds);
+            //println!("cssa");
+            //fun.dump();
 
             let (code, constants, num_regs) = fun.compile_ex(&post_order, &idoms, &dom_tree, &fun_protos);
             //println!("bytecode:");

@@ -9,8 +9,6 @@
         - compile cancelling operators.
         - vm: implement missing operators.
         - labeled break.
-        - fix register hints for joins.
-            - just joining into stmt w/ lower stmt_index may work.
     - tuples.
         - destructuring.
         - tuple ret.

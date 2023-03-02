@@ -24,7 +24,7 @@ impl Function {
         //     println!("s{i}: {interval:?}");
         // }
 
-        let regs = alloc_regs_linear_scan(self, &live_intervals);
+        let regs = alloc_regs_linear_scan(self, &live_intervals, &stmt_indices);
 
         let (code, constants) = generate_bytecode(self, &block_order, &regs, fun_protos);
 
@@ -40,7 +40,7 @@ pub struct RegisterAllocation {
     pub num_regs: usize,
 }
 
-pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals) -> RegisterAllocation {
+pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, stmt_indices: &StmtIndices) -> RegisterAllocation {
     let mut intervals = intervals.intervals.clone();
     let mut joins     = fun.stmt_ids().collect::<Vec<_>>();
     let mut hints     = fun.stmt_ids().collect::<Vec<_>>();
@@ -144,11 +144,24 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals) -> Regi
     for bb in fun.block_ids() {
         fun.block_stmts(bb, |stmt| {
             if let Some(map) = fun.try_phi(stmt.id()) {
+                let mut join_into       = stmt.id();
+                let mut join_into_index = stmt_indices[join_into.usize()];
+
                 // join phi with args.
-                for (_, arg) in map.iter() {
-                    let joined = join(stmt.id(), *arg, &mut joins, &mut intervals);
+                for (_, arg) in map.iter().copied() {
+                    let arg_index = stmt_indices[arg.usize()];
+                    let other =
+                        if arg_index < join_into_index {
+                            let other = join_into;
+                            join_into       = arg;
+                            join_into_index = arg_index;
+                            other
+                        }
+                        else { arg };
+
+                    let joined = join(join_into, other, &mut joins, &mut intervals);
                     if !joined {
-                        println!("failed to join {} with {}", stmt.id(), arg);
+                        println!("failed to join {} with {}", join_into, other);
                     }
                     assert!(joined);
                 }
@@ -272,6 +285,17 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals) -> Regi
                 return false;
             }
 
+            // skipped range?
+            let rng_end = active.ranges[0].1;
+            if rng_end <= new_int.start {
+                //println!("    skipped range");
+                // need to have another range.
+                // otherwise would have expired.
+                active.ranges = &active.ranges[1..];
+                // @todo: should this be a loop?
+                //  does the "otherwise would have expired" argument still hold then?
+            }
+
             // live again?
             let rng_start = active.ranges[0].0;
             if rng_start <= new_int.start {
@@ -376,6 +400,8 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals) -> Regi
                     StmtData::Op2 { op: _,  src1, src2: _ } => src1,
                     _ => break 'first_arg,
                 };
+
+                let first_arg = rep(first_arg, &joins);
 
                 if let Some(reg) = mapping[first_arg.usize()].to_option() {
                     if regs[reg.usize()] == false {
