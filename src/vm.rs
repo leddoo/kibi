@@ -33,8 +33,15 @@ impl Vm {
     }
 
     #[inline]
-    pub fn call(&mut self) -> VmResult<()> {
-        self.inner.call(0, 0, 0)
+    pub fn temp_call(&mut self) -> VmResult<()> {
+        let i = self.inner.stack.len() as u32 - 1;
+        if self.inner.pre_call(i, i, 0, |_, _|{})? {
+            self.inner.run().0?;
+        }
+        let result = self.inner.pop();
+        self.inner.generic_print(result);
+        println!();
+        Ok(())
     }
 
     #[inline]
@@ -60,26 +67,6 @@ impl Vm {
     pub fn check_interrupt(&mut self) -> VmResult<()> {
         self.inner.check_interrupt()
     }
-
-
-    // @temp
-    pub fn just_run_it_bro(&mut self, desc: FuncDesc) -> VmResult<()> {
-        let constants = desc.constants.into_iter().map(|c| { match c {
-            Constant::Nil              => Value::Nil,
-            Constant::Bool   { value } => Value::Bool { value },
-            Constant::Number { value } => Value::Number { value },
-            Constant::String { value } => self.inner.string_new(&value),
-        }}).collect();
-        let proto = self.inner.func_protos.len();
-        self.inner.func_protos.push(FuncProto {
-            code: desc.code,
-            constants,
-            num_params: desc.num_params,
-            stack_size: desc.stack_size,
-        });
-        self.inner.push_func(proto);
-        self.inner.call(0, 0, 0)
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -97,8 +84,7 @@ struct StackFrame {
     func_proto: usize,
     is_native: bool,
 
-    dest_reg: u32,
-    num_rets: u32,
+    dst_abs: u32,
 
     pc:   u32,
     base: u32,
@@ -109,7 +95,7 @@ impl StackFrame {
     const ROOT: StackFrame = StackFrame {
         func_proto: usize::MAX,
         is_native: true,
-        dest_reg: 0, num_rets: 0,
+        dst_abs: 0,
         pc: 0, base: 0, top: 0,
     };
 }
@@ -137,7 +123,7 @@ pub(crate) struct VmImpl {
 }
 
 impl VmImpl {
-    pub fn new() -> Self {
+    fn new() -> Self {
         let mut vm = VmImpl {
             func_protos: vec![],
 
@@ -163,7 +149,7 @@ impl VmImpl {
         vm
     }
 
-    pub fn add_func(&mut self, name: &str, proto: FuncProto) {
+    fn add_func(&mut self, name: &str, proto: FuncProto) {
         let proto_index = self.func_protos.len();
         self.func_protos.push(proto);
 
@@ -303,12 +289,12 @@ impl VmImpl {
         }
     }
 
-    pub fn generic_eq(&mut self, v1: Value, v2: Value) -> VmResult<bool> {
+    fn generic_eq(&mut self, v1: Value, v2: Value) -> VmResult<bool> {
         // @todo-feature: meta tables & userdata.
         Ok(self.raw_eq(v1, v2))
     }
 
-    pub fn generic_ne(&mut self, v1: Value, v2: Value) -> VmResult<bool> {
+    fn generic_ne(&mut self, v1: Value, v2: Value) -> VmResult<bool> {
         // @todo-feature: meta tables & userdata.
         Ok(!self.raw_eq(v1, v2))
     }
@@ -397,7 +383,7 @@ impl VmImpl {
         }
     }
 
-    pub fn generic_print(&self, value: Value) {
+    fn generic_print(&self, value: Value) {
         match value {
             Value::Nil              => print!("nil"),
             Value::Bool   { value } => print!("{}", value),
@@ -428,6 +414,7 @@ impl VmImpl {
     }
 
 
+    // @temp: for module load hack.
     pub fn string_new(&mut self, value: &str) -> Value {
         // @todo-cleanup: alloc utils.
         let index = self.heap_alloc();
@@ -436,14 +423,14 @@ impl VmImpl {
     }
 
 
-    pub fn list_new(&mut self) -> Value {
+    fn list_new(&mut self) -> Value {
         // @todo-cleanup: alloc utils.
         let index = self.heap_alloc();
         self.heap[index].data = GcObjectData::List { values: vec![] };
         Value::List { index }
     }
 
-    pub fn list_append(&mut self, list: Value, value: Value) -> VmResult<()> {
+    fn list_append(&mut self, list: Value, value: Value) -> VmResult<()> {
         let Value::List { index: list_index } = list else { return Err(VmError::InvalidOperation) };
 
         let object = &mut self.heap[list_index];
@@ -562,7 +549,7 @@ impl VmImpl {
         Ok(())
     }
 
-    pub fn table_get(&mut self, table: Value, key: Value) -> VmResult<Value> {
+    fn table_get(&mut self, table: Value, key: Value) -> VmResult<Value> {
         let td = unsafe { self.to_table_data(table)? };
         let value = *td.index(key, self).ok_or(VmError::InvalidOperation)?;
         Ok(value)
@@ -640,7 +627,7 @@ impl VmImpl {
 
 
     #[inline(always)]
-    pub fn check_interrupt(&mut self) -> VmResult<()> {
+    fn check_interrupt(&mut self) -> VmResult<()> {
         let interrupt = unsafe { self.interrupt.get().read_volatile() };
         if interrupt {
             unsafe { self.interrupt.get().write_volatile(false) };
@@ -664,7 +651,7 @@ impl VmImpl {
 
 
     #[inline(always)]
-    pub fn reg(&mut self, reg: u32) -> &mut Value {
+    fn reg(&mut self, reg: u32) -> &mut Value {
         // @todo-speed: obviously don't do this.
         let frame = self.frames.last().unwrap();
         debug_assert!(frame.base + reg < frame.top);
@@ -672,22 +659,22 @@ impl VmImpl {
     }
 
     #[inline(always)]
-    pub fn reg2(&mut self, regs: (u32, u32)) -> (Value, Value) {
+    fn reg2(&mut self, regs: (u32, u32)) -> (Value, Value) {
         (*self.reg(regs.0), *self.reg(regs.1))
     }
 
     #[inline(always)]
-    pub fn reg2_dst(&mut self, regs: (u32, u32)) -> (u32, Value) {
+    fn reg2_dst(&mut self, regs: (u32, u32)) -> (u32, Value) {
         (regs.0, *self.reg(regs.1))
     }
 
     #[inline(always)]
-    pub fn reg3(&mut self, regs: (u32, u32, u32)) -> (Value, Value, Value) {
+    fn reg3(&mut self, regs: (u32, u32, u32)) -> (Value, Value, Value) {
         (*self.reg(regs.0), *self.reg(regs.1), *self.reg(regs.2))
     }
 
     #[inline(always)]
-    pub fn reg3_dst(&mut self, regs: (u32, u32, u32)) -> (u32, Value, Value) {
+    fn reg3_dst(&mut self, regs: (u32, u32, u32)) -> (u32, Value, Value) {
         (regs.0, *self.reg(regs.1), *self.reg(regs.2))
     }
 
@@ -720,7 +707,7 @@ impl VmImpl {
     }
 
     #[inline(never)]
-    fn run(&mut self) -> (VmResult<()>,) { // wrap in tuple to prevent accidental `?` usage.
+    fn run(&mut self) -> (VmResult<()>,) { // wrap in tuple to prevent accidental usage of the `?` operator. (that would mess up the counter)
         if self.frames.len() == 1 {
             // @todo-decide: should this be an error?
             return (Ok(()),);
@@ -1016,10 +1003,8 @@ impl VmImpl {
 
 
                     CALL => {
-                        let (func, rets, num_rets) = instr.c3();
-                        let num_args = self.next_instr();
-                        debug_assert_eq!(num_args.opcode() as u8, EXTRA);
-                        let num_args = num_args.u16();
+                        let (dst, func) = instr.c2();
+                        let num_args = self.next_instr_extra().u16();
 
                         let args = {
                             // @todo-speed: obviously don't do this.
@@ -1038,10 +1023,9 @@ impl VmImpl {
                         };
 
                         let frame = self.frames.last().unwrap();
-                        let abs_func = frame.base + func;
                         let src_base = frame.base as usize;
 
-                        vm_try!(self.pre_call(abs_func, num_args, rets, num_rets, |vm, dst_base| {
+                        vm_try!(self.pre_call(dst, func, num_args, |vm, dst_base| {
                             for (i, arg) in args.iter().enumerate() {
                                 debug_assert_eq!(arg.opcode() as u8, EXTRA);
 
@@ -1052,9 +1036,14 @@ impl VmImpl {
                     }
 
                     RET => {
-                        let (rets, actual_rets) = instr.c2();
+                        let src = instr.c1();
 
-                        if vm_try!(self.post_call(rets, actual_rets)) {
+                        let value = *self.reg(src);
+
+                        let dst_abs = self.frames.last().unwrap().dst_abs;
+                        self.stack[dst_abs as usize] = value;
+
+                        if vm_try!(self.post_call()) {
                             result = Ok(());
                             break;
                         }
@@ -1097,47 +1086,36 @@ impl VmImpl {
     }
 
 
-    pub fn push(&mut self, value: Value) {
+    fn push(&mut self, value: Value) {
         self.stack.push(value);
         self.frames.last_mut().unwrap().top += 1;
     }
 
-    #[allow(dead_code)] // @temp: used in tests.
-    pub fn pop(&mut self) -> Value {
+    fn pop(&mut self) -> Value {
         let frame = self.frames.last_mut().unwrap();
         assert!(frame.top > frame.base);
         frame.top -= 1;
         self.stack.pop().unwrap()
     }
 
-    fn pop_n(&mut self, n: u32) {
-        let frame = self.frames.last_mut().unwrap();
-        assert!(frame.top >= frame.base + n);
-        frame.top -= n as u32;
-        self.stack.truncate(frame.top as usize);
-    }
 
-    // TODO: maybe put these on some "Guard"
-    // that wraps `&mut Vm`.
-    // cause calling them while execution is suspended is ub.
-    // TEMP: don't expose protos.
-    #[allow(dead_code)] // @temp: used in tests.
-    pub fn func_new(&mut self, proto: usize) -> Value {
+    fn func_new(&mut self, proto: usize) -> Value {
         Value::Func { proto }
     }
-    #[allow(dead_code)] // @temp: used in tests.
+
+    // @temp: for module load hack.
     pub fn push_func(&mut self, proto: usize) {
         let f = self.func_new(proto);
         self.push(f);
     }
 
     #[allow(dead_code)] // @temp: used in tests.
-    pub fn push_number(&mut self, value: f64) {
+    fn push_number(&mut self, value: f64) {
         self.push(value.into());
     }
 
     #[allow(dead_code)] // @temp: used in tests.
-    pub fn push_global(&mut self, name: &str) -> VmResult<()> {
+    fn push_global(&mut self, name: &str) -> VmResult<()> {
         // @todo-safety: keep alive.
         let n = self.string_new(name);
         let env = self.env;
@@ -1147,14 +1125,14 @@ impl VmImpl {
     }
 
     fn pre_call<CopyArgs: FnOnce(&mut VmImpl, usize)>(&mut self,
-        abs_func: u32, num_args: u32,
-        dst: u32, num_rets: u32,
-        copy_args: CopyArgs) -> VmResult<bool>
-    {
+        dst: u32, func: u32, num_args: u32, copy_args: CopyArgs
+    ) -> VmResult<bool> {
         assert!(num_args < 128);
-        assert!(num_rets < 128);
 
-        let func_value = self.stack[abs_func as usize];
+        let frame = self.frames.last_mut().unwrap();
+        let caller_base = frame.base;
+
+        let func_value = self.stack[(caller_base + func) as usize];
 
         let Value::Func { proto: func_proto } = func_value else {
             return Err(VmError::InvalidOperation);
@@ -1167,7 +1145,6 @@ impl VmImpl {
         }
 
         // save vm state.
-        let frame = self.frames.last_mut().unwrap();
         frame.pc = self.pc as u32;
 
         // push frame.
@@ -1176,7 +1153,7 @@ impl VmImpl {
         self.frames.push(StackFrame {
             func_proto,
             is_native: proto.code.is_native(),
-            dest_reg: dst, num_rets,
+            dst_abs: caller_base + dst,
             pc: u32::MAX,
             base, top,
         });
@@ -1199,42 +1176,34 @@ impl VmImpl {
                 // call host function.
                 // @safety-#vm-transparent
                 // @todo-cleanup: can this be removed somehow?
-                let actual_rets = code.0(unsafe { core::mem::transmute_copy(&self) })?;
+                let ret = code.0(unsafe { core::mem::transmute_copy(&self) })?;
 
                 let frame = self.frames.last().unwrap();
-                assert!(frame.base + actual_rets <= frame.top);
+                let dst_abs = frame.dst_abs;
 
-                self.post_call(frame.top - frame.base - actual_rets, actual_rets)?;
+                match ret {
+                    NativeFuncReturn::Unit => {
+                        self.stack[dst_abs as usize] = self.tuple_new(vec![]);
+                    }
+                    NativeFuncReturn::Reg(src) => {
+                        self.stack[dst_abs as usize] = *self.reg(src);
+                    }
+                }
+
+                self.post_call()?;
 
                 Ok(false)
             }
         }
     }
 
-    fn post_call(&mut self, rets: u32, actual_rets: u32) -> VmResult<bool> {
-        let frame = self.frames.last().unwrap();
-        // @todo-speed: validate in host api & compiler.
-        assert!(frame.base + rets + actual_rets <= frame.top);
-
-        // check num_rets.
-        let num_rets = frame.num_rets;
-        if actual_rets < frame.num_rets {
-            return Err(VmError::InvalidOperation);
-        }
-
+    // caller is responsible for returning the value.
+    fn post_call(&mut self) -> VmResult<bool> {
         // pop frame.
-        let frame = self.frames.pop().unwrap();
-
-        // copy rets.
-        let prev_frame = self.frames.last_mut().unwrap();
-        debug_assert!(prev_frame.base + frame.dest_reg + num_rets <= prev_frame.top);
-        let dst_base = (prev_frame.base + frame.dest_reg) as usize;
-        let src_base = (frame.base + rets) as usize;
-        for i in 0..num_rets as usize {
-            self.stack[dst_base + i] = self.stack[src_base + i];
-        }
+        self.frames.pop().unwrap();
 
         // reset vm state.
+        let prev_frame = self.frames.last_mut().unwrap();
         self.pc = prev_frame.pc as usize;
         self.stack.truncate(prev_frame.top as usize);
 
@@ -1242,37 +1211,6 @@ impl VmImpl {
         prev_frame.pc = u32::MAX;
 
         Ok(prev_frame.is_native)
-    }
-
-    fn pre_packed_call(&mut self, func: u32, args: u32, num_args: u32, dst: u32, num_rets: u32) -> VmResult<bool> {
-        let frame = self.frames.last().unwrap();
-        let abs_func = frame.base + func;
-        let abs_args = frame.base + args;
-
-        self.pre_call(abs_func, num_args, dst, num_rets, |vm, dst_base| {
-            let src_base = abs_args as usize;
-            for i in 0..num_args as usize {
-                vm.stack[dst_base + i] = vm.stack[src_base + i];
-            }
-        })
-    }
-
-    // @todo-#host_api: what's the function call api?
-    fn call_perserve_args(&mut self, rets: u32, num_args: u32, num_rets: u32) -> VmResult<()> {
-        let frame = self.frames.last().unwrap();
-        let args = frame.top - num_args - frame.base;
-        let func = args - 1;
-        if self.pre_packed_call(func, args, num_args, rets, num_rets)? {
-            self.run().0?;
-        }
-        Ok(())
-    }
-
-    // @todo-#host_api: what's the function call api?
-    pub fn call(&mut self, rets: u32, num_args: u32, num_rets: u32) -> VmResult<()> {
-        self.call_perserve_args(rets, num_args, num_rets)?;
-        self.pop_n(num_args as u32 + 1);
-        Ok(())
     }
 }
 

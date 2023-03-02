@@ -4,9 +4,9 @@ use kibi::*;
 mod builtin {
     use super::*;
 
-    pub(crate) fn print(vm: &mut Vm) -> VmResult<u32> {
+    pub(crate) fn print(vm: &mut Vm) -> VmResult<NativeFuncReturn> {
         vm.generic_print(0);
-        return Ok(1);
+        return Ok(NativeFuncReturn::Unit);
     }
     pub(crate) const PRINT: FuncDesc = FuncDesc {
         code: FuncCode::Native(NativeFuncPtrEx(print)),
@@ -15,10 +15,10 @@ mod builtin {
         stack_size: 1,
     };
 
-    pub(crate) fn println(vm: &mut Vm) -> VmResult<u32> {
+    pub(crate) fn println(vm: &mut Vm) -> VmResult<NativeFuncReturn> {
         vm.generic_print(0);
         println!();
-        return Ok(1);
+        return Ok(NativeFuncReturn::Unit);
     }
     pub(crate) const PRINTLN: FuncDesc = FuncDesc {
         code: FuncCode::Native(NativeFuncPtrEx(println)),
@@ -58,7 +58,7 @@ fn main() {
         let dt_compile = t0.elapsed();
 
         let t0 = std::time::Instant::now();
-        vm.call().unwrap();
+        vm.temp_call().unwrap();
         let dt_run = t0.elapsed();
 
         println!("compile: {:?}", dt_compile);
@@ -138,7 +138,7 @@ fn main() {
 
         running.store(true, core::sync::atomic::Ordering::SeqCst);
         module.temp_load(&mut vm);
-        let result = vm.call();
+        let result = vm.temp_call();
         running.store(false, core::sync::atomic::Ordering::SeqCst);
 
         if let Err(_) = result {

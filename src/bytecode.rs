@@ -340,17 +340,17 @@ impl ByteCodeBuilder {
     }
 
 
-    pub fn call(&mut self, func: u8, args: &[u8], rets: u8, num_rets: u8) {
+    pub fn call(&mut self, dst: u8, func: u8, args: &[u8]) {
         assert!(args.len() < 128);
-        self.buffer.push(Instruction::encode_c3(opcode::CALL, func, rets, num_rets));
+        self.buffer.push(Instruction::encode_c2(opcode::CALL, dst, func));
         self.buffer.push(Instruction::encode_u16(opcode::EXTRA, args.len() as u16));
         for arg in args {
             self.buffer.push(Instruction::encode_u16(opcode::EXTRA, *arg as u16));
         }
     }
 
-    pub fn ret(&mut self, rets: u8, num_rets: u8) {
-        self.buffer.push(Instruction::encode_c2(opcode::RET, rets, num_rets));
+    pub fn ret(&mut self, src: u8) {
+        self.buffer.push(Instruction::encode_c1(opcode::RET, src));
     }
 
 
@@ -601,12 +601,12 @@ pub fn dump(code: &[Instruction]) {
 
 
             CALL => {
-                let (func, rets, num_rets) = instr.c3();
+                let (dst, func) = instr.c2();
 
                 let num_args = next_instr_extra!();
                 let num_args = num_args.u16();
 
-                print!("  call r{}, [", func);
+                print!("  call r{}, r{}, [", dst, func);
 
                 for i in 0..num_args {
                     let arg = next_instr_extra!();
@@ -616,12 +616,12 @@ pub fn dump(code: &[Instruction]) {
                     }
                 }
 
-                println!("], r{}, {}", rets, num_rets);
+                println!("]");
             }
 
             RET => {
-                let (rets, num_rets) = instr.c2();
-                println!("  ret r{}, {}", rets, num_rets);
+                let src = instr.c1();
+                println!("  ret r{}", src);
             }
 
             NEW_FUNCTION => {

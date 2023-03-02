@@ -75,7 +75,12 @@ impl TableData {
 
 
 
-pub type NativeFuncPtr = fn(&mut Vm) -> VmResult<u32>;
+pub enum NativeFuncReturn {
+    Unit,
+    Reg (u32),
+}
+
+pub type NativeFuncPtr = fn(&mut Vm) -> VmResult<NativeFuncReturn>;
 
 #[derive(Clone)]
 pub struct NativeFuncPtrEx(pub NativeFuncPtr);
