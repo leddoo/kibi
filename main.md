@@ -5,11 +5,15 @@
     - debugging.
 
 - todo:
+    - small things:
+        - labeled break.
+        - nil -> empty tuple.
+        - fix register hints for joins.
+            - just joining into stmt w/ lower stmt_index may work.
     - tuples.
         - destructuring.
         - remove multi-ret.
-    - labeled break.
-    - fix prefix operators.
+        - tuple ret.
     - kbtf & validation.
     - trace logging.
 

@@ -190,6 +190,49 @@ impl<'a> TokenData<'a> {
             => false
         }
     }
+
+
+    pub fn try_op1(&self) -> Option<ast::Op1Kind> {
+        use TokenData::*;
+        use super::Op1::*;
+        Some(match self {
+            KwNot   => ast::Op1Kind(BoolNot),
+            OpNot   => ast::Op1Kind(BitNot),
+            OpMinus => ast::Op1Kind(Neg),
+            OpPlus  => ast::Op1Kind(Plus),
+            _ => return None,
+        })
+    }
+
+    pub fn try_op2(&self) -> Option<ast::Op2Kind> {
+        use TokenData::*;
+        use super::Op2::*;
+        Some(match self {
+            KwAnd           => ast::Op2Kind::Op2(And),
+            KwOr            => ast::Op2Kind::Op2(Or),
+            OpPlus          => ast::Op2Kind::Op2(Add),
+            OpPlusEq        => ast::Op2Kind::Op2Assign(Add),
+            OpMinus         => ast::Op2Kind::Op2(Sub),
+            OpMinusEq       => ast::Op2Kind::Op2Assign(Sub),
+            OpStar          => ast::Op2Kind::Op2(Mul),
+            OpStarEq        => ast::Op2Kind::Op2Assign(Mul),
+            OpSlash         => ast::Op2Kind::Op2(Div),
+            OpSlashEq       => ast::Op2Kind::Op2Assign(Div),
+            OpSlashSlash    => ast::Op2Kind::Op2(IntDiv),
+            OpSlashSlashEq  => ast::Op2Kind::Op2Assign(IntDiv),
+            ColonEq         => ast::Op2Kind::Define,
+            OpEq            => ast::Op2Kind::Assign,
+            OpEqEq          => ast::Op2Kind::Op2(CmpEq),
+            OpNe            => ast::Op2Kind::Op2(CmpNe),
+            OpLe            => ast::Op2Kind::Op2(CmpLe),
+            OpLt            => ast::Op2Kind::Op2(CmpLt),
+            OpGe            => ast::Op2Kind::Op2(CmpGe),
+            OpGt            => ast::Op2Kind::Op2(CmpGt),
+            OpQQ            => ast::Op2Kind::Op2(OrElse),
+            OpQQEq          => ast::Op2Kind::Op2Assign(OrElse),
+            _ => return None
+        })
+    }
 }
 
 
@@ -882,48 +925,6 @@ impl<'p, 'i> Parser<'p, 'i> {
         Err(ParseError::at(&tok, ParseErrorData::Expected(kind)))
     }
 
-    fn peek_op1(&mut self) -> Option<ast::Op1Kind> {
-        use TokenData::*;
-        use super::Op1::*;
-        Some(match self.peek(0)?.data {
-            KwNot   => ast::Op1Kind(BoolNot),
-            OpNot   => ast::Op1Kind(BitNot),
-            OpMinus => ast::Op1Kind(Neg),
-            OpPlus  => ast::Op1Kind(Plus),
-            _ => return None,
-        })
-    }
-
-    fn peek_op2(&mut self) -> Option<ast::Op2Kind> {
-        use TokenData::*;
-        use super::Op2::*;
-        Some(match self.peek(0)?.data {
-            KwAnd           => ast::Op2Kind::Op2(And),
-            KwOr            => ast::Op2Kind::Op2(Or),
-            OpPlus          => ast::Op2Kind::Op2(Add),
-            OpPlusEq        => ast::Op2Kind::Op2Assign(Add),
-            OpMinus         => ast::Op2Kind::Op2(Sub),
-            OpMinusEq       => ast::Op2Kind::Op2Assign(Sub),
-            OpStar          => ast::Op2Kind::Op2(Mul),
-            OpStarEq        => ast::Op2Kind::Op2Assign(Mul),
-            OpSlash         => ast::Op2Kind::Op2(Div),
-            OpSlashEq       => ast::Op2Kind::Op2Assign(Div),
-            OpSlashSlash    => ast::Op2Kind::Op2(IntDiv),
-            OpSlashSlashEq  => ast::Op2Kind::Op2Assign(IntDiv),
-            ColonEq         => ast::Op2Kind::Define,
-            OpEq            => ast::Op2Kind::Assign,
-            OpEqEq          => ast::Op2Kind::Op2(CmpEq),
-            OpNe            => ast::Op2Kind::Op2(CmpNe),
-            OpLe            => ast::Op2Kind::Op2(CmpLe),
-            OpLt            => ast::Op2Kind::Op2(CmpLt),
-            OpGe            => ast::Op2Kind::Op2(CmpGe),
-            OpGt            => ast::Op2Kind::Op2(CmpGt),
-            OpQQ            => ast::Op2Kind::Op2(OrElse),
-            OpQQEq          => ast::Op2Kind::Op2Assign(OrElse),
-            _ => return None
-        })
-    }
-
 
     // bool: terminated (needs no semi-colon).
     fn parse_leading_expr(&mut self, prec: u32) -> ParseResult<Ast<'i>> {
@@ -1102,7 +1103,7 @@ impl<'p, 'i> Parser<'p, 'i> {
         }
 
         // prefix operators.
-        if let Some(op1) = self.peek_op1() {
+        if let Some(op1) = current.try_op1() {
             if ast::PREC_PREFIX < prec {
                 unimplemented!()
             }
@@ -1131,8 +1132,10 @@ impl<'p, 'i> Parser<'p, 'i> {
         let mut result = self.parse_leading_expr(prec)?;
 
         loop {
+            let Some(current) = self.peek(0) else { break };
+
             // binary operator.
-            if let Some(op2) = self.peek_op2() {
+            if let Some(op2) = current.try_op2() {
                 if op2.lprec() >= prec {
                     self.next().unwrap();
 
@@ -1154,8 +1157,6 @@ impl<'p, 'i> Parser<'p, 'i> {
             if ast::PREC_POSTFIX < prec {
                 break;
             }
-
-            let Some(current) = self.peek(0) else { break };
 
             // call.
             if current.data == TokenData::LParen {
