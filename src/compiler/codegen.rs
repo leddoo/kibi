@@ -565,6 +565,10 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
                     bcb.tuple_new(dst, &values);
                 }
 
+                TupleNew0 => {
+                    bcb.load_unit(dst);
+                }
+
                 NewFunction { id } => bcb.new_function(dst, fun_protos[id.usize()].try_into().unwrap()),
 
                 GetIndex { base, index } => bcb.get(dst, reg(base), reg(index)),
@@ -651,7 +655,7 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
             COPY | SWAP |
             LOAD_NIL | LOAD_BOOL | LOAD_INT | LOAD_CONST | LOAD_ENV |
             LIST_NEW | LIST_APPEND |
-            TUPLE_NEW |
+            TUPLE_NEW | LOAD_UNIT |
             TABLE_NEW |
             NEW_FUNCTION |
             DEF | SET | GET | LEN |

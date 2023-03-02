@@ -10,6 +10,7 @@ pub(crate) enum Value {
     String { index: usize  },
     List   { index: usize  },
     Tuple  { index: usize  },
+    Unit,
     Table  { index: usize  },
     Func   { proto: usize  },
     // Fiber

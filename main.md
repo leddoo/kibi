@@ -6,8 +6,6 @@
 
 - todo:
     - small things:
-        - nil -> empty tuple.
-            - unit tuple optimization.
         - compile cancelling operators.
         - vm: implement missing operators.
         - labeled break.

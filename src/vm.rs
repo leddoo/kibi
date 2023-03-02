@@ -282,6 +282,23 @@ impl VmImpl {
             (List { index: i1 }, List { index: i2 }) =>
                 i1 == i2,
 
+            (Tuple { index: i1 }, Tuple { index: i2 }) => {
+                let GcObjectData::Tuple { values: vs1 } = &self.heap[i1].data else { unreachable!() };
+                let GcObjectData::Tuple { values: vs2 } = &self.heap[i2].data else { unreachable!() };
+
+                if vs1.len() != vs2.len() {
+                    return false;
+                }
+                for i in 0..vs1.len() {
+                    if !self.raw_eq(vs1[i], vs2[i]) {
+                        return false;
+                    }
+                }
+                true
+            }
+
+            (Unit, Unit) => true,
+
             (Table { index: i1 }, Table { index: i2 }) =>
                 i1 == i2,
 
@@ -408,6 +425,7 @@ impl VmImpl {
                     print!(")");
                 }
             },
+            Value::Unit => print!("()"),
             Value::Table  { index } => print!("<Table {}>", index),
             Value::Func   { proto } => print!("<Func {}>", proto),
         }
@@ -496,10 +514,15 @@ impl VmImpl {
 
 
     fn tuple_new(&mut self, values: Vec<Value>) -> Value {
-        // @todo-cleanup: alloc utils.
-        let index = self.heap_alloc();
-        self.heap[index].data = GcObjectData::Tuple { values };
-        Value::Tuple { index }
+        if values.len() != 0 {
+            // @todo-cleanup: alloc utils.
+            let index = self.heap_alloc();
+            self.heap[index].data = GcObjectData::Tuple { values };
+            Value::Tuple { index }
+        }
+        else {
+            Value::Unit
+        }
     }
 
     fn tuple_get(&mut self, tuple: Value, index: Value) -> VmResult<Value> {
@@ -600,6 +623,10 @@ impl VmImpl {
         }
         else if let Value::Tuple { index: _ } = obj {
             self.tuple_get(obj, key)
+        }
+        else if let Value::Unit = obj {
+            // @todo: same error as for tuple out of bounds.
+            Err(VmError::InvalidOperation)
         }
         // @todo-cleanup: value utils.
         else if let Value::Table { index: _ } = obj {
@@ -823,6 +850,11 @@ impl VmImpl {
                         }
 
                         *self.reg(dst) = self.tuple_new(values);
+                    }
+
+                    LOAD_UNIT => {
+                        let dst = instr.c1();
+                        *self.reg(dst) = Value::Unit;
                     }
 
 

@@ -43,6 +43,7 @@ pub enum StmtData {
     ListAppend { list: StmtId, value: StmtId },
 
     TupleNew { values: StmtListId },
+    TupleNew0,
 
     NewFunction { id: FunctionId },
 
@@ -228,6 +229,7 @@ impl<'a> core::fmt::Display for StmtFmt<'a> {
             ListAppend { list, value } => { write!(f, "list_append {}, {}", list, value) }
 
             TupleNew { values } => write!(f, "tuple_new {}", values.get(fun)),
+            TupleNew0 => write!(f, "tuple_new []"),
 
             NewFunction { id } => write!(f, "new_function {}", id),
 
@@ -310,6 +312,7 @@ impl StmtData {
             ListNew |
             ListAppend { list: _, value: _ } |
             TupleNew { values: _ } |
+            TupleNew0 |
             NewFunction { id: _ } |
             GetIndex { base: _, index: _ } |
             SetIndex { base: _, index: _, value: _, is_define: _ } |
@@ -337,6 +340,7 @@ impl StmtData {
             LoadEnv |
             ListNew |
             TupleNew { values: _ } |
+            TupleNew0 |
             NewFunction { id: _ } |
             GetIndex { base: _, index: _ } |
             Call { func: _, args_id: _ } |
@@ -379,6 +383,7 @@ impl StmtData {
             ListAppend { list, value } => { f(*list); f(*value) }
 
             TupleNew { values } => { values.each(fun, f) }
+            TupleNew0 => (),
 
             NewFunction { id: _ } => (),
 
@@ -429,6 +434,7 @@ impl StmtData {
             ListAppend { list, value } => { f(fun, list); f(fun, value) }
 
             TupleNew { values } => { values.each_mut(fun, f) }
+            TupleNew0 => (),
 
             NewFunction { id: _ } => (),
 
@@ -1053,11 +1059,20 @@ impl Function {
         self.add_stmt(source, StmtData::ListAppend { list, value })
     }
 
-    #[inline]
     pub fn stmt_tuple_new(&mut self, source: SourceRange, values: &[StmtId]) -> StmtId {
-        let values_id = StmtListId(self.stmt_lists.len() as u32);
-        self.stmt_lists.push(StmtListImpl { values: values.into() });
-        self.add_stmt(source, StmtData::TupleNew { values: values_id })
+        if values.len() == 0 {
+            self.add_stmt(source, StmtData::TupleNew0)
+        }
+        else {
+            let values_id = StmtListId(self.stmt_lists.len() as u32);
+            self.stmt_lists.push(StmtListImpl { values: values.into() });
+            self.add_stmt(source, StmtData::TupleNew { values: values_id })
+        }
+    }
+
+    #[inline]
+    pub fn stmt_load_unit(&mut self, source: SourceRange) -> StmtId {
+        self.add_stmt(source, StmtData::TupleNew0)
     }
 
     #[inline]

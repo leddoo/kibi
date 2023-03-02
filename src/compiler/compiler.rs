@@ -79,8 +79,8 @@ impl Compiler {
         let mut fun = this.module.new_function();
         this.compile_block(&mut ctx, &mut fun, stmts)?;
 
-        let nil = fun.stmt_load_nil(SourceRange::null());
-        fun.stmt_return(SourceRange::null(), nil);
+        let unit = fun.stmt_load_unit(SourceRange::null());
+        fun.stmt_return(SourceRange::null(), unit);
 
         Ok(this.module)
     }
@@ -200,7 +200,7 @@ impl Compiler {
                             let is_define = op2.kind == ast::Op2Kind::Define;
                             self.compile_assign(ctx, fun, &op2.children[0], value, is_define)?;
                         }
-                        Ok(need_value.then(|| fun.stmt_load_nil(ast.source)))
+                        Ok(need_value.then(|| fun.stmt_load_unit(ast.source)))
                     }
 
                     ast::Op2Kind::Op2Assign(op) => {
@@ -211,7 +211,7 @@ impl Compiler {
                         let is_define = false;
                         self.compile_assign(ctx, fun, &op2.children[0], value, is_define)?;
 
-                        Ok(need_value.then(|| fun.stmt_load_nil(ast.source)))
+                        Ok(need_value.then(|| fun.stmt_load_unit(ast.source)))
                     }
 
                     ast::Op2Kind::Op2(op) => {
@@ -277,7 +277,7 @@ impl Compiler {
                     }
                     else {
                         let source = ast.source.end.to_range();
-                        let v = need_value.then(|| fun.stmt_load_nil(source));
+                        let v = need_value.then(|| fun.stmt_load_unit(source));
                         (v, source)
                     };
                 fun.stmt_jump(on_false_src, after_if);
@@ -321,7 +321,7 @@ impl Compiler {
 
 
                 fun.set_current_block(bb_after);
-                Ok(need_value.then(|| fun.stmt_load_nil(ast.source)))
+                Ok(need_value.then(|| fun.stmt_load_unit(ast.source)))
             }
 
             AstData::Break(value) => {
@@ -335,7 +335,7 @@ impl Compiler {
 
                 if let Some(values) = &mut scope.values {
                     let value = value.unwrap_or_else(||
-                        fun.stmt_load_nil(ast.source));
+                        fun.stmt_load_unit(ast.source));
                     values.push((fun.get_current_block(), value));
                 }
                 else if value.is_some() {
@@ -346,7 +346,7 @@ impl Compiler {
 
                 let bb_unreach = fun.new_block();
                 fun.set_current_block(bb_unreach);
-                Ok(need_value.then(|| fun.stmt_load_nil(ast.source)))
+                Ok(need_value.then(|| fun.stmt_load_unit(ast.source)))
             }
 
             AstData::Continue => {
@@ -355,7 +355,7 @@ impl Compiler {
 
                 let bb_unreach = fun.new_block();
                 fun.set_current_block(bb_unreach);
-                Ok(need_value.then(|| fun.stmt_load_nil(ast.source)))
+                Ok(need_value.then(|| fun.stmt_load_unit(ast.source)))
             }
 
             AstData::Return (returnn) => {
@@ -364,14 +364,14 @@ impl Compiler {
                         self.compile_ast(ctx, fun, value, true)?.unwrap()
                     }
                     else {
-                        fun.stmt_load_nil(ast.source)
+                        fun.stmt_load_unit(ast.source)
                     };
                 fun.stmt_return(ast.source, value);
 
                 let new_block = fun.new_block();
                 fun.set_current_block(new_block);
 
-                Ok(need_value.then(|| fun.stmt_load_nil(ast.source)))
+                Ok(need_value.then(|| fun.stmt_load_unit(ast.source)))
             }
 
             AstData::Fn (fnn) => {
@@ -408,7 +408,7 @@ impl Compiler {
                         self.compile_ast(ctx, fun, value, true)?.unwrap()
                     }
                     else {
-                        fun.stmt_load_nil(stmt.source)
+                        fun.stmt_load_unit(stmt.source)
                     };
 
                 let lid = fun.new_local(local.name, stmt.source);
@@ -436,7 +436,7 @@ impl Compiler {
 
         let default_block = fun.get_current_block();
         let default_value = need_value.then(||
-            fun.stmt_load_nil(block_source));
+            fun.stmt_load_unit(block_source));
         fun.stmt_jump(block_source, bb_after);
         fun.set_current_block(bb_after);
 
@@ -456,7 +456,7 @@ impl Compiler {
         }
         else {
             self.compile_block(ctx, fun, stmts)?;
-            Ok(need_value.then(|| fun.stmt_load_nil(block_source)))
+            Ok(need_value.then(|| fun.stmt_load_unit(block_source)))
         }
     }
 
