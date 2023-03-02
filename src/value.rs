@@ -18,6 +18,13 @@ pub(crate) enum Value {
 impl From<bool> for Value { #[inline(always)] fn from(value: bool) -> Self { Value::Bool   { value } } }
 impl From<f64>  for Value { #[inline(always)] fn from(value: f64)  -> Self { Value::Number { value } } }
 
+impl Value {
+    #[inline(always)]
+    pub fn is_nil(&self) -> bool {
+        if let Value::Nil = self { true } else { false }
+    }
+}
+
 
 
 #[derive(Debug)]

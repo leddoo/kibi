@@ -3,54 +3,60 @@ pub mod opcode {
     pub const UNREACHABLE:      u8 = 2;
 
     pub const COPY:             u8 = 3;
+    pub const SWAP:             u8 = 4;
 
-    pub const LOAD_NIL:         u8 = 4;
-    pub const LOAD_BOOL:        u8 = 5;
-    pub const LOAD_INT:         u8 = 6;
-    pub const LOAD_CONST:       u8 = 7;
-    pub const LOAD_ENV:         u8 = 8;
+    pub const LOAD_NIL:         u8 = 5;
+    pub const LOAD_BOOL:        u8 = 6;
+    pub const LOAD_INT:         u8 = 7;
+    pub const LOAD_CONST:       u8 = 8;
+    pub const LOAD_ENV:         u8 = 9;
 
-    pub const LIST_NEW:         u8 = 9;
-    pub const LIST_APPEND:      u8 = 10;
+    pub const LIST_NEW:         u8 = 10;
+    pub const LIST_APPEND:      u8 = 11;
 
-    pub const TABLE_NEW:        u8 = 11;
+    pub const TUPLE_NEW:        u8 = 12;
 
-    pub const DEF:              u8 = 12;
-    pub const SET:              u8 = 13;
-    pub const GET:              u8 = 14;
-    pub const LEN:              u8 = 15;
+    pub const TABLE_NEW:        u8 = 13;
 
-    pub const ADD:              u8 = 16;
-    pub const SUB:              u8 = 17;
-    pub const MUL:              u8 = 18;
-    pub const DIV:              u8 = 19;
-    pub const INC:              u8 = 20;
-    pub const DEC:              u8 = 21;
+    pub const NEW_FUNCTION:     u8 = 14;
 
-    pub const CMP_EQ:           u8 = 22;
-    pub const CMP_LE:           u8 = 23;
-    pub const CMP_LT:           u8 = 24;
-    pub const CMP_GE:           u8 = 25;
-    pub const CMP_GT:           u8 = 26;
+    pub const DEF:              u8 = 15;
+    pub const SET:              u8 = 16;
+    pub const GET:              u8 = 17;
+    pub const LEN:              u8 = 18;
 
-    pub const JUMP:             u8 = 27;
-    pub const JUMP_TRUE:        u8 = 28;
-    pub const JUMP_FALSE:       u8 = 29;
-    pub const JUMP_EQ:          u8 = 30;
-    pub const JUMP_LE:          u8 = 31;
-    pub const JUMP_LT:          u8 = 32;
-    pub const JUMP_NEQ:         u8 = 33;
-    pub const JUMP_NLE:         u8 = 34;
-    pub const JUMP_NLT:         u8 = 35;
+    pub const ADD:              u8 = 19;
+    pub const SUB:              u8 = 20;
+    pub const MUL:              u8 = 21;
+    pub const DIV:              u8 = 22;
+    pub const FLOOR_DIV:        u8 = 23;
+    pub const REM:              u8 = 24;
+    pub const ADD_INT:          u8 = 25;
+    pub const NEGATE:           u8 = 26;
 
-    pub const PACKED_CALL:      u8 = 36;
-    pub const GATHER_CALL:      u8 = 37;
-    pub const RET:              u8 = 38;
+    // pub const AND:              u8 = ;
+    // pub const OR:               u8 = ;
+    pub const NOT:              u8 = 27;
 
-    pub const NEW_FUNCTION:     u8 = 39;
-    pub const SWAP:             u8 = 40;
-    pub const TUPLE_NEW:        u8 = 41;
-    pub const END:              u8 = 42;
+    // pub const OR_ELSE:          u8 = ;
+
+    pub const CMP_EQ:           u8 = 28;
+    pub const CMP_NE:           u8 = 29;
+    pub const CMP_LE:           u8 = 30;
+    pub const CMP_LT:           u8 = 31;
+    pub const CMP_GE:           u8 = 32;
+    pub const CMP_GT:           u8 = 33;
+
+    pub const JUMP:             u8 = 34;
+    pub const JUMP_TRUE:        u8 = 35;
+    pub const JUMP_FALSE:       u8 = 36;
+    pub const JUMP_NIL:         u8 = 37;
+    pub const JUMP_NOT_NIL:     u8 = 38;
+
+    pub const CALL:             u8 = 39;
+    pub const RET:              u8 = 40;
+
+    pub const END:              u8 = 41;
 
     pub const EXTRA:            u8 = 255;
 }
@@ -273,17 +279,35 @@ impl ByteCodeBuilder {
         self.buffer.push(Instruction::encode_c3(opcode::DIV, dst, src1, src2));
     }
 
-    pub fn inc(&mut self, dst: u8) {
-        self.buffer.push(Instruction::encode_c1(opcode::INC, dst));
+    pub fn floor_div(&mut self, dst: u8, src1: u8, src2: u8) {
+        self.buffer.push(Instruction::encode_c3(opcode::FLOOR_DIV, dst, src1, src2));
     }
 
-    pub fn dec(&mut self, dst: u8) {
-        self.buffer.push(Instruction::encode_c1(opcode::DEC, dst));
+    pub fn rem(&mut self, dst: u8, src1: u8, src2: u8) {
+        self.buffer.push(Instruction::encode_c3(opcode::REM, dst, src1, src2));
     }
+
+    pub fn add_int(&mut self, dst: u8, value: i16) {
+        self.buffer.push(Instruction::encode_c1u16(opcode::ADD_INT, dst, value as u16));
+    }
+
+    pub fn negate(&mut self, dst: u8, src: u8) {
+        self.buffer.push(Instruction::encode_c2(opcode::NEGATE, dst, src));
+    }
+
+
+    pub fn not(&mut self, dst: u8, src: u8) {
+        self.buffer.push(Instruction::encode_c2(opcode::NOT, dst, src));
+    }
+
 
 
     pub fn cmp_eq(&mut self, dst: u8, src1: u8, src2: u8) {
         self.buffer.push(Instruction::encode_c3(opcode::CMP_EQ, dst, src1, src2));
+    }
+
+    pub fn cmp_ne(&mut self, dst: u8, src1: u8, src2: u8) {
+        self.buffer.push(Instruction::encode_c3(opcode::CMP_NE, dst, src1, src2));
     }
 
     pub fn cmp_le(&mut self, dst: u8, src1: u8, src2: u8) {
@@ -315,45 +339,10 @@ impl ByteCodeBuilder {
         self.buffer.push(Instruction::encode_c1u16(opcode::JUMP_FALSE, src, target));
     }
 
-    pub fn jump_eq(&mut self, src1: u8, src2: u8, target: u16) {
-        self.buffer.push(Instruction::encode_c2(opcode::JUMP_EQ, src1, src2));
-        self.buffer.push(Instruction::encode_u16(opcode::EXTRA, target));
-    }
 
-    pub fn jump_le(&mut self, src1: u8, src2: u8, target: u16) {
-        self.buffer.push(Instruction::encode_c2(opcode::JUMP_LE, src1, src2));
-        self.buffer.push(Instruction::encode_u16(opcode::EXTRA, target));
-    }
-
-    pub fn jump_lt(&mut self, src1: u8, src2: u8, target: u16) {
-        self.buffer.push(Instruction::encode_c2(opcode::JUMP_LT, src1, src2));
-        self.buffer.push(Instruction::encode_u16(opcode::EXTRA, target));
-    }
-
-    pub fn jump_neq(&mut self, src1: u8, src2: u8, target: u16) {
-        self.buffer.push(Instruction::encode_c2(opcode::JUMP_NEQ, src1, src2));
-        self.buffer.push(Instruction::encode_u16(opcode::EXTRA, target));
-    }
-
-    pub fn jump_nle(&mut self, src1: u8, src2: u8, target: u16) {
-        self.buffer.push(Instruction::encode_c2(opcode::JUMP_NLE, src1, src2));
-        self.buffer.push(Instruction::encode_u16(opcode::EXTRA, target));
-    }
-
-    pub fn jump_nlt(&mut self, src1: u8, src2: u8, target: u16) {
-        self.buffer.push(Instruction::encode_c2(opcode::JUMP_NLT, src1, src2));
-        self.buffer.push(Instruction::encode_u16(opcode::EXTRA, target));
-    }
-
-
-    pub fn packed_call(&mut self, func: u8, args: u8, num_args: u8, rets: u8, num_rets: u8) {
-        self.buffer.push(Instruction::encode_c3(opcode::PACKED_CALL, func, rets, num_rets));
-        self.buffer.push(Instruction::encode_c2(opcode::EXTRA, args, num_args));
-    }
-
-    pub fn gather_call(&mut self, func: u8, args: &[u8], rets: u8, num_rets: u8) {
+    pub fn call(&mut self, func: u8, args: &[u8], rets: u8, num_rets: u8) {
         assert!(args.len() < 128);
-        self.buffer.push(Instruction::encode_c3(opcode::GATHER_CALL, func, rets, num_rets));
+        self.buffer.push(Instruction::encode_c3(opcode::CALL, func, rets, num_rets));
         self.buffer.push(Instruction::encode_u16(opcode::EXTRA, args.len() as u16));
         for arg in args {
             self.buffer.push(Instruction::encode_u16(opcode::EXTRA, *arg as u16));
@@ -405,11 +394,12 @@ pub fn dump(code: &[Instruction]) {
 
         use crate::bytecode::opcode::*;
         match instr.opcode() as u8 {
-            NOP => (),
+            NOP => {
+                println!("  nop");
+            }
 
             UNREACHABLE => {
                 println!("  unreachable");
-                break;
             }
 
 
@@ -526,20 +516,41 @@ pub fn dump(code: &[Instruction]) {
                 println!("  div r{}, r{}, r{}", dst, src1, src2);
             }
 
-            INC => {
-                let dst = instr.c1();
-                println!("  inc r{}", dst);
+            FLOOR_DIV => {
+                let (dst, src1, src2) = instr.c3();
+                println!("  floor_div r{}, r{}, r{}", dst, src1, src2);
             }
 
-            DEC => {
-                let dst = instr.c1();
-                println!("  dec r{}", dst);
+            REM => {
+                let (dst, src1, src2) = instr.c3();
+                println!("  rem r{}, r{}, r{}", dst, src1, src2);
+            }
+
+            ADD_INT => {
+                let (dst, value) = instr.c1u16();
+                println!("  add_int r{}, {}", dst, value);
+            }
+
+            NEGATE => {
+                let (dst, src) = instr.c2();
+                println!("  negate r{}, r{}", dst, src);
+            }
+
+
+            NOT => {
+                let (dst, src) = instr.c2();
+                println!("  or r{}, r{}", dst, src);
             }
 
 
             CMP_EQ => {
                 let (dst, src1, src2) = instr.c3();
                 println!("  cmp_eq r{}, r{}, r{}", dst, src1, src2);
+            }
+
+            CMP_NE => {
+                let (dst, src1, src2) = instr.c3();
+                println!("  cmp_ne r{}, r{}, r{}", dst, src1, src2);
             }
 
             CMP_LE => {
@@ -578,48 +589,18 @@ pub fn dump(code: &[Instruction]) {
                 println!("  jump_false r{}, {}", src, target);
             }
 
-            JUMP_EQ => {
-                let (src1, src2) = instr.c2();
-                let target = next_instr_extra!().u16();
-                println!("  jump_eq r{}, r{}, {}", src1, src2, target);
+            JUMP_NIL => {
+                let (src, target) = instr.c1u16();
+                println!("  jump_nil r{}, {}", src, target);
             }
 
-            JUMP_LE => {
-                let (src1, src2) = instr.c2();
-                let target = next_instr_extra!().u16();
-                println!("  jump_le r{}, r{}, {}", src1, src2, target);
-            }
-
-            JUMP_LT => {
-                let (src1, src2) = instr.c2();
-                let target = next_instr_extra!().u16();
-                println!("  jump_le r{}, r{}, {}", src1, src2, target);
-            }
-
-            JUMP_NEQ => {
-                let (src1, src2) = instr.c2();
-                let target = next_instr_extra!().u16();
-                println!("  jump_le r{}, r{}, {}", src1, src2, target);
-            }
-
-            JUMP_NLE => {
-                let (src1, src2) = instr.c2();
-                let target = next_instr_extra!().u16();
-                println!("  jump_nle r{}, r{}, {}", src1, src2, target);
-            }
-
-            JUMP_NLT => {
-                let (src1, src2) = instr.c2();
-                let target = next_instr_extra!().u16();
-                println!("  jump_nlt r{}, r{}, {}", src1, src2, target);
+            JUMP_NOT_NIL => {
+                let (src, target) = instr.c1u16();
+                println!("  jump_not_nil r{}, {}", src, target);
             }
 
 
-            PACKED_CALL => {
-                unimplemented!()
-            }
-
-            GATHER_CALL => {
+            CALL => {
                 let (func, rets, num_rets) = instr.c3();
 
                 let num_args = next_instr_extra!();

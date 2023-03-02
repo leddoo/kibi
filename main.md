@@ -6,13 +6,15 @@
 
 - todo:
     - small things:
+        - remove multi-ret.
+        - compile cancelling operators.
+        - vm: implement missing operators.
         - labeled break.
         - nil -> empty tuple.
         - fix register hints for joins.
             - just joining into stmt w/ lower stmt_index may work.
     - tuples.
         - destructuring.
-        - remove multi-ret.
         - tuple ret.
     - kbtf & validation.
     - trace logging.

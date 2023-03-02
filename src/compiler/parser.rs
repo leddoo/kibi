@@ -35,6 +35,8 @@ pub enum TokenData<'a> {
     Comma,
     Colon,
     Semicolon,
+    FatArrow,
+    ColonEq,
     KwLet, KwVar,
     KwDo,
     KwIf,
@@ -52,30 +54,28 @@ pub enum TokenData<'a> {
     KwOr,
     KwNot,
     KwEnv,
-    OpPlus,
-    OpPlusEq,
+    OpAdd,
+    OpAddAssign,
     OpMinus,
-    OpMinusEq,
-    OpStar,
-    OpStarEq,
-    OpSlash,
-    OpSlashEq,
-    OpSlashSlash,
-    OpSlashSlashEq,
-    FatArrow,
-    ColonEq,
+    OpMinusAssign,
+    OpMul,
+    OpMulAssign,
+    OpDiv,
+    OpDivAssign,
+    OpFloorDiv,
+    OpFloorDivAssign,
+    OpRem,
+    OpRemAssign,
+    OpAssign,
     OpEq,
-    OpEqEq,
     OpNe,
     OpLe,
     OpLt,
     OpGe,
     OpGt,
-    OpNot,
-    OpQ,
-    OpQDot,
-    OpQQ,
-    OpQQEq,
+    OpOptChain,
+    OpOrElse,
+    OpOrElseAssign,
 }
 
 impl<'a> TokenData<'a> {
@@ -99,15 +99,16 @@ impl<'a> TokenData<'a> {
             KwWhile | KwFor | KwIn |
             KwFn |
             KwAnd | KwOr |
-            OpPlus | OpPlusEq |
-            OpMinus | OpMinusEq |
-            OpStar | OpStarEq |
-            OpSlash | OpSlashEq |
-            OpSlashSlash | OpSlashSlashEq |
+            OpAdd | OpAddAssign |
+            OpMinus | OpMinusAssign |
+            OpMul | OpMulAssign |
+            OpDiv | OpDivAssign |
+            OpFloorDiv | OpFloorDivAssign |
+            OpRem | OpRemAssign |
             FatArrow | ColonEq |
-            OpEq | OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
-            OpQ | OpQDot | OpQQ | OpQQEq |
-            OpNot | KwNot
+            OpAssign | OpEq | OpNe | OpLe | OpLt | OpGe | OpGt |
+            OpOptChain | OpOrElse | OpOrElseAssign |
+            KwNot
             => false,
         }
     }
@@ -123,7 +124,7 @@ impl<'a> TokenData<'a> {
             KwEnd |
             KwFn |
             KwEnv |
-            OpNot | KwNot
+            KwNot
             => true,
 
             // unless the next token indicates
@@ -134,14 +135,15 @@ impl<'a> TokenData<'a> {
             Dot | Comma | Colon | Semicolon |
             KwIn |
             KwAnd | KwOr |
-            OpPlus | OpPlusEq |
-            OpMinus | OpMinusEq |
-            OpStar | OpStarEq |
-            OpSlash | OpSlashEq |
-            OpSlashSlash | OpSlashSlashEq |
+            OpAdd | OpAddAssign |
+            OpMinus | OpMinusAssign |
+            OpMul | OpMulAssign |
+            OpDiv | OpDivAssign |
+            OpFloorDiv | OpFloorDivAssign |
+            OpRem | OpRemAssign |
             FatArrow | ColonEq |
-            OpEq | OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
-            OpQ | OpQDot | OpQQ | OpQQEq
+            OpAssign | OpEq | OpNe | OpLe | OpLt | OpGe | OpGt |
+            OpOptChain | OpOrElse | OpOrElseAssign
             => false,
         }
     }
@@ -171,9 +173,9 @@ impl<'a> TokenData<'a> {
             KwDo | KwIf | KwWhile | KwFor |
             KwBreak | KwContinue | KwReturn |
             KwFn |
-            KwNot | OpNot |
+            KwNot |
             KwEnv |
-            OpPlus | OpMinus | OpStar
+            OpMinus | OpMul
             => true,
 
             RParen | RBracket | RCurly |
@@ -182,11 +184,12 @@ impl<'a> TokenData<'a> {
             KwElif | KwElse |
             KwIn |
             KwAnd | KwOr |
-            OpPlusEq | OpMinusEq | OpStarEq |
-            OpSlash | OpSlashEq | OpSlashSlash | OpSlashSlashEq |
+            OpAdd | OpAddAssign | OpMinusAssign | OpMulAssign |
+            OpDiv | OpDivAssign | OpFloorDiv | OpFloorDivAssign |
+            OpRem | OpRemAssign |
             FatArrow | ColonEq |
-            OpEq | OpEqEq | OpNe | OpLe | OpLt | OpGe | OpGt |
-            OpQ | OpQDot | OpQQ | OpQQEq
+            OpAssign | OpEq | OpNe | OpLe | OpLt | OpGe | OpGt |
+            OpOptChain | OpOrElse | OpOrElseAssign
             => false
         }
     }
@@ -196,10 +199,8 @@ impl<'a> TokenData<'a> {
         use TokenData::*;
         use super::Op1::*;
         Some(match self {
-            KwNot   => ast::Op1Kind(BoolNot),
-            OpNot   => ast::Op1Kind(BitNot),
-            OpMinus => ast::Op1Kind(Neg),
-            OpPlus  => ast::Op1Kind(Plus),
+            KwNot    => ast::Op1Kind(Not),
+            OpMinus  => ast::Op1Kind(Negate),
             _ => return None,
         })
     }
@@ -208,28 +209,30 @@ impl<'a> TokenData<'a> {
         use TokenData::*;
         use super::Op2::*;
         Some(match self {
-            KwAnd           => ast::Op2Kind::Op2(And),
-            KwOr            => ast::Op2Kind::Op2(Or),
-            OpPlus          => ast::Op2Kind::Op2(Add),
-            OpPlusEq        => ast::Op2Kind::Op2Assign(Add),
-            OpMinus         => ast::Op2Kind::Op2(Sub),
-            OpMinusEq       => ast::Op2Kind::Op2Assign(Sub),
-            OpStar          => ast::Op2Kind::Op2(Mul),
-            OpStarEq        => ast::Op2Kind::Op2Assign(Mul),
-            OpSlash         => ast::Op2Kind::Op2(Div),
-            OpSlashEq       => ast::Op2Kind::Op2Assign(Div),
-            OpSlashSlash    => ast::Op2Kind::Op2(IntDiv),
-            OpSlashSlashEq  => ast::Op2Kind::Op2Assign(IntDiv),
-            ColonEq         => ast::Op2Kind::Define,
-            OpEq            => ast::Op2Kind::Assign,
-            OpEqEq          => ast::Op2Kind::Op2(CmpEq),
-            OpNe            => ast::Op2Kind::Op2(CmpNe),
-            OpLe            => ast::Op2Kind::Op2(CmpLe),
-            OpLt            => ast::Op2Kind::Op2(CmpLt),
-            OpGe            => ast::Op2Kind::Op2(CmpGe),
-            OpGt            => ast::Op2Kind::Op2(CmpGt),
-            OpQQ            => ast::Op2Kind::Op2(OrElse),
-            OpQQEq          => ast::Op2Kind::Op2Assign(OrElse),
+            OpAdd               => ast::Op2Kind::Op2(Add),
+            OpAddAssign         => ast::Op2Kind::Op2Assign(Add),
+            OpMinus             => ast::Op2Kind::Op2(Sub),
+            OpMinusAssign       => ast::Op2Kind::Op2Assign(Sub),
+            OpMul               => ast::Op2Kind::Op2(Mul),
+            OpMulAssign         => ast::Op2Kind::Op2Assign(Mul),
+            OpDiv               => ast::Op2Kind::Op2(Div),
+            OpDivAssign         => ast::Op2Kind::Op2Assign(Div),
+            OpFloorDiv          => ast::Op2Kind::Op2(FloorDiv),
+            OpFloorDivAssign    => ast::Op2Kind::Op2Assign(FloorDiv),
+            OpRem               => ast::Op2Kind::Op2(Rem),
+            OpRemAssign         => ast::Op2Kind::Op2Assign(Rem),
+            KwAnd               => ast::Op2Kind::Op2(And),
+            KwOr                => ast::Op2Kind::Op2(Or),
+            OpOrElse            => ast::Op2Kind::Op2(OrElse),
+            OpOrElseAssign      => ast::Op2Kind::Op2Assign(OrElse),
+            ColonEq             => ast::Op2Kind::Define,
+            OpAssign            => ast::Op2Kind::Assign,
+            OpEq                => ast::Op2Kind::Op2(CmpEq),
+            OpNe                => ast::Op2Kind::Op2(CmpNe),
+            OpLe                => ast::Op2Kind::Op2(CmpLe),
+            OpLt                => ast::Op2Kind::Op2(CmpLt),
+            OpGe                => ast::Op2Kind::Op2(CmpGe),
+            OpGt                => ast::Op2Kind::Op2(CmpGt),
             _ => return None
         })
     }
@@ -455,52 +458,52 @@ impl<'i> Tokenizer<'i> {
             ':' => tok_2!(TokenData::Colon, '=', TokenData::ColonEq),
             ';' => tok_1!(TokenData::Semicolon),
             '?' => {
-                self.consume_ch(1);
+                //self.consume_ch(1);
 
                 if self.peek_ch_zero(0) == '?' as u8 {
-                    self.consume_ch(1);
+                    self.consume_ch(2);
 
                     if self.peek_ch_zero(0) == '=' as u8 {
                         self.consume_ch(1);
-                        return Ok(Some(self.mk_token(begin_pos, TokenData::OpQQEq)));
+                        return Ok(Some(self.mk_token(begin_pos, TokenData::OpOrElseAssign)));
                     }
                     else {
-                        return Ok(Some(self.mk_token(begin_pos, TokenData::OpQQ)));
+                        return Ok(Some(self.mk_token(begin_pos, TokenData::OpOrElse)));
                     }
                 }
                 else if self.peek_ch_zero(0) == '.' as u8 {
-                    self.consume_ch(1);
-                    return Ok(Some(self.mk_token(begin_pos, TokenData::OpQDot)));
+                    self.consume_ch(2);
+                    return Ok(Some(self.mk_token(begin_pos, TokenData::OpOptChain)));
                 }
                 else {
-                    return Ok(Some(self.mk_token(begin_pos, TokenData::OpQ)));
+                    //return Ok(Some(self.mk_token(begin_pos, TokenData::OpTry)));
                 }
             }
 
-            '+' => tok_2!(TokenData::OpPlus,  '=', TokenData::OpPlusEq),
-            '-' => tok_2!(TokenData::OpMinus, '=', TokenData::OpMinusEq),
-            '*' => tok_2!(TokenData::OpStar,  '=', TokenData::OpStarEq),
+            '+' => tok_2!(TokenData::OpAdd,  '=', TokenData::OpAddAssign),
+            '-' => tok_2!(TokenData::OpMinus, '=', TokenData::OpMinusAssign),
+            '*' => tok_2!(TokenData::OpMul,  '=', TokenData::OpMulAssign),
 
             '/' => {
                 self.consume_ch(1);
 
                 if self.peek_ch_zero(0) == '=' as u8 {
                     self.consume_ch(1);
-                    return Ok(Some(self.mk_token(begin_pos, TokenData::OpSlashEq)));
+                    return Ok(Some(self.mk_token(begin_pos, TokenData::OpDivAssign)));
                 }
                 else if self.peek_ch_zero(0) == '/' as u8 {
                     self.consume_ch(1);
 
                     if self.peek_ch_zero(0) == '=' as u8 {
                         self.consume_ch(1);
-                        return Ok(Some(self.mk_token(begin_pos, TokenData::OpSlashSlashEq)));
+                        return Ok(Some(self.mk_token(begin_pos, TokenData::OpFloorDivAssign)));
                     }
                     else {
-                        return Ok(Some(self.mk_token(begin_pos, TokenData::OpSlashSlash)));
+                        return Ok(Some(self.mk_token(begin_pos, TokenData::OpFloorDiv)));
                     }
                 }
                 else {
-                    return Ok(Some(self.mk_token(begin_pos, TokenData::OpSlash)));
+                    return Ok(Some(self.mk_token(begin_pos, TokenData::OpDiv)));
                 }
             }
 
@@ -513,16 +516,22 @@ impl<'i> Tokenizer<'i> {
                 }
                 else if self.peek_ch_zero(0) == '=' as u8 {
                     self.consume_ch(1);
-                    return Ok(Some(self.mk_token(begin_pos, TokenData::OpEqEq)));
+                    return Ok(Some(self.mk_token(begin_pos, TokenData::OpEq)));
                 }
                 else {
-                    return Ok(Some(self.mk_token(begin_pos, TokenData::OpEq)));
+                    return Ok(Some(self.mk_token(begin_pos, TokenData::OpAssign)));
                 }
             }
 
-            '!' => tok_2!(TokenData::OpNot, '=', TokenData::OpNe),
-            '<' => tok_2!(TokenData::OpLt,  '=', TokenData::OpLe),
-            '>' => tok_2!(TokenData::OpGt,  '=', TokenData::OpGe),
+            '!' => {
+                if self.peek_ch_zero(1) == '=' as u8 {
+                    self.consume_ch(2);
+                    return Ok(Some(self.mk_token(begin_pos, TokenData::OpNe)));
+                }
+            }
+
+            '<' => tok_2!(TokenData::OpLt, '=', TokenData::OpLe),
+            '>' => tok_2!(TokenData::OpGt, '=', TokenData::OpGe),
 
             '"' => {
                 self.consume_ch(1);
@@ -746,7 +755,8 @@ pub mod ast {
                     Sub         => 600,
                     Mul         => 800,
                     Div         => 800,
-                    IntDiv      => 800,
+                    FloorDiv    => 800,
+                    Rem         => 800,
                 }
             }
         }
@@ -773,7 +783,8 @@ pub mod ast {
                     Sub             => 601,
                     Mul             => 801,
                     Div             => 801,
-                    IntDiv          => 801,
+                    FloorDiv        => 801,
+                    Rem             => 801,
                 }
             }
         }
@@ -1195,7 +1206,7 @@ impl<'p, 'i> Parser<'p, 'i> {
             }
 
             // opt-chain.
-            if current.data == TokenData::OpQDot {
+            if current.data == TokenData::OpOptChain {
                 self.next().unwrap();
 
                 let name = self.expect_ident()?;
@@ -1316,7 +1327,7 @@ impl<'p, 'i> Parser<'p, 'i> {
                 let mut end = name.source.end;
 
                 let mut value = None;
-                if self.next_if(TokenData::OpEq) {
+                if self.next_if(TokenData::OpAssign) {
                     let v = self.parse_expr(0)?;
                     end = v.source.end;
                     value = Some(v);

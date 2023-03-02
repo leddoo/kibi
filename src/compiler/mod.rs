@@ -29,28 +29,27 @@ pub struct SourceRange {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Op1 {
-    BoolNot,
-    BitNot,
-    Neg,
-    Plus,
+    Not,
+    Negate, // the real negate.
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Op2 {
-    And,
-    Or,
     Add,
     Sub,
     Mul,
     Div,
-    IntDiv,
+    FloorDiv,
+    Rem,
+    And,
+    Or,
+    OrElse,
     CmpEq,
     CmpNe,
     CmpLe,
     CmpLt,
     CmpGe,
     CmpGt,
-    OrElse,
 }
 
 
@@ -81,10 +80,8 @@ impl Op1 {
     pub fn str(self) -> &'static str {
         use self::Op1::*;
         match self {
-            BoolNot => { "not" }
-            BitNot  => { "bit_not" }
-            Neg     => { "neg" }
-            Plus    => { "plus" }
+            Not    => { "not" }
+            Negate => { "negate" }
         }
     }
 }
@@ -95,20 +92,32 @@ impl Op2 {
     pub fn str(self) -> &'static str {
         use Op2::*;
         match self {
-            And    => { "and" }
-            Or     => { "or" }
-            Add    => { "add" }
-            Sub    => { "sub" }
-            Mul    => { "mul" }
-            Div    => { "div" }
-            IntDiv => { "int_div" }
-            CmpEq  => { "cmp_eq" }
-            CmpNe  => { "cmp_ne" }
-            CmpLe  => { "cmp_le" }
-            CmpLt  => { "cmp_lt" }
-            CmpGe  => { "cmp_ge" }
-            CmpGt  => { "cmp_gt" }
-            OrElse => { "or_else" }
+            Add         => { "add" }
+            Sub         => { "sub" }
+            Mul         => { "mul" }
+            Div         => { "div" }
+            FloorDiv    => { "floor_div" }
+            Rem         => { "rem" }
+            And         => { "and" }
+            Or          => { "or" }
+            OrElse      => { "or_else" }
+            CmpEq       => { "cmp_eq" }
+            CmpNe       => { "cmp_ne" }
+            CmpLe       => { "cmp_le" }
+            CmpLt       => { "cmp_lt" }
+            CmpGe       => { "cmp_ge" }
+            CmpGt       => { "cmp_gt" }
+        }
+    }
+
+    #[inline]
+    pub fn is_cancelling(self) -> bool {
+        use Op2::*;
+        match self {
+            And | Or | OrElse => true,
+
+            Add | Sub | Mul | Div | FloorDiv | Rem |
+            CmpEq | CmpNe | CmpLe | CmpLt | CmpGe | CmpGt => false,
         }
     }
 }

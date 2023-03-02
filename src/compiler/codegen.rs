@@ -576,28 +576,38 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
 
                 Call { func, args_id } => {
                     let args: Vec<u8> = args_id.get(fun).iter().map(|arg| reg(*arg)).collect();
-                    bcb.gather_call(reg(func), &args, dst, 1);
+                    bcb.call(reg(func), &args, dst, 1);
                 }
 
-                Op1 { op: _, src: _ } => unimplemented!(),
+                Op1 { op, src } => {
+                    let src = reg(src);
+                    use self::Op1::*;
+                    match op {
+                        Not    => bcb.not(dst, src),
+                        Negate => bcb.negate(dst, src),
+                    }
+                }
 
                 Op2 { op, src1, src2 } => {
+                    let src1 = reg(src1);
+                    let src2 = reg(src2);
                     use self::Op2::*;
                     match op {
-                        And    => { let _ = (src1, src2); unimplemented!() },
-                        Or     => { let _ = (src1, src2); unimplemented!() },
-                        Add    => bcb.add(dst, reg(src1), reg(src2)),
-                        Sub    => bcb.sub(dst, reg(src1), reg(src2)),
-                        Mul    => bcb.mul(dst, reg(src1), reg(src2)),
-                        Div    => bcb.div(dst, reg(src1), reg(src2)),
-                        IntDiv => unimplemented!(),
-                        CmpEq  => bcb.cmp_eq(dst, reg(src1), reg(src2)),
-                        CmpNe  => unimplemented!(),
-                        CmpLe  => bcb.cmp_le(dst, reg(src1), reg(src2)),
-                        CmpLt  => bcb.cmp_lt(dst, reg(src1), reg(src2)),
-                        CmpGe  => bcb.cmp_ge(dst, reg(src1), reg(src2)),
-                        CmpGt  => bcb.cmp_gt(dst, reg(src1), reg(src2)),
-                        OrElse => unimplemented!(),
+                        Add         => bcb.add(dst, src1, src2),
+                        Sub         => bcb.sub(dst, src1, src2),
+                        Mul         => bcb.mul(dst, src1, src2),
+                        Div         => bcb.div(dst, src1, src2),
+                        FloorDiv    => bcb.floor_div(dst, src1, src2),
+                        Rem         => bcb.rem(dst, src1, src2),
+                        And         => unimplemented!(),
+                        Or          => unimplemented!(),
+                        CmpEq       => bcb.cmp_eq(dst, src1, src2),
+                        CmpNe       => bcb.cmp_ne(dst, src1, src2),
+                        CmpLe       => bcb.cmp_le(dst, src1, src2),
+                        CmpLt       => bcb.cmp_lt(dst, src1, src2),
+                        CmpGe       => bcb.cmp_ge(dst, src1, src2),
+                        CmpGt       => bcb.cmp_gt(dst, src1, src2),
+                        OrElse      => unimplemented!(),
                     }
                 }
 
@@ -632,32 +642,24 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
 
         use crate::bytecode::opcode::*;
         match instr.opcode() as u8 {
-            JUMP_EQ  | JUMP_LE  | JUMP_LT |
-            JUMP_NEQ | JUMP_NLE | JUMP_NLT => {
-                let extra = &mut code[i];
-                i += 1;
-
-                assert_eq!(extra.opcode() as u8, EXTRA);
-
-                let block = extra.u16() as usize;
-                extra.patch_u16(block_offsets[block]);
-            }
-
-            JUMP | JUMP_TRUE | JUMP_FALSE => {
+            JUMP | JUMP_TRUE | JUMP_FALSE | JUMP_NIL | JUMP_NOT_NIL => {
                 let block = instr.u16() as usize;
                 instr.patch_u16(block_offsets[block]);
             }
 
-            NOP | UNREACHABLE | COPY | SWAP |
+            NOP | UNREACHABLE |
+            COPY | SWAP |
             LOAD_NIL | LOAD_BOOL | LOAD_INT | LOAD_CONST | LOAD_ENV |
             LIST_NEW | LIST_APPEND |
             TUPLE_NEW |
             TABLE_NEW |
-            DEF | SET | GET | LEN |
-            ADD | SUB | MUL | DIV | INC | DEC |
-            CMP_EQ | CMP_LE | CMP_LT | CMP_GE | CMP_GT |
-            PACKED_CALL | GATHER_CALL | RET |
             NEW_FUNCTION |
+            DEF | SET | GET | LEN |
+            ADD | SUB | MUL | DIV | FLOOR_DIV | REM |
+            ADD_INT | NEGATE |
+            NOT |
+            CMP_EQ | CMP_NE | CMP_LE | CMP_LT | CMP_GE | CMP_GT |
+            CALL | RET |
             EXTRA
             => (),
 

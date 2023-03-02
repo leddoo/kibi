@@ -308,6 +308,11 @@ impl VmImpl {
         Ok(self.raw_eq(v1, v2))
     }
 
+    pub fn generic_ne(&mut self, v1: Value, v2: Value) -> VmResult<bool> {
+        // @todo-feature: meta tables & userdata.
+        Ok(!self.raw_eq(v1, v2))
+    }
+
     fn generic_le(&mut self, v1: Value, v2: Value) -> VmResult<bool> {
         use Value::*;
         match (v1, v2) {
@@ -381,8 +386,12 @@ impl VmImpl {
     fn generic_div(&mut self, v1: Value, v2: Value) -> VmResult<Value> {
         use Value::*;
         match (v1, v2) {
-            (Number { value: v1 }, Number { value: v2 }) =>
-                Ok(Number { value: v1 / v2 }),
+            (Number { value: v1 }, Number { value: v2 }) => {
+                if v2 == 0.0 {
+                    return Err(VmError::InvalidOperation);
+                }
+                Ok(Number { value: v1 / v2 })
+            }
 
             _ => Err(VmError::InvalidOperation),
         }
@@ -497,7 +506,7 @@ impl VmImpl {
 
         Ok((values.len() as f64).into())
     }
-    
+
 
     fn tuple_new(&mut self, values: Vec<Value>) -> Value {
         // @todo-cleanup: alloc utils.
@@ -886,22 +895,30 @@ impl VmImpl {
                         *self.reg(dst) = vm_try!(self.generic_div(src1, src2));
                     }
 
-                    INC => {
-                        let dst = instr.c1();
-                        let Value::Number { value } = self.reg(dst) else {
-                            result = Err(VmError::InvalidOperation);
-                            break;
-                        };
-                        *value += 1.0;
+                    FLOOR_DIV => {
+                        unimplemented!();
                     }
 
-                    DEC => {
-                        let dst = instr.c1();
+                    REM => {
+                        unimplemented!();
+                    }
+
+                    ADD_INT => {
+                        let (dst, imm) = instr.c1u16();
                         let Value::Number { value } = self.reg(dst) else {
                             result = Err(VmError::InvalidOperation);
                             break;
                         };
-                        *value -= 1.0;
+                        *value += imm as u16 as i16 as f64;
+                    }
+
+                    NEGATE => {
+                        unimplemented!()
+                    }
+
+
+                    NOT => {
+                        unimplemented!()
                     }
 
 
@@ -909,6 +926,12 @@ impl VmImpl {
                         // @todo-speed: remove checks.
                         let (dst, src1, src2) = self.reg3_dst(instr.c3());
                         *self.reg(dst) = vm_try!(self.generic_eq(src1, src2)).into();
+                    }
+
+                    CMP_NE => {
+                        // @todo-speed: remove checks.
+                        let (dst, src1, src2) = self.reg3_dst(instr.c3());
+                        *self.reg(dst) = vm_try!(self.generic_ne(src1, src2)).into();
                     }
 
                     CMP_LE => {
@@ -975,74 +998,24 @@ impl VmImpl {
                         }
                     }
 
-                    JUMP_EQ => {
-                        // @todo-speed: remove checks.
-                        let (src1, src2) = self.reg2(instr.c2());
-                        let target = self.next_instr_extra().u16();
+                    JUMP_NIL => {
+                        let (src, target) = instr.c1u16();
 
-                        if vm_try!(self.generic_eq(src1, src2)) {
+                        if self.reg(src).is_nil() {
                             vm_jump!(target);
                         }
                     }
 
-                    JUMP_LE => {
-                        // @todo-speed: remove checks.
-                        let (src1, src2) = self.reg2(instr.c2());
-                        let target = self.next_instr_extra().u16();
+                    JUMP_NOT_NIL => {
+                        let (src, target) = instr.c1u16();
 
-                        if vm_try!(self.generic_le(src1, src2)) {
-                            vm_jump!(target);
-                        }
-                    }
-
-                    JUMP_LT => {
-                        // @todo-speed: remove checks.
-                        let (src1, src2) = self.reg2(instr.c2());
-                        let target = self.next_instr_extra().u16();
-
-                        if vm_try!(self.generic_lt(src1, src2)) {
-                            vm_jump!(target);
-                        }
-                    }
-
-                    JUMP_NEQ => {
-                        // @todo-speed: remove checks.
-                        let (src1, src2) = self.reg2(instr.c2());
-                        let target = self.next_instr_extra().u16();
-
-                        if !vm_try!(self.generic_eq(src1, src2)) {
-                            vm_jump!(target);
-                        }
-                    }
-
-                    JUMP_NLE => {
-                        // @todo-speed: remove checks.
-                        let (src1, src2) = self.reg2(instr.c2());
-                        let target = self.next_instr_extra().u16();
-
-                        if !vm_try!(self.generic_le(src1, src2)) {
-                            vm_jump!(target);
-                        }
-                    }
-
-                    JUMP_NLT => {
-                        // @todo-speed: remove checks.
-                        let (src1, src2) = self.reg2(instr.c2());
-                        let target = self.next_instr_extra().u16();
-
-                        if !vm_try!(self.generic_lt(src1, src2)) {
+                        if !self.reg(src).is_nil() {
                             vm_jump!(target);
                         }
                     }
 
 
-                    PACKED_CALL => {
-                        let (func, rets, num_rets) = instr.c3();
-                        let (args, num_args) = self.next_instr().c2();
-                        vm_try!(self.pre_packed_call(func, args, num_args, rets, num_rets));
-                    }
-
-                    GATHER_CALL => {
+                    CALL => {
                         let (func, rets, num_rets) = instr.c3();
                         let num_args = self.next_instr();
                         debug_assert_eq!(num_args.opcode() as u8, EXTRA);
@@ -1180,7 +1153,7 @@ impl VmImpl {
     {
         assert!(num_args < 128);
         assert!(num_rets < 128);
-        
+
         let func_value = self.stack[abs_func as usize];
 
         let Value::Func { proto: func_proto } = func_value else {
