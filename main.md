@@ -5,8 +5,6 @@
     - debugging.
 
 - todo:
-    - small things:
-        - labeled break.
     - tuples.
         - destructuring.
         - tuple ret.

@@ -25,6 +25,7 @@ pub enum TokenData<'a> {
     Bool   (bool),
     Nil,
     QuotedString (&'a str),
+    Label (&'a str),
     LParen,
     RParen,
     LBracket,
@@ -85,6 +86,7 @@ impl<'a> TokenData<'a> {
             // anything that can mark the end
             // of an expression.
             Ident (_) | Number (_) | Bool(_) | Nil | QuotedString(_) |
+            Label(_) |
             RParen | RBracket | RCurly |
             KwBreak | KwContinue | KwReturn |
             KwEnv |
@@ -117,6 +119,7 @@ impl<'a> TokenData<'a> {
         use TokenData::*;
         match self {
             Ident (_) | Number (_) | Bool(_) | Nil | QuotedString(_) |
+            Label(_) |
             LParen | LBracket | LCurly |
             KwLet | KwVar |
             KwDo | KwIf | KwElif | KwElse | KwWhile | KwFor |
@@ -153,6 +156,11 @@ impl<'a> TokenData<'a> {
         if let TokenData::Ident(_) = self { true } else { false }
     }
 
+    #[inline(always)]
+    pub fn is_label(&self) -> bool {
+        if let TokenData::Label(_) = self { true } else { false }
+    }
+
 
     #[inline(always)]
     pub fn is_block_end(&self) -> bool {
@@ -168,6 +176,7 @@ impl<'a> TokenData<'a> {
         use TokenData::*;
         match self {
             Ident (_) | Number (_) | Bool (_) | Nil | QuotedString (_) |
+            Label(_) |
             LParen | LBracket | LCurly |
             KwLet | KwVar |
             KwDo | KwIf | KwWhile | KwFor |
@@ -535,6 +544,26 @@ impl<'i> Tokenizer<'i> {
             '<' => tok_2!(TokenData::OpLt, '=', TokenData::OpLe),
             '>' => tok_2!(TokenData::OpGt, '=', TokenData::OpGe),
 
+            '\'' => {
+                self.consume_ch(1);
+
+                let start = self.cursor;
+
+                loop {
+                    if self.peek_ch(0).filter(|c| c.is_ascii_alphabetic()).is_none() {
+                        if self.cursor == start {
+                            return Err(ParseError::eof());
+                        }
+                        else { break }
+                    };
+                    self.consume_ch(1)
+                }
+
+                let value = &self.input[start..self.cursor];
+                let value = unsafe { core::str::from_utf8_unchecked(value) };
+                return Ok(Some(self.mk_token(begin_pos, TokenData::Label(value))));
+            }
+
             '"' => {
                 self.consume_ch(1);
 
@@ -646,7 +675,7 @@ pub enum AstData<'a> {
     Tuple       (Box<ast::Tuple<'a>>),
     List        (Box<ast::List<'a>>),
     Table       (Box<ast::Table<'a>>),
-    Do          (Box<ast::Block<'a>>),
+    Do          (Box<ast::Do<'a>>),
     SubExpr     (Box<Ast<'a>>),
     Local       (Box<ast::Local<'a>>),
     Op1         (Box<ast::Op1<'a>>),
@@ -658,7 +687,7 @@ pub enum AstData<'a> {
     If          (Box<ast::If<'a>>),
     While       (Box<ast::While<'a>>),
     Break       (ast::Break<'a>),
-    Continue,
+    Continue    (ast::Continue<'a>),
     Return      (ast::Return<'a>),
     Fn          (Box<ast::Fn<'a>>),
     Env,
@@ -692,6 +721,12 @@ pub mod ast {
 
     #[derive(Clone, Debug)]
     pub struct Block<'a> {
+        pub stmts: Vec<Ast<'a>>,
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct Do<'a> {
+        pub label: Option<&'a str>,
         pub stmts: Vec<Ast<'a>>,
     }
 
@@ -830,6 +865,7 @@ pub mod ast {
 
     #[derive(Clone, Debug)]
     pub struct While<'a> {
+        pub label:     Option<&'a str>,
         pub condition: Ast<'a>,
         pub body:      Vec<Ast<'a>>,
     }
@@ -837,7 +873,13 @@ pub mod ast {
 
     #[derive(Clone, Debug)]
     pub struct Break<'a> {
+        pub label: Option<&'a str>,
         pub value: Option<Box<Ast<'a>>>,
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct Continue<'a> {
+        pub label: Option<&'a str>,
     }
 
     #[derive(Clone, Debug)]
@@ -922,6 +964,24 @@ impl<'p, 'i> Parser<'p, 'i> {
         None
     }
 
+    fn next_if_label(&mut self, current_source: SourceRange) -> (SourceRange, Option<&'i str>) {
+        if let Some(Token { data: TokenData::Label(name), source }) = self.tokens.get(self.cursor) {
+            self.cursor += 1;
+            let source = SourceRange { begin: current_source.begin, end: source.end };
+            return (source, Some(name));
+        }
+        (current_source, None)
+    }
+
+    fn next_if_expr(&mut self, current_source: SourceRange, prec: u32) -> ParseResult<(SourceRange, Option<Box<Ast<'i>>>)> {
+        if self.peek(0).filter(|at| at.is_expr_start()).is_some() {
+            let expr = self.parse_expr(prec)?;
+            let source = SourceRange { begin: current_source.begin, end: expr.source.end };
+            return Ok((source, Some(Box::new(expr))));
+        }
+        Ok((current_source, None))
+    }
+
     fn expect_ident(&mut self) -> ParseResult<Ident<'i>> {
         let tok = self.next()?;
         if let TokenData::Ident(value) = tok.data {
@@ -996,23 +1056,37 @@ impl<'p, 'i> Parser<'p, 'i> {
         }
 
         // while
-        if let TokenData::KwWhile = current.data {
+        if current.data == TokenData::KwWhile
+        || current.data.is_label() && self.peek_if(0, TokenData::KwWhile) {
+            let label = if let TokenData::Label(label) = current.data {
+                self.next().unwrap();
+                Some(label)
+            }
+            else { None };
+
             let condition = self.parse_expr(0)?;
             self.expect(TokenData::Colon)?;
 
             let body = self.parse_block()?.stmts;
 
-            let data = AstData::While(Box::new(ast::While { condition, body }));
+            let data = AstData::While(Box::new(ast::While { label, condition, body }));
             let end = self.expect(TokenData::KwEnd)?.end;
             return Ok(Ast { source: SourceRange { begin, end }, data });
         }
 
         // do
-        if let TokenData::KwDo = current.data {
+        if current.data == TokenData::KwDo
+        || current.data.is_label() && self.peek_if(0, TokenData::KwDo) {
+            let label = if let TokenData::Label(label) = current.data {
+                self.next().unwrap();
+                Some(label)
+            }
+            else { None };
+
             self.expect(TokenData::Colon)?;
 
             let block = self.parse_block()?;
-            let data = AstData::Do(Box::new(block));
+            let data = AstData::Do(Box::new(ast::Do { label, stmts: block.stmts }));
 
             let end = self.expect(TokenData::KwEnd)?.end;
             return Ok(Ast { source: SourceRange { begin, end }, data });
@@ -1020,41 +1094,25 @@ impl<'p, 'i> Parser<'p, 'i> {
 
         // break
         if let TokenData::KwBreak = current.data {
-            let mut source = current.source;
-
-            let mut value = None;
-            if let Some(at) = self.peek(0) {
-                if at.is_expr_start() {
-                    let v = self.parse_expr(0)?;
-                    source.end = v.source.end;
-                    value = Some(Box::new(v));
-                }
-            }
-
-            return Ok(Ast { source, data: AstData::Break(ast::Break { value }) });
+            let source = current.source;
+            let (source, label) = self.next_if_label(source);
+            let (source, value) = self.next_if_expr(source, 0)?;
+            return Ok(Ast { source, data: AstData::Break(ast::Break { label, value }) });
         }
 
         // continue
         if let TokenData::KwContinue = current.data {
             let source = current.source;
-            return Ok(Ast { source, data: AstData::Continue });
+            let (source, label) = self.next_if_label(source);
+            return Ok(Ast { source, data: AstData::Continue(ast::Continue { label }) });
         }
 
         // return
         if let TokenData::KwReturn = current.data {
-            let mut end = current.source.end;
-
-            let mut value = None;
-            if let Some(at) = self.peek(0) {
-                if at.is_expr_start()  {
-                    let v = self.parse_expr(0)?;
-                    end = v.source.end;
-                    value = Some(Box::new(v));
-                }
-            }
-
+            let source = current.source;
+            let (source, value) = self.next_if_expr(source, 0)?;
             let data = AstData::Return(ast::Return { value });
-            return Ok(Ast { source: SourceRange { begin, end }, data });
+            return Ok(Ast { source, data });
         }
 
         // functions

@@ -92,7 +92,7 @@ end)()
     print("1, ")
 
     var running = true
-    while running:
+    'yee while running:
         print("x, ")
         while true:
             print("y, ")
@@ -100,7 +100,10 @@ end)()
         end
         print("z, ")
         running = false
-        continue
+        while true:
+            continue 'yee
+            undefined()
+        end
         undefined()
     end
     println("kk.")
@@ -145,6 +148,17 @@ end)()
             49
         end
     print(c)
+    print(", ")
+
+    let d = 'd do:
+        while true:
+            do:
+                break 'd 8
+            end
+            undefined()
+        end
+    end
+    print(d)
     print(", ")
 
     println("kk.")

@@ -41,14 +41,15 @@ pub struct Compiler {
 pub struct Ctx<'a> {
     scope: ScopeId,
     decls: Vec<Decl<'a>>,
-    break_scopes: Vec<BreakScope>,
+    break_scopes: Vec<BreakScope<'a>>,
 }
 
 
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct BreakScopeId(u32);
 
-struct BreakScope {
+struct BreakScope<'a> {
+    label:       Option<&'a str>,
     bb_after:    BlockId,
     bb_continue: OptBlockId,
     values:      Option<Vec<PhiEntry>>,
@@ -147,7 +148,7 @@ impl Compiler {
             }
 
             AstData::Do (doo) => {
-                self.compile_do_block(ctx, fun, ast.source, &doo.stmts, need_value)
+                self.compile_do_block(ctx, fun, ast.source, doo.label, &doo.stmts, need_value)
             }
 
             AstData::SubExpr (sub_expr) => {
@@ -341,7 +342,7 @@ impl Compiler {
                 let bb_head = fun.get_current_block();
 
 
-                let bs = ctx.begin_break_scope(bb_after, bb_head.some(), false);
+                let bs = ctx.begin_break_scope(whilee.label, bb_after, bb_head.some(), false);
 
                 // body.
                 fun.set_current_block(bb_body);
@@ -355,13 +356,13 @@ impl Compiler {
                 Ok(need_value.then(|| fun.stmt_load_unit(ast.source)))
             }
 
-            AstData::Break(value) => {
+            AstData::Break(breakk) => {
                 let value =
-                    if let Some(v) = &value.value {
+                    if let Some(v) = &breakk.value {
                         Some(self.compile_ast(ctx, fun, v, true)?.unwrap())
                     } else { None };
 
-                let scope = ctx.current_break_scope(ast.source)?;
+                let scope = ctx.current_break_target(ast.source, breakk.label)?;
                 let bb_break = scope.bb_after;
 
                 if let Some(values) = &mut scope.values {
@@ -380,8 +381,8 @@ impl Compiler {
                 Ok(need_value.then(|| fun.stmt_load_unit(ast.source)))
             }
 
-            AstData::Continue => {
-                let bb_continue = ctx.current_continue_target(ast.source)?;
+            AstData::Continue(cont) => {
+                let bb_continue = ctx.current_continue_target(ast.source, cont.label)?;
                 fun.stmt_jump(ast.source, bb_continue);
 
                 let bb_unreach = fun.new_block();
@@ -457,11 +458,11 @@ impl Compiler {
     }
 
     pub fn compile_do_block<'a>(&mut self, ctx: &mut Ctx<'a>, fun: &mut Function,
-        block_source: SourceRange, stmts: &[Ast<'a>], need_value: bool
+        block_source: SourceRange, label: Option<&'a str>, stmts: &[Ast<'a>], need_value: bool
     ) -> CompileResult<Option<StmtId>> {
         let bb_after = fun.new_block();
 
-        let bs = ctx.begin_break_scope(bb_after, None.into(), need_value);
+        let bs = ctx.begin_break_scope(label, bb_after, None.into(), need_value);
         self.compile_block(ctx, fun, stmts)?;
         let values = ctx.end_break_scope(bs);
 
@@ -495,7 +496,7 @@ impl Compiler {
         block_source: SourceRange, block: &ast::IfBlock<'a>, need_value: bool
     ) -> CompileResult<Option<StmtId>> {
         if block.is_do {
-            self.compile_do_block(ctx, fun, block_source, &block.stmts, need_value)
+            self.compile_do_block(ctx, fun, block_source, None, &block.stmts, need_value)
         }
         else {
             self.compile_value_block(ctx, fun, block_source, &block.stmts, need_value)
@@ -576,9 +577,9 @@ impl<'a> Ctx<'a> {
         self.scope.0 -= 1;
     }
 
-    fn begin_break_scope(&mut self, bb_after: BlockId, bb_continue: OptBlockId, need_value: bool) -> BreakScopeId {
+    fn begin_break_scope(&mut self, label: Option<&'a str>, bb_after: BlockId, bb_continue: OptBlockId, need_value: bool) -> BreakScopeId {
         let values = need_value.then(|| vec![]);
-        self.break_scopes.push(BreakScope { bb_after, bb_continue, values });
+        self.break_scopes.push(BreakScope { label, bb_after, bb_continue, values });
         BreakScopeId(self.break_scopes.len() as u32)
     }
 
@@ -587,17 +588,30 @@ impl<'a> Ctx<'a> {
         self.break_scopes.pop().unwrap().values
     }
 
-    fn current_break_scope(&mut self, source: SourceRange) -> CompileResult<&mut BreakScope> {
-        if let Some(scope) = self.break_scopes.last_mut() {
-            return Ok(scope);
+    fn current_break_target(&mut self, source: SourceRange, label: Option<&'a str>) -> CompileResult<&mut BreakScope<'a>> {
+        if label.is_some() {
+            for scope in self.break_scopes.iter_mut().rev() {
+                if scope.label == label {
+                    return Ok(scope);
+                }
+            }
+            // @todo: no break target with matching label.
+            return Err(CompileError::at_range(source, CompileErrorData::NoBreakTarget));
         }
-        return Err(CompileError::at_range(source, CompileErrorData::NoBreakTarget));
+        else {
+            if let Some(scope) = self.break_scopes.last_mut() {
+                return Ok(scope);
+            }
+            return Err(CompileError::at_range(source, CompileErrorData::NoBreakTarget));
+        }
     }
 
-    fn current_continue_target(&self, source: SourceRange) -> CompileResult<BlockId> {
+    fn current_continue_target(&self, source: SourceRange, label: Option<&'a str>) -> CompileResult<BlockId> {
         for scope in self.break_scopes.iter().rev() {
-            if let Some(bb_continue) = scope.bb_continue.to_option() {
-                return Ok(bb_continue);
+            if label.is_none() || scope.label == label {
+                if let Some(bb_continue) = scope.bb_continue.to_option() {
+                    return Ok(bb_continue);
+                }
             }
         }
         return Err(CompileError::at_range(source, CompileErrorData::NoContinueTarget));
