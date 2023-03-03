@@ -6,7 +6,6 @@
 
 - todo:
     - small things:
-        - vm: implement missing operators.
         - labeled break.
     - tuples.
         - destructuring.
@@ -96,6 +95,7 @@
     - `IfBlock` -> `ValueBlock` use for functions?
     - `_` for discarding values.
     - and_then: opposite of `??`. what operator?
+        - maybe `&&` for and_then, `||` for or_else.
 
 - ideas:
     - reverse debugging:

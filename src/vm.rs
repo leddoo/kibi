@@ -400,6 +400,45 @@ impl VmImpl {
         }
     }
 
+    fn generic_floor_div(&mut self, v1: Value, v2: Value) -> VmResult<Value> {
+        use Value::*;
+        match (v1, v2) {
+            (Number { value: v1 }, Number { value: v2 }) => {
+                if v2 == 0.0 {
+                    return Err(VmError::InvalidOperation);
+                }
+                Ok(Number { value: (v1 / v2).floor() })
+            }
+
+            _ => Err(VmError::InvalidOperation),
+        }
+    }
+
+    fn generic_rem(&mut self, v1: Value, v2: Value) -> VmResult<Value> {
+        use Value::*;
+        match (v1, v2) {
+            (Number { value: v1 }, Number { value: v2 }) => {
+                if v2 == 0.0 {
+                    return Err(VmError::InvalidOperation);
+                }
+                Ok(Number { value: v1 % v2 })
+            }
+
+            _ => Err(VmError::InvalidOperation),
+        }
+    }
+
+    fn generic_negate(&mut self, value: Value) -> VmResult<Value> {
+        use Value::*;
+        match value {
+            Number { value } => {
+                Ok(Number { value: -value })
+            }
+
+            _ => Err(VmError::InvalidOperation),
+        }
+    }
+
     fn generic_print(&self, value: Value) {
         match value {
             Value::Nil              => print!("nil"),
@@ -915,11 +954,13 @@ impl VmImpl {
                     }
 
                     FLOOR_DIV => {
-                        unimplemented!();
+                        let (dst, src1, src2) = self.reg3_dst(instr.c3());
+                        *self.reg(dst) = vm_try!(self.generic_floor_div(src1, src2));
                     }
 
                     REM => {
-                        unimplemented!();
+                        let (dst, src1, src2) = self.reg3_dst(instr.c3());
+                        *self.reg(dst) = vm_try!(self.generic_rem(src1, src2));
                     }
 
                     ADD_INT => {
@@ -932,12 +973,22 @@ impl VmImpl {
                     }
 
                     NEGATE => {
-                        unimplemented!()
+                        // @todo-speed: remove checks.
+                        let (dst, src) = self.reg2_dst(instr.c2());
+                        *self.reg(dst) = vm_try!(self.generic_negate(src));
                     }
 
 
                     NOT => {
-                        unimplemented!()
+                        // @todo-speed: remove checks.
+                        let (dst, src) = self.reg2_dst(instr.c2());
+
+                        // @todo-cleanup: value utils.
+                        let Value::Bool { value } = src else {
+                            result = Err(VmError::InvalidOperation);
+                            break;
+                        };
+                        *self.reg(dst) = Value::Bool { value: !value };
                     }
 
 

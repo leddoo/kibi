@@ -507,6 +507,8 @@ impl<'i> Tokenizer<'i> {
                 }
             }
 
+            '%' => tok_2!(TokenData::OpRem,  '=', TokenData::OpRemAssign),
+
             '=' => {
                 self.consume_ch(1);
 
