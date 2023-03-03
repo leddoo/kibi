@@ -649,12 +649,23 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
                     }
                 }
 
+                // @todo-opt: special case if neither branch is next_bb.
                 SwitchBool { src, on_true, on_false } => {
                     if Some(on_true) != next_bb {
                         bcb.jump_true(reg(src), on_true.usize() as u16);
                     }
                     if Some(on_false) != next_bb {
                         bcb.jump_false(reg(src), on_false.usize() as u16);
+                    }
+                }
+
+                // @todo-opt: special case if neither branch is next_bb.
+                SwitchNil { src, on_nil, on_non_nil } => {
+                    if Some(on_nil) != next_bb {
+                        bcb.jump_nil(reg(src), on_nil.usize() as u16);
+                    }
+                    if Some(on_non_nil) != next_bb {
+                        bcb.jump_non_nil(reg(src), on_non_nil.usize() as u16);
                     }
                 }
 

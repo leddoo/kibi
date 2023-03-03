@@ -344,6 +344,14 @@ impl ByteCodeBuilder {
         self.buffer.push(Instruction::encode_c1u16(opcode::JUMP_FALSE, src, target));
     }
 
+    pub fn jump_nil(&mut self, src: u8, target: u16) {
+        self.buffer.push(Instruction::encode_c1u16(opcode::JUMP_NIL, src, target));
+    }
+
+    pub fn jump_non_nil(&mut self, src: u8, target: u16) {
+        self.buffer.push(Instruction::encode_c1u16(opcode::JUMP_NOT_NIL, src, target));
+    }
+
 
     pub fn call(&mut self, dst: u8, func: u8, args: &[u8]) {
         assert!(args.len() < 128);

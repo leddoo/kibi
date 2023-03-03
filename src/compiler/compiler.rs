@@ -204,6 +204,10 @@ impl Compiler {
                     }
 
                     ast::Op2Kind::Op2Assign(op) => {
+                        if op.is_cancelling() {
+                            unimplemented!()
+                        }
+
                         let src1 = self.compile_ast(ctx, fun, &op2.children[0], true)?.unwrap();
                         let src2 = self.compile_ast(ctx, fun, &op2.children[1], true)?.unwrap();
 
@@ -215,9 +219,36 @@ impl Compiler {
                     }
 
                     ast::Op2Kind::Op2(op) => {
-                        let src1 = self.compile_ast(ctx, fun, &op2.children[0], true)?.unwrap();
-                        let src2 = self.compile_ast(ctx, fun, &op2.children[1], true)?.unwrap();
-                        Ok(Some(fun.stmt_op2(ast.source, op, src1, src2)))
+                        if op.is_cancelling() {
+                            let bb_2 = fun.new_block();
+                            let bb_after = fun.new_block();
+
+                            // first value + cancel.
+                            let src1 = self.compile_ast(ctx, fun, &op2.children[0], true)?.unwrap();
+                            match op {
+                                Op2::And     => { fun.stmt_switch_bool(ast.source, src1, bb_2, bb_after); }
+                                Op2::Or      => { fun.stmt_switch_bool(ast.source, src1, bb_after, bb_2); }
+                                Op2::OrElse  => { fun.stmt_switch_nil(ast.source, src1, bb_2, bb_after); }
+
+                                _ => unreachable!()
+                            }
+                            let bb_1 = fun.get_current_block();
+
+                            // second value.
+                            fun.set_current_block(bb_2);
+                            let src2 = self.compile_ast(ctx, fun, &op2.children[1], true)?.unwrap();
+                            fun.stmt_jump(ast.source, bb_after);
+                            let bb_2 = fun.get_current_block();
+
+                            // join.
+                            fun.set_current_block(bb_after);
+                            Ok(Some(fun.stmt_phi(ast.source, &[(bb_1, src1), (bb_2, src2)])))
+                        }
+                        else {
+                            let src1 = self.compile_ast(ctx, fun, &op2.children[0], true)?.unwrap();
+                            let src2 = self.compile_ast(ctx, fun, &op2.children[1], true)?.unwrap();
+                            Ok(Some(fun.stmt_op2(ast.source, op, src1, src2)))
+                        }
                     }
                 }
             }

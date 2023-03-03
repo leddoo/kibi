@@ -52,13 +52,10 @@ ENV.board_step := fn(board, w, h):
                 + board_get(board, w, h, x    , y + 1)
                 + board_get(board, w, h, x + 1, y + 1)
 
-            let cell = board[y*w + x]
             if neighbors == 3:
                 new_board[y*w + x] = 1
-            elif cell == 1:
-                if neighbors == 2:
-                    new_board[y*w + x] = 1
-                end
+            elif neighbors == 2 and board[y*w + x] == 1:
+                new_board[y*w + x] = 1
             end
 
             x += 1

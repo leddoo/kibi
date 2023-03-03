@@ -59,6 +59,7 @@ pub enum StmtData {
 
     Jump        { target: BlockId },
     SwitchBool  { src: StmtId, on_true: BlockId, on_false: BlockId },
+    SwitchNil   { src: StmtId, on_nil: BlockId, on_non_nil: BlockId },
     Return      { src: StmtId },
 }
 
@@ -243,9 +244,10 @@ impl<'a> core::fmt::Display for StmtFmt<'a> {
             Op1 { op, src }        => { write!(f, "{} {}",     op.str(), src) }
             Op2 { op, src1, src2 } => { write!(f, "{} {}, {}", op.str(), src1, src2) }
 
-            Jump       { target }                 => { write!(f, "jump {}", target) }
-            SwitchBool { src, on_true, on_false } => { write!(f, "switch_bool {}, {}, {}", src, on_true, on_false) }
-            Return     { src }                    => { write!(f, "return {}", src) }
+            Jump       { target }                  => { write!(f, "jump {}", target) }
+            SwitchBool { src, on_true, on_false }  => { write!(f, "switch_bool {}, {}, {}", src, on_true, on_false) }
+            SwitchNil  { src, on_nil, on_non_nil } => { write!(f, "switch_nil {}, {}, {}", src, on_nil, on_non_nil) }
+            Return     { src }                     => { write!(f, "return {}", src) }
         }
     }
 }
@@ -292,6 +294,7 @@ impl StmtData {
         match self {
             Jump { target: _ } |
             SwitchBool { src: _, on_true: _, on_false: _ } |
+            SwitchNil  { src: _, on_nil: _, on_non_nil: _ } |
             Return { src: _ } => true,
 
             Copy { src: _ } |
@@ -350,6 +353,7 @@ impl StmtData {
             SetIndex { base: _, index: _, value: _, is_define: _ } |
             Jump { target: _ } |
             SwitchBool { src: _, on_true: _, on_false: _ } |
+            SwitchNil  { src: _, on_nil: _, on_non_nil: _ } |
             Return { src: _ } => false,
         }
     }
@@ -394,8 +398,9 @@ impl StmtData {
             Op2 { op: _, src1, src2 } => { f(*src1); f(*src2) }
 
             Jump       { target: _ } => (),
-            SwitchBool { src, on_true: _, on_false: _ } => { f(*src) }
-            Return     { src }                          => { f(*src) },
+            SwitchBool { src, on_true: _, on_false: _ }  => { f(*src) }
+            SwitchNil  { src, on_nil: _, on_non_nil: _ } => { f(*src) }
+            Return     { src }                           => { f(*src) }
         }
     }
 
@@ -445,8 +450,9 @@ impl StmtData {
             Op2 { op: _, src1, src2 } => { f(fun, src1); f(fun, src2) }
 
             Jump       { target: _ } => (),
-            SwitchBool { src, on_true: _, on_false: _ } => { f(fun, src) }
-            Return     { src }                          => { f(fun, src) },
+            SwitchBool { src, on_true: _, on_false: _ }  => { f(fun, src) }
+            SwitchNil  { src, on_nil: _, on_non_nil: _ } => { f(fun, src) }
+            Return     { src }                           => { f(fun, src) }
         }
     }
 }
@@ -774,7 +780,8 @@ impl Function {
         use StmtData::*;
         match last.get(self).data {
             Jump { target } => { f(target); }
-            SwitchBool { src: _, on_true, on_false } => { f(on_true); f(on_false); }
+            SwitchBool { src: _, on_true, on_false }  => { f(on_true); f(on_false); }
+            SwitchNil  { src: _, on_nil, on_non_nil } => { f(on_nil); f(on_non_nil); }
             Return { src: _ } => {}
 
             _ => { unreachable!("called successors on unterminated block") }
@@ -889,6 +896,10 @@ impl Function {
                     SwitchBool { src: _, on_true, on_false } => {
                         *on_true  = new_ids[*on_true].unwrap();
                         *on_false = new_ids[*on_false].unwrap();
+                    }
+                    SwitchNil { src: _, on_nil, on_non_nil } => {
+                        *on_nil     = new_ids[*on_nil].unwrap();
+                        *on_non_nil = new_ids[*on_non_nil].unwrap();
                     }
                     Return { src: _ } => {}
 
@@ -1107,6 +1118,11 @@ impl Function {
     #[inline]
     pub fn stmt_switch_bool(&mut self, source: SourceRange, src: StmtId, on_true: BlockId, on_false: BlockId) -> StmtId {
         self.add_stmt(source, StmtData::SwitchBool { src, on_true, on_false })
+    }
+
+    #[inline]
+    pub fn stmt_switch_nil(&mut self, source: SourceRange, src: StmtId, on_nil: BlockId, on_non_nil: BlockId) -> StmtId {
+        self.add_stmt(source, StmtData::SwitchNil { src, on_nil, on_non_nil })
     }
 
     #[inline]
