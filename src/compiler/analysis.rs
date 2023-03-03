@@ -1,10 +1,12 @@
 use derive_more::{Deref, Display};
+use crate::index_vec::*;
+use crate::macros::define_id;
 use super::*;
 
 
 #[derive(Deref)]
 pub struct Predecessors {
-    pub preds: Vec<Vec<BlockId>>,
+    pub preds: IndexVec<BlockId, Vec<BlockId>>,
 }
 
 
@@ -13,34 +15,27 @@ pub struct PostOrder {
     pub blocks: Vec<BlockId>,
 }
 
-#[derive(Clone, Copy, Debug, Display, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PostOrderIndex {
-    pub value: u32,
-}
-
-impl PostOrderIndex {
-    pub const NONE: PostOrderIndex = PostOrderIndex { value: u32::MAX };
-}
+define_id!(PostOrderIndex, OptPostOrderIndex);
 
 pub struct PostOrderIndices {
-    pub indices: Vec<PostOrderIndex>,
+    pub indices: IndexVec<BlockId, OptPostOrderIndex>,
 }
 
 
 // ### dominance ###
 
 pub struct ImmediateDominators {
-    pub idom: Vec<BlockId>,
+    pub idom: IndexVec<BlockId, BlockId>,
 }
 
 #[derive(Deref)]
 pub struct DomTree {
-    pub tree: Vec<Vec<BlockId>>,
+    pub tree: IndexVec<BlockId, Vec<BlockId>>,
 }
 
 #[derive(Deref)]
 pub struct DominanceFrontiers {
-    pub frontiers: Vec<Vec<BlockId>>,
+    pub frontiers: IndexVec<BlockId, Vec<BlockId>>,
 }
 
 
@@ -62,56 +57,55 @@ impl StmtIndex {
 
 #[derive(Deref)]
 pub struct BlockBegins {
-    pub begins: Vec<StmtIndex>,
+    pub begins: IndexVec<BlockId, StmtIndex>,
 }
 
 #[derive(Deref)]
 pub struct StmtIndices {
-    pub indices: Vec<StmtIndex>,
+    pub indices: IndexVec<StmtId, StmtIndex>,
 }
 
 
 // ### liveness ###
 
 pub struct BlockGenKill {
-    pub gens:  Vec<Vec<bool>>,
-    pub kills: Vec<Vec<bool>>,
+    pub gens:  IndexVec<BlockId, IndexVec<StmtId, bool>>,
+    pub kills: IndexVec<BlockId, IndexVec<StmtId, bool>>,
 }
 
 pub struct BlockLiveInOut {
-    pub live_ins:  Vec<Vec<bool>>,
-    pub live_outs: Vec<Vec<bool>>,
+    pub live_ins:  IndexVec<BlockId, IndexVec<StmtId, bool>>,
+    pub live_outs: IndexVec<BlockId, IndexVec<StmtId, bool>>,
 }
 
 #[derive(Deref)]
 pub struct LiveIntervals {
-    pub intervals: Vec<Vec<(StmtIndex, StmtIndex)>>,
+    pub intervals: IndexVec<StmtId, Vec<(StmtIndex, StmtIndex)>>,
 }
 
 
 
 impl PostOrderIndices {
-    #[inline]
+    #[inline(always)]
     pub fn get_unck(&self, bb: BlockId) -> PostOrderIndex {
-        self.indices[bb.usize()]
+        self.indices[bb].unwrap_unck()
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn get(&self, bb: BlockId) -> Option<PostOrderIndex> {
-        let index = self.indices[bb.usize()];
-        (index != PostOrderIndex::NONE).then_some(index)
+        self.indices[bb].to_option()
     }
 }
 
 impl ImmediateDominators {
     #[inline]
     pub fn get_unck(&self, bb: BlockId) -> BlockId {
-        self.idom[bb.usize()]
+        self.idom[bb]
     }
 
     #[inline]
     pub fn get(&self, bb: BlockId) -> Option<BlockId> {
-        let idom = self.idom[bb.usize()];
+        let idom = self.idom[bb];
         (bb.is_entry() || idom != bb).then_some(idom)
     }
 
@@ -127,7 +121,7 @@ impl ImmediateDominators {
                 return true;
             }
 
-            let idom = self.idom[at.usize()];
+            let idom = self.idom[at];
             if at == idom {
                 return false;
             }
@@ -139,11 +133,11 @@ impl ImmediateDominators {
 
 impl Function {
     pub fn predecessors(&self) -> Predecessors {
-        let mut preds = vec![vec![]; self.num_blocks()];
+        let mut preds = index_vec![vec![]; self.num_blocks()];
 
         for bb in self.block_ids() {
             self.block_successors(bb, |succ|
-                preds[succ.usize()].push(bb));
+                preds[succ].push(bb));
         }
 
         Predecessors { preds }
@@ -151,15 +145,15 @@ impl Function {
 
     pub fn post_order(&self) -> PostOrder {
         let mut post_order = vec![];
-        let mut visited = vec![false; self.num_blocks()];
+        let mut visited = index_vec![false; self.num_blocks()];
 
         fn visit(fun: &Function, bb: BlockId,
             post_order: &mut Vec<BlockId>,
-            visited: &mut Vec<bool>,
+            visited: &mut IndexVec<BlockId, bool>,
         ) {
             fun.block_successors(bb, |succ| {
-                if !visited[succ.usize()] {
-                    visited[succ.usize()] = true;
+                if !visited[succ] {
+                    visited[succ] = true;
                     visit(fun, succ, post_order, visited);
                 }
             });
@@ -172,18 +166,18 @@ impl Function {
     }
 
     pub fn post_order_indices(&self, post_order: &PostOrder) -> PostOrderIndices {
-        let mut indices = vec![PostOrderIndex::NONE; self.num_blocks()];
+        let mut indices = index_vec![OptPostOrderIndex::NONE; self.num_blocks()];
         for (index, bb) in post_order.blocks.iter().enumerate() {
-            indices[bb.usize()] = PostOrderIndex { value: index as u32 };
+            indices[*bb] = PostOrderIndex::new_unck(index as u32).some();
         }
         PostOrderIndices { indices }
     }
 
     pub fn immediate_dominators(&self, preds: &Predecessors, post_order: &PostOrder, post_indices: &PostOrderIndices) -> ImmediateDominators {
-        let mut doms = vec![None; self.num_blocks()];
+        let mut doms = index_vec![None; self.num_blocks()];
 
         let bb0 = post_indices.get_unck(BlockId::ENTRY);
-        doms[bb0.usize()] = Some(bb0);
+        doms[bb0] = Some(bb0);
 
         let mut changed = true;
         while changed {
@@ -192,7 +186,7 @@ impl Function {
             for bb_id in post_order.iter().rev().copied() {
                 if bb_id.is_entry() { continue }
 
-                let preds = &preds[bb_id.usize()];
+                let preds = &preds[bb_id];
                 let bb = post_indices.get_unck(bb_id);
 
                 let mut new_dom = post_indices.get_unck(preds[0]);
@@ -201,16 +195,16 @@ impl Function {
                     let Some(pred) = post_indices.get(pred_id) else { continue };
 
                     // intersect.
-                    if doms[pred.usize()].is_some() {
+                    if doms[pred].is_some() {
                         let mut x = new_dom;
                         let mut y = pred;
 
                         while x != y {
                             while x < y {
-                                x = doms[x.usize()].unwrap();
+                                x = doms[x].unwrap();
                             }
                             while y < x {
-                                y = doms[y.usize()].unwrap();
+                                y = doms[y].unwrap();
                             }
                         }
 
@@ -218,8 +212,8 @@ impl Function {
                     }
                 }
 
-                if doms[bb.usize()] != Some(new_dom) {
-                    doms[bb.usize()] = Some(new_dom);
+                if doms[bb] != Some(new_dom) {
+                    doms[bb] = Some(new_dom);
                     changed = true;
                 }
             }
@@ -228,7 +222,7 @@ impl Function {
         let idom = self.block_ids()
             .map(|bb| {
                 if let Some(post_index) = post_indices.get(bb) {
-                    let idom_post_index = doms[post_index.usize()].unwrap();
+                    let idom_post_index = doms[post_index].unwrap();
                     let idom            = post_order[idom_post_index.usize()];
                     idom
                 }
@@ -238,11 +232,11 @@ impl Function {
     }
 
     pub fn dominator_tree(&self, idoms: &ImmediateDominators) -> DomTree {
-        let mut tree = vec![vec![]; self.num_blocks()];
+        let mut tree = index_vec![vec![]; self.num_blocks()];
 
         for bb in self.block_ids().skip(1) {
             if let Some(idom) = idoms.get(bb) {
-                tree[idom.usize()].push(bb);
+                tree[idom].push(bb);
             }
         }
 
@@ -250,10 +244,10 @@ impl Function {
     }
 
     pub fn dominance_frontiers(&self, preds: &Predecessors, idoms: &ImmediateDominators) -> DominanceFrontiers {
-        let mut frontiers = vec![vec![]; self.num_blocks()];
+        let mut frontiers = index_vec![vec![]; self.num_blocks()];
 
         for bb in self.block_ids() {
-            let preds = &preds[bb.usize()];
+            let preds = &preds[bb];
             if preds.len() < 2 { continue }
 
             let Some(idom) = idoms.get(bb) else { continue };
@@ -263,7 +257,7 @@ impl Function {
 
                 let mut at = pred;
                 while at != idom {
-                    let df = &mut frontiers[at.usize()];
+                    let df = &mut frontiers[at];
                     if !df.contains(&bb) {
                         df.push(bb);
                     }
@@ -277,51 +271,51 @@ impl Function {
 
 
     pub fn block_order_dominators_first(&self, idoms: &ImmediateDominators, dom_tree: &DomTree) -> BlockOrder {
-        fn visit(bb: BlockId, order: &mut Vec<BlockId>, visited: &mut Vec<bool>,
+        fn visit(bb: BlockId, order: &mut Vec<BlockId>, visited: &mut IndexVec<BlockId, bool>,
             fun: &Function, idom: &ImmediateDominators, dom_tree: &DomTree,
         ) {
-            assert!(!visited[bb.usize()]);
-            visited[bb.usize()] = true;
+            assert!(!visited[bb]);
+            visited[bb] = true;
             order.push(bb);
 
             fun.block_successors(bb, |succ| {
-                if !visited[succ.usize()] && idom.get_unck(succ) == bb {
+                if !visited[succ] && idom.get_unck(succ) == bb {
                     visit(succ, order, visited, fun, idom, dom_tree);
                 }
             });
 
-            for child in &dom_tree[bb.usize()] {
-                if !visited[child.usize()] {
+            for child in &dom_tree[bb] {
+                if !visited[*child] {
                     visit(*child, order, visited, fun, idom, dom_tree);
                 }
             }
         }
 
         let mut order   = vec![];
-        let mut visited = vec![false; self.num_blocks()];
+        let mut visited = index_vec![false; self.num_blocks()];
         visit(BlockId::ENTRY, &mut order, &mut visited, self, idoms, dom_tree);
         BlockOrder { order }
     }
 
 
     pub fn block_gen_kill(&self) -> BlockGenKill {
-        let mut gens  = Vec::with_capacity(self.num_blocks());
-        let mut kills = Vec::with_capacity(self.num_blocks());
+        let mut gens  = IndexVec::with_capacity(self.num_blocks());
+        let mut kills = IndexVec::with_capacity(self.num_blocks());
 
         for bb in self.block_ids() {
-            let mut gen  = vec![false; self.num_stmts()];
-            let mut kill = vec![false; self.num_stmts()];
+            let mut gen  = index_vec![false; self.num_stmts()];
+            let mut kill = index_vec![false; self.num_stmts()];
 
             // statements in reverse.
             self.block_stmts_rev(bb, |stmt| {
                 if stmt.has_value() {
-                    kill[stmt.id().usize()] = true;
-                    gen [stmt.id().usize()] = false;
+                    kill[stmt.id()] = true;
+                    gen [stmt.id()] = false;
                 }
 
                 if !stmt.is_phi() {
                     stmt.args(self, |arg| {
-                        gen[arg.usize()] = true;
+                        gen[arg] = true;
                     });
                 }
             });
@@ -336,22 +330,22 @@ impl Function {
     pub fn block_live_in_out(&self, post_order: &PostOrder, gen_kill: &BlockGenKill) -> BlockLiveInOut {
         let BlockGenKill { gens, kills } = gen_kill;
 
-        let mut live_ins  = vec![vec![false; self.num_stmts()]; self.num_blocks()];
-        let mut live_outs = vec![vec![false; self.num_stmts()]; self.num_blocks()];
+        let mut live_ins  = index_vec![index_vec![false; self.num_stmts()]; self.num_blocks()];
+        let mut live_outs = index_vec![index_vec![false; self.num_stmts()]; self.num_blocks()];
         let mut changed = true;
         while changed {
             changed = false;
 
-            for bb in post_order.iter() {
-                let gen   = &gens[bb.usize()];
-                let kill  = &kills[bb.usize()];
+            for bb in post_order.iter().copied() {
+                let gen   = &gens[bb];
+                let kill  = &kills[bb];
 
-                let mut new_live_out = vec![false; self.num_stmts()];
-                self.block_successors(*bb, |succ| {
+                let mut new_live_out = index_vec![false; self.num_stmts()];
+                self.block_successors(bb, |succ| {
                     // live_in.
-                    for (i, live) in live_ins[succ.usize()].iter().enumerate() {
+                    for (i, live) in live_ins[succ].iter().enumerate() {
                         if *live {
-                            new_live_out[i] = true;
+                            new_live_out[StmtId::from_usize(i)] = true;
                         }
                     }
 
@@ -359,8 +353,8 @@ impl Function {
                     self.block_stmts_ex(succ, |stmt| {
                         // @todo: try_phi Stmt variant?
                         if let Some(map) = self.try_phi(stmt.id()) {
-                            let src = map.get(*bb).unwrap();
-                            new_live_out[src.usize()] = true;
+                            let src = map.get(bb).unwrap();
+                            new_live_out[src] = true;
                             return true;
                         }
                         false
@@ -370,22 +364,22 @@ impl Function {
                 let mut new_live_in = new_live_out.clone();
                 for (i, kill) in kill.iter().enumerate() {
                     if *kill {
-                        new_live_in[i] = false;
+                        new_live_in[StmtId::from_usize(i)] = false;
                     }
                 }
                 for (i, gen) in gen.iter().enumerate() {
                     if *gen {
-                        new_live_in[i] = true;
+                        new_live_in[StmtId::from_usize(i)] = true;
                     }
                 }
 
-                if new_live_in != live_ins[bb.usize()] {
+                if new_live_in != live_ins[bb] {
                     changed = true;
-                    live_ins[bb.usize()] = new_live_in;
+                    live_ins[bb] = new_live_in;
                 }
-                if new_live_out != live_outs[bb.usize()] {
+                if new_live_out != live_outs[bb] {
                     changed = true;
-                    live_outs[bb.usize()] = new_live_out;
+                    live_outs[bb] = new_live_out;
                 }
             }
         }
@@ -401,33 +395,31 @@ impl Function {
     ) -> LiveIntervals {
         let BlockLiveInOut { live_ins: _, live_outs } = live_sets;
 
-        let mut intervals = vec![vec![]; self.num_stmts()];
-        for bb in block_order.iter() {
-            let live_out = &live_outs[bb.usize()];
+        let mut intervals = index_vec![vec![]; self.num_stmts()];
+        for bb in block_order.iter().copied() {
+            let live_out = &live_outs[bb];
 
-            let num_stmts = self.num_block_stmts(*bb);
+            let num_stmts = self.num_block_stmts(bb);
 
-            let block_begin = block_begins[bb.usize()];
+            let block_begin = block_begins[bb];
             let block_end   = StmtIndex { value: block_begin.value + num_stmts as u32 };
 
             let mut live = live_out.iter().map(|live| {
                 live.then(|| block_end)
-            }).collect::<Vec<_>>();
+            }).collect::<IndexVec<_,_>>();
 
             #[inline]
-            fn gen(var: StmtId, stop: StmtIndex, live: &mut Vec<Option<StmtIndex>>) {
-                let id = var.usize();
-                if live[id].is_none() {
-                    live[id] = Some(stop);
+            fn gen(var: StmtId, stop: StmtIndex, live: &mut IndexVec<StmtId, Option<StmtIndex>>) {
+                if live[var].is_none() {
+                    live[var] = Some(stop);
                 }
             }
 
-            fn kill(var: StmtId, start: StmtIndex, live: &mut Vec<Option<StmtIndex>>, intervals: &mut Vec<Vec<(StmtIndex, StmtIndex)>>) {
-                let id = var.usize();
-                if let Some(stop) = live[id] {
-                    live[id] = None;
+            fn kill(var: StmtId, start: StmtIndex, live: &mut IndexVec<StmtId, Option<StmtIndex>>, intervals: &mut IndexVec<StmtId, Vec<(StmtIndex, StmtIndex)>>) {
+                if let Some(stop) = live[var] {
+                    live[var] = None;
 
-                    let interval = &mut intervals[id];
+                    let interval = &mut intervals[var];
                     // try to extend.
                     if let Some((_, old_stop)) = interval.last_mut() {
                         if *old_stop == start {
@@ -444,8 +436,8 @@ impl Function {
             // statements.
             let mut parallel_copy_pos = None;
             let mut phi_pos           = None;
-            self.block_stmts_rev(*bb, |stmt| {
-                let stmt_pos = stmt_indices[stmt.id().usize()];
+            self.block_stmts_rev(bb, |stmt| {
+                let stmt_pos = stmt_indices[stmt.id()];
 
                 let stmt_pos =
                     if stmt.is_phi() {
@@ -516,23 +508,18 @@ impl Function {
     }
 }
 
-impl PostOrderIndex {
-    #[inline(always)]
-    pub fn usize(self) -> usize { self.value as usize }
-}
-
 
 impl BlockOrder {
     pub fn block_begins_and_stmt_indices(&self, fun: &Function) -> (BlockBegins, StmtIndices) {
-        let mut block_begins = vec![StmtIndex::NONE; fun.num_blocks()];
-        let mut stmt_indices = vec![StmtIndex::NONE; fun.num_stmts()];
+        let mut block_begins = index_vec![StmtIndex::NONE; fun.num_blocks()];
+        let mut stmt_indices = index_vec![StmtIndex::NONE; fun.num_stmts()];
 
         let mut cursor = StmtIndex { value: 0 };
-        for bb in &self.order {
-            block_begins[bb.usize()] = cursor;
+        for bb in self.order.iter().copied() {
+            block_begins[bb] = cursor;
 
-            fun.block_stmts(*bb, |stmt| {
-                stmt_indices[stmt.id().usize()] = cursor;
+            fun.block_stmts(bb, |stmt| {
+                stmt_indices[stmt.id()] = cursor;
                 cursor.value += 1;
             });
         }

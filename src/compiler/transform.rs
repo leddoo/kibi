@@ -1,3 +1,4 @@
+use crate::index_vec::*;
 use super::*;
 
 
@@ -8,14 +9,14 @@ use super::*;
 // - obviously not idempotent.
 pub fn convert_to_cssa_naive(fun: &mut Function, preds: &Predecessors) {
     // reused across iterations. cleared at end of iter.
-    let mut pred_copy_ids = vec![None; fun.num_blocks()];
+    let mut pred_copy_ids = index_vec![None; fun.num_blocks()];
 
     for bb in fun.block_ids() {
         if let Some(first_phi) = fun.block_first_phi(bb).to_option() {
             let phis_copy_id = fun.new_parallel_copy_id();
 
-            for pred in preds[bb.usize()].iter() {
-                pred_copy_ids[pred.usize()] = Some(fun.new_parallel_copy_id());
+            for pred in preds[bb].iter() {
+                pred_copy_ids[*pred] = Some(fun.new_parallel_copy_id());
             }
 
             let mut new_phi_cursor = OptStmtId::NONE;
@@ -28,7 +29,7 @@ pub fn convert_to_cssa_naive(fun: &mut Function, preds: &Predecessors) {
                 let mut phi_map = phi_map.to_vec();
                 for (pred, src) in &mut phi_map {
                     let source = src.get(fun).source;
-                    let copy_id = pred_copy_ids[pred.usize()].unwrap();
+                    let copy_id = pred_copy_ids[*pred].unwrap();
                     let copy = fun.new_stmt(source,
                         StmtData::ParallelCopy { src: *src, copy_id });
 

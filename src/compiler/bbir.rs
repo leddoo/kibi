@@ -1,12 +1,14 @@
 use core::cell::{RefCell, Ref, RefMut};
 use derive_more::{Deref, DerefMut};
+use crate::index_vec::*;
+use crate::macros::define_id;
 use super::*;
 
 
 
 // ### Statement ###
 
-crate::macros::define_id!(StmtId, OptStmtId, "s{}");
+define_id!(StmtId, OptStmtId, "s{}");
 
 #[derive(Clone, Debug, Deref, DerefMut)]
 pub struct Stmt {
@@ -61,9 +63,7 @@ pub enum StmtData {
 }
 
 
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-#[repr(transparent)]
-pub struct PhiMapId(u32);
+define_id!(PhiMapId);
 
 pub type PhiEntry = (BlockId, StmtId);
 
@@ -78,9 +78,7 @@ pub struct PhiMap<'a> {
 }
 
 
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-#[repr(transparent)]
-pub struct StmtListId(u32);
+define_id!(StmtListId);
 
 #[derive(Deref, DerefMut)]
 struct StmtListImpl {
@@ -96,7 +94,7 @@ pub struct StmtList<'a> {
 
 // ### Block ###
 
-crate::macros::define_id!(BlockId, OptBlockId, "bb{}");
+define_id!(BlockId, OptBlockId, "bb{}");
 
 #[derive(Clone, Debug)]
 pub struct Block {
@@ -110,7 +108,7 @@ pub struct Block {
 
 // ### Local ###
 
-crate::macros::define_id!(LocalId, "l{}");
+define_id!(LocalId, "l{}");
 
 #[allow(dead_code)] // @temp
 #[derive(Debug)]
@@ -124,17 +122,17 @@ struct Local {
 
 // ### Function ###
 
-crate::macros::define_id!(FunctionId, "fn{}");
+define_id!(FunctionId, "fn{}");
 
 pub struct Function {
     id: FunctionId,
 
-    stmts:      Vec<Stmt>,
-    phi_maps:   Vec<PhiMapImpl>,
-    stmt_lists: Vec<StmtListImpl>,
-    blocks:     Vec<Block>,
-    locals:     Vec<Local>,
-    strings:    Vec<String>,
+    stmts:      IndexVec<StmtId,        Stmt>,
+    phi_maps:   IndexVec<PhiMapId,      PhiMapImpl>,
+    stmt_lists: IndexVec<StmtListId,    StmtListImpl>,
+    blocks:     IndexVec<BlockId,       Block>,
+    locals:     IndexVec<LocalId,       Local>,
+    strings:    IndexVec<StringId,      String>,
 
     last_parallel_copy_id: u32,
 
@@ -146,7 +144,7 @@ pub struct Function {
     current_block: BlockId,
 }
 
-crate::macros::define_id!(StringId);
+define_id!(StringId);
 
 
 
@@ -157,7 +155,7 @@ pub struct Module {
 }
 
 struct ModuleInner {
-    functions: Vec<&'static RefCell<Function>>,
+    functions: IndexVec<FunctionId, &'static RefCell<Function>>,
 }
 
 
@@ -187,10 +185,10 @@ impl Stmt {
 
 impl StmtId {
     #[inline(always)]
-    pub fn get(self, fun: &Function) -> &Stmt { &fun.stmts[self.usize()] }
+    pub fn get(self, fun: &Function) -> &Stmt { &fun.stmts[self] }
 
     #[inline(always)]
-    pub fn get_mut(self, fun: &mut Function) -> &mut Stmt { &mut fun.stmts[self.usize()] }
+    pub fn get_mut(self, fun: &mut Function) -> &mut Stmt { &mut fun.stmts[self] }
 }
 
 
@@ -206,7 +204,7 @@ impl<'a> core::fmt::Display for StmtFmt<'a> {
         else                { write!(f, "   ")?; }
 
         use StmtData::*;
-        match &stmt.data {
+        match stmt.data {
             Copy { src } => { write!(f, "copy {}", src) }
 
             Phi { map_id } => { write!(f, "phi {}", map_id.get(fun)) }
@@ -222,7 +220,7 @@ impl<'a> core::fmt::Display for StmtFmt<'a> {
             LoadBool  { value } => { write!(f, "load_bool {}", value) }
             LoadInt   { value } => { write!(f, "load_int {}", value) }
             LoadFloat { value } => { write!(f, "load_float {}", value) }
-            LoadString { id }   => { write!(f, "load_string {:?}", fun.strings[id.usize()]) }
+            LoadString { id }   => { write!(f, "load_string {:?}", fun.strings[id]) }
             LoadEnv             => { write!(f, "get_env") }
 
             ListNew => { write!(f, "new_list") }
@@ -236,8 +234,8 @@ impl<'a> core::fmt::Display for StmtFmt<'a> {
             GetIndex { base, index } => write!(f, "get_index {}, {}", base, index),
 
             SetIndex { base, index, value, is_define } => {
-                if *is_define { write!(f, "def_index {}, {}, {}", base, index, value) }
-                else          { write!(f, "set_index {}, {}, {}", base, index, value) }
+                if is_define { write!(f, "def_index {}, {}, {}", base, index, value) }
+                else         { write!(f, "set_index {}, {}, {}", base, index, value) }
             }
 
             Call { func, args_id } => write!(f, "call {}, {}", func, args_id.get(fun)),
@@ -407,11 +405,11 @@ impl StmtData {
             Copy { src } => { f(fun, src) }
 
             Phi { map_id } => {
-                let mut map = core::mem::take(&mut *fun.phi_maps[map_id.usize()]);
+                let mut map = core::mem::take(&mut *fun.phi_maps[*map_id]);
                 for (_, src) in &mut map {
                     f(fun, src)
                 }
-                fun.phi_maps[map_id.usize()] = PhiMapImpl { map };
+                fun.phi_maps[*map_id] = PhiMapImpl { map };
             }
 
             ParallelCopy { src, copy_id: _ } => { f(fun, src) }
@@ -455,12 +453,9 @@ impl StmtData {
 
 
 impl PhiMapId {
-    #[inline(always)]
-    pub fn usize(self) -> usize { self.0 as usize }
-
     #[inline]
     pub fn get<'s>(self, fun: &'s Function) -> PhiMap<'s> {
-        PhiMap { map: &fun.phi_maps[self.usize()] }
+        PhiMap { map: &fun.phi_maps[self] }
     }
 }
 
@@ -491,28 +486,25 @@ impl<'a> core::fmt::Display for PhiMap<'a> {
 
 
 impl StmtListId {
-    #[inline(always)]
-    pub fn usize(self) -> usize { self.0 as usize }
-
     #[inline]
     pub fn get<'s>(self, fun: &'s Function) -> StmtList<'s> {
-        StmtList { values: &fun.stmt_lists[self.usize()] }
+        StmtList { values: &fun.stmt_lists[self] }
     }
 
     #[inline]
     pub fn each<F: FnMut(StmtId)>(self, fun: &Function, mut f: F) {
-        for v in &*fun.stmt_lists[self.usize()] {
+        for v in &*fun.stmt_lists[self] {
             f(*v)
         }
     }
 
     #[inline]
     pub fn each_mut<F: FnMut(&Function, &mut StmtId)>(self, fun: &mut Function, mut f: F) {
-        let mut stmts = core::mem::take(&mut *fun.stmt_lists[self.usize()]);
+        let mut stmts = core::mem::take(&mut *fun.stmt_lists[self]);
         for stmt in &mut stmts {
             f(fun, stmt)
         }
-        fun.stmt_lists[self.usize()] = StmtListImpl { values: stmts };
+        fun.stmt_lists[self] = StmtListImpl { values: stmts };
     }
 }
 
@@ -542,7 +534,7 @@ impl BlockId {
 
 
     #[inline(always)]
-    pub fn get(self, fun: &Function) -> &Block { &fun.blocks[self.usize()] }
+    pub fn get(self, fun: &Function) -> &Block { &fun.blocks[self] }
 }
 
 
@@ -575,12 +567,12 @@ impl Function {
     fn new(id: FunctionId) -> Self {
         let mut fun = Function {
             id,
-            stmts:      vec![],
-            blocks:     vec![],
-            phi_maps:   vec![],
-            stmt_lists: vec![],
-            locals:     vec![],
-            strings:    vec![],
+            stmts:      index_vec![],
+            blocks:     index_vec![],
+            phi_maps:   index_vec![],
+            stmt_lists: index_vec![],
+            locals:     index_vec![],
+            strings:    index_vec![],
             last_parallel_copy_id: 0,
             param_cursor: None.into(),
             num_params:   0,
@@ -661,8 +653,8 @@ impl Function {
     }
 
     pub fn try_phi(&self, stmt: StmtId) -> Option<PhiMap> {
-        if let StmtData::Phi { map_id } = self.stmts[stmt.usize()].data {
-            return Some(self.phi_maps[map_id.usize()].phi_map());
+        if let StmtData::Phi { map_id } = self.stmts[stmt].data {
+            return Some(self.phi_maps[map_id].phi_map());
         }
         None
     }
@@ -670,8 +662,8 @@ impl Function {
     // @todo: support Phi2.
     // @todo: def_phi variant.
     pub fn set_phi(&mut self, stmt: StmtId, map: &[PhiEntry]) {
-        let StmtData::Phi { map_id } = self.stmts[stmt.usize()].data else { unreachable!() };
-        self.phi_maps[map_id.usize()] = PhiMapImpl { map: map.into() };
+        let StmtData::Phi { map_id } = self.stmts[stmt].data else { unreachable!() };
+        self.phi_maps[map_id] = PhiMapImpl { map: map.into() };
     }
 
 
@@ -689,7 +681,7 @@ impl Function {
         for block in &self.blocks {
             let mut at = block.first;
             while let Some(id) = at.to_option() {
-                let stmt = &self.stmts[id.usize()];
+                let stmt = &self.stmts[id];
                 stmt.args(self, &mut f);
                 at = stmt.next;
             }
@@ -709,23 +701,23 @@ impl Function {
 
     #[inline(always)]
     pub fn num_block_stmts(&self, bb: BlockId) -> usize {
-        self.blocks[bb.usize()].len()
+        self.blocks[bb].len()
     }
 
 
     pub fn block_stmts<F: FnMut(&Stmt)>(&self, bb: BlockId, mut f: F) {
-        let mut at = self.blocks[bb.usize()].first;
+        let mut at = self.blocks[bb].first;
         while let Some(id) = at.to_option() {
-            let stmt = &self.stmts[id.usize()];
+            let stmt = &self.stmts[id];
             f(stmt);
             at = stmt.next;
         }
     }
 
     pub fn block_stmts_ex<F: FnMut(&Stmt) -> bool>(&self, bb: BlockId, mut f: F) {
-        let mut at = self.blocks[bb.usize()].first;
+        let mut at = self.blocks[bb].first;
         while let Some(id) = at.to_option() {
-            let stmt = &self.stmts[id.usize()];
+            let stmt = &self.stmts[id];
             if !f(stmt) {
                 break;
             }
@@ -734,18 +726,18 @@ impl Function {
     }
 
     pub fn block_stmts_mut<F: FnMut(&mut Stmt)>(&mut self, bb: BlockId, mut f: F) {
-        let mut at = self.blocks[bb.usize()].first;
+        let mut at = self.blocks[bb].first;
         while let Some(id) = at.to_option() {
-            let stmt = &mut self.stmts[id.usize()];
+            let stmt = &mut self.stmts[id];
             f(stmt);
             at = stmt.next;
         }
     }
 
     pub fn block_stmts_rev<F: FnMut(&Stmt)>(&self, bb: BlockId, mut f: F) {
-        let mut at = self.blocks[bb.usize()].last;
+        let mut at = self.blocks[bb].last;
         while let Some(id) = at.to_option() {
-            let stmt = &self.stmts[id.usize()];
+            let stmt = &self.stmts[id];
             f(stmt);
             at = stmt.prev;
         }
@@ -753,21 +745,21 @@ impl Function {
 
 
     pub fn block_args<F: FnMut(StmtId)>(&self, bb: BlockId, mut f: F) {
-        let mut at = self.blocks[bb.usize()].first;
+        let mut at = self.blocks[bb].first;
         while let Some(id) = at.to_option() {
-            let stmt = &self.stmts[id.usize()];
+            let stmt = &self.stmts[id];
             stmt.args(self, &mut f);
             at = stmt.next;
         }
     }
 
     pub fn block_replace_args<F: FnMut(&Function, &mut StmtId)>(&mut self, bb: BlockId, mut f: F) {
-        let mut at = self.blocks[bb.usize()].first;
+        let mut at = self.blocks[bb].first;
         while let Some(id) = at.to_option() {
-            let mut data = self.stmts[id.usize()].data;
+            let mut data = self.stmts[id].data;
             data.replace_args(self, &mut f);
 
-            let stmt = &mut self.stmts[id.usize()];
+            let stmt = &mut self.stmts[id];
             stmt.data = data;
             at = stmt.next;
         }
@@ -775,7 +767,7 @@ impl Function {
 
 
     pub fn block_successors<F: FnMut(BlockId)>(&self, bb: BlockId, mut f: F) {
-        let block = &self.blocks[bb.usize()];
+        let block = &self.blocks[bb];
 
         let Some(last) = block.last.to_option() else { unreachable!() };
 
@@ -816,30 +808,30 @@ impl Function {
                 return last.some();
             }
         }
-        OptStmtId::NONE
+        None.into()
     }
 
 
     pub fn remove_unreachable_blocks(&mut self) {
-        fn visit(fun: &Function, bb: BlockId, visited: &mut [bool]) {
-            visited[bb.usize()] = true;
+        fn visit(fun: &Function, bb: BlockId, visited: &mut IndexVec<BlockId, bool>) {
+            visited[bb] = true;
             fun.block_successors(bb, |succ| {
-                if !visited[succ.usize()] {
+                if !visited[succ] {
                     visit(fun, succ, visited);
                 }
             });
         }
 
         // mark.
-        let mut visited = vec![false; self.blocks.len()];
+        let mut visited = index_vec![false; self.blocks.len()];
         visit(self, BlockId::ENTRY, &mut visited);
 
         // sweep.
-        let mut new_ids = vec![None; self.blocks.len()];
+        let mut new_ids = index_vec![None; self.blocks.len()];
         let mut next_id = BlockId(0);
         self.blocks.retain_mut(|block| {
-            if visited[block.id.usize()] {
-                new_ids[block.id.usize()] = Some(next_id);
+            if visited[block.id] {
+                new_ids[block.id] = Some(next_id);
                 block.id = next_id;
 
                 next_id.0 += 1;
@@ -856,7 +848,7 @@ impl Function {
             // update bb & linked list.
             // @todo: free up the old statements.
             if let Some(old_bb) = stmt.bb.to_option() {
-                if let Some(new_id) = new_ids[old_bb.usize()] {
+                if let Some(new_id) = new_ids[old_bb] {
                     stmt.bb = new_id.some();
                 }
                 else {
@@ -873,10 +865,10 @@ impl Function {
                 use StmtData::*;
                 match &mut stmt.data {
                     Phi { map_id } => {
-                        let map = map_id.usize();
+                        let map = *map_id;
                         let map = &mut self.phi_maps[map];
                         map.retain_mut(|(from_bb, _)| {
-                            if let Some(new_id) = new_ids[from_bb.usize()] {
+                            if let Some(new_id) = new_ids[*from_bb] {
                                 *from_bb = new_id;
                                 return true;
                             }
@@ -892,11 +884,11 @@ impl Function {
                 use StmtData::*;
                 match &mut stmt.data {
                     Jump { target } => {
-                        *target = new_ids[target.usize()].unwrap();
+                        *target = new_ids[*target].unwrap();
                     }
                     SwitchBool { src: _, on_true, on_false } => {
-                        *on_true  = new_ids[on_true.usize()].unwrap();
-                        *on_false = new_ids[on_false.usize()].unwrap();
+                        *on_true  = new_ids[*on_true].unwrap();
+                        *on_false = new_ids[*on_false].unwrap();
                     }
                     Return { src: _ } => {}
 
@@ -969,12 +961,12 @@ impl Function {
 
         let bb = self.current_block;
 
-        let block = &mut self.blocks[bb.usize()];
+        let block = &mut self.blocks[bb];
         let old_last = block.last;
 
         // update linked list.
         if let Some(last) = old_last.to_option() {
-            let last = &mut self.stmts[last.usize()];
+            let last = &mut self.stmts[last];
             assert!(!last.data.is_terminator());
             last.next  = id.some();
             block.last = id.some();
@@ -1126,8 +1118,8 @@ impl Function {
 
 // mutation
 impl Function {
-    fn _insert(block: &mut Block, stmts: &mut Vec<Stmt>, stmt_id: StmtId, prev: OptStmtId, next: OptStmtId) {
-        let stmt = &mut stmts[stmt_id.usize()];
+    fn _insert(block: &mut Block, stmts: &mut IndexVec<StmtId, Stmt>, stmt_id: StmtId, prev: OptStmtId, next: OptStmtId) {
+        let stmt = &mut stmts[stmt_id];
         // @todo-cleanup: stmt.assert_orphan();
         assert_eq!(stmt.bb, None.into());
         debug_assert!(stmt.id == stmt_id);
@@ -1140,14 +1132,14 @@ impl Function {
         block.len += 1;
 
         if let Some(prev) = prev.to_option() {
-            stmts[prev.usize()].next = stmt_id.some();
+            stmts[prev].next = stmt_id.some();
         }
         else {
             block.first = stmt_id.some();
         }
 
         if let Some(next) = next.to_option() {
-            stmts[next.usize()].prev = stmt_id.some();
+            stmts[next].prev = stmt_id.some();
         }
         else {
             block.last = stmt_id.some();
@@ -1155,12 +1147,12 @@ impl Function {
     }
 
     pub fn insert_after(&mut self, bb: BlockId, ref_id: OptStmtId, stmt_id: StmtId) {
-        let block = &mut self.blocks[bb.usize()];
+        let block = &mut self.blocks[bb];
         debug_assert_eq!(block.id, bb);
 
         let (prev, next) = 
             if let Some(ref_id) = ref_id.to_option() {
-                let rf = &self.stmts[ref_id.usize()];
+                let rf = &self.stmts[ref_id];
                 assert_eq!(rf.bb, bb.some());
                 (ref_id.some(), rf.next)
             }
@@ -1173,12 +1165,12 @@ impl Function {
     }
 
     pub fn insert_before(&mut self, bb: BlockId, ref_id: OptStmtId, stmt_id: StmtId) {
-        let block = &mut self.blocks[bb.usize()];
+        let block = &mut self.blocks[bb];
         debug_assert_eq!(block.id, bb);
 
         let (prev, next) = 
             if let Some(ref_id) = ref_id.to_option() {
-                let rf = &self.stmts[ref_id.usize()];
+                let rf = &self.stmts[ref_id];
                 assert_eq!(rf.bb, bb.some());
                 (rf.prev, ref_id.some())
             }
@@ -1191,11 +1183,11 @@ impl Function {
     }
 
     pub fn insert_before_terminator(&mut self, bb: BlockId, stmt_id: StmtId) {
-        let block = &mut self.blocks[bb.usize()];
+        let block = &mut self.blocks[bb];
         debug_assert_eq!(block.id, bb);
 
         let last_id = block.last.to_option().unwrap();
-        let last = &self.stmts[last_id.usize()];
+        let last = &self.stmts[last_id];
         assert!(last.is_terminator());
         debug_assert_eq!(last.bb, bb.some());
 
@@ -1215,7 +1207,7 @@ impl Function {
 
 
 
-    fn _remove(block: &mut Block, stmts: &mut Vec<Stmt>, stmt_index: usize) -> OptStmtId {
+    fn _remove(block: &mut Block, stmts: &mut IndexVec<StmtId, Stmt>, stmt_index: StmtId) -> OptStmtId {
         let stmt = &mut stmts[stmt_index];
         assert!(stmt.bb == block.id.some());
 
@@ -1226,14 +1218,14 @@ impl Function {
         stmt.bb   = None.into();
 
         if let Some(prev) = old_prev.to_option() {
-            stmts[prev.usize()].next = old_next;
+            stmts[prev].next = old_next;
         }
         else {
             block.first = old_next;
         }
 
         if let Some(next) = old_next.to_option() {
-            stmts[next.usize()].prev = old_prev;
+            stmts[next].prev = old_prev;
         }
         else {
             block.last = old_prev;
@@ -1245,14 +1237,14 @@ impl Function {
     }
 
     pub fn retain_block_stmts<F: FnMut(&Stmt) -> bool>(&mut self, bb: BlockId, mut f: F) {
-        let block = &mut self.blocks[bb.usize()];
+        let block = &mut self.blocks[bb];
 
         let mut at = block.first;
         while let Some(current) = at.to_option() {
-            let stmt = &self.stmts[current.usize()];
+            let stmt = &self.stmts[current];
 
             if !f(stmt) {
-                at = Self::_remove(block, &mut self.stmts, current.usize());
+                at = Self::_remove(block, &mut self.stmts, current);
             }
             else {
                 at = stmt.next;
@@ -1276,11 +1268,11 @@ impl Function {
         let post_indices = self.post_order_indices(&post_order);
         let idom = self.immediate_dominators(&preds, &post_order, &post_indices);
 
-        let mut visited = vec![false; self.stmts.len()];
+        let mut visited = index_vec![false; self.stmts.len()];
 
         // validate blocks.
         for bb in self.block_ids() {
-            let block = &self.blocks[bb.usize()];
+            let block = &self.blocks[bb];
             assert_eq!(block.id, bb);
 
             let mut in_params = bb.is_entry();
@@ -1295,11 +1287,11 @@ impl Function {
                 stmt_count += 1;
 
                 // only in one bb.
-                assert!(!visited[current.usize()]);
-                visited[current.usize()] = true;
+                assert!(!visited[current]);
+                visited[current] = true;
 
                 // stmt & bb ids.
-                let stmt = &self.stmts[current.usize()];
+                let stmt = &self.stmts[current];
                 assert_eq!(stmt.id, current);
                 assert_eq!(stmt.bb, bb.some());
 
@@ -1315,7 +1307,7 @@ impl Function {
                 // linked list prev/next.
                 else {
                     let next = stmt.next.to_option().unwrap();
-                    let next = &self.stmts[next.usize()];
+                    let next = &self.stmts[next];
                     assert_eq!(next.prev, current.some());
                 }
 
@@ -1340,7 +1332,7 @@ impl Function {
 
                     // one arg for each pred.
                     // pred dominated by arg's bb.
-                    let preds = &preds[bb.usize()];
+                    let preds = &preds[bb];
                     let mut visited = vec![false; preds.len()];
                     let phi_map = self.try_phi(stmt.id).unwrap();
                     for (from_bb, src) in phi_map.iter().copied() {
@@ -1384,8 +1376,8 @@ impl Function {
 
         // validate statements that are not in blocks.
         for stmt_id in self.stmt_ids() {
-            if !visited[stmt_id.usize()] {
-                let stmt = &self.stmts[stmt_id.usize()];
+            if !visited[stmt_id] {
+                let stmt = &self.stmts[stmt_id];
                 assert_eq!(stmt.id, stmt_id);
                 assert_eq!(stmt.bb,   None.into());
                 assert_eq!(stmt.prev, None.into());
@@ -1407,7 +1399,7 @@ impl Function {
 impl StringId {
     #[inline(always)]
     pub fn get<'f>(self, fun: &'f Function) -> &'f str {
-        &fun.strings[self.usize()]
+        &fun.strings[self]
     }
 }
 
@@ -1418,7 +1410,7 @@ impl StringId {
 impl Module {
     pub fn new() -> Module {
         Module { inner: RefCell::new(ModuleInner {
-            functions: vec![],
+            functions: index_vec![],
         })}
     }
 
@@ -1431,14 +1423,14 @@ impl Module {
         result
     }
 
-    pub fn read_function(&self, symbol_id: FunctionId) -> Ref<'static, Function> {
+    pub fn read_function(&self, id: FunctionId) -> Ref<'static, Function> {
         let this = self.inner.borrow();
-        this.functions[symbol_id.usize()].borrow()
+        this.functions[id].borrow()
     }
 
-    pub fn write_function(&self, symbol_id: FunctionId) -> RefMut<'static, Function> {
+    pub fn write_function(&self, id: FunctionId) -> RefMut<'static, Function> {
         let this = self.inner.borrow();
-        this.functions[symbol_id.usize()].borrow_mut()
+        this.functions[id].borrow_mut()
     }
 
     pub fn temp_load(self, vm: &mut crate::Vm) {
