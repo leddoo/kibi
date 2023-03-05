@@ -1,0 +1,15 @@
+var foo = [1, 2, 3]
+println(foo)
+println("")
+
+var bar = foo
+foo[3] := 4
+println(foo)
+println(bar)
+println("")
+
+bar[0] = foo
+println(foo)
+println(bar)
+println("")
+

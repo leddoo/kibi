@@ -6,6 +6,7 @@ use super::*;
 // - assumes there are no critical edges.
 // - inserts parallel copies for phi arguments in predecessor blocks.
 // - inserts parallel copies for phi outputs after phis.
+// - inserts copies before in-place mutating instructions (like set_index).
 // - obviously not idempotent.
 pub fn convert_to_cssa_naive(fun: &mut Function, preds: &Predecessors) {
     // reused across iterations. cleared at end of iter.
@@ -58,5 +59,25 @@ pub fn convert_to_cssa_naive(fun: &mut Function, preds: &Predecessors) {
                 *copy_id = None;
             }
         }
+
+        // insert copies before in-place mutating statements.
+        let mut cursor = bb.get(fun).first();
+        while let Some(at) = cursor.to_option() {
+            let stmt = at.get(fun);
+            let next = stmt.next();
+
+            let mut data = stmt.data;
+            if let StmtData::SetIndex { base, index: _, value: _, is_define: _ } = &mut data {
+                let copy = fun.new_stmt(stmt.source, StmtData::Copy { src: *base });
+                fun.insert_before(bb, at.some(), copy);
+
+                *base = copy;
+                at.get_mut(fun).data = data;
+            }
+
+            cursor = next;
+        }
     }
+
+    fun.slow_integrity_check();
 }

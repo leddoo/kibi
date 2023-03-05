@@ -27,9 +27,9 @@ impl Function {
 
         let regs = alloc_regs_linear_scan(self, &live_intervals, &stmt_indices);
 
-        let (code, constants) = generate_bytecode(self, &block_order, &regs, fun_protos);
+        let (code, constants, num_regs) = generate_bytecode(self, &block_order, &regs, fun_protos);
 
-        (code, constants, regs.num_regs as u32)
+        (code, constants, num_regs)
     }
 }
 
@@ -399,6 +399,8 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, stmt_in
                     StmtData::ParallelCopy { src, copy_id: _ } => src,
                     StmtData::Op1 { op: _, src }            => src,
                     StmtData::Op2 { op: _,  src1, src2: _ } => src1,
+                    // @todo: this should be a constraint.
+                    StmtData::SetIndex { base, index: _, value: _, is_define: _ } => base,
                     _ => break 'first_arg,
                 };
 
@@ -470,17 +472,19 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, stmt_in
 }
 
 
-pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &RegisterAllocation, fun_protos: &[u32]) -> (Vec<Instruction>, Vec<Constant>) {
+pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &RegisterAllocation, fun_protos: &[u32]) -> (Vec<Instruction>, Vec<Constant>, u32) {
     assert_eq!(block_order[0], BlockId::ENTRY);
 
     // for stmt in fun.stmt_ids() {
-    //     println!("{}: {}", stmt, regs.mapping[stmt]);
+    //     println!("{}: {:?}", stmt, regs.mapping[stmt]);
     // }
 
     // @temp
     const NO_REG: u8 = 127;
     assert!(regs.num_regs < NO_REG as usize);
     assert!(block_order.len() < u16::MAX as usize / 2);
+
+    let num_regs = regs.num_regs as u32;
 
     // returns `NO_REG`, if no register was assigned.
     // if `NO_REG` ends up in the bytecode (which would be a bug),
@@ -585,8 +589,10 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
                     bcb.load_const(dst, id.usize() as u16);
                 }
 
-                ListNew => bcb.list_new(dst),
-                ListAppend { list, value } => bcb.list_append(reg(list), reg(value)),
+                ListNew { values } => {
+                    let values: Vec<u8> = values.get(fun).iter().map(|arg| reg(*arg)).collect();
+                    bcb.list_new(dst, &values);
+                }
 
                 TupleNew { values } => {
                     let values: Vec<u8> = values.get(fun).iter().map(|arg| reg(*arg)).collect();
@@ -602,8 +608,9 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
                 GetIndex { base, index } => bcb.get(dst, reg(base), reg(index)),
 
                 SetIndex { base, index, value, is_define } => {
-                    if is_define { bcb.def(reg(base), reg(index), reg(value)) }
-                    else         { bcb.set(reg(base), reg(index), reg(value)) }
+                    assert_eq!(dst, reg(base));
+                    if is_define { bcb.def(dst, reg(index), reg(value)) }
+                    else         { bcb.set(dst, reg(index), reg(value)) }
                 }
 
                 Call { func, args_id } => {
@@ -693,9 +700,9 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
             NOP | UNREACHABLE |
             COPY | SWAP |
             LOAD_NIL | LOAD_BOOL | LOAD_INT | LOAD_CONST | LOAD_ENV |
-            LIST_NEW | LIST_APPEND |
+            LIST_NEW |
             TUPLE_NEW | LOAD_UNIT |
-            TABLE_NEW |
+            MAP_NEW |
             NEW_FUNCTION |
             DEF | SET | GET | LEN |
             ADD | SUB | MUL | DIV | FLOOR_DIV | REM |
@@ -710,7 +717,7 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
         }
     }
 
-    (code, constants)
+    (code, constants, num_regs)
 }
 
 fn impl_parallel_copy(num_regs: usize, copied_to: &[Vec<u8>], bcb: &mut crate::ByteCodeBuilder) {

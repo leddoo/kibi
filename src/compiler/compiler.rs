@@ -131,15 +131,11 @@ impl Compiler {
             }
 
             AstData::List (list) => {
-                let values = &list.values;
-
-                let list = fun.stmt_list_new(ast.source);
-                for value in values {
-                    let v = self.compile_ast(ctx, fun, value, true)?.unwrap();
-                    fun.stmt_list_append(value.source, list, v);
+                let mut values = Vec::with_capacity(list.values.len());
+                for v in &list.values {
+                    values.push(self.compile_ast(ctx, fun, v, true)?.unwrap());
                 }
-
-                Ok(Some(list))
+                Ok(Some(fun.stmt_list_new(ast.source, &values)))
             }
 
             AstData::Table (table) => {
@@ -505,22 +501,23 @@ impl Compiler {
 
     pub fn compile_assign<'a>(&mut self,
         ctx: &mut Ctx<'a>, fun: &mut Function,
-        ast: &Ast<'a>, value: StmtId, is_define: bool) -> CompileResult<()>
+        lhs: &Ast<'a>, rhs: StmtId, is_define: bool) -> CompileResult<()>
     {
-        match &ast.data {
+        // @TEMP: set_path.
+        match &lhs.data {
             AstData::Ident (name) => {
                 if let Some(decl) = ctx.find_decl(name) {
-                    fun.stmt_set_local(ast.source, decl.id, value);
+                    fun.stmt_set_local(lhs.source, decl.id, rhs);
                 }
                 else {
                     // @temp: compile error.
                     assert!(is_define == false);
 
                     // @todo-opt: set_global.
-                    let env = fun.stmt_load_env(ast.source);
+                    let env = fun.stmt_load_env(lhs.source);
                     let name = fun.add_string(name);
-                    let name = fun.stmt_load_string(ast.source, name);
-                    fun.stmt_set_index(ast.source, env, name, value, false);
+                    let name = fun.stmt_load_string(lhs.source, name);
+                    fun.stmt_set_index(lhs.source, env, name, rhs, false);
                 }
 
                 Ok(())
@@ -530,20 +527,26 @@ impl Compiler {
                 // @todo-opt: set_field?
                 let base  = self.compile_ast(ctx, fun, &field.base, true)?.unwrap();
                 let index = fun.add_string(field.name);
-                let index = fun.stmt_load_string(ast.source, index);
-                fun.stmt_set_index(ast.source, base, index, value, is_define);
+                let index = fun.stmt_load_string(lhs.source, index);
+                fun.stmt_set_index(lhs.source, base, index, rhs, is_define);
                 Ok(())
             }
 
             AstData::Index (index) => {
-                let base  = self.compile_ast(ctx, fun, &index.base, true)?.unwrap();
+                //let base  = self.compile_ast(ctx, fun, &index.base, true)?.unwrap();
+                let AstData::Ident(base) = index.base.data else { unimplemented!() };
+                let Some(decl) = ctx.find_decl(base) else { unimplemented!() };
+                let lid = decl.id;
+
+                let base = fun.stmt_get_local(lhs.source, lid);
                 let index = self.compile_ast(ctx, fun, &index.index, true)?.unwrap();
-                fun.stmt_set_index(ast.source, base, index, value, is_define);
+                let new_base = fun.stmt_set_index(lhs.source, base, index, rhs, is_define);
+                fun.stmt_set_local(lhs.source, lid, new_base);
 
                 Ok(())
             }
 
-            _ => Err(CompileError::at(ast, CompileErrorData::InvalidAssignTarget)),
+            _ => Err(CompileError::at(lhs, CompileErrorData::InvalidAssignTarget)),
         }
     }
 }

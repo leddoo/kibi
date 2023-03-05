@@ -12,52 +12,51 @@ pub mod opcode {
     pub const LOAD_ENV:         u8 = 9;
 
     pub const LIST_NEW:         u8 = 10;
-    pub const LIST_APPEND:      u8 = 11;
 
-    pub const TUPLE_NEW:        u8 = 12;
-    pub const LOAD_UNIT:        u8 = 13;
+    pub const TUPLE_NEW:        u8 = 11;
+    pub const LOAD_UNIT:        u8 = 12;
 
-    pub const TABLE_NEW:        u8 = 14;
+    pub const MAP_NEW:          u8 = 13;
 
-    pub const NEW_FUNCTION:     u8 = 15;
+    pub const NEW_FUNCTION:     u8 = 14;
 
-    pub const DEF:              u8 = 16;
-    pub const SET:              u8 = 17;
-    pub const GET:              u8 = 18;
-    pub const LEN:              u8 = 19;
+    pub const DEF:              u8 = 15;
+    pub const SET:              u8 = 16;
+    pub const GET:              u8 = 17;
+    pub const LEN:              u8 = 18;
 
-    pub const ADD:              u8 = 20;
-    pub const SUB:              u8 = 21;
-    pub const MUL:              u8 = 22;
-    pub const DIV:              u8 = 23;
-    pub const FLOOR_DIV:        u8 = 24;
-    pub const REM:              u8 = 25;
-    pub const ADD_INT:          u8 = 26;
-    pub const NEGATE:           u8 = 27;
+    pub const ADD:              u8 = 19;
+    pub const SUB:              u8 = 20;
+    pub const MUL:              u8 = 21;
+    pub const DIV:              u8 = 22;
+    pub const FLOOR_DIV:        u8 = 23;
+    pub const REM:              u8 = 24;
+    pub const ADD_INT:          u8 = 25;
+    pub const NEGATE:           u8 = 26;
 
     // pub const AND:              u8 = ;
     // pub const OR:               u8 = ;
-    pub const NOT:              u8 = 28;
+    pub const NOT:              u8 = 27;
 
     // pub const OR_ELSE:          u8 = ;
 
-    pub const CMP_EQ:           u8 = 29;
-    pub const CMP_NE:           u8 = 30;
-    pub const CMP_LE:           u8 = 31;
-    pub const CMP_LT:           u8 = 32;
-    pub const CMP_GE:           u8 = 33;
-    pub const CMP_GT:           u8 = 34;
+    pub const CMP_EQ:           u8 = 28;
+    pub const CMP_NE:           u8 = 29;
+    pub const CMP_LE:           u8 = 30;
+    pub const CMP_LT:           u8 = 31;
+    pub const CMP_GE:           u8 = 32;
+    pub const CMP_GT:           u8 = 33;
 
-    pub const JUMP:             u8 = 35;
-    pub const JUMP_TRUE:        u8 = 36;
-    pub const JUMP_FALSE:       u8 = 37;
-    pub const JUMP_NIL:         u8 = 38;
-    pub const JUMP_NOT_NIL:     u8 = 39;
+    pub const JUMP:             u8 = 34;
+    pub const JUMP_TRUE:        u8 = 35;
+    pub const JUMP_FALSE:       u8 = 36;
+    pub const JUMP_NIL:         u8 = 37;
+    pub const JUMP_NOT_NIL:     u8 = 38;
 
-    pub const CALL:             u8 = 40;
-    pub const RET:              u8 = 41;
+    pub const CALL:             u8 = 39;
+    pub const RET:              u8 = 40;
 
-    pub const END:              u8 = 42;
+    pub const END:              u8 = 41;
 
     pub const EXTRA:            u8 = 255;
 }
@@ -219,12 +218,12 @@ impl ByteCodeBuilder {
     }
 
 
-    pub fn list_new(&mut self, dst: u8) {
-        self.buffer.push(Instruction::encode_c1(opcode::LIST_NEW, dst));
-    }
-
-    pub fn list_append(&mut self, list: u8, value: u8) {
-        self.buffer.push(Instruction::encode_c2(opcode::LIST_APPEND, list, value));
+    pub fn list_new(&mut self, dst: u8, values: &[u8]) {
+        assert!(values.len() < 128);
+        self.buffer.push(Instruction::encode_c1u16(opcode::LIST_NEW, dst, values.len() as u16));
+        for v in values {
+            self.buffer.push(Instruction::encode_u16(opcode::EXTRA, *v as u16));
+        }
     }
 
 
@@ -241,8 +240,8 @@ impl ByteCodeBuilder {
     }
 
 
-    pub fn table_new(&mut self, dst: u8) {
-        self.buffer.push(Instruction::encode_c1(opcode::TABLE_NEW, dst));
+    pub fn map_new(&mut self, dst: u8) {
+        self.buffer.push(Instruction::encode_c1(opcode::MAP_NEW, dst));
     }
 
 
@@ -455,13 +454,18 @@ pub fn dump(code: &[Instruction]) {
 
 
             LIST_NEW => {
-                let dst = instr.c1();
-                println!("  list_new r{}", dst);
-            }
+                let (dst, len) = instr.c1u16();
+                print!("  list_new r{}, [", dst);
 
-            LIST_APPEND => {
-                let (list, value) = instr.c2();
-                println!("  list_append r{}, r{}", list, value);
+                for i in 0..len {
+                    let v = next_instr_extra!();
+                    print!("r{}", v.u16());
+                    if i < len - 1 {
+                        print!(", ");
+                    }
+                }
+
+                println!("]");
             }
             
 
@@ -486,9 +490,9 @@ pub fn dump(code: &[Instruction]) {
             }
 
 
-            TABLE_NEW => {
+            MAP_NEW => {
                 let dst = instr.c1();
-                println!("  table_new r{}", dst);
+                println!("  map_new r{}", dst);
             }
 
 

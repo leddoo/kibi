@@ -1,19 +1,19 @@
+use std::rc::Rc;
 use crate::vm::*;
 use crate::bytecode::*;
 
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) enum Value {
     Nil,
     Bool   { value: bool   },
     Number { value: f64    },
-    String { index: usize  },
-    List   { index: usize  },
-    Tuple  { index: usize  },
+    String { value: Rc<String>, },
     Unit,
-    Table  { index: usize  },
+    Tuple  { values: Rc<Vec<Value>>, },
+    List   { values: Rc<Vec<Value>>, },
+    Map    { values: Rc<Vec<(Value, Value)>> },
     Func   { proto: usize  },
-    // Fiber
 }
 
 impl From<bool> for Value { #[inline(always)] fn from(value: bool) -> Self { Value::Bool   { value } } }
@@ -38,40 +38,6 @@ pub(crate) struct GcObject {
 pub(crate) enum GcObjectData {
     Nil,
     Free  { next:  Option<usize> },
-    List  { values: Vec<Value> },
-    Tuple { values: Vec<Value> },
-    Table  (TableData),
-    String { value: String },
-}
-
-
-#[derive(Debug)]
-pub(crate) struct TableData {
-    pub values: Vec<(Value, Value)>,
-}
-
-impl TableData {
-    pub fn insert(&mut self, key: Value, value: Value, vm: &mut VmImpl) {
-        if let Some(v) = self.index(key, vm) {
-            *v = value;
-        }
-        else {
-            self.values.push((key, value));
-        }
-    }
-
-    pub fn index(&mut self, key: Value, vm: &mut VmImpl) -> Option<&mut Value> {
-        for (k, v) in &mut self.values {
-            if vm.raw_eq(*k, key) {
-                return Some(v);
-            }
-        }
-        None
-    }
-
-    pub fn len(&self) -> usize {
-        self.values.len()
-    }
 }
 
 

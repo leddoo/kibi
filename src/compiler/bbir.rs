@@ -41,8 +41,7 @@ pub enum StmtData {
     LoadString  { id: StringId },
     LoadEnv,
 
-    ListNew,
-    ListAppend { list: StmtId, value: StmtId },
+    ListNew { values: StmtListId },
 
     TupleNew { values: StmtListId },
     TupleNew0,
@@ -224,8 +223,7 @@ impl<'a> core::fmt::Display for StmtFmt<'a> {
             LoadString { id }   => { write!(f, "load_string {:?}", fun.strings[id]) }
             LoadEnv             => { write!(f, "get_env") }
 
-            ListNew => { write!(f, "new_list") }
-            ListAppend { list, value } => { write!(f, "list_append {}, {}", list, value) }
+            ListNew { values } => write!(f, "new_list {}", values.get(fun)),
 
             TupleNew { values } => write!(f, "tuple_new {}", values.get(fun)),
             TupleNew0 => write!(f, "tuple_new []"),
@@ -310,8 +308,7 @@ impl StmtData {
             LoadFloat { value: _ } |
             LoadString { id: _ } |
             LoadEnv |
-            ListNew |
-            ListAppend { list: _, value: _ } |
+            ListNew { values: _ } |
             TupleNew { values: _ } |
             TupleNew0 |
             NewFunction { id: _ } |
@@ -339,18 +336,17 @@ impl StmtData {
             LoadFloat { value: _ } |
             LoadString { id: _ } |
             LoadEnv |
-            ListNew |
+            ListNew { values: _ } |
             TupleNew { values: _ } |
             TupleNew0 |
             NewFunction { id: _ } |
             GetIndex { base: _, index: _ } |
+            SetIndex { base: _, index: _, value: _, is_define: _ } |
             Call { func: _, args_id: _ } |
             Op1 { op: _, src: _ } |
             Op2 { op: _, src1: _, src2: _ } => true,
 
             SetLocal { dst: _, src: _ } |
-            ListAppend { list: _, value: _ } |
-            SetIndex { base: _, index: _, value: _, is_define: _ } |
             Jump { target: _ } |
             SwitchBool { src: _, on_true: _, on_false: _ } |
             SwitchNil  { src: _, on_nil: _, on_non_nil: _ } |
@@ -381,8 +377,7 @@ impl StmtData {
             LoadString { id: _ } |
             LoadEnv => (),
 
-            ListNew => (),
-            ListAppend { list, value } => { f(*list); f(*value) }
+            ListNew { values } => { values.each(fun, f) }
 
             TupleNew { values } => { values.each(fun, f) }
             TupleNew0 => (),
@@ -433,8 +428,7 @@ impl StmtData {
             LoadFloat { value: _ } |
             LoadString { id: _ } => (),
 
-            ListNew => (),
-            ListAppend { list, value } => { f(fun, list); f(fun, value) }
+            ListNew { values } => { values.each_mut(fun, f) }
 
             TupleNew { values } => { values.each_mut(fun, f) }
             TupleNew0 => (),
@@ -1053,13 +1047,10 @@ impl Function {
     }
 
     #[inline]
-    pub fn stmt_list_new(&mut self, source: SourceRange) -> StmtId {
-        self.add_stmt(source, StmtData::ListNew)
-    }
-
-    #[inline]
-    pub fn stmt_list_append(&mut self, source: SourceRange, list: StmtId, value: StmtId) -> StmtId {
-        self.add_stmt(source, StmtData::ListAppend { list, value })
+    pub fn stmt_list_new(&mut self, source: SourceRange, values: &[StmtId]) -> StmtId {
+        let values_id = StmtListId(self.stmt_lists.len() as u32);
+        self.stmt_lists.push(StmtListImpl { values: values.into() });
+        self.add_stmt(source, StmtData::ListNew { values: values_id })
     }
 
     pub fn stmt_tuple_new(&mut self, source: SourceRange, values: &[StmtId]) -> StmtId {
@@ -1505,7 +1496,7 @@ impl Module {
                 Constant::Nil              => Value::Nil,
                 Constant::Bool   { value } => Value::Bool { value },
                 Constant::Number { value } => Value::Number { value },
-                Constant::String { value } => vm.inner.string_new(&value),
+                Constant::String { value } => vm.temp_string_new(&value),
             }}).collect();
 
             vm.inner.func_protos.push(crate::FuncProto {

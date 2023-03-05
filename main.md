@@ -5,6 +5,23 @@
     - debugging.
 
 - todo:
+    - value types:
+        - set/get_path.
+            - replace get/set_field/index for now.
+            - support for both global & reg as base.
+        - table -> map.
+        - `Gc` type, `new`.
+            - implicit deref/inout with methods.
+            - but pass without deref.
+            - so `&*` to inout boxed value?
+            - compiler could do implicit stuff if has types.
+        - fix gc.
+        - inout params.
+        - later: cache "has Gc" for lists/tuples.
+    - crates.
+    - nominal structs & traits.
+
+- prev:
     - tuples.
         - destructuring.
         - tuple ret.

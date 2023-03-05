@@ -2,6 +2,7 @@
 pub trait Reserved: PartialEq + Sized + Copy + PartialEq + core::fmt::Debug {
     const RESERVED: Self;
 
+    #[inline(always)]
     fn some(self) -> PackedOption<Self> {
         debug_assert_ne!(self, Self::RESERVED);
         PackedOption { value: self }
