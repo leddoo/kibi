@@ -12,6 +12,7 @@ pub struct CompileError {
 pub enum CompileErrorData {
     UnexpectedLocal,
     InvalidAssignTarget,
+    InvalidPathBase,
     NoBreakTarget,
     NoContinueTarget,
     BreakTargetTakesNoValue,
@@ -114,11 +115,8 @@ impl Compiler {
                     Ok(Some(fun.stmt_get_local(ast.source, decl.id)))
                 }
                 else {
-                    // @todo-opt: get_global.
-                    let env = fun.stmt_load_env(ast.source);
                     let name = fun.add_string(name);
-                    let name = fun.stmt_load_string(ast.source, name);
-                    Ok(Some(fun.stmt_get_index(ast.source, env, name)))
+                    Ok(Some(fun.stmt_read_path(ast.source, PathBase::Env, &[PathKey::Field(name)])))
                 }
             }
 
@@ -250,12 +248,8 @@ impl Compiler {
                 }
             }
 
-            AstData::Field (field) => {
-                // @todo-opt: get_field?
-                let base  = self.compile_ast(ctx, fun, &field.base, true)?.unwrap();
-                let index = fun.add_string(field.name);
-                let index = fun.stmt_load_string(ast.source, index);
-                Ok(Some(fun.stmt_get_index(ast.source, base, index)))
+            AstData::Field (_) => {
+                self.compile_read_path(ctx, fun, ast)
             }
 
             AstData::OptChain (opt_chain) => {
@@ -263,10 +257,8 @@ impl Compiler {
                 unimplemented!()
             }
 
-            AstData::Index (index) => {
-                let base  = self.compile_ast(ctx, fun, &index.base,  true)?.unwrap();
-                let index = self.compile_ast(ctx, fun, &index.index, true)?.unwrap();
-                Ok(Some(fun.stmt_get_index(ast.source, base, index)))
+            AstData::Index (_) => {
+                self.compile_read_path(ctx, fun, ast)
             }
 
             AstData::Call (call) => {
@@ -499,55 +491,76 @@ impl Compiler {
         }
     }
 
+    // bool: env was explicit base.
+    pub fn compile_path<'a>(&mut self, ctx: &mut Ctx<'a>, fun: &mut Function, ast: &Ast<'a>) -> CompileResult<(PathBase, OptLocalId, Vec<PathKey>)> {
+        fn rec<'a>(this: &mut Compiler, ctx: &mut Ctx<'a>, fun: &mut Function, ast: &Ast<'a>, keys: &mut Vec<PathKey>) -> CompileResult<(PathBase, OptLocalId)> {
+            match &ast.data {
+                AstData::Field(field) => {
+                    let base = rec(this, ctx, fun, &field.base, keys)?;
+                    keys.push(PathKey::Field(
+                        fun.add_string(field.name)));
+                    Ok(base)
+                }
+
+                AstData::Index(index) => {
+                    let base = rec(this, ctx, fun, &index.base, keys)?;
+                    keys.push(PathKey::Index(
+                        this.compile_ast(ctx, fun, &index.index, true)?.unwrap()));
+                    Ok(base)
+                }
+
+                AstData::Ident(ident) => {
+                    if let Some(decl) = ctx.find_decl(ident) {
+                        let lid = decl.id;
+                        Ok((PathBase::Stmt(fun.stmt_get_local(ast.source, lid)), lid.some()))
+                    }
+                    else {
+                        keys.push(PathKey::Field(fun.add_string(ident)));
+                        Ok((PathBase::Env, None.into()))
+                    }
+                }
+
+                AstData::Env => {
+                    Ok((PathBase::Env, None.into()))
+                }
+
+                _ => return Err(CompileError::at(ast, CompileErrorData::InvalidPathBase))
+            }
+        }
+
+        let mut keys = vec![];
+        let (base, lid) = rec(self, ctx, fun, ast, &mut keys)?;
+        Ok((base, lid, keys))
+    }
+
+    pub fn compile_read_path<'a>(&mut self, ctx: &mut Ctx<'a>, fun: &mut Function, ast: &Ast<'a>) -> CompileResult<Option<StmtId>> {
+        let (base, _, keys) = self.compile_path(ctx, fun, ast)?;
+        Ok(Some(fun.stmt_read_path(ast.source, base, &keys)))
+    }
+
     pub fn compile_assign<'a>(&mut self,
         ctx: &mut Ctx<'a>, fun: &mut Function,
         lhs: &Ast<'a>, rhs: StmtId, is_define: bool) -> CompileResult<()>
     {
-        // @TEMP: set_path.
-        match &lhs.data {
-            AstData::Ident (name) => {
-                if let Some(decl) = ctx.find_decl(name) {
-                    fun.stmt_set_local(lhs.source, decl.id, rhs);
-                }
-                else {
-                    // @temp: compile error.
-                    assert!(is_define == false);
-
-                    // @todo-opt: set_global.
-                    let env = fun.stmt_load_env(lhs.source);
-                    let name = fun.add_string(name);
-                    let name = fun.stmt_load_string(lhs.source, name);
-                    fun.stmt_set_index(lhs.source, env, name, rhs, false);
-                }
-
-                Ok(())
+        if let AstData::Ident(name) = lhs.data {
+            if let Some(decl) = ctx.find_decl(name) {
+                fun.stmt_set_local(lhs.source, decl.id, rhs);
             }
-
-            AstData::Field (field) => {
-                // @todo-opt: set_field?
-                let base  = self.compile_ast(ctx, fun, &field.base, true)?.unwrap();
-                let index = fun.add_string(field.name);
-                let index = fun.stmt_load_string(lhs.source, index);
-                fun.stmt_set_index(lhs.source, base, index, rhs, is_define);
-                Ok(())
+            else {
+                assert!(is_define == false);
+                let name = fun.add_string(name);
+                fun.stmt_write_path(lhs.source, PathBase::Env, &[PathKey::Field(name)], rhs, is_define);
             }
-
-            AstData::Index (index) => {
-                //let base  = self.compile_ast(ctx, fun, &index.base, true)?.unwrap();
-                let AstData::Ident(base) = index.base.data else { unimplemented!() };
-                let Some(decl) = ctx.find_decl(base) else { unimplemented!() };
-                let lid = decl.id;
-
-                let base = fun.stmt_get_local(lhs.source, lid);
-                let index = self.compile_ast(ctx, fun, &index.index, true)?.unwrap();
-                let new_base = fun.stmt_set_index(lhs.source, base, index, rhs, is_define);
-                fun.stmt_set_local(lhs.source, lid, new_base);
-
-                Ok(())
-            }
-
-            _ => Err(CompileError::at(lhs, CompileErrorData::InvalidAssignTarget)),
         }
+        else {
+            let (base, lid, keys) = self.compile_path(ctx, fun, lhs)?;
+
+            let new_value = fun.stmt_write_path(lhs.source, base, &keys, rhs, is_define);
+            if let Some(lid) = lid.to_option() {
+                fun.stmt_set_local(lhs.source, lid, new_value);
+            }
+        }
+        Ok(())
     }
 }
 

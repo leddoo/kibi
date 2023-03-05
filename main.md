@@ -6,10 +6,6 @@
 
 - todo:
     - value types:
-        - set/get_path.
-            - replace get/set_field/index for now.
-            - support for both global & reg as base.
-        - table -> map.
         - `Gc` type, `new`.
             - implicit deref/inout with methods.
             - but pass without deref.
@@ -18,6 +14,7 @@
         - fix gc.
         - inout params.
         - later: cache "has Gc" for lists/tuples.
+    - proper maps.
     - crates.
     - nominal structs & traits.
 

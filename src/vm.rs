@@ -488,14 +488,14 @@ impl VmImpl {
                 print!("]");
             }
             Value::Map { values } => {
-                print!("[");
+                print!("{{");
                 for (i, (k, v)) in values.iter().enumerate() {
                     self.generic_print(k);
                     print!(": ");
                     self.generic_print(v);
                     if i < values.len() - 1 { print!(", ") }
                 }
-                print!("]");
+                print!("}}");
             }
             Value::Func { proto } => print!("<Func {}>", proto),
         }
@@ -511,35 +511,6 @@ impl VmImpl {
         Value::List { values: Rc::new(values) }
     }
 
-    fn list_def(list: &mut Vec<Value>, index: &Value, value: Value) -> VmResult<()> {
-        let Value::Number { value: index } = index else { return Err(VmError::InvalidOperation) };
-        let index = *index as usize;
-
-        if index >= list.len() {
-            list.resize(index + 1, Value::Nil);
-        }
-        list[index] = value;
-        Ok(())
-    }
-
-    fn list_set(list: &mut Vec<Value>, index: &Value, value: Value) -> VmResult<()> {
-        let Value::Number { value: index } = index else { return Err(VmError::InvalidOperation) };
-
-        let slot = list.get_mut(*index as usize).ok_or(VmError::InvalidOperation)?;
-        *slot = value;
-        Ok(())
-    }
-
-    fn list_get(list: &Vec<Value>, index: &Value) -> VmResult<Value> {
-        let Value::Number { value: index } = index else { return Err(VmError::InvalidOperation) };
-        let value = list.get(*index as usize).ok_or(VmError::InvalidOperation)?;
-        Ok(value.clone())
-    }
-
-    fn list_len(list: &Vec<Value>) -> VmResult<Value> {
-        Ok((list.len() as f64).into())
-    }
-
 
     fn tuple_new(values: Vec<Value>) -> Value {
         if values.len() != 0 {
@@ -548,17 +519,6 @@ impl VmImpl {
         else {
             Value::Unit
         }
-    }
-
-    fn tuple_get(tuple: &Vec<Value>, index: &Value) -> VmResult<Value> {
-        let Value::Number { value: index } = index else { return Err(VmError::InvalidOperation) };
-
-        let value = tuple.get(*index as usize).ok_or(VmError::InvalidOperation)?;
-        Ok(value.clone())
-    }
-
-    fn tuple_len(tuple: &Vec<Value>) -> VmResult<Value> {
-        Ok((tuple.len() as f64).into())
     }
 
 
@@ -594,87 +554,144 @@ impl VmImpl {
         Ok(())
     }
 
-    fn map_set(map: &mut Vec<(Value, Value)>, key: &Value, value: Value) -> VmResult<()> {
-        if let Some(slot) = Self::map_index_mut(map, key) {
-            *slot = value;
-            Ok(())
-        }
-        else {
-            Err(VmError::InvalidOperation)
+    fn read_path(&self, base: &Value, keys: &[Instruction]) -> VmResult<Value> {
+        let key = PathKey::decode(keys[0]);
+        let rem_keys = &keys[1..];
+
+        match base {
+            Value::Unit => {
+                // @todo: same error as for tuple out of bounds.
+                Err(VmError::InvalidOperation)
+            }
+
+            Value::Tuple { values } |
+            Value::List { values } => {
+                let PathKey::Index { reg } = key else { return Err(VmError::InvalidOperation) };
+                let key = self.reg(reg as u32);
+
+                let Value::Number { value: index } = key else { return Err(VmError::InvalidOperation) };
+                let index = *index as usize;
+
+                let value = values.get(index).ok_or(VmError::InvalidOperation)?;
+                if rem_keys.len() == 0 {
+                    Ok(value.clone())
+                }
+                else {
+                    self.read_path(value, rem_keys)
+                }
+            }
+
+            Value::Map { values } => {
+                let key = match key {
+                    // @temp: maps are still like "tables/objects".
+                    //  cause env is still a map, which we should change.
+                    PathKey::Field { string } => self.load_const(string as usize),
+                    PathKey::Index { reg }    => self.reg(reg as u32),
+                };
+
+                let value = Self::map_index(values, key).ok_or(VmError::InvalidOperation)?;
+                if rem_keys.len() == 0 {
+                    Ok(value.clone())
+                }
+                else {
+                    self.read_path(value, rem_keys)
+                }
+            }
+
+            _ => Err(VmError::InvalidOperation)
         }
     }
 
-    fn map_get(map: &Vec<(Value, Value)>, key: &Value) -> VmResult<Value> {
-        if let Some(slot) = Self::map_index(map, key) {
-            Ok(slot.clone())
-        }
-        else {
-            Err(VmError::InvalidOperation)
-        }
-    }
+    fn write_path(&self, base: &mut Value, keys: &[Instruction], value: Value, is_def: bool) -> VmResult<()> {
+        let key = PathKey::decode(keys[0]);
+        let rem_keys = &keys[1..];
 
-    fn map_len(map: &Vec<(Value, Value)>) -> VmResult<Value> {
-        Ok((map.len() as f64).into())
-    }
+        match base {
+            Value::Unit => {
+                Err(VmError::InvalidOperation)
+            }
 
+            Value::Tuple { values } => {
+                let PathKey::Index { reg } = key else { return Err(VmError::InvalidOperation) };
+                let key = self.reg(reg as u32);
 
-    fn generic_def(obj: &mut Value, key: &Value, value: Value) -> VmResult<()> {
-        if let Value::List { values } = obj {
-            Self::list_def(Rc::make_mut(values), key, value)
-        }
-        else if let Value::Map { values } = obj {
-            Self::map_def(Rc::make_mut(values), key, value)
-        }
-        else {
-            Err(VmError::InvalidOperation)
-        }
-    }
+                let Value::Number { value: index } = key else { return Err(VmError::InvalidOperation) };
+                let index = *index as usize;
 
-    fn generic_set(obj: &mut Value, key: &Value, value: Value) -> VmResult<()> {
-        if let Value::List { values } = obj {
-            Self::list_set(Rc::make_mut(values), key, value)
-        }
-        else if let Value::Map { values } = obj {
-            Self::map_set(Rc::make_mut(values), key, value)
-        }
-        else {
-            Err(VmError::InvalidOperation)
-        }
-    }
+                let values = Rc::make_mut(values);
 
-    fn generic_get(obj: &Value, key: &Value) -> VmResult<Value> {
-        if let Value::List { values } = obj {
-            Self::list_get(values, key)
-        }
-        else if let Value::Tuple { values } = obj {
-            Self::tuple_get(values, key)
-        }
-        else if let Value::Unit = obj {
-            // @todo: same error as for tuple out of bounds.
-            Err(VmError::InvalidOperation)
-        }
-        else if let Value::Map { values } = obj {
-            Self::map_get(&values, key)
-        }
-        else {
-            Err(VmError::InvalidOperation)
-        }
-    }
+                let slot = values.get_mut(index).ok_or(VmError::InvalidOperation)?;
+                if rem_keys.len() == 0 {
+                    *slot = value;
+                    Ok(())
+                }
+                else {
+                    self.write_path(slot, rem_keys, value, is_def)
+                }
+            }
 
-    fn generic_len(obj: &Value) -> VmResult<Value> {
-        // @todo-speed: avoid double type check.
-        // @todo-cleanup: value utils.
-        if let Value::List { values } = obj {
-            Self::list_len(values)
-        }
-        else if let Value::Tuple { values } = obj {
-            Self::tuple_len(values)
-        }
-        else if let Value::Map { values } = obj {
-            Self::map_len(values)
-        }
-        else {
-            Err(VmError::InvalidOperation)
+            Value::List { values } => {
+                let PathKey::Index { reg } = key else { return Err(VmError::InvalidOperation) };
+                let key = self.reg(reg as u32);
+
+                let Value::Number { value: index } = key else { return Err(VmError::InvalidOperation) };
+                let index = *index as usize;
+
+                let values = Rc::make_mut(values);
+
+                if rem_keys.len() == 0 {
+                    if is_def {
+                        if index >= values.len() {
+                            values.resize(index + 1, Value::Nil);
+                        }
+                        values[index] = value;
+                        Ok(())
+                    }
+                    else {
+                        let slot = values.get_mut(index).ok_or(VmError::InvalidOperation)?;
+                        *slot = value;
+                        Ok(())
+                    }
+                }
+                else {
+                    let slot = values.get_mut(index).ok_or(VmError::InvalidOperation)?;
+                    self.write_path(slot, rem_keys, value, is_def)
+                }
+            }
+
+            Value::Map { values } => {
+                let key = match key {
+                    // @temp: maps are still like "tables/objects".
+                    //  cause env is still a map, which we should change.
+                    PathKey::Field { string } => self.load_const(string as usize),
+                    PathKey::Index { reg }    => self.reg(reg as u32),
+                };
+
+                let values = Rc::make_mut(values);
+                let slot = Self::map_index_mut(values, key);
+
+                if rem_keys.len() == 0 {
+                    if let Some(slot) = slot {
+                        *slot = value;
+                        Ok(())
+                    }
+                    else {
+                        if is_def {
+                            values.push((key.clone(), value));
+                            Ok(())
+                        }
+                        else { Err(VmError::InvalidOperation) }
+                    }
+                }
+                else {
+                    if let Some(slot) = slot {
+                        self.write_path(slot, rem_keys, value, is_def)
+                    }
+                    else { Err(VmError::InvalidOperation) }
+                }
+            }
+
+            _ => Err(VmError::InvalidOperation)
         }
     }
 
@@ -730,6 +747,16 @@ impl VmImpl {
     }
 
     #[inline(always)]
+    unsafe fn get_current_function_bytecode<'c>(&self) -> &'c Vec<Instruction> {
+        // @todo-speed: obviously don't do this.
+        let frame = self.frames.last().unwrap();
+        let proto = &self.func_protos[frame.func_proto];
+
+        let FuncCode::ByteCode(code) = &proto.code else { unreachable!() };
+        &*(code as *const Vec<Instruction>)
+    }
+
+    #[inline(always)]
     fn next_instr(&mut self) -> Instruction {
         // @todo-speed: obviously don't do this.
         let frame = self.frames.last().unwrap();
@@ -750,11 +777,11 @@ impl VmImpl {
     }
 
     #[inline(always)]
-    fn load_const(&mut self, index: usize) -> Value {
+    fn load_const(&self, index: usize) -> &Value {
         // @todo-speed: obviously don't do this.
         let frame = self.frames.last().unwrap();
         let proto = &self.func_protos[frame.func_proto];
-        proto.constants[index].clone()
+        &proto.constants[index]
     }
 
     #[inline(never)]
@@ -791,10 +818,11 @@ impl VmImpl {
                     break;
                 }
 
-                let instr = self.next_instr();
+                let instr  = self.next_instr();
+                let opcode = instr.opcode() as u8;
 
                 use opcode::*;
-                match instr.opcode() as u8 {
+                match opcode {
                     NOP => (),
 
                     UNREACHABLE => {
@@ -842,7 +870,7 @@ impl VmImpl {
                     LOAD_CONST => {
                         let (dst, index) = instr.c1u16();
                         // @todo-speed: remove checks.
-                        *self.reg_mut(dst) = self.load_const(index as usize);
+                        *self.reg_mut(dst) = self.load_const(index as usize).clone();
                     }
 
 
@@ -889,34 +917,42 @@ impl VmImpl {
                     }
 
 
-                    DEF => {
-                        // @todo-speed: remove checks.
-                        let (obj, key, value) = self.reg3_dst(instr.c3());
-                        let key = key.clone(); // @temp
-                        let value = value.clone();
-                        let obj = self.reg_mut(obj);
-                        vm_try!(Self::generic_def(obj, &key, value));
+                    READ_PATH => {
+                        let (dst, base, num_keys) = instr.c3();
+
+                        let code = unsafe { self.get_current_function_bytecode() };
+                        let keys = &code[self.pc .. self.pc + num_keys as usize];
+                        self.pc += num_keys as usize;
+
+                        let value = if base == 255 {
+                            vm_try!(self.read_path(&self.env, keys))
+                        }
+                        else {
+                            vm_try!(self.read_path(self.reg(base), keys))
+                        };
+
+                        *self.reg_mut(dst) = value;
                     }
 
-                    SET => {
-                        // @todo-speed: remove checks.
-                        let (obj, key, value) = self.reg3_dst(instr.c3());
-                        let key = key.clone(); // @temp
-                        let value = value.clone();
-                        let obj = self.reg_mut(obj);
-                        vm_try!(Self::generic_set(obj, &key, value));
-                    }
+                    WRITE_PATH | WRITE_PATH_DEF => {
+                        let is_def = opcode == WRITE_PATH_DEF;
+                        let (base, num_keys, value) = instr.c3();
 
-                    GET => {
-                        // @todo-speed: remove checks.
-                        let (dst, obj, key) = self.reg3_dst(instr.c3());
-                        *self.reg_mut(dst) = vm_try!(Self::generic_get(obj, key));
-                    }
+                        let value = self.reg(value).clone();
 
-                    LEN => {
-                        // @todo-speed: remove checks.
-                        let (dst, obj) = self.reg2_dst(instr.c2());
-                        *self.reg_mut(dst) = vm_try!(Self::generic_len(obj));
+                        let code = unsafe { self.get_current_function_bytecode() };
+                        let keys = &code[self.pc .. self.pc + num_keys as usize];
+                        self.pc += num_keys as usize;
+
+                        // @todo-safety: this is UB, if base is in the keys.
+                        let this = unsafe { &mut *(self as *mut VmImpl)  };
+
+                        if base == 255 {
+                            vm_try!(self.write_path(&mut this.env, keys, value, is_def));
+                        }
+                        else {
+                            vm_try!(self.write_path(this.reg_mut(base), keys, value, is_def));
+                        }
                     }
 
 
@@ -1081,15 +1117,7 @@ impl VmImpl {
                         let num_args = self.next_instr_extra().u16();
 
                         let args = {
-                            // @todo-speed: obviously don't do this.
-                            let frame = self.frames.last().unwrap();
-                            let proto = &self.func_protos[frame.func_proto];
-
-                            let FuncCode::ByteCode(code) = &proto.code else { unreachable!() };
-
-                            // TEMP: this is safe, as code is (currently) immutable.
-                            // and doesn't get collected, as the function is on the stack.
-                            let code = unsafe { &*(code as *const Vec<Instruction>) };
+                            let code = unsafe { self.get_current_function_bytecode() };
 
                             let result = &code[self.pc .. self.pc + num_args as usize];
                             self.pc += num_args as usize;

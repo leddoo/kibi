@@ -66,13 +66,13 @@ pub fn convert_to_cssa_naive(fun: &mut Function, preds: &Predecessors) {
             let stmt = at.get(fun);
             let next = stmt.next();
 
-            let mut data = stmt.data;
-            if let StmtData::SetIndex { base, index: _, value: _, is_define: _ } = &mut data {
-                let copy = fun.new_stmt(stmt.source, StmtData::Copy { src: *base });
-                fun.insert_before(bb, at.some(), copy);
+            if let StmtData::WritePath { path_id, value: _, is_def: _ } = stmt.data {
+                if let PathBase::Stmt(base) = path_id.get(fun).base {
+                    let copy = fun.new_stmt(stmt.source, StmtData::Copy { src: base });
+                    fun.insert_before(bb, at.some(), copy);
 
-                *base = copy;
-                at.get_mut(fun).data = data;
+                    path_id.set_base(fun, PathBase::Stmt(copy));
+                }
             }
 
             cursor = next;

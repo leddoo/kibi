@@ -399,8 +399,12 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, stmt_in
                     StmtData::ParallelCopy { src, copy_id: _ } => src,
                     StmtData::Op1 { op: _, src }            => src,
                     StmtData::Op2 { op: _,  src1, src2: _ } => src1,
-                    // @todo: this should be a constraint.
-                    StmtData::SetIndex { base, index: _, value: _, is_define: _ } => base,
+                    StmtData::WritePath { path_id, value: _, is_def: _ } => {
+                        match path_id.get(fun).base {
+                            PathBase::Env => break 'first_arg,
+                            PathBase::Stmt(base) => base,
+                        }
+                    }
                     _ => break 'first_arg,
                 };
 
@@ -605,12 +609,42 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
 
                 NewFunction { id } => bcb.new_function(dst, fun_protos[id.usize()].try_into().unwrap()),
 
-                GetIndex { base, index } => bcb.get(dst, reg(base), reg(index)),
+                ReadPath { path_id } => {
+                    let path = path_id.get(fun);
 
-                SetIndex { base, index, value, is_define } => {
-                    assert_eq!(dst, reg(base));
-                    if is_define { bcb.def(dst, reg(index), reg(value)) }
-                    else         { bcb.set(dst, reg(index), reg(value)) }
+                    let base = match path.base {
+                        PathBase::Env        => crate::bytecode::PathBase::ENV,
+                        PathBase::Stmt(stmt) => crate::bytecode::PathBase::reg(reg(stmt)),
+                    };
+
+                    let keys = path.keys.iter().map(|key| match key {
+                        // @strings-first.
+                        PathKey::Field(field) => crate::bytecode::PathKey::Field { string: field.usize() as u16 },
+                        PathKey::Index(index) => crate::bytecode::PathKey::Index { reg: reg(*index) },
+                    }).collect::<Vec<_>>();
+
+                    bcb.read_path(dst, base, &keys);
+                }
+
+                WritePath { path_id, value, is_def } => {
+                    let path = path_id.get(fun);
+
+                    let base = match path.base {
+                        PathBase::Env        => crate::bytecode::PathBase::ENV,
+                        PathBase::Stmt(stmt) => {
+                            let base = reg(stmt);
+                            assert_eq!(dst, base);
+                            crate::bytecode::PathBase::reg(base)
+                        }
+                    };
+
+                    let keys = path.keys.iter().map(|key| match key {
+                        // @strings-first.
+                        PathKey::Field(field) => crate::bytecode::PathKey::Field { string: field.usize() as u16 },
+                        PathKey::Index(index) => crate::bytecode::PathKey::Index { reg: reg(*index) },
+                    }).collect::<Vec<_>>();
+
+                    bcb.write_path(base, &keys, reg(value), is_def);
                 }
 
                 Call { func, args_id } => {
@@ -704,7 +738,7 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
             TUPLE_NEW | LOAD_UNIT |
             MAP_NEW |
             NEW_FUNCTION |
-            DEF | SET | GET | LEN |
+            READ_PATH | WRITE_PATH | WRITE_PATH_DEF |
             ADD | SUB | MUL | DIV | FLOOR_DIV | REM |
             ADD_INT | NEGATE |
             NOT |

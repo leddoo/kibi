@@ -20,43 +20,38 @@ pub mod opcode {
 
     pub const NEW_FUNCTION:     u8 = 14;
 
-    pub const DEF:              u8 = 15;
-    pub const SET:              u8 = 16;
-    pub const GET:              u8 = 17;
-    pub const LEN:              u8 = 18;
+    pub const READ_PATH:        u8 = 15;
+    pub const WRITE_PATH:       u8 = 16;
+    pub const WRITE_PATH_DEF:   u8 = 17;
 
-    pub const ADD:              u8 = 19;
-    pub const SUB:              u8 = 20;
-    pub const MUL:              u8 = 21;
-    pub const DIV:              u8 = 22;
-    pub const FLOOR_DIV:        u8 = 23;
-    pub const REM:              u8 = 24;
-    pub const ADD_INT:          u8 = 25;
-    pub const NEGATE:           u8 = 26;
+    pub const ADD:              u8 = 18;
+    pub const SUB:              u8 = 19;
+    pub const MUL:              u8 = 20;
+    pub const DIV:              u8 = 21;
+    pub const FLOOR_DIV:        u8 = 22;
+    pub const REM:              u8 = 23;
+    pub const ADD_INT:          u8 = 24;
+    pub const NEGATE:           u8 = 25;
 
-    // pub const AND:              u8 = ;
-    // pub const OR:               u8 = ;
-    pub const NOT:              u8 = 27;
+    pub const NOT:              u8 = 26;
 
-    // pub const OR_ELSE:          u8 = ;
+    pub const CMP_EQ:           u8 = 27;
+    pub const CMP_NE:           u8 = 28;
+    pub const CMP_LE:           u8 = 29;
+    pub const CMP_LT:           u8 = 30;
+    pub const CMP_GE:           u8 = 31;
+    pub const CMP_GT:           u8 = 32;
 
-    pub const CMP_EQ:           u8 = 28;
-    pub const CMP_NE:           u8 = 29;
-    pub const CMP_LE:           u8 = 30;
-    pub const CMP_LT:           u8 = 31;
-    pub const CMP_GE:           u8 = 32;
-    pub const CMP_GT:           u8 = 33;
+    pub const JUMP:             u8 = 33;
+    pub const JUMP_TRUE:        u8 = 34;
+    pub const JUMP_FALSE:       u8 = 35;
+    pub const JUMP_NIL:         u8 = 36;
+    pub const JUMP_NOT_NIL:     u8 = 37;
 
-    pub const JUMP:             u8 = 34;
-    pub const JUMP_TRUE:        u8 = 35;
-    pub const JUMP_FALSE:       u8 = 36;
-    pub const JUMP_NIL:         u8 = 37;
-    pub const JUMP_NOT_NIL:     u8 = 38;
+    pub const CALL:             u8 = 38;
+    pub const RET:              u8 = 39;
 
-    pub const CALL:             u8 = 39;
-    pub const RET:              u8 = 40;
-
-    pub const END:              u8 = 41;
+    pub const END:              u8 = 40;
 
     pub const EXTRA:            u8 = 255;
 }
@@ -169,6 +164,62 @@ impl Instruction {
 }
 
 
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct PathBase(u8);
+
+impl PathBase {
+    pub const ENV: PathBase = PathBase(255);
+
+    #[inline(always)]
+    pub fn reg(reg: u8) -> PathBase {
+        assert_ne!(reg, Self::ENV.0);
+        PathBase(reg)
+    }
+}
+
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum PathKey {
+    Field { string: u16 },
+    Index { reg:    u8  },
+}
+
+impl PathKey {
+    pub const TYPE_FIELD: u8 = 1;
+    pub const TYPE_INDEX: u8 = 2;
+
+    pub fn encode(self) -> (u8, u16) {
+        match self {
+            PathKey::Field { string } => (PathKey::TYPE_FIELD, string),
+            PathKey::Index { reg    } => (PathKey::TYPE_INDEX, reg as u16),
+        }
+    }
+
+    pub fn decode(instr: Instruction) -> PathKey {
+        let (kind, value) = instr.c1u16();
+        if kind == Self::TYPE_FIELD as u32 {
+            PathKey::Field { string: value as u16 }
+        }
+        else if kind == Self::TYPE_INDEX as u32 {
+            PathKey::Index { reg: value.try_into().unwrap() }
+        }
+        else {
+            unimplemented!()
+        }
+    }
+}
+
+impl core::fmt::Display for PathKey {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            PathKey::Field { string } => write!(f, "f:{}", string),
+            PathKey::Index { reg }    => write!(f, "i:r{}", reg),
+        }
+    }
+}
+
+
 pub struct ByteCodeBuilder {
     buffer: Vec<Instruction>,
 }
@@ -250,20 +301,23 @@ impl ByteCodeBuilder {
     }
 
 
-    pub fn def(&mut self, obj: u8, key: u8, value: u8) {
-        self.buffer.push(Instruction::encode_c3(opcode::DEF, obj, key, value));
+    pub fn read_path(&mut self, dst: u8, base: PathBase, keys: &[PathKey]) {
+        assert!(keys.len() < 128);
+        self.buffer.push(Instruction::encode_c3(opcode::READ_PATH, dst, base.0, keys.len() as u8));
+        for key in keys {
+            let (kind, value) = key.encode();
+            self.buffer.push(Instruction::encode_c1u16(opcode::EXTRA, kind, value));
+        }
     }
 
-    pub fn set(&mut self, obj: u8, key: u8, value: u8) {
-        self.buffer.push(Instruction::encode_c3(opcode::SET, obj, key, value));
-    }
-
-    pub fn get(&mut self, dst: u8, obj: u8, key: u8) {
-        self.buffer.push(Instruction::encode_c3(opcode::GET, dst, obj, key));
-    }
-
-    pub fn len(&mut self, dst: u8, obj: u8) {
-        self.buffer.push(Instruction::encode_c2(opcode::LEN, dst, obj));
+    pub fn write_path(&mut self, base: PathBase, keys: &[PathKey], value: u8, is_define: bool) {
+        assert!(keys.len() < 128);
+        let op = if is_define { opcode::WRITE_PATH_DEF } else { opcode::WRITE_PATH };
+        self.buffer.push(Instruction::encode_c3(op, base.0, keys.len() as u8, value));
+        for key in keys {
+            let (kind, value) = key.encode();
+            self.buffer.push(Instruction::encode_c1u16(opcode::EXTRA, kind, value));
+        }
     }
 
 
@@ -402,10 +456,11 @@ pub fn dump(code: &[Instruction]) {
     while pc < code.len() {
         print!("{:02}: ", pc);
 
-        let instr = next_instr!();
+        let instr  = next_instr!();
+        let opcode = instr.opcode() as u8;
 
         use crate::bytecode::opcode::*;
-        match instr.opcode() as u8 {
+        match opcode {
             NOP => {
                 println!("  nop");
             }
@@ -496,25 +551,28 @@ pub fn dump(code: &[Instruction]) {
             }
 
 
-            DEF => {
-                // @todo-speed: remove checks.
-                let (obj, key, value) = instr.c3();
-                println!("  def r{}, r{}, r{}", obj, key, value);
+            READ_PATH => {
+                let (dst, base, num_keys) = instr.c3();
+                print!("  read_path r{}, ", dst);
+                if base == 255 { print!("ENV[") } else { print!("r{}[", base) };
+                for i in 0..num_keys {
+                    print!("{}", PathKey::decode(next_instr_extra!()));
+                    if i < num_keys-1 { print!(", "); }
+                }
+                println!("]");
             }
 
-            SET => {
-                let (obj, key, value) = instr.c3();
-                println!("  set r{}, r{}, r{}", obj, key, value);
-            }
-
-            GET => {
-                let (dst, obj, key) = instr.c3();
-                println!("  get r{}, r{}, r{}", dst, obj, key);
-            }
-
-            LEN => {
-                let (dst, obj) = instr.c2();
-                println!("  len r{}, r{}", dst, obj);
+            WRITE_PATH | WRITE_PATH_DEF => {
+                let is_def = opcode == WRITE_PATH_DEF;
+                let (base, num_keys, value) = instr.c3();
+                print!("  write_path");
+                if is_def { print!("(d)") }
+                if base == 255 { print!(" ENV[") } else { print!(" r{}[", base) };
+                for i in 0..num_keys {
+                    print!("{}", PathKey::decode(next_instr_extra!()));
+                    if i < num_keys-1 { print!(", "); }
+                }
+                println!("], r{}", value);
             }
 
 

@@ -1,5 +1,5 @@
 use core::cell::{RefCell, Ref, RefMut};
-use derive_more::{Deref, DerefMut};
+use derive_more::{Deref, DerefMut, Display};
 use crate::index_vec::*;
 use crate::macros::define_id;
 use super::*;
@@ -48,8 +48,8 @@ pub enum StmtData {
 
     NewFunction { id: FunctionId },
 
-    GetIndex { base: StmtId, index: StmtId },
-    SetIndex { base: StmtId, index: StmtId, value: StmtId, is_define: bool },
+    ReadPath { path_id: PathId },
+    WritePath { path_id: PathId, value: StmtId, is_def: bool },
 
     Call { func: StmtId, args_id: StmtListId },
 
@@ -91,6 +91,34 @@ pub struct StmtList<'a> {
 }
 
 
+define_id!(PathId);
+
+#[derive(Clone, Copy, Debug, Display)]
+pub enum PathBase {
+    Env,
+    Stmt(StmtId),
+}
+
+#[derive(Clone, Copy, Debug, Display)]
+pub enum PathKey {
+    Field(StringId),
+    Index(StmtId),
+}
+
+#[derive(Clone, Debug)]
+pub struct PathImpl {
+    pub base: PathBase,
+    pub keys: Vec<PathKey>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Path<'a> {
+    pub base: PathBase,
+    pub keys: &'a [PathKey],
+}
+
+
+
 
 // ### Block ###
 
@@ -108,7 +136,7 @@ pub struct Block {
 
 // ### Local ###
 
-define_id!(LocalId, "l{}");
+define_id!(LocalId, OptLocalId, "l{}");
 
 #[allow(dead_code)] // @temp
 #[derive(Debug)]
@@ -129,6 +157,7 @@ pub struct Function {
 
     stmts:      IndexVec<StmtId,        Stmt>,
     phi_maps:   IndexVec<PhiMapId,      PhiMapImpl>,
+    paths:      IndexVec<PathId,        PathImpl>,
     stmt_lists: IndexVec<StmtListId,    StmtListImpl>,
     blocks:     IndexVec<BlockId,       Block>,
     locals:     IndexVec<LocalId,       Local>,
@@ -144,7 +173,7 @@ pub struct Function {
     current_block: BlockId,
 }
 
-define_id!(StringId);
+define_id!(StringId, "str{}");
 
 
 
@@ -230,11 +259,12 @@ impl<'a> core::fmt::Display for StmtFmt<'a> {
 
             NewFunction { id } => write!(f, "new_function {}", id),
 
-            GetIndex { base, index } => write!(f, "get_index {}, {}", base, index),
+            ReadPath { path_id } => write!(f, "read_path {}", path_id.get(fun)),
 
-            SetIndex { base, index, value, is_define } => {
-                if is_define { write!(f, "def_index {}, {}, {}", base, index, value) }
-                else         { write!(f, "set_index {}, {}, {}", base, index, value) }
+            WritePath { path_id, value, is_def } => {
+                write!(f, "write_path")?;
+                if is_def { write!(f, "(d)")? }
+                write!(f, " {} {}", path_id.get(fun), value)
             }
 
             Call { func, args_id } => write!(f, "call {}, {}", func, args_id.get(fun)),
@@ -312,8 +342,8 @@ impl StmtData {
             TupleNew { values: _ } |
             TupleNew0 |
             NewFunction { id: _ } |
-            GetIndex { base: _, index: _ } |
-            SetIndex { base: _, index: _, value: _, is_define: _ } |
+            ReadPath { path_id: _ } |
+            WritePath { path_id: _, value: _, is_def: _ } |
             Call { func: _, args_id: _ } |
             Op1 { op: _, src: _ } |
             Op2 { op: _, src1: _, src2: _ } => false,
@@ -340,8 +370,8 @@ impl StmtData {
             TupleNew { values: _ } |
             TupleNew0 |
             NewFunction { id: _ } |
-            GetIndex { base: _, index: _ } |
-            SetIndex { base: _, index: _, value: _, is_define: _ } |
+            ReadPath { path_id: _ } |
+            WritePath { path_id: _, value: _, is_def: _ } |
             Call { func: _, args_id: _ } |
             Op1 { op: _, src: _ } |
             Op2 { op: _, src1: _, src2: _ } => true,
@@ -384,8 +414,8 @@ impl StmtData {
 
             NewFunction { id: _ } => (),
 
-            GetIndex { base, index }                      => { f(*base); f(*index) }
-            SetIndex { base, index, value, is_define: _ } => { f(*base); f(*index); f(*value) }
+            ReadPath { path_id } => { path_id.each_stmt(fun, f) }
+            WritePath { path_id, value, is_def: _ } => { path_id.each_stmt(fun, &mut f); f(*value) }
 
             Call { func, args_id } => { f(*func); args_id.each(fun, f) }
 
@@ -435,8 +465,8 @@ impl StmtData {
 
             NewFunction { id: _ } => (),
 
-            GetIndex { base, index }                      => { f(fun, base); f(fun, index) }
-            SetIndex { base, index, value, is_define: _ } => { f(fun, base); f(fun, index); f(fun, value) }
+            ReadPath { path_id } => { path_id.each_stmt_mut(fun, f) }
+            WritePath { path_id, value, is_def: _ } => { path_id.each_stmt_mut(fun, &mut f); f(fun, value) }
 
             Call { func, args_id } => { f(fun, func); args_id.each_mut(fun, f) }
 
@@ -453,9 +483,9 @@ impl StmtData {
 
 
 impl PhiMapId {
-    #[inline]
+    #[inline(always)]
     pub fn get<'s>(self, fun: &'s Function) -> PhiMap<'s> {
-        PhiMap { map: &fun.phi_maps[self] }
+        fun.phi_maps[self].phi_map()
     }
 }
 
@@ -481,6 +511,67 @@ impl<'a> core::fmt::Display for PhiMap<'a> {
             }
         }
         write!(f, " }}")
+    }
+}
+
+
+impl PathId {
+    #[inline(always)]
+    pub fn get<'s>(self, fun: &'s Function) -> Path<'s> {
+        let path = &fun.paths[self];
+        Path { base: path.base, keys: &path.keys }
+    }
+
+    pub fn set_base(self, fun: &mut Function, base: PathBase) {
+        fun.paths[self].base = base;
+    }
+
+    #[inline]
+    pub fn each_stmt<F: FnMut(StmtId)>(self, fun: &Function, mut f: F) {
+        let path = &fun.paths[self];
+
+        match path.base {
+            PathBase::Env => (),
+            PathBase::Stmt(stmt) => f(stmt),
+        }
+
+        for key in &path.keys {
+            match key {
+                PathKey::Field(_) => (),
+                PathKey::Index(stmt) => f(*stmt),
+            }
+        }
+    }
+
+    #[inline]
+    pub fn each_stmt_mut<F: FnMut(&Function, &mut StmtId)>(self, fun: &mut Function, mut f: F) {
+        let mut path = core::mem::replace(&mut fun.paths[self], PathImpl { base: PathBase::Env, keys: vec![] });
+
+        match &mut path.base {
+            PathBase::Env => (),
+            PathBase::Stmt(stmt) => f(fun, stmt),
+        }
+
+        for key in &mut path.keys {
+            match key {
+                PathKey::Field(_) => (),
+                PathKey::Index(stmt) => f(fun, stmt),
+            }
+        }
+        fun.paths[self] = path;
+    }
+}
+
+impl<'a> core::fmt::Display for Path<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}, [", self.base)?;
+        for (i, key) in self.keys.iter().enumerate() {
+            write!(f, "{}", key)?;
+            if i < self.keys.len() - 1 {
+                write!(f, ", ")?;
+            }
+        }
+        write!(f, "]")
     }
 }
 
@@ -570,6 +661,7 @@ impl Function {
             stmts:      index_vec![],
             blocks:     index_vec![],
             phi_maps:   index_vec![],
+            paths:      index_vec![],
             stmt_lists: index_vec![],
             locals:     index_vec![],
             strings:    index_vec![],
@@ -1075,13 +1167,19 @@ impl Function {
     }
 
     #[inline]
-    pub fn stmt_get_index(&mut self, source: SourceRange, base: StmtId, index: StmtId) -> StmtId {
-        self.add_stmt(source, StmtData::GetIndex { base, index })
+    pub fn stmt_read_path(&mut self, source: SourceRange, base: PathBase, keys: &[PathKey]) -> StmtId {
+        assert!(keys.len() > 0);
+        let path_id = PathId(self.paths.len() as u32);
+        self.paths.push(PathImpl { base, keys: keys.into() });
+        self.add_stmt(source, StmtData::ReadPath { path_id })
     }
 
     #[inline]
-    pub fn stmt_set_index(&mut self, source: SourceRange, base: StmtId, index: StmtId, value: StmtId, is_define: bool) -> StmtId {
-        self.add_stmt(source, StmtData::SetIndex { base, index, value, is_define })
+    pub fn stmt_write_path(&mut self, source: SourceRange, base: PathBase, keys: &[PathKey], value: StmtId, is_def: bool) -> StmtId {
+        assert!(keys.len() > 0);
+        let path_id = PathId(self.paths.len() as u32);
+        self.paths.push(PathImpl { base, keys: keys.into() });
+        self.add_stmt(source, StmtData::WritePath { path_id, value, is_def })
     }
 
     #[inline]
