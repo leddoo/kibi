@@ -204,44 +204,44 @@ impl<'a> TokenData<'a> {
     }
 
 
-    pub fn try_op1(&self) -> Option<ast::Op1Kind> {
+    pub fn try_op1(&self) -> Option<data::Op1Kind> {
         use TokenData::*;
         use super::Op1::*;
         Some(match self {
-            KwNot    => ast::Op1Kind(Not),
-            OpMinus  => ast::Op1Kind(Negate),
+            KwNot    => data::Op1Kind(Not),
+            OpMinus  => data::Op1Kind(Negate),
             _ => return None,
         })
     }
 
-    pub fn try_op2(&self) -> Option<ast::Op2Kind> {
+    pub fn try_op2(&self) -> Option<data::Op2Kind> {
         use TokenData::*;
         use super::Op2::*;
         Some(match self {
-            OpAdd               => ast::Op2Kind::Op2(Add),
-            OpAddAssign         => ast::Op2Kind::Op2Assign(Add),
-            OpMinus             => ast::Op2Kind::Op2(Sub),
-            OpMinusAssign       => ast::Op2Kind::Op2Assign(Sub),
-            OpMul               => ast::Op2Kind::Op2(Mul),
-            OpMulAssign         => ast::Op2Kind::Op2Assign(Mul),
-            OpDiv               => ast::Op2Kind::Op2(Div),
-            OpDivAssign         => ast::Op2Kind::Op2Assign(Div),
-            OpFloorDiv          => ast::Op2Kind::Op2(FloorDiv),
-            OpFloorDivAssign    => ast::Op2Kind::Op2Assign(FloorDiv),
-            OpRem               => ast::Op2Kind::Op2(Rem),
-            OpRemAssign         => ast::Op2Kind::Op2Assign(Rem),
-            KwAnd               => ast::Op2Kind::Op2(And),
-            KwOr                => ast::Op2Kind::Op2(Or),
-            OpOrElse            => ast::Op2Kind::Op2(OrElse),
-            OpOrElseAssign      => ast::Op2Kind::Op2Assign(OrElse),
-            ColonEq             => ast::Op2Kind::Define,
-            OpAssign            => ast::Op2Kind::Assign,
-            OpEq                => ast::Op2Kind::Op2(CmpEq),
-            OpNe                => ast::Op2Kind::Op2(CmpNe),
-            OpLe                => ast::Op2Kind::Op2(CmpLe),
-            OpLt                => ast::Op2Kind::Op2(CmpLt),
-            OpGe                => ast::Op2Kind::Op2(CmpGe),
-            OpGt                => ast::Op2Kind::Op2(CmpGt),
+            OpAdd               => data::Op2Kind::Op2(Add),
+            OpAddAssign         => data::Op2Kind::Op2Assign(Add),
+            OpMinus             => data::Op2Kind::Op2(Sub),
+            OpMinusAssign       => data::Op2Kind::Op2Assign(Sub),
+            OpMul               => data::Op2Kind::Op2(Mul),
+            OpMulAssign         => data::Op2Kind::Op2Assign(Mul),
+            OpDiv               => data::Op2Kind::Op2(Div),
+            OpDivAssign         => data::Op2Kind::Op2Assign(Div),
+            OpFloorDiv          => data::Op2Kind::Op2(FloorDiv),
+            OpFloorDivAssign    => data::Op2Kind::Op2Assign(FloorDiv),
+            OpRem               => data::Op2Kind::Op2(Rem),
+            OpRemAssign         => data::Op2Kind::Op2Assign(Rem),
+            KwAnd               => data::Op2Kind::Op2(And),
+            KwOr                => data::Op2Kind::Op2(Or),
+            OpOrElse            => data::Op2Kind::Op2(OrElse),
+            OpOrElseAssign      => data::Op2Kind::Op2Assign(OrElse),
+            ColonEq             => data::Op2Kind::Define,
+            OpAssign            => data::Op2Kind::Assign,
+            OpEq                => data::Op2Kind::Op2(CmpEq),
+            OpNe                => data::Op2Kind::Op2(CmpNe),
+            OpLe                => data::Op2Kind::Op2(CmpLe),
+            OpLt                => data::Op2Kind::Op2(CmpLt),
+            OpGe                => data::Op2Kind::Op2(CmpGe),
+            OpGt                => data::Op2Kind::Op2(CmpGt),
             _ => return None
         })
     }
@@ -657,261 +657,10 @@ impl<'i> Tokenizer<'i> {
 }
 
 
-
-#[derive(Clone, Debug, Deref)]
-pub struct Ast<'a> {
-    pub source: SourceRange,
-    #[deref]
-    pub data:   AstData<'a>,
-}
-
-#[derive(Clone, Debug)]
-pub enum AstData<'a> {
-    Nil,
-    Bool        (bool),
-    Number      (&'a str),
-    QuotedString(&'a str),
-    Ident       (&'a str),
-    Tuple       (Box<ast::Tuple<'a>>),
-    List        (Box<ast::List<'a>>),
-    Table       (Box<ast::Table<'a>>),
-    Do          (Box<ast::Do<'a>>),
-    SubExpr     (Box<Ast<'a>>),
-    Local       (Box<ast::Local<'a>>),
-    Op1         (Box<ast::Op1<'a>>),
-    Op2         (Box<ast::Op2<'a>>),
-    Field       (Box<ast::Field<'a>>),
-    OptChain    (Box<ast::Field<'a>>),
-    Index       (Box<ast::Index<'a>>),
-    Call        (Box<ast::Call<'a>>),
-    If          (Box<ast::If<'a>>),
-    While       (Box<ast::While<'a>>),
-    Break       (ast::Break<'a>),
-    Continue    (ast::Continue<'a>),
-    Return      (ast::Return<'a>),
-    Fn          (Box<ast::Fn<'a>>),
-    Env,
-}
-
-impl<'a> AstData<'a> {
-    #[inline(always)]
-    pub fn is_local(&self) -> bool {
-        if let AstData::Local(_) = self { true } else { false }
-    }
-}
-
-pub mod ast {
-    use super::*;
-
-    #[derive(Clone, Debug)]
-    pub struct Tuple<'a> {
-        pub values: Vec<Ast<'a>>,
-    }
-
-    #[derive(Clone, Debug)]
-    pub struct List<'a> {
-        pub values: Vec<Ast<'a>>,
-    }
-
-    #[derive(Clone, Debug)]
-    pub struct Table<'a> {
-        pub values: Vec<(Ident<'a>, Ast<'a>)>,
-    }
-
-
-    #[derive(Clone, Debug)]
-    pub struct Block<'a> {
-        pub stmts: Vec<Ast<'a>>,
-    }
-
-    #[derive(Clone, Debug)]
-    pub struct Do<'a> {
-        pub label: Option<&'a str>,
-        pub stmts: Vec<Ast<'a>>,
-    }
-
-
-    #[derive(Clone, Debug)]
-    pub struct Local<'a> {
-        pub name:  &'a str,
-        pub value: Option<Ast<'a>>,
-        pub kind:  LocalKind,
-    }
-
-    #[derive(Clone, Debug)]
-    pub enum LocalKind {
-        Let,
-        Var,
-    }
-
-
-    #[derive(Clone, Debug)]
-    pub struct Op1<'a> {
-        pub kind:  Op1Kind,
-        pub child: Ast<'a>,
-    }
-
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Op1Kind (pub super::Op1);
-
-
-    #[derive(Clone, Debug)]
-    pub struct Op2<'a> {
-        pub kind:     Op2Kind,
-        pub children: [Ast<'a>; 2],
-    }
-
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub enum Op2Kind {
-        Op2       (super::Op2),
-        Op2Assign (super::Op2),
-        Assign,
-        Define,
-    }
-
-    impl Op2Kind {
-        #[inline]
-        pub fn lprec(self) -> u32 {
-            use Op2Kind::*;
-            use super::Op2::*;
-            match self {
-                Assign             => 100,
-                Define             => 100,
-                Op2Assign(_)       => 100,
-                Op2(op) => match op {
-                    OrElse      => 150,
-                    Or          => 200,
-                    And         => 300,
-                    CmpEq       => 400,
-                    CmpNe       => 400,
-                    CmpLe       => 400,
-                    CmpLt       => 400,
-                    CmpGe       => 400,
-                    CmpGt       => 400,
-                    Add         => 600,
-                    Sub         => 600,
-                    Mul         => 800,
-                    Div         => 800,
-                    FloorDiv    => 800,
-                    Rem         => 800,
-                }
-            }
-        }
-
-        #[inline]
-        pub fn rprec(self) -> u32 {
-            use Op2Kind::*;
-            use super::Op2::*;
-            match self {
-                Assign                 => 100,
-                Define                 => 100,
-                Op2Assign(_)           => 100,
-                Op2(op) => match op {
-                    OrElse          => 151,
-                    Or              => 201,
-                    And             => 301,
-                    CmpEq           => 401,
-                    CmpNe           => 401,
-                    CmpLe           => 401,
-                    CmpLt           => 401,
-                    CmpGe           => 401,
-                    CmpGt           => 401,
-                    Add             => 601,
-                    Sub             => 601,
-                    Mul             => 801,
-                    Div             => 801,
-                    FloorDiv        => 801,
-                    Rem             => 801,
-                }
-            }
-        }
-    }
-
-    pub const PREC_PREFIX:  u32 =  900;
-    pub const PREC_POSTFIX: u32 = 1000;
-
-
-    #[derive(Clone, Debug)]
-    pub struct Field<'a> {
-        pub base: Ast<'a>,
-        pub name: &'a str,
-    }
-
-    #[derive(Clone, Debug)]
-    pub struct Index<'a> {
-        pub base:  Ast<'a>,
-        pub index: Ast<'a>,
-    }
-
-    #[derive(Clone, Debug)]
-    pub struct Call<'a> {
-        pub func: Ast<'a>,
-        pub args: Vec<Ast<'a>>,
-    }
-
-
-    #[derive(Clone, Debug)]
-    pub struct IfBlock<'a> {
-        pub stmts: Vec<Ast<'a>>,
-        pub is_do: bool,
-    }
-
-    #[derive(Clone, Debug)]
-    pub struct If<'a> {
-        pub condition: Ast<'a>,
-        pub on_true:   IfBlock<'a>,
-        pub on_false:  Option<IfBlock<'a>>,
-    }
-
-    #[derive(Clone, Debug)]
-    pub struct While<'a> {
-        pub label:     Option<&'a str>,
-        pub condition: Ast<'a>,
-        pub body:      Vec<Ast<'a>>,
-    }
-
-
-    #[derive(Clone, Debug)]
-    pub struct Break<'a> {
-        pub label: Option<&'a str>,
-        pub value: Option<Box<Ast<'a>>>,
-    }
-
-    #[derive(Clone, Debug)]
-    pub struct Continue<'a> {
-        pub label: Option<&'a str>,
-    }
-
-    #[derive(Clone, Debug)]
-    pub struct Return<'a> {
-        pub value: Option<Box<Ast<'a>>>,
-    }
-
-
-    #[derive(Clone, Debug)]
-    pub struct Fn<'a> {
-        pub name:   Option<&'a str>,
-        pub params: Vec<FnParam<'a>>,
-        pub body:   Vec<Ast<'a>>,
-    }
-
-    #[derive(Clone, Debug)]
-    pub struct FnParam<'a> {
-        pub name: &'a str,
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct Ident<'i> {
     source: SourceRange,
     value:  &'i str,
-}
-
-impl<'i> Ident<'i> {
-    #[inline(always)]
-    fn to_ast(self) -> Ast<'i> {
-        Ast { source: self.source, data: AstData::Ident(self.value) }
-    }
 }
 
 
@@ -973,7 +722,7 @@ impl<'p, 'i> Parser<'p, 'i> {
         (current_source, None)
     }
 
-    fn next_if_expr(&mut self, current_source: SourceRange, prec: u32) -> ParseResult<(SourceRange, Option<Box<Ast<'i>>>)> {
+    fn next_if_expr(&mut self, current_source: SourceRange, prec: u32) -> ParseResult<(SourceRange, Option<Box<Expr<'i>>>)> {
         if self.peek(0).filter(|at| at.is_expr_start()).is_some() {
             let expr = self.parse_expr(prec)?;
             let source = SourceRange { begin: current_source.begin, end: expr.source.end };
@@ -1000,37 +749,37 @@ impl<'p, 'i> Parser<'p, 'i> {
 
 
     // bool: terminated (needs no semi-colon).
-    fn parse_leading_expr(&mut self, prec: u32) -> ParseResult<Ast<'i>> {
+    fn parse_leading_expr(&mut self, prec: u32) -> ParseResult<Expr<'i>> {
         let current = *self.next()?;
 
         // ident.
         if let TokenData::Ident(ident) = current.data {
             let source = current.source;
-            return Ok(Ast { source, data: AstData::Ident(ident) });
+            return Ok(Expr::new(source, ExprData::Ident(ident)));
         }
 
         // number.
         if let TokenData::Number(value) = current.data {
             let source = current.source;
-            return Ok(Ast { source, data: AstData::Number(value) });
+            return Ok(Expr::new(source, ExprData::Number(value)));
         }
 
         // bool.
         if let TokenData::Bool(value) = current.data {
             let source = current.source;
-            return Ok(Ast { source, data: AstData::Bool(value) });
+            return Ok(Expr::new(source, ExprData::Bool(value)));
         }
 
         // nil.
         if let TokenData::Nil = current.data {
             let source = current.source;
-            return Ok(Ast { source, data: AstData::Nil });
+            return Ok(Expr::new(source, ExprData::Nil));
         }
 
         // string.
         if let TokenData::QuotedString(value) = current.data {
             let source = current.source;
-            return Ok(Ast { source, data: AstData::QuotedString(value) });
+            return Ok(Expr::new(source, ExprData::QuotedString(value)));
         }
 
         let begin = current.source.begin;
@@ -1040,19 +789,19 @@ impl<'p, 'i> Parser<'p, 'i> {
             let (values, had_comma) = self.parse_comma_exprs(TokenData::RParen)?;
             let data =
                 if values.len() == 1 && !had_comma {
-                    AstData::SubExpr(Box::new(values.into_iter().next().unwrap()))
+                    ExprData::SubExpr(Box::new(values.into_iter().next().unwrap()))
                 }
                 else {
-                    AstData::Tuple(Box::new(ast::Tuple { values }))
+                    ExprData::Tuple(Box::new(data::Tuple { values }))
                 };
 
             let end = self.expect(TokenData::RParen)?.end;
-            return Ok(Ast { source: SourceRange { begin, end }, data });
+            return Ok(Expr::new(SourceRange { begin, end }, data));
         }
 
         // if
         if let TokenData::KwIf = current.data {
-            return self.parse_if_as_ast(begin);
+            return self.parse_if_as_expr(begin);
         }
 
         // while
@@ -1069,9 +818,9 @@ impl<'p, 'i> Parser<'p, 'i> {
 
             let body = self.parse_block()?.stmts;
 
-            let data = AstData::While(Box::new(ast::While { label, condition, body }));
+            let data = ExprData::While(Box::new(data::While { label, condition, body }));
             let end = self.expect(TokenData::KwEnd)?.end;
-            return Ok(Ast { source: SourceRange { begin, end }, data });
+            return Ok(Expr::new(SourceRange { begin, end }, data));
         }
 
         // do
@@ -1086,10 +835,10 @@ impl<'p, 'i> Parser<'p, 'i> {
             self.expect(TokenData::Colon)?;
 
             let block = self.parse_block()?;
-            let data = AstData::Do(Box::new(ast::Do { label, stmts: block.stmts }));
+            let data = ExprData::Do(Box::new(data::Do { label, stmts: block.stmts }));
 
             let end = self.expect(TokenData::KwEnd)?.end;
-            return Ok(Ast { source: SourceRange { begin, end }, data });
+            return Ok(Expr::new(SourceRange { begin, end }, data));
         }
 
         // break
@@ -1097,22 +846,22 @@ impl<'p, 'i> Parser<'p, 'i> {
             let source = current.source;
             let (source, label) = self.next_if_label(source);
             let (source, value) = self.next_if_expr(source, 0)?;
-            return Ok(Ast { source, data: AstData::Break(ast::Break { label, value }) });
+            return Ok(Expr::new(source, ExprData::Break(data::Break { label, value })));
         }
 
         // continue
         if let TokenData::KwContinue = current.data {
             let source = current.source;
             let (source, label) = self.next_if_label(source);
-            return Ok(Ast { source, data: AstData::Continue(ast::Continue { label }) });
+            return Ok(Expr::new(source, ExprData::Continue(data::Continue { label })));
         }
 
         // return
         if let TokenData::KwReturn = current.data {
             let source = current.source;
             let (source, value) = self.next_if_expr(source, 0)?;
-            let data = AstData::Return(ast::Return { value });
-            return Ok(Ast { source, data });
+            let data = ExprData::Return(data::Return { value });
+            return Ok(Expr::new(source, data));
         }
 
         // functions
@@ -1137,9 +886,9 @@ impl<'p, 'i> Parser<'p, 'i> {
                 let body = self.parse_block()?.stmts;
                 let end = self.expect(TokenData::KwEnd)?.end;
 
-                let data = AstData::Fn(Box::new(
-                    ast::Fn { name, params, body }));
-                return Ok(Ast { source: SourceRange { begin, end }, data });
+                let data = ExprData::Fn(Box::new(
+                    data::Fn { name, params, body }));
+                return Ok(Expr::new(SourceRange { begin, end }, data));
             }
             // fn params => expr
             else {
@@ -1149,9 +898,9 @@ impl<'p, 'i> Parser<'p, 'i> {
                 let body = self.parse_expr(0)?;
                 let end = body.source.end;
 
-                let data = AstData::Fn(Box::new(
-                    ast::Fn { name: None, params, body: vec![body] }));
-                return Ok(Ast { source: SourceRange { begin, end }, data });
+                let data = ExprData::Fn(Box::new(
+                    data::Fn { name: None, params, body: vec![body.to_stmt()] }));
+                return Ok(Expr::new(SourceRange { begin, end }, data));
             }
         }
 
@@ -1160,46 +909,45 @@ impl<'p, 'i> Parser<'p, 'i> {
             let values = self.parse_comma_exprs(TokenData::RBracket)?.0;
             let end = self.expect(TokenData::RBracket)?.end;
 
-            let data = AstData::List(Box::new(ast::List { values }));
-            return Ok(Ast { source: SourceRange { begin, end }, data });
+            let data = ExprData::List(Box::new(data::List { values }));
+            return Ok(Expr::new(SourceRange { begin, end }, data));
         }
 
-        // table.
+        /*
+        // map.
         if let TokenData::LCurly = current.data {
             let values = self.parse_kv_exprs(TokenData::RCurly)?.0;
             let end = self.expect(TokenData::RCurly)?.end;
 
-            let data = AstData::Table(Box::new(ast::Table { values }));
-            return Ok(Ast { source: SourceRange { begin, end }, data });
+            let data = ExprData::Map(Box::new(data::Map { values }));
+            return Ok(Expr { source: SourceRange { begin, end }, data });
         }
+        */
 
         // prefix operators.
         if let Some(op1) = current.try_op1() {
-            if ast::PREC_PREFIX < prec {
+            if data::PREC_PREFIX < prec {
                 unimplemented!()
             }
 
-            let value = self.parse_expr(ast::PREC_PREFIX)?;
+            let value = self.parse_expr(data::PREC_PREFIX)?;
 
             let end = value.source.end;
-            let data = AstData::Op1(Box::new(ast::Op1 { kind: op1, child: value }));
-            return Ok(Ast { source: SourceRange { begin, end }, data });
+            let data = ExprData::Op1(Box::new(data::Op1 { kind: op1, child: value }));
+            return Ok(Expr::new(SourceRange { begin, end }, data));
         }
 
 
         // env.
         if current.data == TokenData::KwEnv {
-            return Ok(Ast {
-                source: current.source,
-                data:   AstData::Env,
-            });
+            return Ok(Expr::new(current.source, ExprData::Env));
         }
 
 
         Err(ParseError::at(&current, ParseErrorData::ExpectedExpression))
     }
 
-    pub fn parse_expr(&mut self, prec: u32) -> ParseResult<Ast<'i>> {
+    pub fn parse_expr(&mut self, prec: u32) -> ParseResult<Expr<'i>> {
         let mut result = self.parse_leading_expr(prec)?;
 
         loop {
@@ -1213,19 +961,18 @@ impl<'p, 'i> Parser<'p, 'i> {
                     let other = self.parse_expr(op2.rprec())?;
                     let begin = result.source.begin;
                     let end   = other.source.end;
-                    result = Ast {
-                        source: SourceRange { begin, end },
-                        data: AstData::Op2(Box::new(ast::Op2 {
+                    result = Expr::new(
+                        SourceRange { begin, end },
+                        ExprData::Op2(Box::new(data::Op2 {
                             kind: op2,
                             children: [result, other]
-                        })),
-                    };
+                        })));
                     continue;
                 }
             }
 
             // "postfix" operators.
-            if ast::PREC_POSTFIX < prec {
+            if data::PREC_POSTFIX < prec {
                 break;
             }
 
@@ -1237,13 +984,12 @@ impl<'p, 'i> Parser<'p, 'i> {
 
                 let begin = result.source.begin;
                 let end   = self.expect(TokenData::RParen)?.end;
-                result = Ast {
-                    source: SourceRange { begin, end },
-                    data: AstData::Call(Box::new(ast::Call {
+                result = Expr::new(
+                    SourceRange { begin, end },
+                    ExprData::Call(Box::new(data::Call {
                         func: result,
                         args,
-                    })),
-                };
+                    })));
                 continue;
             }
 
@@ -1255,13 +1001,12 @@ impl<'p, 'i> Parser<'p, 'i> {
 
                 let begin = result.source.begin;
                 let end   = name.source.end;
-                result = Ast {
-                    source: SourceRange { begin, end },
-                    data: AstData::Field(Box::new(ast::Field {
+                result = Expr::new(
+                    SourceRange { begin, end },
+                    ExprData::Field(Box::new(data::Field {
                         base: result,
                         name: name.value,
-                    })),
-                };
+                    })));
                 continue;
             }
 
@@ -1273,13 +1018,12 @@ impl<'p, 'i> Parser<'p, 'i> {
 
                 let begin = result.source.begin;
                 let end   = name.source.end;
-                result = Ast {
-                    source: SourceRange { begin, end },
-                    data: AstData::OptChain(Box::new(ast::Field {
+                result = Expr::new(
+                    SourceRange { begin, end },
+                    ExprData::OptChain(Box::new(data::Field {
                         base: result,
                         name: name.value,
-                    })),
-                };
+                    })));
                 continue;
             }
 
@@ -1291,13 +1035,12 @@ impl<'p, 'i> Parser<'p, 'i> {
 
                 let begin = result.source.begin;
                 let end   = self.expect(TokenData::RBracket)?.end;
-                result = Ast {
-                    source: SourceRange { begin, end },
-                    data: AstData::Index(Box::new(ast::Index {
+                result = Expr::new(
+                    SourceRange { begin, end },
+                    ExprData::Index(Box::new(data::Index {
                         base: result,
                         index,
-                    })),
-                };
+                    })));
                 continue;
             }
 
@@ -1308,7 +1051,7 @@ impl<'p, 'i> Parser<'p, 'i> {
     }
 
     // bool: ends with comma.
-    pub fn parse_comma_exprs(&mut self, until: TokenData<'static>) -> ParseResult<(Vec<Ast<'i>>, bool)> {
+    pub fn parse_comma_exprs(&mut self, until: TokenData<'static>) -> ParseResult<(Vec<Expr<'i>>, bool)> {
         let mut result = vec![];
 
         let mut had_comma = true;
@@ -1323,8 +1066,9 @@ impl<'p, 'i> Parser<'p, 'i> {
         Ok((result, had_comma))
     }
 
+    /*
     // bool: ends with comma.
-    pub fn parse_kv_exprs(&mut self, until: TokenData<'static>) -> ParseResult<(Vec<(Ident<'i>, Ast<'i>)>, bool)> {
+    pub fn parse_kv_exprs(&mut self, until: TokenData<'static>) -> ParseResult<(Vec<(Ident<'i>, Expr<'i>)>, bool)> {
         let mut result = vec![];
 
         let mut had_comma = true;
@@ -1336,7 +1080,7 @@ impl<'p, 'i> Parser<'p, 'i> {
                 result.push((key, value));
             }
             else {
-                result.push((key, key.to_ast()));
+                result.push((key, key.to_Expr()));
             }
 
             if !self.next_if(TokenData::Comma) {
@@ -1346,10 +1090,11 @@ impl<'p, 'i> Parser<'p, 'i> {
 
         Ok((result, had_comma))
     }
+    */
 
-    pub fn parse_block(&mut self) -> ParseResult<ast::Block<'i>> {
+    pub fn parse_block(&mut self) -> ParseResult<data::Block<'i>> {
         let Some(begin) = self.peek(0) else {
-            return Ok(ast::Block { stmts: vec![] });
+            return Ok(data::Block { stmts: vec![] });
         };
 
         let begin = begin.source.begin;
@@ -1376,8 +1121,8 @@ impl<'p, 'i> Parser<'p, 'i> {
             else if at.data == TokenData::KwLet
             ||      at.data == TokenData::KwVar {
                 let kind = match at.data {
-                    TokenData::KwLet => ast::LocalKind::Let,
-                    TokenData::KwVar => ast::LocalKind::Var,
+                    TokenData::KwLet => data::LocalKind::Let,
+                    TokenData::KwVar => data::LocalKind::Var,
                     _ => unreachable!()
                 };
                 self.next().unwrap();
@@ -1393,12 +1138,12 @@ impl<'p, 'i> Parser<'p, 'i> {
                     value = Some(v);
                 }
 
-                stmts.push(Ast {
-                    source: SourceRange { begin, end },
-                    data: AstData::Local(Box::new(ast::Local {
+                stmts.push(Stmt::new(
+                    SourceRange { begin, end },
+                    StmtData::Local(data::Local {
                         name: name.value, value, kind,
-                    })),
-                });
+                    }),
+                ));
             }
             // expr stmt
             else {
@@ -1406,26 +1151,26 @@ impl<'p, 'i> Parser<'p, 'i> {
                 terminated = self.next_if(TokenData::Semicolon);
 
                 end = expr.source.end;
-                stmts.push(expr);
+                stmts.push(expr.to_stmt());
             }
         }
 
         // @todo-dbg-info
         let _ = end;
 
-        Ok(ast::Block { stmts })
+        Ok(data::Block { stmts })
     }
 
     // consumes `do` & colon.
-    pub fn parse_if_block(&mut self) -> ParseResult<ast::IfBlock<'i>> {
+    pub fn parse_if_block(&mut self) -> ParseResult<data::IfBlock<'i>> {
         let is_do = self.next_if(TokenData::KwDo);
         self.expect(TokenData::Colon)?;
 
         let block = self.parse_block()?;
-        Ok(ast::IfBlock { stmts: block.stmts, is_do })
+        Ok(data::IfBlock { stmts: block.stmts, is_do })
     }
 
-    pub fn parse_if(&mut self) -> ParseResult<(SourcePos, ast::If<'i>)> {
+    pub fn parse_if(&mut self) -> ParseResult<(SourcePos, data::If<'i>)> {
         let condition = self.parse_expr(0)?;
 
         let on_true = self.parse_if_block()?;
@@ -1435,8 +1180,8 @@ impl<'p, 'i> Parser<'p, 'i> {
 
             if at.data == TokenData::KwElif {
                 let begin = at.source.begin;
-                let body = self.parse_if_as_ast(begin)?;
-                (body.source.end, Some(ast::IfBlock { stmts: vec![body], is_do: false }))
+                let body = self.parse_if_as_expr(begin)?.to_stmt();
+                (body.source.end, Some(data::IfBlock { stmts: vec![body], is_do: false }))
             }
             else if at.data == TokenData::KwElse {
                 let body = self.parse_if_block()?;
@@ -1452,23 +1197,23 @@ impl<'p, 'i> Parser<'p, 'i> {
             }
         };
 
-        Ok((end, ast::If { condition, on_true, on_false }))
+        Ok((end, data::If { condition, on_true, on_false }))
     }
 
-    pub fn parse_if_as_ast(&mut self, begin: SourcePos) -> ParseResult<Ast<'i>> {
+    pub fn parse_if_as_expr(&mut self, begin: SourcePos) -> ParseResult<Expr<'i>> {
         let (end, data) = self.parse_if()?;
-        let data = AstData::If(Box::new(data));
-        Ok(Ast { source: SourceRange { begin, end }, data })
+        let data = ExprData::If(Box::new(data));
+        Ok(Expr::new(SourceRange { begin, end }, data))
     }
 
     // bool: ends with comma.
-    pub fn parse_fn_params(&mut self) -> ParseResult<(Vec<ast::FnParam<'i>>, bool)> {
+    pub fn parse_fn_params(&mut self) -> ParseResult<(Vec<data::FnParam<'i>>, bool)> {
         let mut result = vec![];
 
         let mut had_comma = true;
         while had_comma {
             let Some(name) = self.next_if_ident() else { break };
-            result.push(ast::FnParam { name });
+            result.push(data::FnParam { name });
 
             if !self.next_if(TokenData::Comma) {
                 had_comma = false;
@@ -1479,7 +1224,7 @@ impl<'p, 'i> Parser<'p, 'i> {
     }
 
 
-    pub fn parse_single(input: &'i [u8]) -> ParseResult<Ast<'i>> {
+    pub fn parse_single(input: &'i [u8]) -> ParseResult<Expr<'i>> {
         let tokens = Tokenizer::tokenize(input, true)?;
         let mut p = Parser::new(&tokens);
 
@@ -1491,7 +1236,7 @@ impl<'p, 'i> Parser<'p, 'i> {
         Ok(result)
     }
 
-    pub fn parse_chunk(input: &'i [u8]) -> ParseResult<ast::Block<'i>> {
+    pub fn parse_chunk(input: &'i [u8]) -> ParseResult<data::Block<'i>> {
         let tokens = Tokenizer::tokenize(input, true)?;
         let mut p = Parser::new(&tokens);
         p.parse_block()

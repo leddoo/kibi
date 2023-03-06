@@ -1,4 +1,4 @@
--- @todo: use an object.
+-- @todo: use a struct.
 ENV.mk_board := fn(w, h):
     let values = []
     var i = 0

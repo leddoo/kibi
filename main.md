@@ -36,7 +36,6 @@
 - todo: basic crates:
     - compiler:
         - ast:
-            - expr/stmt.
             - item.
             - module.
         - basic sema:

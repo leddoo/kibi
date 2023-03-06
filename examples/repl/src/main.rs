@@ -53,7 +53,7 @@ fn main() {
 
         let chunk = compiler::Parser::parse_chunk(source.as_bytes()).unwrap();
 
-        let module = compiler::Compiler::compile_chunk(&chunk.stmts).unwrap();
+        let module = compiler::Compiler::compile_chunk(&chunk.stmts, false).unwrap();
         module.temp_load(&mut vm);
         let dt_compile = t0.elapsed();
 
@@ -125,7 +125,7 @@ fn main() {
             }
         };
 
-        let module = match compiler::Compiler::compile_chunk(&[ast]) {
+        let module = match compiler::Compiler::compile_chunk(&[ast.to_stmt()], true) {
             Ok(result) => result,
             Err(e) => {
                 println!("compile error: {:?}", e);

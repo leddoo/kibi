@@ -10,7 +10,6 @@ pub struct CompileError {
 
 #[derive(Debug)]
 pub enum CompileErrorData {
-    UnexpectedLocal,
     InvalidAssignTarget,
     InvalidPathBase,
     NoBreakTarget,
@@ -60,112 +59,108 @@ struct BreakScope<'a> {
 
 impl CompileError {
     #[inline(always)]
-    pub fn at(ast: &Ast, data: CompileErrorData) -> CompileError {
-        CompileError { source: ast.source, data }
-    }
-
-    #[inline(always)]
-    pub fn at_range(source: SourceRange, data: CompileErrorData) -> CompileError {
+    pub fn at(source: SourceRange, data: CompileErrorData) -> CompileError {
         CompileError { source, data }
     }
 }
 
 
 impl Compiler {
-    pub fn compile_chunk(stmts: &[Ast]) -> CompileResult<Module> {
+    pub fn compile_chunk(stmts: &[Stmt], as_value_block: bool) -> CompileResult<Module> {
         let mut this = Compiler {
             module: Module::new()
         };
 
         let mut ctx = Ctx::new();
         let mut fun = this.module.new_function();
-        this.compile_block(&mut ctx, &mut fun, stmts)?;
-
-        let unit = fun.instr_load_unit(SourceRange::null());
-        fun.instr_return(SourceRange::null(), unit);
+        let value = 
+            if as_value_block {
+                this.compile_value_block(&mut ctx, &mut fun, SourceRange::null(), stmts, true)?.unwrap()
+            }
+            else {
+                this.compile_block(&mut ctx, &mut fun, stmts)?;
+                fun.instr_load_unit(SourceRange::null())
+            };
+        fun.instr_return(SourceRange::null(), value);
 
         Ok(this.module)
     }
 
-    pub fn compile_ast<'a>(&mut self,
+    pub fn compile_expr<'a>(&mut self,
         ctx: &mut Ctx<'a>, fun: &mut Function,
-        ast: &Ast<'a>, need_value: bool,
+        expr: &Expr<'a>, need_value: bool,
     ) -> CompileResult<Option<InstrId>> {
-        match &ast.data {
-            AstData::Nil => {
-                Ok(Some(fun.instr_load_nil(ast.source)))
+        match &expr.data {
+            ExprData::Nil => {
+                Ok(Some(fun.instr_load_nil(expr.source)))
             }
 
-            AstData::Bool (value) => {
-                Ok(Some(fun.instr_load_bool(ast.source, *value)))
+            ExprData::Bool (value) => {
+                Ok(Some(fun.instr_load_bool(expr.source, *value)))
             }
 
-            AstData::Number (value) => {
+            ExprData::Number (value) => {
                 let value = value.parse().unwrap();
-                Ok(Some(fun.instr_load_int(ast.source, value)))
+                Ok(Some(fun.instr_load_int(expr.source, value)))
             }
 
-            AstData::QuotedString (value) => {
+            ExprData::QuotedString (value) => {
                 let string = fun.add_string(value);
-                Ok(Some(fun.instr_load_string(ast.source, string)))
+                Ok(Some(fun.instr_load_string(expr.source, string)))
             }
 
-            AstData::Ident (name) => {
+            ExprData::Ident (name) => {
                 if let Some(decl) = ctx.find_decl(name) {
-                    Ok(Some(fun.instr_get_local(ast.source, decl.id)))
+                    Ok(Some(fun.instr_get_local(expr.source, decl.id)))
                 }
                 else {
                     let name = fun.add_string(name);
-                    Ok(Some(fun.instr_read_path(ast.source, PathBase::Env, &[PathKey::Field(name)])))
+                    Ok(Some(fun.instr_read_path(expr.source, PathBase::Env, &[PathKey::Field(name)])))
                 }
             }
 
-            AstData::Tuple (tuple) => {
+            ExprData::Tuple (tuple) => {
                 let mut values = vec![];
                 for v in &tuple.values {
-                    values.push(self.compile_ast(ctx, fun, v, true)?.unwrap());
+                    values.push(self.compile_expr(ctx, fun, v, true)?.unwrap());
                 }
-                Ok(Some(fun.instr_tuple_new(ast.source, &values)))
+                Ok(Some(fun.instr_tuple_new(expr.source, &values)))
             }
 
-            AstData::List (list) => {
+            ExprData::List (list) => {
                 let mut values = Vec::with_capacity(list.values.len());
                 for v in &list.values {
-                    values.push(self.compile_ast(ctx, fun, v, true)?.unwrap());
+                    values.push(self.compile_expr(ctx, fun, v, true)?.unwrap());
                 }
-                Ok(Some(fun.instr_list_new(ast.source, &values)))
+                Ok(Some(fun.instr_list_new(expr.source, &values)))
             }
 
-            AstData::Do (doo) => {
-                self.compile_do_block(ctx, fun, ast.source, doo.label, &doo.stmts, need_value)
+            ExprData::Do (doo) => {
+                self.compile_do_block(ctx, fun, expr.source, doo.label, &doo.stmts, need_value)
             }
 
-            AstData::SubExpr (sub_expr) => {
-                self.compile_ast(ctx, fun, sub_expr, need_value)
+            ExprData::SubExpr (sub_expr) => {
+                self.compile_expr(ctx, fun, sub_expr, need_value)
             }
 
-            AstData::Local (_) => {
-                Err(CompileError { source: ast.source, data: CompileErrorData::UnexpectedLocal })
-            }
-
-            AstData::Op1 (op1) => {
-                let src = self.compile_ast(ctx, fun, &op1.child, true)?.unwrap();
+            ExprData::Op1 (op1) => {
+                let src = self.compile_expr(ctx, fun, &op1.child, true)?.unwrap();
                 let op  = op1.kind.0;
-                Ok(Some(fun.instr_op1(ast.source, op, src)))
+                Ok(Some(fun.instr_op1(expr.source, op, src)))
             }
 
-            AstData::Op2 (op2) => {
+            ExprData::Op2 (op2) => {
                 match op2.kind {
-                    expr::Op2Kind::Assign | expr::Op2Kind::Define => {
-                        if let AstData::Tuple(lhs) = &op2.children[0].data {
-                            if op2.kind != expr::Op2Kind::Assign {
+                    data::Op2Kind::Assign | data::Op2Kind::Define => {
+                        if let ExprData::Tuple(lhs) = &op2.children[0].data {
+                            if op2.kind != data::Op2Kind::Assign {
                                 // todo: error.
                                 unimplemented!()
                             }
 
                             let lhs = &lhs.values;
 
-                            if let AstData::Tuple(rhs) = &op2.children[1].data {
+                            if let ExprData::Tuple(rhs) = &op2.children[1].data {
                                 let rhs = &rhs.values;
                                 if lhs.len() != rhs.len() {
                                     // todo: error.
@@ -174,7 +169,7 @@ impl Compiler {
 
                                 let mut values = Vec::with_capacity(rhs.len());
                                 for v in rhs {
-                                    values.push(self.compile_ast(ctx, fun, v, true)?.unwrap());
+                                    values.push(self.compile_expr(ctx, fun, v, true)?.unwrap());
                                 }
 
                                 for i in 0..lhs.len() {
@@ -186,39 +181,39 @@ impl Compiler {
                             }
                         }
                         else {
-                            let value = self.compile_ast(ctx, fun, &op2.children[1], true)?.unwrap();
-                            let is_define = op2.kind == expr::Op2Kind::Define;
+                            let value = self.compile_expr(ctx, fun, &op2.children[1], true)?.unwrap();
+                            let is_define = op2.kind == data::Op2Kind::Define;
                             self.compile_assign(ctx, fun, &op2.children[0], value, is_define)?;
                         }
-                        Ok(need_value.then(|| fun.instr_load_unit(ast.source)))
+                        Ok(need_value.then(|| fun.instr_load_unit(expr.source)))
                     }
 
-                    expr::Op2Kind::Op2Assign(op) => {
+                    data::Op2Kind::Op2Assign(op) => {
                         if op.is_cancelling() {
                             unimplemented!()
                         }
 
-                        let src1 = self.compile_ast(ctx, fun, &op2.children[0], true)?.unwrap();
-                        let src2 = self.compile_ast(ctx, fun, &op2.children[1], true)?.unwrap();
+                        let src1 = self.compile_expr(ctx, fun, &op2.children[0], true)?.unwrap();
+                        let src2 = self.compile_expr(ctx, fun, &op2.children[1], true)?.unwrap();
 
-                        let value = fun.instr_op2(ast.source, op, src1, src2);
+                        let value = fun.instr_op2(expr.source, op, src1, src2);
                         let is_define = false;
                         self.compile_assign(ctx, fun, &op2.children[0], value, is_define)?;
 
-                        Ok(need_value.then(|| fun.instr_load_unit(ast.source)))
+                        Ok(need_value.then(|| fun.instr_load_unit(expr.source)))
                     }
 
-                    expr::Op2Kind::Op2(op) => {
+                    data::Op2Kind::Op2(op) => {
                         if op.is_cancelling() {
                             let bb_2 = fun.new_block();
                             let bb_after = fun.new_block();
 
                             // first value + cancel.
-                            let src1 = self.compile_ast(ctx, fun, &op2.children[0], true)?.unwrap();
+                            let src1 = self.compile_expr(ctx, fun, &op2.children[0], true)?.unwrap();
                             match op {
-                                Op2::And     => { fun.instr_switch_bool(ast.source, src1, bb_2, bb_after); }
-                                Op2::Or      => { fun.instr_switch_bool(ast.source, src1, bb_after, bb_2); }
-                                Op2::OrElse  => { fun.instr_switch_nil(ast.source, src1, bb_2, bb_after); }
+                                Op2::And     => { fun.instr_switch_bool(expr.source, src1, bb_2, bb_after); }
+                                Op2::Or      => { fun.instr_switch_bool(expr.source, src1, bb_after, bb_2); }
+                                Op2::OrElse  => { fun.instr_switch_nil(expr.source, src1, bb_2, bb_after); }
 
                                 _ => unreachable!()
                             }
@@ -226,58 +221,58 @@ impl Compiler {
 
                             // second value.
                             fun.set_current_block(bb_2);
-                            let src2 = self.compile_ast(ctx, fun, &op2.children[1], true)?.unwrap();
-                            fun.instr_jump(ast.source, bb_after);
+                            let src2 = self.compile_expr(ctx, fun, &op2.children[1], true)?.unwrap();
+                            fun.instr_jump(expr.source, bb_after);
                             let bb_2 = fun.get_current_block();
 
                             // join.
                             fun.set_current_block(bb_after);
-                            Ok(Some(fun.instr_phi(ast.source, &[(bb_1, src1), (bb_2, src2)])))
+                            Ok(Some(fun.instr_phi(expr.source, &[(bb_1, src1), (bb_2, src2)])))
                         }
                         else {
-                            let src1 = self.compile_ast(ctx, fun, &op2.children[0], true)?.unwrap();
-                            let src2 = self.compile_ast(ctx, fun, &op2.children[1], true)?.unwrap();
-                            Ok(Some(fun.instr_op2(ast.source, op, src1, src2)))
+                            let src1 = self.compile_expr(ctx, fun, &op2.children[0], true)?.unwrap();
+                            let src2 = self.compile_expr(ctx, fun, &op2.children[1], true)?.unwrap();
+                            Ok(Some(fun.instr_op2(expr.source, op, src1, src2)))
                         }
                     }
                 }
             }
 
-            AstData::Field (_) => {
-                self.compile_read_path(ctx, fun, ast)
+            ExprData::Field (_) => {
+                self.compile_read_path(ctx, fun, expr)
             }
 
-            AstData::OptChain (opt_chain) => {
+            ExprData::OptChain (opt_chain) => {
                 let _ = opt_chain;
                 unimplemented!()
             }
 
-            AstData::Index (_) => {
-                self.compile_read_path(ctx, fun, ast)
+            ExprData::Index (_) => {
+                self.compile_read_path(ctx, fun, expr)
             }
 
-            AstData::Call (call) => {
-                let func = self.compile_ast(ctx, fun, &call.func, true)?.unwrap();
+            ExprData::Call (call) => {
+                let func = self.compile_expr(ctx, fun, &call.func, true)?.unwrap();
                 let mut args = vec![];
                 for arg in &call.args {
-                    args.push(self.compile_ast(ctx, fun, arg, true)?.unwrap());
+                    args.push(self.compile_expr(ctx, fun, arg, true)?.unwrap());
                 }
-                Ok(Some(fun.instr_call(ast.source, func, &args)))
+                Ok(Some(fun.instr_call(expr.source, func, &args)))
             }
 
-            AstData::If (iff) => {
+            ExprData::If (iff) => {
                 let bb_true = fun.new_block();
                 let bb_false = fun.new_block();
                 let after_if = fun.new_block();
 
                 // condition.
-                let cond = self.compile_ast(ctx, fun, &iff.condition, true)?.unwrap();
-                fun.instr_switch_bool(ast.source, cond, bb_true, bb_false);
+                let cond = self.compile_expr(ctx, fun, &iff.condition, true)?.unwrap();
+                fun.instr_switch_bool(expr.source, cond, bb_true, bb_false);
 
 
                 // on_true
                 fun.set_current_block(bb_true);
-                let value_true = self.compile_if_block(ctx, fun, ast.source, &iff.on_true, need_value)?;
+                let value_true = self.compile_if_block(ctx, fun, expr.source, &iff.on_true, need_value)?;
                 let on_true_src = SourceRange::null(); // @todo-dbg-info
                 fun.instr_jump(on_true_src, after_if);
                 let bb_true = fun.get_current_block();
@@ -287,11 +282,11 @@ impl Compiler {
                 fun.set_current_block(bb_false);
                 let (value_false, on_false_src) =
                     if let Some(on_false) = &iff.on_false {
-                        let v = self.compile_if_block(ctx, fun, ast.source, on_false, need_value)?;
+                        let v = self.compile_if_block(ctx, fun, expr.source, on_false, need_value)?;
                         (v, SourceRange::null()) // @todo-dbg-info
                     }
                     else {
-                        let source = ast.source.end.to_range();
+                        let source = expr.source.end.to_range();
                         let v = need_value.then(|| fun.instr_load_unit(source));
                         (v, source)
                     };
@@ -301,7 +296,7 @@ impl Compiler {
 
                 fun.set_current_block(after_if);
                 if need_value {
-                    let result = fun.instr_phi(ast.source, &[
+                    let result = fun.instr_phi(expr.source, &[
                         (bb_true,  value_true.unwrap()),
                         (bb_false, value_false.unwrap()),
                     ]);
@@ -310,18 +305,18 @@ impl Compiler {
                 else { Ok(None) }
             }
 
-            AstData::While (whilee) => {
+            ExprData::While (whilee) => {
                 let bb_head  = fun.new_block();
                 let bb_body  = fun.new_block();
                 let bb_after = fun.new_block();
 
-                fun.instr_jump(ast.source, bb_head);
+                fun.instr_jump(expr.source, bb_head);
 
 
                 // head.
                 fun.set_current_block(bb_head);
-                let cond = self.compile_ast(ctx, fun, &whilee.condition, true)?.unwrap();
-                fun.instr_switch_bool(ast.source, cond, bb_body, bb_after);
+                let cond = self.compile_expr(ctx, fun, &whilee.condition, true)?.unwrap();
+                fun.instr_switch_bool(expr.source, cond, bb_body, bb_after);
                 let bb_head = fun.get_current_block();
 
 
@@ -330,66 +325,66 @@ impl Compiler {
                 // body.
                 fun.set_current_block(bb_body);
                 self.compile_block(ctx, fun, &whilee.body)?;
-                fun.instr_jump(ast.source, bb_head);
+                fun.instr_jump(expr.source, bb_head);
 
                 ctx.end_break_scope(bs);
 
 
                 fun.set_current_block(bb_after);
-                Ok(need_value.then(|| fun.instr_load_unit(ast.source)))
+                Ok(need_value.then(|| fun.instr_load_unit(expr.source)))
             }
 
-            AstData::Break(breakk) => {
+            ExprData::Break(breakk) => {
                 let value =
                     if let Some(v) = &breakk.value {
-                        Some(self.compile_ast(ctx, fun, v, true)?.unwrap())
+                        Some(self.compile_expr(ctx, fun, v, true)?.unwrap())
                     } else { None };
 
-                let scope = ctx.current_break_target(ast.source, breakk.label)?;
+                let scope = ctx.current_break_target(expr.source, breakk.label)?;
                 let bb_break = scope.bb_after;
 
                 if let Some(values) = &mut scope.values {
                     let value = value.unwrap_or_else(||
-                        fun.instr_load_unit(ast.source));
+                        fun.instr_load_unit(expr.source));
                     values.push((fun.get_current_block(), value));
                 }
                 else if value.is_some() {
-                    return Err(CompileError::at(ast, CompileErrorData::BreakTargetTakesNoValue));
+                    return Err(CompileError::at(expr.source, CompileErrorData::BreakTargetTakesNoValue));
                 }
 
-                fun.instr_jump(ast.source, bb_break);
+                fun.instr_jump(expr.source, bb_break);
 
                 let bb_unreach = fun.new_block();
                 fun.set_current_block(bb_unreach);
-                Ok(need_value.then(|| fun.instr_load_unit(ast.source)))
+                Ok(need_value.then(|| fun.instr_load_unit(expr.source)))
             }
 
-            AstData::Continue(cont) => {
-                let bb_continue = ctx.current_continue_target(ast.source, cont.label)?;
-                fun.instr_jump(ast.source, bb_continue);
+            ExprData::Continue(cont) => {
+                let bb_continue = ctx.current_continue_target(expr.source, cont.label)?;
+                fun.instr_jump(expr.source, bb_continue);
 
                 let bb_unreach = fun.new_block();
                 fun.set_current_block(bb_unreach);
-                Ok(need_value.then(|| fun.instr_load_unit(ast.source)))
+                Ok(need_value.then(|| fun.instr_load_unit(expr.source)))
             }
 
-            AstData::Return (returnn) => {
+            ExprData::Return (returnn) => {
                 let value =
                     if let Some(value) = &returnn.value {
-                        self.compile_ast(ctx, fun, value, true)?.unwrap()
+                        self.compile_expr(ctx, fun, value, true)?.unwrap()
                     }
                     else {
-                        fun.instr_load_unit(ast.source)
+                        fun.instr_load_unit(expr.source)
                     };
-                fun.instr_return(ast.source, value);
+                fun.instr_return(expr.source, value);
 
                 let new_block = fun.new_block();
                 fun.set_current_block(new_block);
 
-                Ok(need_value.then(|| fun.instr_load_unit(ast.source)))
+                Ok(need_value.then(|| fun.instr_load_unit(expr.source)))
             }
 
-            AstData::Fn (fnn) => {
+            ExprData::Fn (fnn) => {
                 let mut inner_fun = self.module.new_function();
                 let mut inner_ctx = Ctx::new();
 
@@ -400,39 +395,47 @@ impl Compiler {
 
 
                 let value = self.compile_value_block(&mut inner_ctx, &mut inner_fun,
-                    ast.source, &fnn.body, true)?.unwrap();
-                inner_fun.instr_return(ast.source, value);
+                    expr.source, &fnn.body, true)?.unwrap();
+                inner_fun.instr_return(expr.source, value);
 
-                Ok(Some(fun.instr_new_function(ast.source, inner_fun.id())))
+                Ok(Some(fun.instr_new_function(expr.source, inner_fun.id())))
             }
 
-            AstData::Env => {
-                Ok(Some(fun.instr_load_env(ast.source)))
+            ExprData::Env => {
+                Ok(Some(fun.instr_load_env(expr.source)))
             }
         }
     }
 
-    pub fn compile_block<'a>(&mut self, ctx: &mut Ctx<'a>, fun: &mut Function, stmts: &[Ast<'a>]) -> CompileResult<()> {
+    pub fn compile_block<'a>(&mut self, ctx: &mut Ctx<'a>, fun: &mut Function, stmts: &[Stmt<'a>]) -> CompileResult<()> {
         let scope = ctx.begin_scope();
 
         for stmt in stmts.iter() {
-            // local decls.
-            if let AstData::Local(local) = &stmt.data {
-                let v =
-                    if let Some(value) = &local.value {
-                        self.compile_ast(ctx, fun, value, true)?.unwrap()
-                    }
-                    else {
-                        fun.instr_load_unit(stmt.source)
-                    };
+            match &stmt.data {
+                StmtData::Local(local) => {
+                    let v =
+                        if let Some(value) = &local.value {
+                            self.compile_expr(ctx, fun, value, true)?.unwrap()
+                        }
+                        else {
+                            fun.instr_load_unit(stmt.source)
+                        };
 
-                let lid = fun.new_local(local.name, stmt.source);
-                ctx.add_decl(local.name, lid);
+                    let lid = fun.new_local(local.name, stmt.source);
+                    ctx.add_decl(local.name, lid);
 
-                fun.instr_set_local(stmt.source, lid, v);
-            }
-            else {
-                self.compile_ast(ctx, fun, stmt, false)?;
+                    fun.instr_set_local(stmt.source, lid, v);
+                }
+
+                StmtData::Expr (expr) => {
+                    self.compile_expr(ctx, fun, expr, false)?;
+                }
+
+                StmtData::Empty => (),
+
+                StmtData::Item => {
+                    unimplemented!()
+                }
             }
         }
 
@@ -441,7 +444,7 @@ impl Compiler {
     }
 
     pub fn compile_do_block<'a>(&mut self, ctx: &mut Ctx<'a>, fun: &mut Function,
-        block_source: SourceRange, label: Option<&'a str>, stmts: &[Ast<'a>], need_value: bool
+        block_source: SourceRange, label: Option<&'a str>, stmts: &[Stmt<'a>], need_value: bool
     ) -> CompileResult<Option<InstrId>> {
         let bb_after = fun.new_block();
 
@@ -464,19 +467,20 @@ impl Compiler {
     }
 
     pub fn compile_value_block<'a>(&mut self, ctx: &mut Ctx<'a>, fun: &mut Function,
-        block_source: SourceRange, stmts: &[Ast<'a>], need_value: bool
+        block_source: SourceRange, stmts: &[Stmt<'a>], need_value: bool
     ) -> CompileResult<Option<InstrId>> {
-        if stmts.len() == 1 && !stmts[0].is_local() {
-            self.compile_ast(ctx, fun, &stmts[0], need_value)
+        if stmts.len() == 1 {
+            if let StmtData::Expr(expr) = &stmts[0].data {
+                return self.compile_expr(ctx, fun, expr, need_value);
+            }
         }
-        else {
-            self.compile_block(ctx, fun, stmts)?;
-            Ok(need_value.then(|| fun.instr_load_unit(block_source)))
-        }
+
+        self.compile_block(ctx, fun, stmts)?;
+        Ok(need_value.then(|| fun.instr_load_unit(block_source)))
     }
 
     pub fn compile_if_block<'a>(&mut self, ctx: &mut Ctx<'a>, fun: &mut Function,
-        block_source: SourceRange, block: &expr::IfBlock<'a>, need_value: bool
+        block_source: SourceRange, block: &data::IfBlock<'a>, need_value: bool
     ) -> CompileResult<Option<InstrId>> {
         if block.is_do {
             self.compile_do_block(ctx, fun, block_source, None, &block.stmts, need_value)
@@ -487,27 +491,27 @@ impl Compiler {
     }
 
     // bool: env was explicit base.
-    pub fn compile_path<'a>(&mut self, ctx: &mut Ctx<'a>, fun: &mut Function, ast: &Ast<'a>) -> CompileResult<(PathBase, OptLocalId, Vec<PathKey>)> {
-        fn rec<'a>(this: &mut Compiler, ctx: &mut Ctx<'a>, fun: &mut Function, ast: &Ast<'a>, keys: &mut Vec<PathKey>) -> CompileResult<(PathBase, OptLocalId)> {
-            match &ast.data {
-                AstData::Field(field) => {
+    pub fn compile_path<'a>(&mut self, ctx: &mut Ctx<'a>, fun: &mut Function, expr: &Expr<'a>) -> CompileResult<(PathBase, OptLocalId, Vec<PathKey>)> {
+        fn rec<'a>(this: &mut Compiler, ctx: &mut Ctx<'a>, fun: &mut Function, expr: &Expr<'a>, keys: &mut Vec<PathKey>) -> CompileResult<(PathBase, OptLocalId)> {
+            match &expr.data {
+                ExprData::Field(field) => {
                     let base = rec(this, ctx, fun, &field.base, keys)?;
                     keys.push(PathKey::Field(
                         fun.add_string(field.name)));
                     Ok(base)
                 }
 
-                AstData::Index(index) => {
+                ExprData::Index(index) => {
                     let base = rec(this, ctx, fun, &index.base, keys)?;
                     keys.push(PathKey::Index(
-                        this.compile_ast(ctx, fun, &index.index, true)?.unwrap()));
+                        this.compile_expr(ctx, fun, &index.index, true)?.unwrap()));
                     Ok(base)
                 }
 
-                AstData::Ident(ident) => {
+                ExprData::Ident(ident) => {
                     if let Some(decl) = ctx.find_decl(ident) {
                         let lid = decl.id;
-                        Ok((PathBase::Instr(fun.instr_get_local(ast.source, lid)), lid.some()))
+                        Ok((PathBase::Instr(fun.instr_get_local(expr.source, lid)), lid.some()))
                     }
                     else {
                         keys.push(PathKey::Field(fun.add_string(ident)));
@@ -515,29 +519,29 @@ impl Compiler {
                     }
                 }
 
-                AstData::Env => {
+                ExprData::Env => {
                     Ok((PathBase::Env, None.into()))
                 }
 
-                _ => return Err(CompileError::at(ast, CompileErrorData::InvalidPathBase))
+                _ => return Err(CompileError::at(expr.source, CompileErrorData::InvalidPathBase))
             }
         }
 
         let mut keys = vec![];
-        let (base, lid) = rec(self, ctx, fun, ast, &mut keys)?;
+        let (base, lid) = rec(self, ctx, fun, expr, &mut keys)?;
         Ok((base, lid, keys))
     }
 
-    pub fn compile_read_path<'a>(&mut self, ctx: &mut Ctx<'a>, fun: &mut Function, ast: &Ast<'a>) -> CompileResult<Option<InstrId>> {
-        let (base, _, keys) = self.compile_path(ctx, fun, ast)?;
-        Ok(Some(fun.instr_read_path(ast.source, base, &keys)))
+    pub fn compile_read_path<'a>(&mut self, ctx: &mut Ctx<'a>, fun: &mut Function, expr: &Expr<'a>) -> CompileResult<Option<InstrId>> {
+        let (base, _, keys) = self.compile_path(ctx, fun, expr)?;
+        Ok(Some(fun.instr_read_path(expr.source, base, &keys)))
     }
 
     pub fn compile_assign<'a>(&mut self,
         ctx: &mut Ctx<'a>, fun: &mut Function,
-        lhs: &Ast<'a>, rhs: InstrId, is_define: bool) -> CompileResult<()>
+        lhs: &Expr<'a>, rhs: InstrId, is_define: bool) -> CompileResult<()>
     {
-        if let AstData::Ident(name) = lhs.data {
+        if let ExprData::Ident(name) = lhs.data {
             if let Some(decl) = ctx.find_decl(name) {
                 fun.instr_set_local(lhs.source, decl.id, rhs);
             }
@@ -607,13 +611,13 @@ impl<'a> Ctx<'a> {
                 }
             }
             // @todo: no break target with matching label.
-            return Err(CompileError::at_range(source, CompileErrorData::NoBreakTarget));
+            return Err(CompileError::at(source, CompileErrorData::NoBreakTarget));
         }
         else {
             if let Some(scope) = self.break_scopes.last_mut() {
                 return Ok(scope);
             }
-            return Err(CompileError::at_range(source, CompileErrorData::NoBreakTarget));
+            return Err(CompileError::at(source, CompileErrorData::NoBreakTarget));
         }
     }
 
@@ -625,7 +629,7 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
-        return Err(CompileError::at_range(source, CompileErrorData::NoContinueTarget));
+        return Err(CompileError::at(source, CompileErrorData::NoContinueTarget));
     }
 }
 
