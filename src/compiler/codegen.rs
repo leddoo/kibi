@@ -8,24 +8,24 @@ impl Function {
     pub fn compile_ex(&self, post_order: &PostOrder, idoms: &ImmediateDominators, dom_tree: &DomTree, fun_protos: &[u32]) -> (Vec<Instruction>, Vec<Constant>, u32) {
         let block_order = self.block_order_dominators_first(&idoms, &dom_tree);
 
-        let (block_begins, stmt_indices) = block_order.block_begins_and_stmt_indices(self);
+        let (block_begins, instr_indices) = block_order.block_begins_and_instr_indices(self);
 
         // println!("block order:");
         // for bb in block_order.iter() {
         //     println!("{}", bb);
-        //     self.block_stmts(*bb, |stmt| {
-        //         println!("  ({}) {}", stmt_indices[stmt.id()], stmt.fmt(self));
+        //     self.block_instrs(*bb, |instr| {
+        //         println!("  ({}) {}", instr_indices[instr.id()], instr.fmt(self));
         //     });
         // }
 
-        let live_intervals = self.live_intervals(&post_order, &block_order, &block_begins, &stmt_indices, true);
+        let live_intervals = self.live_intervals(&post_order, &block_order, &block_begins, &instr_indices, true);
 
         // println!("live:");
         // for (i, interval) in live_intervals.iter().enumerate() {
         //     println!("s{i}: {interval:?}");
         // }
 
-        let regs = alloc_regs_linear_scan(self, &live_intervals, &stmt_indices);
+        let regs = alloc_regs_linear_scan(self, &live_intervals, &instr_indices);
 
         let (code, constants, num_regs) = generate_bytecode(self, &block_order, &regs, fun_protos);
 
@@ -37,17 +37,17 @@ impl Function {
 crate::macros::define_id!(Reg, OptReg, "r{}");
 
 pub struct RegisterAllocation {
-    pub mapping:  IndexVec<StmtId, OptReg>,
+    pub mapping:  IndexVec<InstrId, OptReg>,
     pub num_regs: usize,
 }
 
-pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, stmt_indices: &StmtIndices) -> RegisterAllocation {
+pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, instr_indices: &InstrIndices) -> RegisterAllocation {
     let mut intervals = intervals.intervals.clone();
-    let mut joins     = fun.stmt_ids().collect::<IndexVec<StmtId, StmtId>>();
-    let mut hints     = fun.stmt_ids().collect::<IndexVec<StmtId, StmtId>>();
+    let mut joins     = fun.instr_ids().collect::<IndexVec<InstrId, InstrId>>();
+    let mut hints     = fun.instr_ids().collect::<IndexVec<InstrId, InstrId>>();
 
-    fn rep(stmt: StmtId, joins: &IndexVec<StmtId, StmtId>) -> StmtId {
-        let mut at = stmt;
+    fn rep(instr: InstrId, joins: &IndexVec<InstrId, InstrId>) -> InstrId {
+        let mut at = instr;
         loop {
             let join = joins[at];
             if join == at {
@@ -59,7 +59,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, stmt_in
         }
     }
 
-    fn join(a: StmtId, b: StmtId, joins: &mut IndexVec<StmtId, StmtId>, intervals: &mut IndexVec<StmtId, Vec<(StmtIndex, StmtIndex)>>) -> bool {
+    fn join(a: InstrId, b: InstrId, joins: &mut IndexVec<InstrId, InstrId>, intervals: &mut IndexVec<InstrId, Vec<(InstrIndex, InstrIndex)>>) -> bool {
         let rep_a = rep(a, joins);
         let rep_b = rep(b, joins);
         if rep_a == rep_b {
@@ -143,14 +143,14 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, stmt_in
 
     // phi joins & copy hints.
     for bb in fun.block_ids() {
-        fun.block_stmts(bb, |stmt| {
-            if let Some(map) = fun.try_phi(stmt.id()) {
-                let mut join_into       = stmt.id();
-                let mut join_into_index = stmt_indices[join_into];
+        fun.block_instrs(bb, |instr| {
+            if let Some(map) = fun.try_phi(instr.id()) {
+                let mut join_into       = instr.id();
+                let mut join_into_index = instr_indices[join_into];
 
                 // join phi with args.
                 for (_, arg) in map.iter().copied() {
-                    let arg_index = stmt_indices[arg];
+                    let arg_index = instr_indices[arg];
                     let other =
                         if arg_index < join_into_index {
                             let other = join_into;
@@ -167,9 +167,9 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, stmt_in
                     assert!(joined);
                 }
             }
-            else if let Some(src) = stmt.try_any_copy() {
+            else if let Some(src) = instr.try_any_copy() {
                 if hints[src] == src {
-                    hints[src] = stmt.id();
+                    hints[src] = instr.id();
                 }
             }
         });
@@ -178,10 +178,10 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, stmt_in
 
     #[derive(Debug)]
     struct Interval<'a> {
-        stmt: StmtId,
-        start: StmtIndex,
-        stop:  StmtIndex,
-        ranges: &'a [(StmtIndex, StmtIndex)],
+        instr: InstrId,
+        start: InstrIndex,
+        stop:  InstrIndex,
+        ranges: &'a [(InstrIndex, InstrIndex)],
     }
 
     let mut intervals =
@@ -189,7 +189,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, stmt_in
         .filter_map(|(i, ranges)| {
             if ranges.len() == 0 { return None }
             Some(Interval {
-                stmt:  StmtId::from_usize(i),
+                instr:  InstrId::from_usize(i),
                 start: ranges[0].0,
                 stop:  ranges[ranges.len()-1].1,
                 ranges,
@@ -199,27 +199,27 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, stmt_in
 
 
     struct ActiveInterval<'a> {
-        ranges: &'a [(StmtIndex, StmtIndex)],
-        stop:   StmtIndex,
+        ranges: &'a [(InstrIndex, InstrIndex)],
+        stop:   InstrIndex,
         reg:    Reg,
         live:      bool,
         allocated: bool,
         // @temp
-        _stmt: StmtId,
-        _start: StmtIndex,
+        _instr: InstrId,
+        _start: InstrIndex,
     }
 
     let mut actives = vec![];
     let mut regs    = index_vec![false; fun.num_params()];
 
-    let mut mapping = index_vec![OptReg::NONE; fun.num_stmts()];
+    let mut mapping = index_vec![OptReg::NONE; fun.num_instrs()];
 
     // assign params.
     {
         let mut i = 0;
-        fun.block_stmts_ex(BlockId::ENTRY, |stmt| {
-            if stmt.is_param() {
-                mapping[stmt.id()] = Reg(i).some();
+        fun.block_instrs_ex(BlockId::ENTRY, |instr| {
+            if instr.is_param() {
+                mapping[instr.id()] = Reg(i).some();
                 i += 1;
                 return true;
             }
@@ -229,7 +229,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, stmt_in
     }
 
     for new_int in &intervals {
-        //println!("new: {:?} {}..{}", new_int.stmt, new_int.start, new_int.stop);
+        //println!("new: {:?} {}..{}", new_int.instr, new_int.start, new_int.stop);
 
         // update live intervals.
         //println!("update live intervals");
@@ -240,7 +240,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, stmt_in
             debug_assert!(active.allocated);
             debug_assert!(regs[active.reg]);
 
-            //println!("  {:?}({}) {}({}) {}..{}", active._stmt, active.live, active.reg, active.allocated, active._start, active.stop);
+            //println!("  {:?}({}) {}({}) {}..{}", active._instr, active.live, active.reg, active.allocated, active._start, active.stop);
 
             // expire interval.
             if active.stop <= new_int.start {
@@ -273,7 +273,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, stmt_in
             if active.live {
                 return true;
             }
-            //println!("  {:?}({}) {}({}) {}..{}", active._stmt, active.live, active.reg, active.allocated, active._start, active.stop);
+            //println!("  {:?}({}) {}({}) {}..{}", active._instr, active.live, active.reg, active.allocated, active._start, active.stop);
 
             debug_assert!(!active.allocated || regs[active.reg]);
 
@@ -369,7 +369,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, stmt_in
 
         let reg = 'find_reg: {
             // pre-assigned.
-            if let Some(reg) = mapping[new_int.stmt].to_option() {
+            if let Some(reg) = mapping[new_int.instr].to_option() {
                 break 'find_reg reg;
             }
 
@@ -380,8 +380,8 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, stmt_in
             // regular hint.
             {
                 // @todo-opt: do rep thing after hint construction.
-                let reg_hint = hints[new_int.stmt];
-                if reg_hint != new_int.stmt {
+                let reg_hint = hints[new_int.instr];
+                if reg_hint != new_int.instr {
                     let reg_hint = rep(reg_hint, &joins);
                     if let Some(reg) = mapping[reg_hint].to_option() {
                         if regs[reg] == false {
@@ -394,15 +394,15 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, stmt_in
             // first arg hint.
             'first_arg: {
 
-                let first_arg = match new_int.stmt.get(fun).data {
-                    StmtData::Copy  { src }                 => src,
-                    StmtData::ParallelCopy { src, copy_id: _ } => src,
-                    StmtData::Op1 { op: _, src }            => src,
-                    StmtData::Op2 { op: _,  src1, src2: _ } => src1,
-                    StmtData::WritePath { path_id, value: _, is_def: _ } => {
+                let first_arg = match new_int.instr.get(fun).data {
+                    InstrData::Copy  { src }                 => src,
+                    InstrData::ParallelCopy { src, copy_id: _ } => src,
+                    InstrData::Op1 { op: _, src }            => src,
+                    InstrData::Op2 { op: _,  src1, src2: _ } => src1,
+                    InstrData::WritePath { path_id, value: _, is_def: _ } => {
                         match path_id.get(fun).base {
                             PathBase::Env => break 'first_arg,
-                            PathBase::Stmt(base) => base,
+                            PathBase::Instr(base) => base,
                         }
                     }
                     _ => break 'first_arg,
@@ -433,7 +433,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, stmt_in
         assert!(regs[reg] == false);
         regs[reg] = true;
 
-        //println!("{} -> {}", new_int.stmt, reg);
+        //println!("{} -> {}", new_int.instr, reg);
 
         actives.push(ActiveInterval {
             ranges: new_int.ranges,
@@ -442,11 +442,11 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, stmt_in
             live:      true,
             allocated: true,
 
-            _stmt: new_int.stmt,
+            _instr: new_int.instr,
             _start: new_int.start,
         });
 
-        mapping[new_int.stmt] = reg.some();
+        mapping[new_int.instr] = reg.some();
 
 
         // @temp
@@ -455,7 +455,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, stmt_in
             if active.allocated {
                 let reg = active.reg;
                 assert!(allocated_by[reg].is_none());
-                allocated_by[reg] = Some(active._stmt);
+                allocated_by[reg] = Some(active._instr);
             }
         }
         for (i, used) in regs.iter().enumerate() {
@@ -464,10 +464,10 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, stmt_in
         }
     }
 
-    for stmt in fun.stmt_ids() {
-        let rep = rep(stmt, &joins);
-        if stmt != rep {
-            mapping[stmt] = mapping[rep];
+    for instr in fun.instr_ids() {
+        let rep = rep(instr, &joins);
+        if instr != rep {
+            mapping[instr] = mapping[rep];
         }
     }
 
@@ -479,8 +479,8 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, stmt_in
 pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &RegisterAllocation, fun_protos: &[u32]) -> (Vec<Instruction>, Vec<Constant>, u32) {
     assert_eq!(block_order[0], BlockId::ENTRY);
 
-    // for stmt in fun.stmt_ids() {
-    //     println!("{}: {:?}", stmt, regs.mapping[stmt]);
+    // for instr in fun.instr_ids() {
+    //     println!("{}: {:?}", instr, regs.mapping[instr]);
     // }
 
     // @temp
@@ -493,8 +493,8 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
     // returns `NO_REG`, if no register was assigned.
     // if `NO_REG` ends up in the bytecode (which would be a bug),
     // the validator will detect this.
-    let reg = |stmt: StmtId| {
-        regs.mapping[stmt].to_option()
+    let reg = |instr: InstrId| {
+        regs.mapping[instr].to_option()
         .unwrap_or(Reg(NO_REG as u32)).value() as u8
     };
 
@@ -514,24 +514,24 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
 
         let next_bb = block_order.get(block_index + 1).cloned();
 
-        let mut stmt_cursor = bb.get(fun).first();
+        let mut instr_cursor = bb.get(fun).first();
 
-        while let Some(stmt_id) = stmt_cursor.to_option() {
-            let stmt = stmt_id.get(fun);
-            stmt_cursor = stmt.next();
+        while let Some(instr_id) = instr_cursor.to_option() {
+            let instr = instr_id.get(fun);
+            instr_cursor = instr.next();
 
-            if let StmtData::ParallelCopy { src, copy_id } = stmt.data {
+            if let InstrData::ParallelCopy { src, copy_id } = instr.data {
                 let mut copied_to = vec![vec![]; regs.num_regs];
-                copied_to[reg(src) as usize].push(reg(stmt_id));
+                copied_to[reg(src) as usize].push(reg(instr_id));
 
-                while let Some(at) = stmt_cursor.to_option() {
-                    let copy_stmt = at.get(fun);
-                    let StmtData::ParallelCopy { src, copy_id: cid } = copy_stmt.data else { break };
+                while let Some(at) = instr_cursor.to_option() {
+                    let copy_instr = at.get(fun);
+                    let InstrData::ParallelCopy { src, copy_id: cid } = copy_instr.data else { break };
                     if cid != copy_id { break }
 
                     copied_to[reg(src) as usize].push(reg(at));
 
-                    stmt_cursor = copy_stmt.next();
+                    instr_cursor = copy_instr.next();
                 }
 
                 impl_parallel_copy(regs.num_regs, &copied_to, &mut bcb);
@@ -541,15 +541,15 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
             }
             // else (no parallel copy):
 
-            let dst = reg(stmt.id());
+            let dst = reg(instr.id());
 
             // @temp
-            if dst == NO_REG && stmt.has_value() {
+            if dst == NO_REG && instr.has_value() {
                 continue;
             }
 
-            use StmtData::*;
-            match stmt.data {
+            use InstrData::*;
+            match instr.data {
                 Copy { src } => {
                     let src = reg(src);
                     if dst != src { bcb.copy(dst, src) }
@@ -613,8 +613,8 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
                     let path = path_id.get(fun);
 
                     let base = match path.base {
-                        PathBase::Env        => crate::bytecode::PathBase::ENV,
-                        PathBase::Stmt(stmt) => crate::bytecode::PathBase::reg(reg(stmt)),
+                        PathBase::Env          => crate::bytecode::PathBase::ENV,
+                        PathBase::Instr(instr) => crate::bytecode::PathBase::reg(reg(instr)),
                     };
 
                     let keys = path.keys.iter().map(|key| match key {
@@ -630,9 +630,9 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
                     let path = path_id.get(fun);
 
                     let base = match path.base {
-                        PathBase::Env        => crate::bytecode::PathBase::ENV,
-                        PathBase::Stmt(stmt) => {
-                            let base = reg(stmt);
+                        PathBase::Env => crate::bytecode::PathBase::ENV,
+                        PathBase::Instr(instr) => {
+                            let base = reg(instr);
                             assert_eq!(dst, base);
                             crate::bytecode::PathBase::reg(base)
                         }

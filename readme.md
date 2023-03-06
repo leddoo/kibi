@@ -1,3 +1,4 @@
 - lua/js inspired scripting language.
+    - but kinda turning into go/swift/rust :^)
 - with a focus on sandboxing, perf & sane defaults.
 - it's not done.

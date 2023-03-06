@@ -6,33 +6,33 @@ use super::*;
 
 
 
-// ### Statement ###
+// ### Instruction ###
 
-define_id!(StmtId, OptStmtId, "s{}");
+define_id!(InstrId, OptInstrId, "s{}");
 
 #[derive(Clone, Debug, Deref, DerefMut)]
-pub struct Stmt {
+pub struct Instr {
     #[deref] #[deref_mut]
-    pub data:   StmtData,
+    pub data:   InstrData,
     pub source: SourceRange,
-    id:         StmtId,
-    prev:       OptStmtId,
-    next:       OptStmtId,
+    id:         InstrId,
+    prev:       OptInstrId,
+    next:       OptInstrId,
     bb:         OptBlockId,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum StmtData {
-    Copy        { src: StmtId },
+pub enum InstrData {
+    Copy        { src: InstrId },
 
     Phi         { map_id: PhiMapId },
 
-    ParallelCopy { src: StmtId, copy_id: u32 },
+    ParallelCopy { src: InstrId, copy_id: u32 },
 
     Param       { id: LocalId },
     Local       { id: LocalId },
     GetLocal    { src: LocalId },
-    SetLocal    { dst: LocalId, src: StmtId },
+    SetLocal    { dst: LocalId, src: InstrId },
 
     LoadNil,
     LoadBool    { value: bool },
@@ -41,31 +41,31 @@ pub enum StmtData {
     LoadString  { id: StringId },
     LoadEnv,
 
-    ListNew { values: StmtListId },
+    ListNew { values: InstrListId },
 
-    TupleNew { values: StmtListId },
+    TupleNew { values: InstrListId },
     TupleNew0,
 
     NewFunction { id: FunctionId },
 
     ReadPath { path_id: PathId },
-    WritePath { path_id: PathId, value: StmtId, is_def: bool },
+    WritePath { path_id: PathId, value: InstrId, is_def: bool },
 
-    Call { func: StmtId, args_id: StmtListId },
+    Call { func: InstrId, args_id: InstrListId },
 
-    Op1         { op: Op1, src: StmtId },
-    Op2         { op: Op2, src1: StmtId, src2: StmtId },
+    Op1         { op: Op1, src: InstrId },
+    Op2         { op: Op2, src1: InstrId, src2: InstrId },
 
     Jump        { target: BlockId },
-    SwitchBool  { src: StmtId, on_true: BlockId, on_false: BlockId },
-    SwitchNil   { src: StmtId, on_nil: BlockId, on_non_nil: BlockId },
-    Return      { src: StmtId },
+    SwitchBool  { src: InstrId, on_true: BlockId, on_false: BlockId },
+    SwitchNil   { src: InstrId, on_nil: BlockId, on_non_nil: BlockId },
+    Return      { src: InstrId },
 }
 
 
 define_id!(PhiMapId);
 
-pub type PhiEntry = (BlockId, StmtId);
+pub type PhiEntry = (BlockId, InstrId);
 
 #[derive(Deref, DerefMut)]
 struct PhiMapImpl {
@@ -78,16 +78,16 @@ pub struct PhiMap<'a> {
 }
 
 
-define_id!(StmtListId);
+define_id!(InstrListId);
 
 #[derive(Deref, DerefMut)]
-struct StmtListImpl {
-    values: Vec<StmtId>,
+struct InstrListImpl {
+    values: Vec<InstrId>,
 }
 
 #[derive(Clone, Copy, Debug, Deref)]
-pub struct StmtList<'a> {
-    pub values: &'a [StmtId],
+pub struct InstrList<'a> {
+    pub values: &'a [InstrId],
 }
 
 
@@ -96,13 +96,13 @@ define_id!(PathId);
 #[derive(Clone, Copy, Debug, Display)]
 pub enum PathBase {
     Env,
-    Stmt(StmtId),
+    Instr(InstrId),
 }
 
 #[derive(Clone, Copy, Debug, Display)]
 pub enum PathKey {
     Field(StringId),
-    Index(StmtId),
+    Index(InstrId),
 }
 
 #[derive(Clone, Debug)]
@@ -127,8 +127,8 @@ define_id!(BlockId, OptBlockId, "bb{}");
 #[derive(Clone, Debug)]
 pub struct Block {
     id: BlockId,
-    first: OptStmtId,
-    last:  OptStmtId,
+    first: OptInstrId,
+    last:  OptInstrId,
     len: u32,
 }
 
@@ -155,20 +155,20 @@ define_id!(FunctionId, "fn{}");
 pub struct Function {
     id: FunctionId,
 
-    stmts:      IndexVec<StmtId,        Stmt>,
-    phi_maps:   IndexVec<PhiMapId,      PhiMapImpl>,
-    paths:      IndexVec<PathId,        PathImpl>,
-    stmt_lists: IndexVec<StmtListId,    StmtListImpl>,
-    blocks:     IndexVec<BlockId,       Block>,
-    locals:     IndexVec<LocalId,       Local>,
-    strings:    IndexVec<StringId,      String>,
+    instrs:         IndexVec<InstrId,       Instr>,
+    phi_maps:       IndexVec<PhiMapId,      PhiMapImpl>,
+    paths:          IndexVec<PathId,        PathImpl>,
+    instr_lists:    IndexVec<InstrListId,   InstrListImpl>,
+    blocks:         IndexVec<BlockId,       Block>,
+    locals:         IndexVec<LocalId,       Local>,
+    strings:        IndexVec<StringId,      String>,
 
     last_parallel_copy_id: u32,
 
-    param_cursor: OptStmtId,
+    param_cursor: OptInstrId,
     num_params:   u32,
 
-    local_cursor: OptStmtId,
+    local_cursor: OptInstrId,
 
     current_block: BlockId,
 }
@@ -191,49 +191,49 @@ struct ModuleInner {
 
 // ### Iterators ###
 
-pub struct StmtIdIter { at: u32, end: u32 }
+pub struct InstrIdIter { at: u32, end: u32 }
 
 pub struct BlockIdIter { at: u32, end: u32 }
 
 
 
-// --- Stmt ---
+// --- Instruction ---
 
-impl Stmt {
-    #[inline(always)] pub fn id(&self)   -> StmtId     { self.id }
-    #[inline(always)] pub fn prev(&self) -> OptStmtId  { self.prev }
-    #[inline(always)] pub fn next(&self) -> OptStmtId  { self.next }
+impl Instr {
+    #[inline(always)] pub fn id(&self)   -> InstrId     { self.id }
+    #[inline(always)] pub fn prev(&self) -> OptInstrId  { self.prev }
+    #[inline(always)] pub fn next(&self) -> OptInstrId  { self.next }
     #[inline(always)] pub fn bb(&self)   -> OptBlockId { self.bb }
 
     #[inline(always)]
-    pub fn read(&self) -> (StmtId, StmtData) { (self.id, self.data) }
+    pub fn read(&self) -> (InstrId, InstrData) { (self.id, self.data) }
 
     #[inline(always)]
-    pub fn fmt<'a>(&'a self, fun: &'a Function) -> StmtFmt<'a> { StmtFmt(self, fun) }
+    pub fn fmt<'a>(&'a self, fun: &'a Function) -> InstrFmt<'a> { InstrFmt(self, fun) }
 }
 
-impl StmtId {
+impl InstrId {
     #[inline(always)]
-    pub fn get(self, fun: &Function) -> &Stmt { &fun.stmts[self] }
+    pub fn get(self, fun: &Function) -> &Instr { &fun.instrs[self] }
 
     #[inline(always)]
-    pub fn get_mut(self, fun: &mut Function) -> &mut Stmt { &mut fun.stmts[self] }
+    pub fn get_mut(self, fun: &mut Function) -> &mut Instr { &mut fun.instrs[self] }
 }
 
 
 #[derive(Clone, Copy)]
-pub struct StmtFmt<'a>(pub &'a Stmt, pub &'a Function);
+pub struct InstrFmt<'a>(pub &'a Instr, pub &'a Function);
     
-impl<'a> core::fmt::Display for StmtFmt<'a> {
+impl<'a> core::fmt::Display for InstrFmt<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let StmtFmt (stmt, fun) = self;
+        let InstrFmt (instr, fun) = self;
 
-        write!(f, "{} ", stmt.id)?;
-        if stmt.has_value() { write!(f, ":= ")?; }
+        write!(f, "{} ", instr.id)?;
+        if instr.has_value() { write!(f, ":= ")?; }
         else                { write!(f, "   ")?; }
 
-        use StmtData::*;
-        match stmt.data {
+        use InstrData::*;
+        match instr.data {
             Copy { src } => { write!(f, "copy {}", src) }
 
             Phi { map_id } => { write!(f, "phi {}", map_id.get(fun)) }
@@ -281,44 +281,44 @@ impl<'a> core::fmt::Display for StmtFmt<'a> {
 }
 
 
-impl StmtData {
+impl InstrData {
     #[inline(always)]
     pub fn is_copy(&self) -> bool {
-        if let StmtData::Copy { src: _ } = self { true } else { false }
+        if let InstrData::Copy { src: _ } = self { true } else { false }
     }
 
     #[inline(always)]
     pub fn is_parallel_copy(&self) -> bool {
-        if let StmtData::ParallelCopy { src: _, copy_id: _ } = self { true } else { false }
+        if let InstrData::ParallelCopy { src: _, copy_id: _ } = self { true } else { false }
     }
 
     #[inline(always)]
     pub fn is_param(&self) -> bool {
-        if let StmtData::Param { id: _ } = self { true } else { false }
+        if let InstrData::Param { id: _ } = self { true } else { false }
     }
 
     #[inline(always)]
     pub fn is_local(&self) -> bool {
-        if let StmtData::Local { id: _ } = self { true } else { false }
+        if let InstrData::Local { id: _ } = self { true } else { false }
     }
 
     #[inline(always)]
     pub fn is_phi(&self) -> bool {
-        if let StmtData::Phi { map_id: _ } = self { true } else { false }
+        if let InstrData::Phi { map_id: _ } = self { true } else { false }
     }
 
     #[inline(always)]
-    pub fn try_any_copy(&self) -> Option<StmtId> {
+    pub fn try_any_copy(&self) -> Option<InstrId> {
         match self {
-            StmtData::Copy { src }                     => Some(*src),
-            StmtData::ParallelCopy { src, copy_id: _ } => Some(*src),
+            InstrData::Copy { src }                     => Some(*src),
+            InstrData::ParallelCopy { src, copy_id: _ } => Some(*src),
             _ => None,
         }
     }
 
     #[inline(always)]
     pub fn is_terminator(&self) -> bool {
-        use StmtData::*;
+        use InstrData::*;
         match self {
             Jump { target: _ } |
             SwitchBool { src: _, on_true: _, on_false: _ } |
@@ -352,7 +352,7 @@ impl StmtData {
 
     #[inline(always)]
     pub fn has_value(&self) -> bool {
-        use StmtData::*;
+        use InstrData::*;
         match self {
             Copy { src: _ } |
             Phi { map_id: _ } |
@@ -385,8 +385,8 @@ impl StmtData {
     }
 
 
-    pub fn args<F: FnMut(StmtId)>(&self, fun: &Function, mut f: F) {
-        use StmtData::*;
+    pub fn args<F: FnMut(InstrId)>(&self, fun: &Function, mut f: F) {
+        use InstrData::*;
         match self {
             Copy { src } => { f(*src) }
 
@@ -414,8 +414,8 @@ impl StmtData {
 
             NewFunction { id: _ } => (),
 
-            ReadPath { path_id } => { path_id.each_stmt(fun, f) }
-            WritePath { path_id, value, is_def: _ } => { path_id.each_stmt(fun, &mut f); f(*value) }
+            ReadPath { path_id } => { path_id.each_instr(fun, f) }
+            WritePath { path_id, value, is_def: _ } => { path_id.each_instr(fun, &mut f); f(*value) }
 
             Call { func, args_id } => { f(*func); args_id.each(fun, f) }
 
@@ -429,8 +429,8 @@ impl StmtData {
         }
     }
 
-    pub fn replace_args<F: FnMut(&Function, &mut StmtId)>(&mut self, fun: &mut Function, mut f: F) {
-        use StmtData::*;
+    pub fn replace_args<F: FnMut(&Function, &mut InstrId)>(&mut self, fun: &mut Function, mut f: F) {
+        use InstrData::*;
         match self {
             Copy { src } => { f(fun, src) }
 
@@ -465,8 +465,8 @@ impl StmtData {
 
             NewFunction { id: _ } => (),
 
-            ReadPath { path_id } => { path_id.each_stmt_mut(fun, f) }
-            WritePath { path_id, value, is_def: _ } => { path_id.each_stmt_mut(fun, &mut f); f(fun, value) }
+            ReadPath { path_id } => { path_id.each_instr_mut(fun, f) }
+            WritePath { path_id, value, is_def: _ } => { path_id.each_instr_mut(fun, &mut f); f(fun, value) }
 
             Call { func, args_id } => { f(fun, func); args_id.each_mut(fun, f) }
 
@@ -495,17 +495,17 @@ impl PhiMapImpl {
 }
 
 impl<'a> PhiMap<'a> {
-    pub fn get(self, bb: BlockId) -> Option<StmtId> {
-        self.iter().find_map(|(from_bb, stmt_id)|
-            (*from_bb == bb).then_some(*stmt_id))
+    pub fn get(self, bb: BlockId) -> Option<InstrId> {
+        self.iter().find_map(|(from_bb, instr_id)|
+            (*from_bb == bb).then_some(*instr_id))
     }
 }
 
 impl<'a> core::fmt::Display for PhiMap<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{{")?;
-        for (i, (bb, stmt)) in self.iter().enumerate() {
-            write!(f, " {}: {}", bb, stmt)?;
+        for (i, (bb, instr)) in self.iter().enumerate() {
+            write!(f, " {}: {}", bb, instr)?;
             if i < self.len() - 1 {
                 write!(f, ",")?;
             }
@@ -527,35 +527,35 @@ impl PathId {
     }
 
     #[inline]
-    pub fn each_stmt<F: FnMut(StmtId)>(self, fun: &Function, mut f: F) {
+    pub fn each_instr<F: FnMut(InstrId)>(self, fun: &Function, mut f: F) {
         let path = &fun.paths[self];
 
         match path.base {
             PathBase::Env => (),
-            PathBase::Stmt(stmt) => f(stmt),
+            PathBase::Instr(instr) => f(instr),
         }
 
         for key in &path.keys {
             match key {
                 PathKey::Field(_) => (),
-                PathKey::Index(stmt) => f(*stmt),
+                PathKey::Index(instr) => f(*instr),
             }
         }
     }
 
     #[inline]
-    pub fn each_stmt_mut<F: FnMut(&Function, &mut StmtId)>(self, fun: &mut Function, mut f: F) {
+    pub fn each_instr_mut<F: FnMut(&Function, &mut InstrId)>(self, fun: &mut Function, mut f: F) {
         let mut path = core::mem::replace(&mut fun.paths[self], PathImpl { base: PathBase::Env, keys: vec![] });
 
         match &mut path.base {
             PathBase::Env => (),
-            PathBase::Stmt(stmt) => f(fun, stmt),
+            PathBase::Instr(instr) => f(fun, instr),
         }
 
         for key in &mut path.keys {
             match key {
                 PathKey::Field(_) => (),
-                PathKey::Index(stmt) => f(fun, stmt),
+                PathKey::Index(instr) => f(fun, instr),
             }
         }
         fun.paths[self] = path;
@@ -576,34 +576,34 @@ impl<'a> core::fmt::Display for Path<'a> {
 }
 
 
-impl StmtListId {
+impl InstrListId {
     #[inline]
-    pub fn get<'s>(self, fun: &'s Function) -> StmtList<'s> {
-        StmtList { values: &fun.stmt_lists[self] }
+    pub fn get<'s>(self, fun: &'s Function) -> InstrList<'s> {
+        InstrList { values: &fun.instr_lists[self] }
     }
 
     #[inline]
-    pub fn each<F: FnMut(StmtId)>(self, fun: &Function, mut f: F) {
-        for v in &*fun.stmt_lists[self] {
+    pub fn each<F: FnMut(InstrId)>(self, fun: &Function, mut f: F) {
+        for v in &*fun.instr_lists[self] {
             f(*v)
         }
     }
 
     #[inline]
-    pub fn each_mut<F: FnMut(&Function, &mut StmtId)>(self, fun: &mut Function, mut f: F) {
-        let mut stmts = core::mem::take(&mut *fun.stmt_lists[self]);
-        for stmt in &mut stmts {
-            f(fun, stmt)
+    pub fn each_mut<F: FnMut(&Function, &mut InstrId)>(self, fun: &mut Function, mut f: F) {
+        let mut instrs = core::mem::take(&mut *fun.instr_lists[self]);
+        for instr in &mut instrs {
+            f(fun, instr)
         }
-        fun.stmt_lists[self] = StmtListImpl { values: stmts };
+        fun.instr_lists[self] = InstrListImpl { values: instrs };
     }
 }
 
-impl<'a> core::fmt::Display for StmtList<'a> {
+impl<'a> core::fmt::Display for InstrList<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "[")?;
-        for (i, stmt) in self.iter().enumerate() {
-            write!(f, " {}", stmt)?;
+        for (i, instr) in self.iter().enumerate() {
+            write!(f, " {}", instr)?;
             if i < self.len() - 1 {
                 write!(f, ",")?;
             }
@@ -644,8 +644,8 @@ impl Block {
     }
 
     #[inline(always)] pub fn id(&self)    -> BlockId   { self.id }
-    #[inline(always)] pub fn first(&self) -> OptStmtId { self.first }
-    #[inline(always)] pub fn last(&self)  -> OptStmtId { self.last }
+    #[inline(always)] pub fn first(&self) -> OptInstrId { self.first }
+    #[inline(always)] pub fn last(&self)  -> OptInstrId { self.last }
     #[inline(always)] pub fn len(&self)   -> usize     { self.len as usize }
 }
 
@@ -658,11 +658,11 @@ impl Function {
     fn new(id: FunctionId) -> Self {
         let mut fun = Function {
             id,
-            stmts:      index_vec![],
+            instrs:      index_vec![],
             blocks:     index_vec![],
             phi_maps:   index_vec![],
             paths:      index_vec![],
-            stmt_lists: index_vec![],
+            instr_lists: index_vec![],
             locals:     index_vec![],
             strings:    index_vec![],
             last_parallel_copy_id: 0,
@@ -681,10 +681,10 @@ impl Function {
 
 
     #[inline(always)]
-    pub fn num_stmts(&self) -> usize { self.stmts.len() }
+    pub fn num_instrs(&self) -> usize { self.instrs.len() }
 
     #[inline(always)]
-    pub fn stmt_ids(&self) -> StmtIdIter { StmtIdIter { at: 0, end: self.stmts.len() as u32 } }
+    pub fn instr_ids(&self) -> InstrIdIter { InstrIdIter { at: 0, end: self.instrs.len() as u32 } }
     
 
     #[inline(always)]
@@ -724,11 +724,11 @@ impl Function {
 }
 
 
-// statements
+// instructions
 impl Function {
-    pub fn new_stmt(&mut self, source: SourceRange, data: StmtData) -> StmtId {
-        let id = StmtId(self.stmts.len() as u32);
-        self.stmts.push(Stmt {
+    pub fn new_instr(&mut self, source: SourceRange, data: InstrData) -> InstrId {
+        let id = InstrId(self.instrs.len() as u32);
+        self.instrs.push(Instr {
             data, source, id,
             prev: None.into(),
             next: None.into(),
@@ -738,14 +738,14 @@ impl Function {
     }
 
 
-    pub fn new_phi(&mut self, source: SourceRange, map: &[PhiEntry]) -> StmtId {
+    pub fn new_phi(&mut self, source: SourceRange, map: &[PhiEntry]) -> InstrId {
         let map_id = PhiMapId(self.phi_maps.len() as u32);
         self.phi_maps.push(PhiMapImpl { map: map.into() });
-        self.new_stmt(source, StmtData::Phi { map_id })
+        self.new_instr(source, InstrData::Phi { map_id })
     }
 
-    pub fn try_phi(&self, stmt: StmtId) -> Option<PhiMap> {
-        if let StmtData::Phi { map_id } = self.stmts[stmt].data {
+    pub fn try_phi(&self, instr: InstrId) -> Option<PhiMap> {
+        if let InstrData::Phi { map_id } = self.instrs[instr].data {
             return Some(self.phi_maps[map_id].phi_map());
         }
         None
@@ -753,29 +753,29 @@ impl Function {
 
     // @todo: support Phi2.
     // @todo: def_phi variant.
-    pub fn set_phi(&mut self, stmt: StmtId, map: &[PhiEntry]) {
-        let StmtData::Phi { map_id } = self.stmts[stmt].data else { unreachable!() };
+    pub fn set_phi(&mut self, instr: InstrId, map: &[PhiEntry]) {
+        let InstrData::Phi { map_id } = self.instrs[instr].data else { unreachable!() };
         self.phi_maps[map_id] = PhiMapImpl { map: map.into() };
     }
 
 
-    pub fn new_call(&mut self, source: SourceRange, func: StmtId, args: &[StmtId]) -> StmtId {
-        let args_id = StmtListId(self.stmt_lists.len() as u32);
-        self.stmt_lists.push(StmtListImpl { values: args.into() });
-        self.new_stmt(source, StmtData::Call { func, args_id })
+    pub fn new_call(&mut self, source: SourceRange, func: InstrId, args: &[InstrId]) -> InstrId {
+        let args_id = InstrListId(self.instr_lists.len() as u32);
+        self.instr_lists.push(InstrListImpl { values: args.into() });
+        self.new_instr(source, InstrData::Call { func, args_id })
     }
 
     // @todo: try_call
     // @todo: set_call
 
 
-    pub fn all_args<F: FnMut(StmtId)>(&self, mut f: F) {
+    pub fn all_args<F: FnMut(InstrId)>(&self, mut f: F) {
         for block in &self.blocks {
             let mut at = block.first;
             while let Some(id) = at.to_option() {
-                let stmt = &self.stmts[id];
-                stmt.args(self, &mut f);
-                at = stmt.next;
+                let instr = &self.instrs[id];
+                instr.args(self, &mut f);
+                at = instr.next;
             }
         }
     }
@@ -792,68 +792,68 @@ impl Function {
 
 
     #[inline(always)]
-    pub fn num_block_stmts(&self, bb: BlockId) -> usize {
+    pub fn num_block_instrs(&self, bb: BlockId) -> usize {
         self.blocks[bb].len()
     }
 
 
-    pub fn block_stmts<F: FnMut(&Stmt)>(&self, bb: BlockId, mut f: F) {
+    pub fn block_instrs<F: FnMut(&Instr)>(&self, bb: BlockId, mut f: F) {
         let mut at = self.blocks[bb].first;
         while let Some(id) = at.to_option() {
-            let stmt = &self.stmts[id];
-            f(stmt);
-            at = stmt.next;
+            let instr = &self.instrs[id];
+            f(instr);
+            at = instr.next;
         }
     }
 
-    pub fn block_stmts_ex<F: FnMut(&Stmt) -> bool>(&self, bb: BlockId, mut f: F) {
+    pub fn block_instrs_ex<F: FnMut(&Instr) -> bool>(&self, bb: BlockId, mut f: F) {
         let mut at = self.blocks[bb].first;
         while let Some(id) = at.to_option() {
-            let stmt = &self.stmts[id];
-            if !f(stmt) {
+            let instr = &self.instrs[id];
+            if !f(instr) {
                 break;
             }
-            at = stmt.next;
+            at = instr.next;
         }
     }
 
-    pub fn block_stmts_mut<F: FnMut(&mut Stmt)>(&mut self, bb: BlockId, mut f: F) {
+    pub fn block_instr_mut<F: FnMut(&mut Instr)>(&mut self, bb: BlockId, mut f: F) {
         let mut at = self.blocks[bb].first;
         while let Some(id) = at.to_option() {
-            let stmt = &mut self.stmts[id];
-            f(stmt);
-            at = stmt.next;
+            let instr = &mut self.instrs[id];
+            f(instr);
+            at = instr.next;
         }
     }
 
-    pub fn block_stmts_rev<F: FnMut(&Stmt)>(&self, bb: BlockId, mut f: F) {
+    pub fn block_instr_rev<F: FnMut(&Instr)>(&self, bb: BlockId, mut f: F) {
         let mut at = self.blocks[bb].last;
         while let Some(id) = at.to_option() {
-            let stmt = &self.stmts[id];
-            f(stmt);
-            at = stmt.prev;
+            let instr = &self.instrs[id];
+            f(instr);
+            at = instr.prev;
         }
     }
 
 
-    pub fn block_args<F: FnMut(StmtId)>(&self, bb: BlockId, mut f: F) {
+    pub fn block_args<F: FnMut(InstrId)>(&self, bb: BlockId, mut f: F) {
         let mut at = self.blocks[bb].first;
         while let Some(id) = at.to_option() {
-            let stmt = &self.stmts[id];
-            stmt.args(self, &mut f);
-            at = stmt.next;
+            let instr = &self.instrs[id];
+            instr.args(self, &mut f);
+            at = instr.next;
         }
     }
 
-    pub fn block_replace_args<F: FnMut(&Function, &mut StmtId)>(&mut self, bb: BlockId, mut f: F) {
+    pub fn block_replace_args<F: FnMut(&Function, &mut InstrId)>(&mut self, bb: BlockId, mut f: F) {
         let mut at = self.blocks[bb].first;
         while let Some(id) = at.to_option() {
-            let mut data = self.stmts[id].data;
+            let mut data = self.instrs[id].data;
             data.replace_args(self, &mut f);
 
-            let stmt = &mut self.stmts[id];
-            stmt.data = data;
-            at = stmt.next;
+            let instr = &mut self.instrs[id];
+            instr.data = data;
+            at = instr.next;
         }
     }
 
@@ -863,7 +863,7 @@ impl Function {
 
         let Some(last) = block.last.to_option() else { unreachable!() };
 
-        use StmtData::*;
+        use InstrData::*;
         match last.get(self).data {
             Jump { target } => { f(target); }
             SwitchBool { src: _, on_true, on_false }  => { f(on_true); f(on_false); }
@@ -874,20 +874,20 @@ impl Function {
         }
     }
 
-    pub fn block_first_phi(&self, bb: BlockId) -> OptStmtId {
+    pub fn block_first_phi(&self, bb: BlockId) -> OptInstrId {
         if let Some(first) = bb.get(self).first.to_option() {
             if first.get(self).is_phi() {
                 return first.some();
             }
         }
-        OptStmtId::NONE
+        OptInstrId::NONE
     }
 
-    pub fn block_last_phi(&self, bb: BlockId) -> OptStmtId {
-        let mut result = OptStmtId::NONE;
-        self.block_stmts_ex(bb, |stmt| {
-            if stmt.is_phi() {
-                result = stmt.id.some();
+    pub fn block_last_phi(&self, bb: BlockId) -> OptInstrId {
+        let mut result = OptInstrId::NONE;
+        self.block_instrs_ex(bb, |instr| {
+            if instr.is_phi() {
+                result = instr.id.some();
                 true
             }
             else { false }
@@ -895,7 +895,7 @@ impl Function {
         result
     }
 
-    pub fn block_terminator(&self, bb: BlockId) -> OptStmtId {
+    pub fn block_terminator(&self, bb: BlockId) -> OptInstrId {
         if let Some(last) = bb.get(self).last.to_option() {
             if last.get(self).is_terminator() {
                 return last.some();
@@ -935,28 +935,28 @@ impl Function {
 
         // rename.
         // @todo-perf: do this per block, can skip if not renamed.
-        for stmt in self.stmt_ids() {
-            let stmt = stmt.get_mut(self);
+        for instr in self.instr_ids() {
+            let instr = instr.get_mut(self);
 
             // update bb & linked list.
-            // @todo: free up the old statements.
-            if let Some(old_bb) = stmt.bb.to_option() {
+            // @todo: free up the old instructions.
+            if let Some(old_bb) = instr.bb.to_option() {
                 if let Some(new_id) = new_ids[old_bb] {
-                    stmt.bb = new_id.some();
+                    instr.bb = new_id.some();
                 }
                 else {
-                    stmt.bb   = None.into();
-                    stmt.prev = None.into();
-                    stmt.next = None.into();
+                    instr.bb   = None.into();
+                    instr.prev = None.into();
+                    instr.next = None.into();
                     // @temp.
-                    stmt.data = StmtData::LoadNil;
+                    instr.data = InstrData::LoadNil;
                 }
             }
 
             // phis.
-            if stmt.is_phi() {
-                use StmtData::*;
-                match &mut stmt.data {
+            if instr.is_phi() {
+                use InstrData::*;
+                match &mut instr.data {
                     Phi { map_id } => {
                         let map = *map_id;
                         let map = &mut self.phi_maps[map];
@@ -973,9 +973,9 @@ impl Function {
                 }
             }
             // terminators.
-            else if stmt.is_terminator() {
-                use StmtData::*;
-                match &mut stmt.data {
+            else if instr.is_terminator() {
+                use InstrData::*;
+                match &mut instr.data {
                     Jump { target } => {
                         *target = new_ids[*target].unwrap();
                     }
@@ -1008,7 +1008,7 @@ impl Function {
         let old_param_cursor = self.param_cursor;
 
         // "hoist params".
-        let param = self.new_stmt(source, StmtData::Param { id });
+        let param = self.new_instr(source, InstrData::Param { id });
         self.insert_after(BlockId::ENTRY, self.param_cursor, param);
         self.param_cursor = param.some();
         self.num_params  += 1;
@@ -1025,7 +1025,7 @@ impl Function {
         self.locals.push(Local { id, name: name.into(), source });
 
         // "hoist locals".
-        let local = self.new_stmt(source, StmtData::Local { id });
+        let local = self.new_instr(source, InstrData::Local { id });
         self.insert_after(BlockId::ENTRY, self.local_cursor, local);
         self.local_cursor = local.some();
 
@@ -1052,9 +1052,9 @@ impl Function {
     }
 
 
-    pub fn add_stmt(&mut self, source: SourceRange, data: StmtData) -> StmtId {
-        assert!(self.stmts.len() < u32::MAX as usize / 2);
-        let id = StmtId(self.stmts.len() as u32);
+    pub fn add_instr(&mut self, source: SourceRange, data: InstrData) -> InstrId {
+        assert!(self.instrs.len() < u32::MAX as usize / 2);
+        let id = InstrId(self.instrs.len() as u32);
 
         let bb = self.current_block;
 
@@ -1063,7 +1063,7 @@ impl Function {
 
         // update linked list.
         if let Some(last) = old_last.to_option() {
-            let last = &mut self.stmts[last];
+            let last = &mut self.instrs[last];
             assert!(!last.data.is_terminator());
             last.next  = id.some();
             block.last = id.some();
@@ -1076,7 +1076,7 @@ impl Function {
             block.len   = 1;
         }
 
-        self.stmts.push(Stmt {
+        self.instrs.push(Instr {
             data, source, id,
             prev: old_last,
             next: None.into(),
@@ -1088,176 +1088,176 @@ impl Function {
 
 
     #[inline]
-    pub fn stmt_copy(&mut self, source: SourceRange, src: StmtId) -> StmtId {
-        self.add_stmt(source, StmtData::Copy { src })
+    pub fn instr_copy(&mut self, source: SourceRange, src: InstrId) -> InstrId {
+        self.add_instr(source, InstrData::Copy { src })
     }
 
-    pub fn stmt_phi(&mut self, source: SourceRange, map: &[PhiEntry]) -> StmtId {
+    pub fn instr_phi(&mut self, source: SourceRange, map: &[PhiEntry]) -> InstrId {
         let map_id = PhiMapId(self.phi_maps.len() as u32);
         self.phi_maps.push(PhiMapImpl { map: map.into() });
-        self.add_stmt(source, StmtData::Phi { map_id })
+        self.add_instr(source, InstrData::Phi { map_id })
     }
 
     #[inline]
-    pub fn stmt_get_local(&mut self, source: SourceRange, src: LocalId) -> StmtId {
-        self.add_stmt(source, StmtData::GetLocal { src })
+    pub fn instr_get_local(&mut self, source: SourceRange, src: LocalId) -> InstrId {
+        self.add_instr(source, InstrData::GetLocal { src })
     }
 
     #[inline]
-    pub fn stmt_set_local(&mut self, source: SourceRange, dst: LocalId, src: StmtId) -> StmtId {
-        self.add_stmt(source, StmtData::SetLocal { dst, src })
+    pub fn instr_set_local(&mut self, source: SourceRange, dst: LocalId, src: InstrId) -> InstrId {
+        self.add_instr(source, InstrData::SetLocal { dst, src })
     }
 
     #[inline]
-    pub fn stmt_load_nil(&mut self, source: SourceRange) -> StmtId {
-        self.add_stmt(source, StmtData::LoadNil)
+    pub fn instr_load_nil(&mut self, source: SourceRange) -> InstrId {
+        self.add_instr(source, InstrData::LoadNil)
     }
 
     #[inline]
-    pub fn stmt_load_bool(&mut self, source: SourceRange, value: bool) -> StmtId {
-        self.add_stmt(source, StmtData::LoadBool { value })
+    pub fn instr_load_bool(&mut self, source: SourceRange, value: bool) -> InstrId {
+        self.add_instr(source, InstrData::LoadBool { value })
     }
 
     #[inline]
-    pub fn stmt_load_int(&mut self, source: SourceRange, value: i64) -> StmtId {
-        self.add_stmt(source, StmtData::LoadInt { value })
+    pub fn instr_load_int(&mut self, source: SourceRange, value: i64) -> InstrId {
+        self.add_instr(source, InstrData::LoadInt { value })
     }
 
     #[inline]
-    pub fn stmt_load_float(&mut self, source: SourceRange, value: f64) -> StmtId {
-        self.add_stmt(source, StmtData::LoadFloat { value })
+    pub fn instr_load_float(&mut self, source: SourceRange, value: f64) -> InstrId {
+        self.add_instr(source, InstrData::LoadFloat { value })
     }
 
     #[inline]
-    pub fn stmt_load_string(&mut self, source: SourceRange, id: StringId) -> StmtId {
-        self.add_stmt(source, StmtData::LoadString { id })
+    pub fn instr_load_string(&mut self, source: SourceRange, id: StringId) -> InstrId {
+        self.add_instr(source, InstrData::LoadString { id })
     }
 
     #[inline]
-    pub fn stmt_load_env(&mut self, source: SourceRange) -> StmtId {
-        self.add_stmt(source, StmtData::LoadEnv)
+    pub fn instr_load_env(&mut self, source: SourceRange) -> InstrId {
+        self.add_instr(source, InstrData::LoadEnv)
     }
 
     #[inline]
-    pub fn stmt_list_new(&mut self, source: SourceRange, values: &[StmtId]) -> StmtId {
-        let values_id = StmtListId(self.stmt_lists.len() as u32);
-        self.stmt_lists.push(StmtListImpl { values: values.into() });
-        self.add_stmt(source, StmtData::ListNew { values: values_id })
+    pub fn instr_list_new(&mut self, source: SourceRange, values: &[InstrId]) -> InstrId {
+        let values_id = InstrListId(self.instr_lists.len() as u32);
+        self.instr_lists.push(InstrListImpl { values: values.into() });
+        self.add_instr(source, InstrData::ListNew { values: values_id })
     }
 
-    pub fn stmt_tuple_new(&mut self, source: SourceRange, values: &[StmtId]) -> StmtId {
+    pub fn instr_tuple_new(&mut self, source: SourceRange, values: &[InstrId]) -> InstrId {
         if values.len() == 0 {
-            self.add_stmt(source, StmtData::TupleNew0)
+            self.add_instr(source, InstrData::TupleNew0)
         }
         else {
-            let values_id = StmtListId(self.stmt_lists.len() as u32);
-            self.stmt_lists.push(StmtListImpl { values: values.into() });
-            self.add_stmt(source, StmtData::TupleNew { values: values_id })
+            let values_id = InstrListId(self.instr_lists.len() as u32);
+            self.instr_lists.push(InstrListImpl { values: values.into() });
+            self.add_instr(source, InstrData::TupleNew { values: values_id })
         }
     }
 
     #[inline]
-    pub fn stmt_load_unit(&mut self, source: SourceRange) -> StmtId {
-        self.add_stmt(source, StmtData::TupleNew0)
+    pub fn instr_load_unit(&mut self, source: SourceRange) -> InstrId {
+        self.add_instr(source, InstrData::TupleNew0)
     }
 
     #[inline]
-    pub fn stmt_new_function(&mut self, source: SourceRange, id: FunctionId) -> StmtId {
-        self.add_stmt(source, StmtData::NewFunction { id })
+    pub fn instr_new_function(&mut self, source: SourceRange, id: FunctionId) -> InstrId {
+        self.add_instr(source, InstrData::NewFunction { id })
     }
 
     #[inline]
-    pub fn stmt_read_path(&mut self, source: SourceRange, base: PathBase, keys: &[PathKey]) -> StmtId {
+    pub fn instr_read_path(&mut self, source: SourceRange, base: PathBase, keys: &[PathKey]) -> InstrId {
         assert!(keys.len() > 0);
         let path_id = PathId(self.paths.len() as u32);
         self.paths.push(PathImpl { base, keys: keys.into() });
-        self.add_stmt(source, StmtData::ReadPath { path_id })
+        self.add_instr(source, InstrData::ReadPath { path_id })
     }
 
     #[inline]
-    pub fn stmt_write_path(&mut self, source: SourceRange, base: PathBase, keys: &[PathKey], value: StmtId, is_def: bool) -> StmtId {
+    pub fn instr_write_path(&mut self, source: SourceRange, base: PathBase, keys: &[PathKey], value: InstrId, is_def: bool) -> InstrId {
         assert!(keys.len() > 0);
         let path_id = PathId(self.paths.len() as u32);
         self.paths.push(PathImpl { base, keys: keys.into() });
-        self.add_stmt(source, StmtData::WritePath { path_id, value, is_def })
+        self.add_instr(source, InstrData::WritePath { path_id, value, is_def })
     }
 
     #[inline]
-    pub fn stmt_call(&mut self, source: SourceRange, func: StmtId, args: &[StmtId]) -> StmtId {
-        let args_id = StmtListId(self.stmt_lists.len() as u32);
-        self.stmt_lists.push(StmtListImpl { values: args.into() });
-        self.add_stmt(source, StmtData::Call { func, args_id })
+    pub fn instr_call(&mut self, source: SourceRange, func: InstrId, args: &[InstrId]) -> InstrId {
+        let args_id = InstrListId(self.instr_lists.len() as u32);
+        self.instr_lists.push(InstrListImpl { values: args.into() });
+        self.add_instr(source, InstrData::Call { func, args_id })
     }
 
     #[inline]
-    pub fn stmt_op1(&mut self, source: SourceRange, op: Op1, src: StmtId) -> StmtId {
-        self.add_stmt(source, StmtData::Op1 { op, src })
+    pub fn instr_op1(&mut self, source: SourceRange, op: Op1, src: InstrId) -> InstrId {
+        self.add_instr(source, InstrData::Op1 { op, src })
     }
 
     #[inline]
-    pub fn stmt_op2(&mut self, source: SourceRange, op: Op2, src1: StmtId, src2: StmtId) -> StmtId {
-        self.add_stmt(source, StmtData::Op2 { op, src1, src2 })
+    pub fn instr_op2(&mut self, source: SourceRange, op: Op2, src1: InstrId, src2: InstrId) -> InstrId {
+        self.add_instr(source, InstrData::Op2 { op, src1, src2 })
     }
 
     #[inline]
-    pub fn stmt_jump(&mut self, source: SourceRange, target: BlockId) -> StmtId {
-        self.add_stmt(source, StmtData::Jump { target })
+    pub fn instr_jump(&mut self, source: SourceRange, target: BlockId) -> InstrId {
+        self.add_instr(source, InstrData::Jump { target })
     }
 
     #[inline]
-    pub fn stmt_switch_bool(&mut self, source: SourceRange, src: StmtId, on_true: BlockId, on_false: BlockId) -> StmtId {
-        self.add_stmt(source, StmtData::SwitchBool { src, on_true, on_false })
+    pub fn instr_switch_bool(&mut self, source: SourceRange, src: InstrId, on_true: BlockId, on_false: BlockId) -> InstrId {
+        self.add_instr(source, InstrData::SwitchBool { src, on_true, on_false })
     }
 
     #[inline]
-    pub fn stmt_switch_nil(&mut self, source: SourceRange, src: StmtId, on_nil: BlockId, on_non_nil: BlockId) -> StmtId {
-        self.add_stmt(source, StmtData::SwitchNil { src, on_nil, on_non_nil })
+    pub fn instr_switch_nil(&mut self, source: SourceRange, src: InstrId, on_nil: BlockId, on_non_nil: BlockId) -> InstrId {
+        self.add_instr(source, InstrData::SwitchNil { src, on_nil, on_non_nil })
     }
 
     #[inline]
-    pub fn stmt_return(&mut self, source: SourceRange, src: StmtId) -> StmtId {
-        self.add_stmt(source, StmtData::Return { src })
+    pub fn instr_return(&mut self, source: SourceRange, src: InstrId) -> InstrId {
+        self.add_instr(source, InstrData::Return { src })
     }
 }
 
 
 // mutation
 impl Function {
-    fn _insert(block: &mut Block, stmts: &mut IndexVec<StmtId, Stmt>, stmt_id: StmtId, prev: OptStmtId, next: OptStmtId) {
-        let stmt = &mut stmts[stmt_id];
-        // @todo-cleanup: stmt.assert_orphan();
-        assert_eq!(stmt.bb, None.into());
-        debug_assert!(stmt.id == stmt_id);
-        debug_assert_eq!(stmt.prev, None.into());
-        debug_assert_eq!(stmt.next, None.into());
+    fn _insert(block: &mut Block, instrs: &mut IndexVec<InstrId, Instr>, instr_id: InstrId, prev: OptInstrId, next: OptInstrId) {
+        let instr = &mut instrs[instr_id];
+        // @todo-cleanup: instr.assert_orphan();
+        assert_eq!(instr.bb, None.into());
+        debug_assert!(instr.id == instr_id);
+        debug_assert_eq!(instr.prev, None.into());
+        debug_assert_eq!(instr.next, None.into());
 
-        stmt.bb   = block.id.some();
-        stmt.prev = prev;
-        stmt.next = next;
+        instr.bb   = block.id.some();
+        instr.prev = prev;
+        instr.next = next;
         block.len += 1;
 
         if let Some(prev) = prev.to_option() {
-            stmts[prev].next = stmt_id.some();
+            instrs[prev].next = instr_id.some();
         }
         else {
-            block.first = stmt_id.some();
+            block.first = instr_id.some();
         }
 
         if let Some(next) = next.to_option() {
-            stmts[next].prev = stmt_id.some();
+            instrs[next].prev = instr_id.some();
         }
         else {
-            block.last = stmt_id.some();
+            block.last = instr_id.some();
         }
     }
 
-    pub fn insert_after(&mut self, bb: BlockId, ref_id: OptStmtId, stmt_id: StmtId) {
+    pub fn insert_after(&mut self, bb: BlockId, ref_id: OptInstrId, instr_id: InstrId) {
         let block = &mut self.blocks[bb];
         debug_assert_eq!(block.id, bb);
 
         let (prev, next) = 
             if let Some(ref_id) = ref_id.to_option() {
-                let rf = &self.stmts[ref_id];
+                let rf = &self.instrs[ref_id];
                 assert_eq!(rf.bb, bb.some());
                 (ref_id.some(), rf.next)
             }
@@ -1266,16 +1266,16 @@ impl Function {
                 (None.into(), block.first)
             };
 
-        Self::_insert(block, &mut self.stmts, stmt_id, prev, next)
+        Self::_insert(block, &mut self.instrs, instr_id, prev, next)
     }
 
-    pub fn insert_before(&mut self, bb: BlockId, ref_id: OptStmtId, stmt_id: StmtId) {
+    pub fn insert_before(&mut self, bb: BlockId, ref_id: OptInstrId, instr_id: InstrId) {
         let block = &mut self.blocks[bb];
         debug_assert_eq!(block.id, bb);
 
         let (prev, next) = 
             if let Some(ref_id) = ref_id.to_option() {
-                let rf = &self.stmts[ref_id];
+                let rf = &self.instrs[ref_id];
                 assert_eq!(rf.bb, bb.some());
                 (rf.prev, ref_id.some())
             }
@@ -1284,53 +1284,53 @@ impl Function {
                 (block.last, None.into())
             };
 
-        Self::_insert(block, &mut self.stmts, stmt_id, prev, next)
+        Self::_insert(block, &mut self.instrs, instr_id, prev, next)
     }
 
-    pub fn insert_before_terminator(&mut self, bb: BlockId, stmt_id: StmtId) {
+    pub fn insert_before_terminator(&mut self, bb: BlockId, instr_id: InstrId) {
         let block = &mut self.blocks[bb];
         debug_assert_eq!(block.id, bb);
 
         let last_id = block.last.to_option().unwrap();
-        let last = &self.stmts[last_id];
+        let last = &self.instrs[last_id];
         assert!(last.is_terminator());
         debug_assert_eq!(last.bb, bb.some());
 
         let (prev, next) = (last.prev, last_id.some());
-        Self::_insert(block, &mut self.stmts, stmt_id, prev, next)
+        Self::_insert(block, &mut self.instrs, instr_id, prev, next)
     }
 
     #[inline(always)]
-    pub fn prepend_stmt(&mut self, bb: BlockId, stmt_id: StmtId) {
-        self.insert_after(bb, None.into(), stmt_id)
+    pub fn prepend_instr(&mut self, bb: BlockId, instr_id: InstrId) {
+        self.insert_after(bb, None.into(), instr_id)
     }
 
     #[inline(always)]
-    pub fn append_stmt(&mut self, bb: BlockId, stmt_id: StmtId) {
-        self.insert_before(bb, None.into(), stmt_id)
+    pub fn append_instr(&mut self, bb: BlockId, instr_id: InstrId) {
+        self.insert_before(bb, None.into(), instr_id)
     }
 
 
 
-    fn _remove(block: &mut Block, stmts: &mut IndexVec<StmtId, Stmt>, stmt_index: StmtId) -> OptStmtId {
-        let stmt = &mut stmts[stmt_index];
-        assert!(stmt.bb == block.id.some());
+    fn _remove(block: &mut Block, instrs: &mut IndexVec<InstrId, Instr>, instr_index: InstrId) -> OptInstrId {
+        let instr = &mut instrs[instr_index];
+        assert!(instr.bb == block.id.some());
 
-        let old_prev = stmt.prev;
-        let old_next = stmt.next;
-        stmt.prev = None.into();
-        stmt.next = None.into();
-        stmt.bb   = None.into();
+        let old_prev = instr.prev;
+        let old_next = instr.next;
+        instr.prev = None.into();
+        instr.next = None.into();
+        instr.bb   = None.into();
 
         if let Some(prev) = old_prev.to_option() {
-            stmts[prev].next = old_next;
+            instrs[prev].next = old_next;
         }
         else {
             block.first = old_next;
         }
 
         if let Some(next) = old_next.to_option() {
-            stmts[next].prev = old_prev;
+            instrs[next].prev = old_prev;
         }
         else {
             block.last = old_prev;
@@ -1341,25 +1341,25 @@ impl Function {
         old_next
     }
 
-    pub fn retain_block_stmts<F: FnMut(&Stmt) -> bool>(&mut self, bb: BlockId, mut f: F) {
+    pub fn retain_block_instr<F: FnMut(&Instr) -> bool>(&mut self, bb: BlockId, mut f: F) {
         let block = &mut self.blocks[bb];
 
         let mut at = block.first;
         while let Some(current) = at.to_option() {
-            let stmt = &self.stmts[current];
+            let instr = &self.instrs[current];
 
-            if !f(stmt) {
-                at = Self::_remove(block, &mut self.stmts, current);
+            if !f(instr) {
+                at = Self::_remove(block, &mut self.instrs, current);
             }
             else {
-                at = stmt.next;
+                at = instr.next;
             }
         }
     }
 
-    pub fn retain_stmts<F: FnMut(&Stmt) -> bool>(&mut self, mut f: F) {
+    pub fn retain_instrs<F: FnMut(&Instr) -> bool>(&mut self, mut f: F) {
         for bb in 0..self.blocks.len() as u32 {
-            self.retain_block_stmts(BlockId(bb), &mut f);
+            self.retain_block_instr(BlockId(bb), &mut f);
         }
     }
 }
@@ -1373,7 +1373,7 @@ impl Function {
         let post_indices = self.post_order_indices(&post_order);
         let idom = self.immediate_dominators(&preds, &post_order, &post_indices);
 
-        let mut visited = index_vec![false; self.stmts.len()];
+        let mut visited = index_vec![false; self.instrs.len()];
 
         // validate blocks.
         for bb in self.block_ids() {
@@ -1385,46 +1385,46 @@ impl Function {
 
             let mut in_phis = !bb.is_entry();
             let mut has_terminator = false;
-            let mut stmt_count = 0;
+            let mut instr_count = 0;
 
             let mut at = block.first;
             while let Some(current) = at.to_option() {
-                stmt_count += 1;
+                instr_count += 1;
 
                 // only in one bb.
                 assert!(!visited[current]);
                 visited[current] = true;
 
-                // stmt & bb ids.
-                let stmt = &self.stmts[current];
-                assert_eq!(stmt.id, current);
-                assert_eq!(stmt.bb, bb.some());
+                // instr & bb ids.
+                let instr = &self.instrs[current];
+                assert_eq!(instr.id, current);
+                assert_eq!(instr.bb, bb.some());
 
                 // linked list first.
                 if current.some() == block.first {
-                    assert_eq!(stmt.prev, None.into());
+                    assert_eq!(instr.prev, None.into());
                 }
 
                 // linked list last.
                 if current.some() == block.last {
-                    assert_eq!(stmt.next, None.into());
+                    assert_eq!(instr.next, None.into());
                 }
                 // linked list prev/next.
                 else {
-                    let next = stmt.next.to_option().unwrap();
-                    let next = &self.stmts[next];
+                    let next = instr.next.to_option().unwrap();
+                    let next = &self.instrs[next];
                     assert_eq!(next.prev, current.some());
                 }
 
                 // params & locals.
-                if stmt.is_param() {
+                if instr.is_param() {
                     assert!(in_params);
                 }
                 else if in_params {
                     in_params = false;
                     in_locals = true;
                 }
-                if stmt.is_local() {
+                if instr.is_local() {
                     assert!(in_locals);
                 }
                 else if !in_params {
@@ -1432,14 +1432,14 @@ impl Function {
                 }
 
                 // phis.
-                if stmt.is_phi() {
+                if instr.is_phi() {
                     assert!(in_phis);
 
                     // one arg for each pred.
                     // pred dominated by arg's bb.
                     let preds = &preds[bb];
                     let mut visited = vec![false; preds.len()];
-                    let phi_map = self.try_phi(stmt.id).unwrap();
+                    let phi_map = self.try_phi(instr.id).unwrap();
                     for (from_bb, src) in phi_map.iter().copied() {
                         let pred = preds.iter().position(|p| *p == from_bb).unwrap();
                         assert!(visited[pred] == false);
@@ -1454,8 +1454,8 @@ impl Function {
                 else { in_phis = false; }
 
                 // bb dominated by (non-phi) arg bbs.
-                if !stmt.is_phi() {
-                    stmt.args(self, |arg| {
+                if !instr.is_phi() {
+                    instr.args(self, |arg| {
                         let arg = arg.get(self);
                         assert!(arg.has_value());
                         let arg_bb = arg.bb.to_option().unwrap();
@@ -1464,29 +1464,29 @@ impl Function {
                 }
 
                 // terminator: at most one.
-                if stmt.is_terminator() {
+                if instr.is_terminator() {
                     assert!(!has_terminator);
                     has_terminator = true;
                 }
 
-                at = stmt.next;
+                at = instr.next;
             }
 
-            assert_eq!(stmt_count, block.len());
+            assert_eq!(instr_count, block.len());
 
             if block.first == None.into() {
                 assert_eq!(block.last, None.into());
             }
         }
 
-        // validate statements that are not in blocks.
-        for stmt_id in self.stmt_ids() {
-            if !visited[stmt_id] {
-                let stmt = &self.stmts[stmt_id];
-                assert_eq!(stmt.id, stmt_id);
-                assert_eq!(stmt.bb,   None.into());
-                assert_eq!(stmt.prev, None.into());
-                assert_eq!(stmt.next, None.into());
+        // validate instructions that are not in blocks.
+        for instr_id in self.instr_ids() {
+            if !visited[instr_id] {
+                let instr = &self.instrs[instr_id];
+                assert_eq!(instr.id, instr_id);
+                assert_eq!(instr.bb,   None.into());
+                assert_eq!(instr.prev, None.into());
+                assert_eq!(instr.next, None.into());
             }
         }
     }
@@ -1495,7 +1495,7 @@ impl Function {
     pub fn dump(&self) {
         for bb in self.block_ids() {
             println!("{}:", bb);
-            self.block_stmts(bb, |stmt| println!("  {}", stmt.fmt(self)));
+            self.block_instrs(bb, |instr| println!("  {}", instr.fmt(self)));
         }
     }
 }
@@ -1616,13 +1616,13 @@ impl Module {
 
 // --- Iterators ---
 
-impl Iterator for StmtIdIter {
-    type Item = StmtId;
+impl Iterator for InstrIdIter {
+    type Item = InstrId;
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         if self.at < self.end {
-            let result = StmtId(self.at);
+            let result = InstrId(self.at);
             self.at += 1;
             return Some(result);
         }

@@ -1,22 +1,75 @@
 
 - next steps:
+    - basic crates.
+        - single module.
+        - static name binding, unless functions are declared as `var fn`.
+        - basic type checking.
+            - and `var` validation.
+        - env:
+            - there's one env per module (so one env total for now).
+            - functions are tagged with their module, this can't be changed.
+            - an env isn't quite a map, but close. it prevents writes to imported & non-var symbols.
+        - kbtf.
     - debug info.
         - better source info (eg: `ast::Block::source`, `ast::Op1::op_source`).
-    - debugging.
-
-- todo:
-    - value types:
-        - `Gc` type, `new`.
-            - implicit deref/inout with methods.
-            - but pass without deref.
-            - so `&*` to inout boxed value?
-            - compiler could do implicit stuff if has types.
-        - fix gc.
-        - inout params.
-        - later: cache "has Gc" for lists/tuples.
+        - variable mapping.
+        - better runtime errors.
     - proper maps.
-    - crates.
-    - nominal structs & traits.
+    - nominal structs, enums & traits.
+        - typeid.
+    - macros, modules, multithreading.
+        - yeah, kinda unnecessary atm.
+        - but getting these 3 to work together later sounds like a nightmare.
+    - error handling:
+        - try operator.
+        - pcall.
+    - `Gc` type, `new`.
+        - implicit deref/inout with methods.
+        - but pass without deref.
+        - so `&*` to inout boxed value?
+        - compiler could do implicit stuff if has types.
+        - fix gc.
+    - debugging.
+    - ui.
+
+
+- todo: basic crates:
+    - compiler:
+        - ast:
+            - expr/stmt.
+            - item.
+            - module.
+        - basic sema:
+            - assign `ItemId`s and `NodeId`s.
+            - basic type checking.
+                - "sema info" index vec over node ids.
+                - no type table yet.
+                - we basically just have `Any` and `List<Any>` :D
+                - well, there's also `Float`, `String`, tuples, fns.
+                - and perhaps type variables.
+                - we'll just ignore/collect type errors for now.
+            - stuff:
+                - handle anon functions.
+                - names of fn expressions are only visible inside the function for recursion.
+                - `var` items are ordered.
+                - local decls can shadow item decls, even for items in the current function.
+                - linear source map seems useful (eventually).
+                    - don't need extra "file id".
+                    - can store line info, so source ranges are just byte offsets.
+                    - macro output can be serialized into that.
+                    - though we do want errors & completions in macro inputs at source level.
+                        - for debugging, we want the generated code to be available.
+                        - the inline view thing can still help, but not for code that's actually generated programmatically.
+        - crate format (kbtf).
+        - compile_crate api for now. can make more granular later.
+    - vm:
+        - load crate.
+            - impl static binding:
+                - can't bind to other crates or host for now.
+            - runs the code.
+            - multiple loaded crates.
+                - each with their own env.
+
 
 - prev:
     - tuples.
@@ -33,16 +86,12 @@
         - definitely not ub.
 
 - general backlog:
+    - inout params.
+        - can't pass globals.
     - optional args & varargs.
     - del.
-    - tuples.
     - table -> map.
     - usable host api.
-    - objects & methods.
-        - string keys only.
-    - try, catch.
-        - `on_error: Option<(handler_pc, err_reg)>`.
-            - set by compiler inserted instructions.
     - proper gc & memory allocation.
     - closures.
     - kbtf.
@@ -53,10 +102,6 @@
             - can be used for unchecked operations.
         - vm optimizations like inline caches are not exposed.
         - "close captures" instruction.
-    - gradual typing.
-    - structural structs.
-        - ad-hoc structs for args/rets (works well because structural).
-    - box.
 
 - compiler backlog:
     - compile:
@@ -108,6 +153,7 @@
     - `_` for discarding values.
     - and_then: opposite of `??`. what operator?
         - maybe `&&` for and_then, `||` for or_else.
+    - cssa: replace terminator args.
 
 - ideas:
     - reverse debugging:

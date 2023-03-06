@@ -20,7 +20,7 @@ pub fn convert_to_cssa_naive(fun: &mut Function, preds: &Predecessors) {
                 pred_copy_ids[*pred] = Some(fun.new_parallel_copy_id());
             }
 
-            let mut new_phi_cursor = OptStmtId::NONE;
+            let mut new_phi_cursor = OptInstrId::NONE;
             let mut old_phi_cursor = first_phi.some();
             while let Some(at) = old_phi_cursor.to_option() {
                 let Some(phi_map) = fun.try_phi(at) else { break };
@@ -31,8 +31,8 @@ pub fn convert_to_cssa_naive(fun: &mut Function, preds: &Predecessors) {
                 for (pred, src) in &mut phi_map {
                     let source = src.get(fun).source;
                     let copy_id = pred_copy_ids[*pred].unwrap();
-                    let copy = fun.new_stmt(source,
-                        StmtData::ParallelCopy { src: *src, copy_id });
+                    let copy = fun.new_instr(source,
+                        InstrData::ParallelCopy { src: *src, copy_id });
 
                     fun.insert_before_terminator(*pred, copy);
                     *src = copy;
@@ -44,10 +44,10 @@ pub fn convert_to_cssa_naive(fun: &mut Function, preds: &Predecessors) {
                 // so uses don't have to be updated.
                 // new phis are inserted at the start of the block.
                 let phi = at.get(fun);
-                let new_phi = fun.new_stmt(phi.source, phi.data);
+                let new_phi = fun.new_instr(phi.source, phi.data);
 
                 let phi = at.get_mut(fun);
-                phi.data = StmtData::ParallelCopy { src: new_phi, copy_id: phis_copy_id };
+                phi.data = InstrData::ParallelCopy { src: new_phi, copy_id: phis_copy_id };
                 old_phi_cursor = phi.next();
 
                 fun.insert_after(bb, new_phi_cursor, new_phi);
@@ -60,18 +60,18 @@ pub fn convert_to_cssa_naive(fun: &mut Function, preds: &Predecessors) {
             }
         }
 
-        // insert copies before in-place mutating statements.
+        // insert copies before in-place mutating instructions.
         let mut cursor = bb.get(fun).first();
         while let Some(at) = cursor.to_option() {
-            let stmt = at.get(fun);
-            let next = stmt.next();
+            let instr = at.get(fun);
+            let next  = instr.next();
 
-            if let StmtData::WritePath { path_id, value: _, is_def: _ } = stmt.data {
-                if let PathBase::Stmt(base) = path_id.get(fun).base {
-                    let copy = fun.new_stmt(stmt.source, StmtData::Copy { src: base });
+            if let InstrData::WritePath { path_id, value: _, is_def: _ } = instr.data {
+                if let PathBase::Instr(base) = path_id.get(fun).base {
+                    let copy = fun.new_instr(instr.source, InstrData::Copy { src: base });
                     fun.insert_before(bb, at.some(), copy);
 
-                    path_id.set_base(fun, PathBase::Stmt(copy));
+                    path_id.set_base(fun, PathBase::Instr(copy));
                 }
             }
 

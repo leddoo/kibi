@@ -47,40 +47,40 @@ pub struct BlockOrder {
 }
 
 #[derive(Clone, Copy, Debug, Display, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StmtIndex {
+pub struct InstrIndex {
     pub value: u32,
 }
 
-impl StmtIndex {
-    pub const NONE: StmtIndex = StmtIndex { value: u32::MAX };
+impl InstrIndex {
+    pub const NONE: InstrIndex = InstrIndex { value: u32::MAX };
 }
 
 #[derive(Deref)]
 pub struct BlockBegins {
-    pub begins: IndexVec<BlockId, StmtIndex>,
+    pub begins: IndexVec<BlockId, InstrIndex>,
 }
 
 #[derive(Deref)]
-pub struct StmtIndices {
-    pub indices: IndexVec<StmtId, StmtIndex>,
+pub struct InstrIndices {
+    pub indices: IndexVec<InstrId, InstrIndex>,
 }
 
 
 // ### liveness ###
 
 pub struct BlockGenKill {
-    pub gens:  IndexVec<BlockId, IndexVec<StmtId, bool>>,
-    pub kills: IndexVec<BlockId, IndexVec<StmtId, bool>>,
+    pub gens:  IndexVec<BlockId, IndexVec<InstrId, bool>>,
+    pub kills: IndexVec<BlockId, IndexVec<InstrId, bool>>,
 }
 
 pub struct BlockLiveInOut {
-    pub live_ins:  IndexVec<BlockId, IndexVec<StmtId, bool>>,
-    pub live_outs: IndexVec<BlockId, IndexVec<StmtId, bool>>,
+    pub live_ins:  IndexVec<BlockId, IndexVec<InstrId, bool>>,
+    pub live_outs: IndexVec<BlockId, IndexVec<InstrId, bool>>,
 }
 
 #[derive(Deref)]
 pub struct LiveIntervals {
-    pub intervals: IndexVec<StmtId, Vec<(StmtIndex, StmtIndex)>>,
+    pub intervals: IndexVec<InstrId, Vec<(InstrIndex, InstrIndex)>>,
 }
 
 
@@ -303,18 +303,18 @@ impl Function {
         let mut kills = IndexVec::with_capacity(self.num_blocks());
 
         for bb in self.block_ids() {
-            let mut gen  = index_vec![false; self.num_stmts()];
-            let mut kill = index_vec![false; self.num_stmts()];
+            let mut gen  = index_vec![false; self.num_instrs()];
+            let mut kill = index_vec![false; self.num_instrs()];
 
-            // statements in reverse.
-            self.block_stmts_rev(bb, |stmt| {
-                if stmt.has_value() {
-                    kill[stmt.id()] = true;
-                    gen [stmt.id()] = false;
+            // instructions in reverse.
+            self.block_instr_rev(bb, |instr| {
+                if instr.has_value() {
+                    kill[instr.id()] = true;
+                    gen [instr.id()] = false;
                 }
 
-                if !stmt.is_phi() {
-                    stmt.args(self, |arg| {
+                if !instr.is_phi() {
+                    instr.args(self, |arg| {
                         gen[arg] = true;
                     });
                 }
@@ -330,8 +330,8 @@ impl Function {
     pub fn block_live_in_out(&self, post_order: &PostOrder, gen_kill: &BlockGenKill) -> BlockLiveInOut {
         let BlockGenKill { gens, kills } = gen_kill;
 
-        let mut live_ins  = index_vec![index_vec![false; self.num_stmts()]; self.num_blocks()];
-        let mut live_outs = index_vec![index_vec![false; self.num_stmts()]; self.num_blocks()];
+        let mut live_ins  = index_vec![index_vec![false; self.num_instrs()]; self.num_blocks()];
+        let mut live_outs = index_vec![index_vec![false; self.num_instrs()]; self.num_blocks()];
         let mut changed = true;
         while changed {
             changed = false;
@@ -340,19 +340,19 @@ impl Function {
                 let gen   = &gens[bb];
                 let kill  = &kills[bb];
 
-                let mut new_live_out = index_vec![false; self.num_stmts()];
+                let mut new_live_out = index_vec![false; self.num_instrs()];
                 self.block_successors(bb, |succ| {
                     // live_in.
                     for (i, live) in live_ins[succ].iter().enumerate() {
                         if *live {
-                            new_live_out[StmtId::from_usize(i)] = true;
+                            new_live_out[InstrId::from_usize(i)] = true;
                         }
                     }
 
                     // phis: gen bb's args.
-                    self.block_stmts_ex(succ, |stmt| {
-                        // @todo: try_phi Stmt variant?
-                        if let Some(map) = self.try_phi(stmt.id()) {
+                    self.block_instrs_ex(succ, |instr| {
+                        // @todo: try_phi Instr variant?
+                        if let Some(map) = self.try_phi(instr.id()) {
                             let src = map.get(bb).unwrap();
                             new_live_out[src] = true;
                             return true;
@@ -364,12 +364,12 @@ impl Function {
                 let mut new_live_in = new_live_out.clone();
                 for (i, kill) in kill.iter().enumerate() {
                     if *kill {
-                        new_live_in[StmtId::from_usize(i)] = false;
+                        new_live_in[InstrId::from_usize(i)] = false;
                     }
                 }
                 for (i, gen) in gen.iter().enumerate() {
                     if *gen {
-                        new_live_in[StmtId::from_usize(i)] = true;
+                        new_live_in[InstrId::from_usize(i)] = true;
                     }
                 }
 
@@ -389,33 +389,33 @@ impl Function {
 
     pub fn live_intervals_ex(&self,
         block_order: &BlockOrder, block_begins: &BlockBegins,
-        stmt_indices: &StmtIndices,
+        instr_indices: &InstrIndices,
         live_sets: &BlockLiveInOut,
         no_empty_intervals: bool,
     ) -> LiveIntervals {
         let BlockLiveInOut { live_ins: _, live_outs } = live_sets;
 
-        let mut intervals = index_vec![vec![]; self.num_stmts()];
+        let mut intervals = index_vec![vec![]; self.num_instrs()];
         for bb in block_order.iter().copied() {
             let live_out = &live_outs[bb];
 
-            let num_stmts = self.num_block_stmts(bb);
+            let num_instrs = self.num_block_instrs(bb);
 
             let block_begin = block_begins[bb];
-            let block_end   = StmtIndex { value: block_begin.value + num_stmts as u32 };
+            let block_end   = InstrIndex { value: block_begin.value + num_instrs as u32 };
 
             let mut live = live_out.iter().map(|live| {
                 live.then(|| block_end)
             }).collect::<IndexVec<_,_>>();
 
             #[inline]
-            fn gen(var: StmtId, stop: StmtIndex, live: &mut IndexVec<StmtId, Option<StmtIndex>>) {
+            fn gen(var: InstrId, stop: InstrIndex, live: &mut IndexVec<InstrId, Option<InstrIndex>>) {
                 if live[var].is_none() {
                     live[var] = Some(stop);
                 }
             }
 
-            fn kill(var: StmtId, start: StmtIndex, live: &mut IndexVec<StmtId, Option<StmtIndex>>, intervals: &mut IndexVec<StmtId, Vec<(StmtIndex, StmtIndex)>>) {
+            fn kill(var: InstrId, start: InstrIndex, live: &mut IndexVec<InstrId, Option<InstrIndex>>, intervals: &mut IndexVec<InstrId, Vec<(InstrIndex, InstrIndex)>>) {
                 if let Some(stop) = live[var] {
                     live[var] = None;
 
@@ -433,66 +433,66 @@ impl Function {
                 }
             }
 
-            // statements.
+            // instructions.
             let mut parallel_copy_pos = None;
             let mut phi_pos           = None;
-            self.block_stmts_rev(bb, |stmt| {
-                let stmt_pos = stmt_indices[stmt.id()];
+            self.block_instr_rev(bb, |instr| {
+                let instr_pos = instr_indices[instr.id()];
 
-                let stmt_pos =
-                    if stmt.is_phi() {
+                let instr_pos =
+                    if instr.is_phi() {
                         if let Some(phi_pos) = phi_pos {
                             phi_pos
                         }
                         else {
-                            phi_pos = Some(stmt_pos);
-                            stmt_pos
+                            phi_pos = Some(instr_pos);
+                            instr_pos
                         }
                     }
-                    else if let StmtData::ParallelCopy { src: _, copy_id: id } = stmt.data {
+                    else if let InstrData::ParallelCopy { src: _, copy_id: id } = instr.data {
                         if let Some((current_id, current_pos)) = parallel_copy_pos {
                             if current_id == id {
                                 current_pos
                             }
                             else {
-                                parallel_copy_pos = Some((id, stmt_pos));
-                                stmt_pos
+                                parallel_copy_pos = Some((id, instr_pos));
+                                instr_pos
                             }
                         }
                         else {
-                            parallel_copy_pos = Some((id, stmt_pos));
-                            stmt_pos
+                            parallel_copy_pos = Some((id, instr_pos));
+                            instr_pos
                         }
                     }
                     else {
-                        stmt_pos
+                        instr_pos
                     };
 
-                if stmt.has_value() {
-                    let start = stmt_pos;
+                if instr.has_value() {
+                    let start = instr_pos;
                     if no_empty_intervals {
                         let mut stop = start;
-                        if stmt.is_parallel_copy() {
+                        if instr.is_parallel_copy() {
                             // parallel copies have the same start position.
                             // if one is unused (start == stop), its register may be
                             // released and made available for other copies in the
                             // same parallel group, which is no good.
-                            stop = StmtIndex { value: start.value + 1 };
+                            stop = InstrIndex { value: start.value + 1 };
                         }
-                        gen(stmt.id(), stop, &mut live);
+                        gen(instr.id(), stop, &mut live);
                     }
-                    kill(stmt.id(), start, &mut live, &mut intervals)
+                    kill(instr.id(), start, &mut live, &mut intervals)
                 }
 
-                if !stmt.is_phi() {
-                    stmt.args(self, |arg| {
-                        let stop = stmt_pos;
+                if !instr.is_phi() {
+                    instr.args(self, |arg| {
+                        let stop = instr_pos;
                         gen(arg, stop, &mut live);
                     });
                 }
             });
 
-            for id in self.stmt_ids() {
+            for id in self.instr_ids() {
                 let start = block_begin;
                 kill(id, start, &mut live, &mut intervals);
             }
@@ -501,31 +501,31 @@ impl Function {
         LiveIntervals { intervals }
     }
 
-    pub fn live_intervals(&self, post_order: &PostOrder, block_order: &BlockOrder, block_begins: &BlockBegins, stmt_indices: &StmtIndices, no_empty_intervals: bool) -> LiveIntervals {
+    pub fn live_intervals(&self, post_order: &PostOrder, block_order: &BlockOrder, block_begins: &BlockBegins, instr_indices: &InstrIndices, no_empty_intervals: bool) -> LiveIntervals {
         let gen_kill = self.block_gen_kill();
         let live_sets = self.block_live_in_out(&post_order, &gen_kill);
-        self.live_intervals_ex(block_order, block_begins, stmt_indices, &live_sets, no_empty_intervals)
+        self.live_intervals_ex(block_order, block_begins, instr_indices, &live_sets, no_empty_intervals)
     }
 }
 
 
 impl BlockOrder {
-    pub fn block_begins_and_stmt_indices(&self, fun: &Function) -> (BlockBegins, StmtIndices) {
-        let mut block_begins = index_vec![StmtIndex::NONE; fun.num_blocks()];
-        let mut stmt_indices = index_vec![StmtIndex::NONE; fun.num_stmts()];
+    pub fn block_begins_and_instr_indices(&self, fun: &Function) -> (BlockBegins, InstrIndices) {
+        let mut block_begins  = index_vec![InstrIndex::NONE; fun.num_blocks()];
+        let mut instr_indices = index_vec![InstrIndex::NONE; fun.num_instrs()];
 
-        let mut cursor = StmtIndex { value: 0 };
+        let mut cursor = InstrIndex { value: 0 };
         for bb in self.order.iter().copied() {
             block_begins[bb] = cursor;
 
-            fun.block_stmts(bb, |stmt| {
-                stmt_indices[stmt.id()] = cursor;
+            fun.block_instrs(bb, |instr| {
+                instr_indices[instr.id()] = cursor;
                 cursor.value += 1;
             });
         }
         block_begins.push(cursor);
 
-        (BlockBegins { begins: block_begins }, StmtIndices { indices: stmt_indices })
+        (BlockBegins { begins: block_begins }, InstrIndices { indices: instr_indices })
     }
 }
 
