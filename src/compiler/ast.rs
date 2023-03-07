@@ -16,6 +16,18 @@ pub struct SourceRange {
 }
 
 
+impl core::fmt::Display for SourcePos {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}:{}", self.line, self.column)
+    }
+}
+impl core::fmt::Display for SourceRange {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}-{}", self.begin, self.end)
+    }
+}
+
+
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Op1 {
@@ -45,8 +57,14 @@ pub enum Op2 {
 
 
 impl SourcePos {
-    pub fn to_range(self) -> SourceRange {
+    #[inline(always)]
+    pub const fn to_range(self) -> SourceRange {
         SourceRange { begin: self, end: self }
+    }
+
+    #[inline(always)]
+    pub const fn null() -> SourcePos {
+        SourcePos { line: 0, column: 0 }
     }
 }
 
@@ -61,8 +79,7 @@ impl SourceRange {
 
     #[inline(always)]
     pub const fn null() -> SourceRange {
-        let zero = SourcePos { line: 0, column: 0 };
-        SourceRange { begin: zero, end: zero }
+        SourcePos::null().to_range()
     }
 }
 
@@ -117,39 +134,102 @@ impl Op2 {
 
 define_id!(NodeId, OptNodeId);
 
-impl Default for NodeId { #[inline(always)] fn default() -> Self { NodeId(0) } }
+// @todo-cleanup: put these into the macro?
+impl NodeId {
+    pub const ZERO: NodeId = NodeId(0);
+
+    pub fn inc(&mut self) -> NodeId {
+        assert!(self.0 < u32::MAX - 1);
+        self.0 += 1;
+        *self
+    }
+}
+
+
+
+define_id!(ItemId, OptItemId);
+
+impl ItemId {
+    pub const ZERO: ItemId = ItemId(0);
+
+    pub fn inc(&mut self) -> ItemId {
+        assert!(self.0 < u32::MAX - 1);
+        self.0 += 1;
+        *self
+    }
+}
+
+
+
+#[derive(Clone, Debug)]
+pub struct Module<'a> {
+    pub source:    SourceRange,
+    pub block:     data::Block<'a>,
+    pub num_nodes: u32,     // computed by `Infer`.
+}
+
+impl<'a> Module<'a> {
+    #[inline(always)]
+    pub fn new(source: SourceRange, block: data::Block<'a>) -> Module {
+        Module { source, block, num_nodes: 0 }
+    }
+}
+
+
+
+#[derive(Clone, Debug, Deref)]
+pub struct Item<'a> {
+    #[deref]
+    pub data:   ItemData<'a>,
+    pub source: SourceRange,
+    pub id:     ItemId,     // computed by `Infer`.
+}
+
+#[derive(Clone, Debug)]
+pub enum ItemData<'a> {
+    Fn              (data::Fn<'a>),
+}
+
+impl<'a> Item<'a> {
+    #[inline(always)]
+    pub fn new(source: SourceRange, data: ItemData<'a>) -> Self {
+        Item { source, data, id: ItemId::ZERO }
+    }
+}
+
 
 
 #[derive(Clone, Debug, Deref)]
 pub struct Stmt<'a> {
     #[deref]
     pub data:   StmtData<'a>,
-    pub id:     NodeId,
     pub source: SourceRange,
+    pub id:     NodeId,     // computed by `Infer`.
 }
 
 #[derive(Clone, Debug)]
 pub enum StmtData<'a> {
+    Item            (Item<'a>),
     Local           (data::Local<'a>),
     Expr            (Expr<'a>),
     Empty,
-    Item,
 }
 
 impl<'a> Stmt<'a> {
     #[inline(always)]
     pub fn new(source: SourceRange, data: StmtData<'a>) -> Self {
-        Stmt { source, data, id: Default::default() }
+        Stmt { source, data, id: NodeId::ZERO }
     }
 }
+
 
 
 #[derive(Clone, Debug, Deref)]
 pub struct Expr<'a> {
     #[deref]
     pub data:   ExprData<'a>,
-    pub id:     NodeId,
     pub source: SourceRange,
+    pub id:     NodeId,     // computed by `Infer`.
 }
 
 #[derive(Clone, Debug)]
@@ -166,7 +246,6 @@ pub enum ExprData<'a> {
     Op1             (Box<data::Op1<'a>>),
     Op2             (Box<data::Op2<'a>>),
     Field           (Box<data::Field<'a>>),
-    OptChain        (Box<data::Field<'a>>),
     Index           (Box<data::Index<'a>>),
     Call            (Box<data::Call<'a>>),
     If              (Box<data::If<'a>>),
@@ -181,7 +260,7 @@ pub enum ExprData<'a> {
 impl<'a> Expr<'a> {
     #[inline(always)]
     pub fn new(source: SourceRange, data: ExprData<'a>) -> Self {
-        Expr { source, data, id: Default::default() }
+        Expr { source, data, id: NodeId::ZERO }
     }
 
     #[inline(always)]
@@ -390,6 +469,7 @@ pub mod data {
         pub name:   Option<&'a str>,
         pub params: Vec<FnParam<'a>>,
         pub body:   Vec<Stmt<'a>>,
+        pub num_nodes: u32,     // computed by `Infer`.
     }
 
     #[derive(Clone, Debug)]

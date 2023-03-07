@@ -1,10 +1,9 @@
 
 - next steps:
     - basic crates.
-        - single module.
         - static name binding, unless functions are declared as `var fn`.
         - basic type checking.
-            - and `var` validation.
+        - and `var` validation.
         - env:
             - there's one env per module (so one env total for now).
             - functions are tagged with their module, this can't be changed.
@@ -29,46 +28,23 @@
         - so `&*` to inout boxed value?
         - compiler could do implicit stuff if has types.
         - fix gc.
+    - vm optimization.
+        - typed operations. checked before execution, impl unsafe (in release).
+        - generic ops -> slower "trait call".
+        - unboxed stack values.
     - debugging.
+        - mapping all source values to registers/instr_indices.
+            - should be possible since we're not eliminating dead code (yet).
+            - still, need an optimization log for the dead copy elim.
+            - that can coalesce variables.
     - ui.
 
 
 - todo: basic crates:
-    - compiler:
-        - ast:
-            - item.
-            - module.
-        - basic sema:
-            - assign `ItemId`s and `NodeId`s.
-            - basic type checking.
-                - "sema info" index vec over node ids.
-                - no type table yet.
-                - we basically just have `Any` and `List<Any>` :D
-                - well, there's also `Float`, `String`, tuples, fns.
-                - and perhaps type variables.
-                - we'll just ignore/collect type errors for now.
-            - stuff:
-                - handle anon functions.
-                - names of fn expressions are only visible inside the function for recursion.
-                - `var` items are ordered.
-                - local decls can shadow item decls, even for items in the current function.
-                - linear source map seems useful (eventually).
-                    - don't need extra "file id".
-                    - can store line info, so source ranges are just byte offsets.
-                    - macro output can be serialized into that.
-                    - though we do want errors & completions in macro inputs at source level.
-                        - for debugging, we want the generated code to be available.
-                        - the inline view thing can still help, but not for code that's actually generated programmatically.
-        - crate format (kbtf).
-        - compile_crate api for now. can make more granular later.
-    - vm:
-        - load crate.
-            - impl static binding:
-                - can't bind to other crates or host for now.
-            - runs the code.
-            - multiple loaded crates.
-                - each with their own env.
-
+    - kbtf.
+    - nested envs.
+    - support direct calls.
+        - non-env based recursion.
 
 - prev:
     - tuples.
@@ -153,6 +129,8 @@
     - and_then: opposite of `??`. what operator?
         - maybe `&&` for and_then, `||` for or_else.
     - cssa: replace terminator args.
+    - repl: support multiple stmts.
+        - print value of all of them.
 
 - ideas:
     - reverse debugging:

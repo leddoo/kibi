@@ -78,7 +78,7 @@ impl<K: Key, V: Clone> Clone for IndexVec<K, V> {
     }
 }
 
-impl<K: Key, V: Clone + core::fmt::Debug> core::fmt::Debug for IndexVec<K, V> {
+impl<K: Key, V: core::fmt::Debug> core::fmt::Debug for IndexVec<K, V> {
     #[inline(always)]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.values.fmt(f)
@@ -186,6 +186,9 @@ macro_rules! index_vec {
     );
     ($elem:expr; $n:expr) => (
         IndexVec::from(vec![$elem; $n])
+    );
+    ($($x:expr),+ $(,)?) => (
+        IndexVec::from(vec![$($x),+])
     );
 }
 pub(crate) use index_vec;

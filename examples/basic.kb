@@ -20,16 +20,14 @@ end)(1, 2, 3)
 
 
 
--- @todo-syntax: `global foo = 5` or something
-ENV.foo := 5
+var foo = 5
 foo += 3
 print("foo: ")
 println(foo)
 
 
 
--- @todo-syntax: `fn fib(n)`.
-ENV.fib := fn(n):
+fn fib(n):
     var a = 0
     var b = 1
     var i = 0
@@ -154,6 +152,8 @@ end)()
         while true:
             do:
                 break 'd 8
+                break
+                continue
             end
             undefined()
         end

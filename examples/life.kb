@@ -1,5 +1,5 @@
 -- @todo: use a struct.
-ENV.mk_board := fn(w, h):
+fn mk_board(w, h):
     let values = []
     var i = 0
     while i < w*h:
@@ -9,7 +9,7 @@ ENV.mk_board := fn(w, h):
     return values
 end
 
-ENV.board_print := fn(board, w, h):
+fn board_print(board, w, h):
     var y = 0
     while y < h:
         var x = 0
@@ -25,7 +25,7 @@ ENV.board_print := fn(board, w, h):
     println("")
 end
 
-ENV.board_get := fn(board, w, h, x, y):
+fn board_get(board, w, h, x, y):
     if   x <  0: x += w
     elif x >= w: x -= w end
 
@@ -35,7 +35,7 @@ ENV.board_get := fn(board, w, h, x, y):
     return board[y*w + x]
 end
 
-ENV.board_step := fn(board, w, h):
+fn board_step(board, w, h):
     let new_board = mk_board(w, h)
 
     var y = 0
@@ -67,7 +67,7 @@ ENV.board_step := fn(board, w, h):
     return new_board
 end
 
-ENV.sleep := fn():
+fn sleep():
     var i = 0
     while i < 500000:
         i += 1

@@ -5,6 +5,7 @@ pub mod bytecode;
 pub mod value;
 pub mod vm;
 
+pub use compiler::*;
 pub use bytecode::*;
 pub use value::*;
 pub use vm::*;

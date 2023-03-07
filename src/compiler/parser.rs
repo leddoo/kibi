@@ -1,5 +1,5 @@
 use derive_more::Deref;
-use super::*;
+use super::ast::*;
 
 
 #[derive(Clone, Copy, Debug, Deref)]
@@ -814,9 +814,9 @@ impl<'p, 'i> Parser<'p, 'i> {
             else { None };
 
             let condition = self.parse_expr(0)?;
-            self.expect(TokenData::Colon)?;
+            let body_begin = self.expect(TokenData::Colon)?.end;
 
-            let body = self.parse_block()?.stmts;
+            let body = self.parse_block(body_begin)?.1.stmts;
 
             let data = ExprData::While(Box::new(data::While { label, condition, body }));
             let end = self.expect(TokenData::KwEnd)?.end;
@@ -832,9 +832,9 @@ impl<'p, 'i> Parser<'p, 'i> {
             }
             else { None };
 
-            self.expect(TokenData::Colon)?;
+            let body_begin = self.expect(TokenData::Colon)?.end;
 
-            let block = self.parse_block()?;
+            let block = self.parse_block(body_begin)?.1;
             let data = ExprData::Do(Box::new(data::Do { label, stmts: block.stmts }));
 
             let end = self.expect(TokenData::KwEnd)?.end;
@@ -866,42 +866,8 @@ impl<'p, 'i> Parser<'p, 'i> {
 
         // functions
         if let TokenData::KwFn = current.data {
-            let at   = self.peek_or_eof(0)?;
-            let next = self.peek_or_eof(1)?;
-
-            // fn name? ( params ) ':'? block end
-            if at.is_ident() && next.data == TokenData::LParen
-            || at.data == TokenData::LParen {
-                let name =
-                    if let TokenData::Ident(name) = at.data {
-                        self.next().unwrap();
-                        Some(name)
-                    } else { None };
-                self.expect(TokenData::LParen).unwrap();
-
-                let params = self.parse_fn_params()?.0;
-                self.expect(TokenData::RParen)?;
-                self.expect(TokenData::Colon)?;
-
-                let body = self.parse_block()?.stmts;
-                let end = self.expect(TokenData::KwEnd)?.end;
-
-                let data = ExprData::Fn(Box::new(
-                    data::Fn { name, params, body }));
-                return Ok(Expr::new(SourceRange { begin, end }, data));
-            }
-            // fn params => expr
-            else {
-                let params = self.parse_fn_params()?.0;
-                self.expect(TokenData::FatArrow)?;
-
-                let body = self.parse_expr(0)?;
-                let end = body.source.end;
-
-                let data = ExprData::Fn(Box::new(
-                    data::Fn { name: None, params, body: vec![body.to_stmt()] }));
-                return Ok(Expr::new(SourceRange { begin, end }, data));
-            }
+            let (source, fun) = self.parse_fn(begin)?;
+            return Ok(Expr::new(source, ExprData::Fn(Box::new(fun))));
         }
 
         // list.
@@ -1010,6 +976,7 @@ impl<'p, 'i> Parser<'p, 'i> {
                 continue;
             }
 
+            /*
             // opt-chain.
             if current.data == TokenData::OpOptChain {
                 self.next().unwrap();
@@ -1026,6 +993,7 @@ impl<'p, 'i> Parser<'p, 'i> {
                     })));
                 continue;
             }
+            */
 
             // index.
             if current.data == TokenData::LBracket {
@@ -1092,12 +1060,7 @@ impl<'p, 'i> Parser<'p, 'i> {
     }
     */
 
-    pub fn parse_block(&mut self) -> ParseResult<data::Block<'i>> {
-        let Some(begin) = self.peek(0) else {
-            return Ok(data::Block { stmts: vec![] });
-        };
-
-        let begin = begin.source.begin;
+    pub fn parse_block(&mut self, begin: SourcePos) -> ParseResult<(SourceRange, data::Block<'i>)> {
         let mut end = begin;
 
         let mut stmts = vec![];
@@ -1116,6 +1079,12 @@ impl<'p, 'i> Parser<'p, 'i> {
                 self.next().unwrap();
                 let source = at.source;
                 end = source.end;
+            }
+            // fn
+            else if at.data == TokenData::KwFn {
+                self.next().unwrap();
+                let (source, fun) = self.parse_fn(at.source.begin)?;
+                stmts.push(Stmt::new(source, StmtData::Item(Item::new(source, ItemData::Fn(fun)))));
             }
             // local ::= (let | var) ident (= expr)? (;)?
             else if at.data == TokenData::KwLet
@@ -1155,18 +1124,15 @@ impl<'p, 'i> Parser<'p, 'i> {
             }
         }
 
-        // @todo-dbg-info
-        let _ = end;
-
-        Ok(data::Block { stmts })
+        Ok((SourceRange { begin, end }, data::Block { stmts }))
     }
 
     // consumes `do` & colon.
     pub fn parse_if_block(&mut self) -> ParseResult<data::IfBlock<'i>> {
         let is_do = self.next_if(TokenData::KwDo);
-        self.expect(TokenData::Colon)?;
+        let block_begin = self.expect(TokenData::Colon)?.end;
 
-        let block = self.parse_block()?;
+        let block = self.parse_block(block_begin)?.1;
         Ok(data::IfBlock { stmts: block.stmts, is_do })
     }
 
@@ -1223,23 +1189,66 @@ impl<'p, 'i> Parser<'p, 'i> {
         Ok((result, had_comma))
     }
 
+    pub fn parse_fn(&mut self, begin: SourcePos) -> ParseResult<(SourceRange, data::Fn<'i>)> {
+        let at   = self.peek_or_eof(0)?;
+        let next = self.peek_or_eof(1)?;
 
-    pub fn parse_single(input: &'i [u8]) -> ParseResult<Expr<'i>> {
-        let tokens = Tokenizer::tokenize(input, true)?;
-        let mut p = Parser::new(&tokens);
+        // fn name? ( params ) ':'? block end
+        if at.is_ident() && next.data == TokenData::LParen
+        || at.data == TokenData::LParen {
+            let name =
+                if let TokenData::Ident(name) = at.data {
+                    self.next().unwrap();
+                    Some(name)
+                } else { None };
+            self.expect(TokenData::LParen).unwrap();
 
-        let result = p.parse_expr(0)?;
+            let params = self.parse_fn_params()?.0;
+            self.expect(TokenData::RParen)?;
+            let body_begin = self.expect(TokenData::Colon)?.end;
 
-        if let Some(tok) = p.peek(0) {
-            return Err(ParseError::at_pos(tok.source.begin, ParseErrorData::TrailingInput));
+            let body = self.parse_block(body_begin)?.1.stmts;
+            let end = self.expect(TokenData::KwEnd)?.end;
+
+            return Ok((SourceRange { begin, end }, data::Fn { name, params, body, num_nodes: 0 }));
         }
-        Ok(result)
+        // fn params => expr
+        else {
+            let params = self.parse_fn_params()?.0;
+            self.expect(TokenData::FatArrow)?;
+
+            let name = None;
+            let body = self.parse_expr(0)?;
+            let end = body.source.end;
+            let body = vec![body.to_stmt()];
+
+            return Ok((SourceRange { begin, end }, data::Fn { name, params, body, num_nodes: 0 }));
+        }
     }
 
-    pub fn parse_chunk(input: &'i [u8]) -> ParseResult<data::Block<'i>> {
-        let tokens = Tokenizer::tokenize(input, true)?;
-        let mut p = Parser::new(&tokens);
-        p.parse_block()
+
+    pub fn parse_module(&mut self, begin: SourcePos) -> ParseResult<Module<'i>> {
+        let (source, block) = self.parse_block(begin)?;
+        return Ok(Module::new(source, block));
     }
+}
+
+
+pub fn parse_single<'i>(input: &'i [u8]) -> ParseResult<Expr<'i>> {
+    let tokens = Tokenizer::tokenize(input, true)?;
+    let mut p = Parser::new(&tokens);
+
+    let result = p.parse_expr(0)?;
+
+    if let Some(tok) = p.peek(0) {
+        return Err(ParseError::at_pos(tok.source.begin, ParseErrorData::TrailingInput));
+    }
+    Ok(result)
+}
+
+pub fn parse_module<'i>(input: &'i [u8]) -> ParseResult<Module<'i>> {
+    let tokens = Tokenizer::tokenize(input, true)?;
+    let mut p = Parser::new(&tokens);
+    p.parse_module(SourcePos { line: 0, column: 0 })
 }
 

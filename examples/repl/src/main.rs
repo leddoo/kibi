@@ -50,17 +50,28 @@ fn main() {
         let source = std::fs::read_to_string(path).unwrap();
 
         let t0 = std::time::Instant::now();
+        let mut module = parser::parse_module(source.as_bytes()).unwrap();
+        let dt_parse = t0.elapsed();
 
-        let chunk = compiler::Parser::parse_chunk(source.as_bytes()).unwrap();
+        let t0 = std::time::Instant::now();
+        let mut infer = infer::Infer::new();
+        infer.assign_ids_module(&mut module);
+        let mod_info = infer.infer_module(&module);
+        let dt_infer = t0.elapsed();
 
-        let module = compiler::Compiler::compile_chunk(&chunk.stmts, false).unwrap();
-        module.temp_load(&mut vm);
+        let t0 = std::time::Instant::now();
+        let item_infos = infer.temp_done();
+        let builder = bbir_builder::Builder::new(&item_infos);
+        builder.build_module(&module, &mod_info);
+        builder.module.temp_load(&mut vm);
         let dt_compile = t0.elapsed();
 
         let t0 = std::time::Instant::now();
         vm.temp_call().unwrap();
         let dt_run = t0.elapsed();
 
+        println!("parse:   {:?}", dt_parse);
+        println!("infer:   {:?}", dt_infer);
         println!("compile: {:?}", dt_compile);
         println!("run:     {:?}", dt_run);
 
@@ -105,7 +116,7 @@ fn main() {
                 continue;
             }
 
-            match compiler::Parser::parse_single(chunk.as_bytes()) {
+            match parser::parse_single(chunk.as_bytes()) {
                 Ok(ast) => ast,
                 Err(e) => {
                     match e.data {
@@ -125,19 +136,20 @@ fn main() {
             }
         };
 
-        let module = match compiler::Compiler::compile_chunk(&[ast.to_stmt()], true) {
-            Ok(result) => result,
-            Err(e) => {
-                println!("compile error: {:?}", e);
-                buffer.clear();
-                continue;
-            }
-        };
+        let mut module = ast::Module::new(ast.source, data::Block { stmts: vec![ast.to_stmt()] });
+
+        let mut infer = infer::Infer::new();
+        infer.assign_ids_module(&mut module);
+        let mod_info = infer.infer_module(&module);
+        let item_infos = infer.temp_done();
+
+        let builder = bbir_builder::Builder::new(&item_infos);
+        builder.build_module(&module, &mod_info);
         buffer.clear();
 
 
         running.store(true, core::sync::atomic::Ordering::SeqCst);
-        module.temp_load(&mut vm);
+        builder.module.temp_load(&mut vm);
         let result = vm.temp_call();
         running.store(false, core::sync::atomic::Ordering::SeqCst);
 
