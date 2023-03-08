@@ -1,21 +1,23 @@
-use crate::ast::{Module as AstModule, *};
-use crate::bbir::{Module as BbirModule, *, self};
+use crate::index_vec::*;
+use crate::ast::{*, self};
+use crate::infer;
+use crate::bbir::{*, self};
 
 
 pub struct Builder {
-    pub module: BbirModule,
+    pub module: bbir::Module,
 }
 
 impl Builder {
     pub fn new() -> Self {
         Builder {
-            module: BbirModule::new(),
+            module: bbir::Module::new(),
         }
     }
 
-    pub fn build_module(&self, module: &AstModule) {
+    pub fn build_module(&self, module: &ast::Module) {
         let mut fun = self.module.new_function();
-        let mut ctx = Ctx::new(&mut fun);
+        let mut ctx = Ctx::new(&mut fun, module.id, &[]);
 
         let stmts = &module.block.stmts;
 
@@ -26,9 +28,9 @@ impl Builder {
             }
             else {
                 self.build_block(&mut ctx, stmts);
-                fun.instr_load_unit(SourceRange::null())
+                ctx.fun.instr_load_unit(SourceRange::null())
             };
-        fun.instr_return(SourceRange::null(), value);
+        ctx.fun.instr_return(SourceRange::null(), value);
     }
 
     fn build_stmt(&self, ctx: &mut Ctx, stmt: &Stmt) {
@@ -36,7 +38,7 @@ impl Builder {
             StmtData::Item(item) => {
                 match &item.data {
                     ItemData::Fn(fun) => {
-                        let fun_id = self.build_fn(ctx, fun);
+                        let fun_id = self.build_fn(ctx, stmt.id, fun);
 
                         // @temp: nested vm environments.
                         if let Some(name) = fun.name {
@@ -57,8 +59,8 @@ impl Builder {
                         ctx.fun.instr_load_unit(stmt.source)
                     };
 
-                let lid = ctx.fun.new_local(local.name, stmt.source);
-
+                let lid = ctx.add_local_decl(stmt.source, local.name,
+                    stmt.id, local.info.unwrap().id);
                 ctx.fun.instr_set_local(stmt.source, lid, v);
             }
 
@@ -94,8 +96,8 @@ impl Builder {
                 let info = ident.info.unwrap();
 
                 match info.target {
-                    data::IdentTarget::Local(local) => {
-                        let local = bbir::LocalId::new_unck(local.value());
+                    data::IdentTarget::Local { node, local } => {
+                        let local = ctx.get_local_id(node, local);
                         Some(ctx.fun.instr_get_local(expr.source, local))
                     }
 
@@ -378,7 +380,7 @@ impl Builder {
             }
 
             ExprData::Fn (fun) => {
-                let fun_id = self.build_fn(ctx, fun);
+                let fun_id = self.build_fn(ctx, expr.id, fun);
                 Some(ctx.fun.instr_new_function(expr.source, fun_id))
             }
 
@@ -434,8 +436,8 @@ impl Builder {
         }
     }
 
-    fn build_path(&self, ctx: &mut Ctx, expr: &Expr) -> Option<(PathBase, OptLocalId, Vec<PathKey>)> {
-        fn rec(this: &Builder, ctx: &mut Ctx, expr: &Expr, keys: &mut Vec<PathKey>) -> Option<(PathBase, OptLocalId)> {
+    fn build_path(&self, ctx: &mut Ctx, expr: &Expr) -> Option<(PathBase, bbir::OptLocalId, Vec<PathKey>)> {
+        fn rec(this: &Builder, ctx: &mut Ctx, expr: &Expr, keys: &mut Vec<PathKey>) -> Option<(PathBase, bbir::OptLocalId)> {
             match &expr.data {
                 ExprData::Field(field) => {
                     let result = rec(this, ctx, &field.base, keys)?;
@@ -455,8 +457,8 @@ impl Builder {
                     let info = ident.info.unwrap();
 
                     match info.target {
-                        data::IdentTarget::Local(local) => {
-                            let local = bbir::LocalId::new_unck(local.value());
+                        data::IdentTarget::Local { node, local } => {
+                            let local = ctx.get_local_id(node, local);
                             Some((PathBase::Instr(ctx.fun.instr_get_local(expr.source, local)), local.some()))
                         }
 
@@ -496,8 +498,8 @@ impl Builder {
             let info = ident.info.unwrap();
 
             match info.target {
-                data::IdentTarget::Local(local) => {
-                    let local = bbir::LocalId::new_unck(local.value());
+                data::IdentTarget::Local { node, local } => {
+                    let local = ctx.get_local_id(node, local);
                     ctx.fun.instr_set_local(lhs.source, local, rhs);
                 }
 
@@ -523,15 +525,11 @@ impl Builder {
         }
     }
 
-    fn build_fn(&self, ctx: &mut Ctx, fun: &data::Fn) -> FunctionId {
+    fn build_fn(&self, ctx: &mut Ctx, node: NodeId, fun: &data::Fn) -> FunctionId {
         let _ = ctx;
 
         let mut inner_fun = self.module.new_function();
-        let mut inner_ctx = Ctx::new(&mut inner_fun);
-
-        for param in &fun.params {
-            let _id = inner_ctx.fun.new_param(param.name, SourceRange::null());
-        }
+        let mut inner_ctx = Ctx::new(&mut inner_fun, node, &fun.params);
 
         let value = self.build_value_block(&mut inner_ctx, &fun.body, true).unwrap();
         inner_ctx.fun.instr_return(SourceRange::null(), value);
@@ -553,13 +551,33 @@ struct BreakScope {
 
 struct Ctx<'a> {
     fun:            &'a mut Function,
+    locals:         IndexVec<infer::LocalId, (NodeId, bbir::LocalId)>,
     break_scopes:   Vec<BreakScope>,
 }
 
 impl<'a> Ctx<'a> {
     #[inline(always)]
-    pub fn new(fun: &'a mut Function) -> Self {
-        Ctx { fun, break_scopes: vec![] }
+    pub fn new(fun: &'a mut Function, node: NodeId, params: &[data::FnParam]) -> Self {
+        let mut locals = index_vec![];
+        for param in params {
+            let lid = fun.new_param(param.name, SourceRange::null());
+            locals.push((node, lid));
+        }
+
+        Ctx { fun, locals, break_scopes: vec![] }
+    }
+
+    pub fn add_local_decl(&mut self, source: SourceRange, name: &str, node: NodeId, local: infer::LocalId) -> bbir::LocalId {
+        assert_eq!(local.value(), self.locals.len() as u32);
+        let lid = self.fun.new_local(name, source);
+        self.locals.push((node, lid));
+        lid
+    }
+
+    pub fn get_local_id(&mut self, node: NodeId, local: infer::LocalId) -> bbir::LocalId {
+        let (entry_node, lid) = self.locals[local];
+        assert_eq!(node, entry_node);
+        lid
     }
 
     pub fn begin_break_scope(&mut self, node: NodeId, bb_break: BlockId, bb_continue: OptBlockId, has_value: bool) -> u32 {

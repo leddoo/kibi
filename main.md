@@ -42,10 +42,12 @@
 
 - todo:
     - vm stuff:
+        - state in locals.
         - nested envs.
         - support direct calls.
             - non-env based recursion.
         - dynamic "module" loading api.
+            - "module" is fine. that's what wasm calls it too.
     - kbtf.
 
 - prev:

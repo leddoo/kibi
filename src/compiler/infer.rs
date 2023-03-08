@@ -37,6 +37,8 @@ impl Infer {
     }
 
     pub fn assign_ids_module(&mut self, module: &mut Module) {
+        module.id = NodeId::new_unck(1);
+
         let mut id = NodeId::ZERO;
         self.assign_ids_block(&mut id, &mut module.block.stmts);
         module.num_nodes = id.inc().value();
@@ -182,13 +184,13 @@ impl Infer {
             StmtData::Item (item) => {
                 match &mut item.data {
                     ItemData::Fn(fun) => {
-                        self.infer_fn(ctx, fun);
+                        self.infer_fn(ctx, stmt.id, fun);
                     }
                 }
             }
 
             StmtData::Local (local) => {
-                let lid = ctx.add_local_decl(local.name);
+                let lid = ctx.add_local_decl(stmt.id, local.name);
                 if let Some(value) = &mut local.value {
                     self.infer_expr(ctx, value, None);
                 }
@@ -389,7 +391,7 @@ impl Infer {
             }
 
             ExprData::Fn (fun) => {
-                self.infer_fn(ctx, fun)
+                self.infer_fn(ctx, expr.id, fun)
             }
 
             ExprData::Env => {
@@ -516,14 +518,14 @@ impl Infer {
         }
     }
 
-    fn infer_fn(&mut self, ctx: &mut InferCtx, fun: &mut data::Fn) -> Type {
+    fn infer_fn(&mut self, ctx: &mut InferCtx, node: NodeId, fun: &mut data::Fn) -> Type {
         // @temp: need ctx for closures.
         let _ = ctx;
 
         let mut fctx = InferCtx::new(fun.num_nodes);
 
         for param in &fun.params {
-            fctx.add_local_decl(param.name);
+            fctx.add_local_decl(node, param.name);
         }
 
         self.infer_value_block(&mut fctx, &mut fun.body, None);
@@ -568,13 +570,13 @@ impl InferCtx {
         }
     }
 
-    fn add_local_decl(&mut self, name: &str) -> LocalId {
+    fn add_local_decl(&mut self, node: NodeId, name: &str) -> LocalId {
         let id = LocalId(self.locals.len() as u32);
         self.locals.push(());
         self.decls.push(Decl {
             name:   name.to_string(),
             scope:  self.scope,
-            target: data::IdentTarget::Local(id),
+            target: data::IdentTarget::Local { node, local: id },
         });
         id
     }

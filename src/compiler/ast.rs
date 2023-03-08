@@ -1,5 +1,6 @@
 use derive_more::Deref;
 use crate::macros::define_id;
+use crate::infer::LocalId;
 
 
 
@@ -165,13 +166,14 @@ impl ItemId {
 pub struct Module<'a> {
     pub source:    SourceRange,
     pub block:     data::Block<'a>,
+    pub id:        NodeId,  // computed by `Infer::assign_ids_*`.
     pub num_nodes: u32,     // computed by `Infer::assign_ids_*`.
 }
 
 impl<'a> Module<'a> {
     #[inline(always)]
     pub fn new(source: SourceRange, block: data::Block<'a>) -> Module {
-        Module { source, block, num_nodes: 0 }
+        Module { source, block, id: NodeId::ZERO, num_nodes: 0 }
     }
 }
 
@@ -285,7 +287,7 @@ pub mod data {
     #[derive(Clone, Copy, Debug)]
     pub enum IdentTarget {
         Dynamic,
-        Local(crate::infer::LocalId),
+        Local { node: NodeId, local: LocalId },
         Item (ItemId),
     }
 
