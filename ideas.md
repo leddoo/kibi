@@ -15,14 +15,49 @@
                 - nothing above can access macro output.
                 - does get a bit more complicated with imports.
                 - will have to come back to this, once know how regular out-of-order analysis works here.
-    - code repr:
-        - thinking use `Object`s.
-            - structs don't help, would have to box everything.
-        - very flexible.
-        - extensible.
-        - structured -> walkable, editable.
-        - can use proper values, instead of having to serialize them to text.
+    - code repr: structs analogous to definitions in compiler.
 
-- proof types would actually be really interesting.
-    - cause dependent types do occur pretty often in dynamic languages.
-    - for value types (tuples, structs).
+- dynamic, but not in the usual sense:
+    - dynamic is about:
+        - type flexiblity. `Any` & optional duck typing.
+        - ability to mutate the running program. hot loading, dynamic binding.
+        - introspection.
+    - the more powerful dynamic features (beyond type flexibility) aren't limited to traditionally dynamic languages.
+        - in fact, introspection and hot loading are greatly enhanced by static analysis & types.
+        - types enable the runtime to find and replace all instances of a struct by running a migration function.
+        - introspection & rtti can make statically types (and packed values) accessible to dynamic code. this can be transparent (as with `Any` duck typing) or explicit (with an introspection api).
+    - features like dynamic binding are very powerful, but in (sane) practice, they're not used that much, or only in very specific cases. opt-in dynamic binding, like with `var fn` can offer many of the benefits, without making everything else slow, cause "everything needs to be dynamic".
+
+- static error resilience:
+    - compile errors should not prevent code from being executed.
+    - in general, compiler should insert traps that pause execution & let the user provide a value at runtime.
+        - ir/bytecode has to be type correct.
+        - reverting to `Any` & dynamic lookups/errors is type correct.
+        - it's the task of the compiler to always produce a type correct, executable program.
+        - all of this must support opt-out.
+
+- crates & modules:
+    - crates are the smallest unit of shippable code. a "library" or "executable".
+    - crate dependencies must be acyclic.
+    - modules enable code organization inside crates.
+    - module dependencies can be cyclic and modules do not introduce an ordering on the definitions inside a crate (i.e. everything should behave, as if the code was written without modules and used unique names instead (modulo visibility rules)).
+
+- module state:
+    - "global variables" are useful and weren't made by the devil.
+        - they're a powerful tool, that can be very useful when prototyping.
+        - some systems like logging, tracing, memory allocation, can be very cumbersome when state needs to be passed around explicitly.
+        - the compiler should offer tools to constrain use of global variables. this can (and probably should) be done through attributes & user defined meta programs.
+    - general stuff:
+        - module state is defined using `var` and `let`. compiler should warn on shadowing definitions.
+        - only functions defined after module variables can access them. this is to make the behavior consistent with closures inside other functions.
+        - imports have access to everything visible at the end of the imported module.
+            - for shadowing definitions: the last definition.
+            - what about re-export cycles?? (can they give access to `var`s defined below?)
+        - module state initialization order is evaluation order of `mod` items.
+    - issue is: module dependencies can be cyclic. however, module state initialization must be acyclic.
+        - things simply can't be accessed before they're initialized. they could be, but that leads to very hard to debug bugs.
+        - for dynamic code this is not an issue: simply give items an initialization state. when accessing an item, panic if it is not initialized.
+        - static code does not make these checks, if possible. the compiler must prove that static code never accesses uninitialized module state. if it can't prove that, it should raise a compile error and fall back to a checked dynamic access.
+            - hmm, don't really need to use a dynamic access. just check whether the thing is initialized. and that really doesn't cost much (if anything).
+            - so we should differentiate between static/dynamic binding (by pointer vs by name) and checked/unchecked access (ensuring proper initialization; though again, skipping this check is unlikely to be beneficial, even c and rust do these checks).
+

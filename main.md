@@ -29,6 +29,7 @@
         - compiler could do implicit stuff if has types.
         - fix gc.
     - vm optimization.
+        - state in locals.
         - typed operations. checked before execution, impl unsafe (in release).
         - generic ops -> slower "trait call".
         - unboxed stack values.
@@ -41,13 +42,20 @@
 
 
 - todo:
-    - vm stuff:
-        - state in locals.
-        - nested envs.
-        - support direct calls.
-            - non-env based recursion.
-        - dynamic "module" loading api.
-            - "module" is fine. that's what wasm calls it too.
+    - compiler:
+        - support nested items, self-recursion, accessing module state.
+        - prevent env reading.
+        - output bytecode & metadata instead of loading directly into vm.
+        - todo: what meta data?
+    - vm module loading:
+        - set up environments.
+            - state uninit flags.
+            - parent pointers.
+            - function values.
+            - persistent for now, later optional gc.
+            - can specify root env.
+        - prevent env reading.
+        - support indexed env access.
     - kbtf.
 
 - prev:
