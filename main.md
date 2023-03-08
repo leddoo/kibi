@@ -40,11 +40,13 @@
     - ui.
 
 
-- todo: basic crates:
+- todo:
+    - vm stuff:
+        - nested envs.
+        - support direct calls.
+            - non-env based recursion.
+        - dynamic "module" loading api.
     - kbtf.
-    - nested envs.
-    - support direct calls.
-        - non-env based recursion.
 
 - prev:
     - tuples.

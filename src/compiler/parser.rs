@@ -753,9 +753,9 @@ impl<'p, 'i> Parser<'p, 'i> {
         let current = *self.next()?;
 
         // ident.
-        if let TokenData::Ident(ident) = current.data {
+        if let TokenData::Ident(name) = current.data {
             let source = current.source;
-            return Ok(Expr::new(source, ExprData::Ident(ident)));
+            return Ok(Expr::new(source, ExprData::Ident(data::Ident { name, info: None })));
         }
 
         // number.
@@ -846,14 +846,16 @@ impl<'p, 'i> Parser<'p, 'i> {
             let source = current.source;
             let (source, label) = self.next_if_label(source);
             let (source, value) = self.next_if_expr(source, 0)?;
-            return Ok(Expr::new(source, ExprData::Break(data::Break { label, value })));
+            return Ok(Expr::new(source, ExprData::Break(Box::new(
+                data::Break { label, value, info: None }))));
         }
 
         // continue
         if let TokenData::KwContinue = current.data {
             let source = current.source;
             let (source, label) = self.next_if_label(source);
-            return Ok(Expr::new(source, ExprData::Continue(data::Continue { label })));
+            return Ok(Expr::new(source, ExprData::Continue(Box::new(
+                data::Continue { label, info: None }))));
         }
 
         // return
@@ -1110,7 +1112,7 @@ impl<'p, 'i> Parser<'p, 'i> {
                 stmts.push(Stmt::new(
                     SourceRange { begin, end },
                     StmtData::Local(data::Local {
-                        name: name.value, value, kind,
+                        name: name.value, value, kind, info: None
                     }),
                 ));
             }

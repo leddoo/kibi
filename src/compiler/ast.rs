@@ -165,7 +165,7 @@ impl ItemId {
 pub struct Module<'a> {
     pub source:    SourceRange,
     pub block:     data::Block<'a>,
-    pub num_nodes: u32,     // computed by `Infer`.
+    pub num_nodes: u32,     // computed by `Infer::assign_ids_*`.
 }
 
 impl<'a> Module<'a> {
@@ -182,7 +182,7 @@ pub struct Item<'a> {
     #[deref]
     pub data:   ItemData<'a>,
     pub source: SourceRange,
-    pub id:     ItemId,     // computed by `Infer`.
+    pub id:     ItemId,     // computed by `Infer::assign_ids_*`.
 }
 
 #[derive(Clone, Debug)]
@@ -204,7 +204,7 @@ pub struct Stmt<'a> {
     #[deref]
     pub data:   StmtData<'a>,
     pub source: SourceRange,
-    pub id:     NodeId,     // computed by `Infer`.
+    pub id:     NodeId,     // computed by `Infer::assign_ids_*`.
 }
 
 #[derive(Clone, Debug)]
@@ -229,7 +229,8 @@ pub struct Expr<'a> {
     #[deref]
     pub data:   ExprData<'a>,
     pub source: SourceRange,
-    pub id:     NodeId,     // computed by `Infer`.
+    pub id:     NodeId,     // computed by `Infer::assign_ids_*`.
+    pub ty:     Option<super::infer::Type>,
 }
 
 #[derive(Clone, Debug)]
@@ -238,7 +239,7 @@ pub enum ExprData<'a> {
     Bool            (bool),
     Number          (&'a str),
     QuotedString    (&'a str),
-    Ident           (&'a str),
+    Ident           (data::Ident<'a>),
     Tuple           (Box<data::Tuple<'a>>),
     List            (Box<data::List<'a>>),
     Do              (Box<data::Do<'a>>),
@@ -250,8 +251,8 @@ pub enum ExprData<'a> {
     Call            (Box<data::Call<'a>>),
     If              (Box<data::If<'a>>),
     While           (Box<data::While<'a>>),
-    Break           (data::Break<'a>),
-    Continue        (data::Continue<'a>),
+    Break           (Box<data::Break<'a>>),
+    Continue        (Box<data::Continue<'a>>),
     Return          (data::Return<'a>),
     Fn              (Box<data::Fn<'a>>),
     Env,
@@ -260,7 +261,7 @@ pub enum ExprData<'a> {
 impl<'a> Expr<'a> {
     #[inline(always)]
     pub fn new(source: SourceRange, data: ExprData<'a>) -> Self {
-        Expr { source, data, id: NodeId::ZERO }
+        Expr { source, data, id: NodeId::ZERO, ty: None }
     }
 
     #[inline(always)]
@@ -275,17 +276,42 @@ pub mod data {
     use super::*;
 
 
+    #[derive(Clone, Copy, Debug)]
+    pub struct Ident<'a> {
+        pub name: &'a str,
+        pub info: Option<IdentInfo>,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    pub enum IdentTarget {
+        Dynamic,
+        Local(crate::infer::LocalId),
+        Item (ItemId),
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    pub struct IdentInfo {
+        pub target: IdentTarget,
+    }
+
+
     #[derive(Clone, Debug)]
     pub struct Local<'a> {
         pub name:  &'a str,
         pub value: Option<Expr<'a>>,
         pub kind:  LocalKind,
+        pub info:  Option<LocalInfo>,
     }
 
     #[derive(Clone, Debug)]
     pub enum LocalKind {
         Let,
         Var,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    pub struct LocalInfo {
+        pub id: crate::infer::LocalId,
     }
 
 
@@ -451,12 +477,21 @@ pub mod data {
     pub struct Break<'a> {
         pub label: Option<&'a str>,
         pub value: Option<Box<Expr<'a>>>,
+        pub info:  Option<Option<BreakInfo>>,
     }
 
     #[derive(Clone, Debug)]
     pub struct Continue<'a> {
         pub label: Option<&'a str>,
+        pub info:  Option<Option<BreakInfo>>,
     }
+
+    #[derive(Clone, Copy, Debug)]
+    pub struct BreakInfo {
+        pub node:        NodeId,
+        pub scope_index: u32,
+    }
+
 
     #[derive(Clone, Debug)]
     pub struct Return<'a> {
@@ -469,10 +504,10 @@ pub mod data {
         pub name:   Option<&'a str>,
         pub params: Vec<FnParam<'a>>,
         pub body:   Vec<Stmt<'a>>,
-        pub num_nodes: u32,     // computed by `Infer`.
+        pub num_nodes: u32,     // computed by `Infer::assign_ids_*`.
     }
 
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct FnParam<'a> {
         pub name: &'a str,
     }

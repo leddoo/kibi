@@ -1,26 +1,21 @@
-use crate::index_vec::*;
 use crate::ast::{Module as AstModule, *};
-use crate::infer::*;
 use crate::bbir::{Module as BbirModule, *, self};
 
 
-
-pub struct Builder<'b> {
-    pub item_infos: &'b IndexVec<ItemId, ItemInfo>,
-    pub module:     BbirModule,
+pub struct Builder {
+    pub module: BbirModule,
 }
 
-impl<'b> Builder<'b> {
-    pub fn new(item_infos: &'b IndexVec<ItemId, ItemInfo>) -> Self {
+impl Builder {
+    pub fn new() -> Self {
         Builder {
-            item_infos,
             module: BbirModule::new(),
         }
     }
 
-    pub fn build_module(&self, module: &AstModule, mod_info: &FnInfo) {
+    pub fn build_module(&self, module: &AstModule) {
         let mut fun = self.module.new_function();
-        let mut ctx = Ctx::new(&mod_info.node_infos, &mut fun);
+        let mut ctx = Ctx::new(&mut fun);
 
         let stmts = &module.block.stmts;
 
@@ -41,8 +36,7 @@ impl<'b> Builder<'b> {
             StmtData::Item(item) => {
                 match &item.data {
                     ItemData::Fn(fun) => {
-                        let ItemInfoData::Fn(fn_info) = &self.item_infos[item.id].data else { unreachable!() };
-                        let fun_id = self.build_fn(ctx, fun, fn_info);
+                        let fun_id = self.build_fn(ctx, fun);
 
                         // @temp: nested vm environments.
                         if let Some(name) = fun.name {
@@ -96,17 +90,17 @@ impl<'b> Builder<'b> {
                 Some(ctx.fun.instr_load_string(expr.source, string))
             }
 
-            ExprData::Ident (name) => {
-                let NodeInfoData::Ident(ident_info) = ctx.node_infos[expr.id].data else { unreachable!() };
+            ExprData::Ident (ident) => {
+                let info = ident.info.unwrap();
 
-                match ident_info.target {
-                    IdentTarget::Local(local) => {
+                match info.target {
+                    data::IdentTarget::Local(local) => {
                         let local = bbir::LocalId::new_unck(local.value());
                         Some(ctx.fun.instr_get_local(expr.source, local))
                     }
 
                     _ => {
-                        let name = ctx.fun.add_string(name);
+                        let name = ctx.fun.add_string(ident.name);
                         Some(ctx.fun.instr_read_path(expr.source, PathBase::Env, &[PathKey::Field(name)]))
                     }
                 }
@@ -325,11 +319,11 @@ impl<'b> Builder<'b> {
                         Some(self.build_expr(ctx, v, true).unwrap())
                     } else { None };
 
-                let NodeInfoData::Break(brk_info) = &ctx.node_infos[expr.id].data else { unreachable!() };
+                let info = brk.info.unwrap();
 
-                if let Some(brk_info) = brk_info {
-                    let scope = &mut ctx.break_scopes[brk_info.scope_index as usize];
-                    assert_eq!(scope.node, brk_info.node);
+                if let Some(info) = info {
+                    let scope = &mut ctx.break_scopes[info.scope_index as usize];
+                    assert_eq!(scope.node, info.node);
                     let bb_break = scope.bb_break;
 
                     if let Some(values) = &mut scope.values {
@@ -350,12 +344,12 @@ impl<'b> Builder<'b> {
                 need_value.then(|| ctx.fun.instr_load_unit(expr.source))
             }
 
-            ExprData::Continue(_) => {
-                let NodeInfoData::Continue(cnt_info) = ctx.node_infos[expr.id].data else { unreachable!() };
+            ExprData::Continue(cont) => {
+                let info = cont.info.unwrap();
 
-                if let Some(brk_info) = cnt_info {
-                    let scope = &mut ctx.break_scopes[brk_info.scope_index as usize];
-                    assert_eq!(scope.node, brk_info.node);
+                if let Some(info) = info {
+                    let scope = &mut ctx.break_scopes[info.scope_index as usize];
+                    assert_eq!(scope.node, info.node);
                     let bb_continue = scope.bb_continue.unwrap();
 
                     ctx.fun.instr_jump(expr.source, bb_continue);
@@ -384,10 +378,7 @@ impl<'b> Builder<'b> {
             }
 
             ExprData::Fn (fun) => {
-                let NodeInfoData::Fn(fn_info) = &ctx.node_infos[expr.id].data else { unreachable!() };
-
-                let fun_id = self.build_fn(ctx, fun, &fn_info);
-
+                let fun_id = self.build_fn(ctx, fun);
                 Some(ctx.fun.instr_new_function(expr.source, fun_id))
             }
 
@@ -461,16 +452,16 @@ impl<'b> Builder<'b> {
                 }
 
                 ExprData::Ident(ident) => {
-                    let NodeInfoData::Ident(info) = ctx.node_infos[expr.id].data else { unreachable!() };
+                    let info = ident.info.unwrap();
 
                     match info.target {
-                        IdentTarget::Local(local) => {
+                        data::IdentTarget::Local(local) => {
                             let local = bbir::LocalId::new_unck(local.value());
                             Some((PathBase::Instr(ctx.fun.instr_get_local(expr.source, local)), local.some()))
                         }
 
                         _ => {
-                            keys.push(PathKey::Field(ctx.fun.add_string(ident)));
+                            keys.push(PathKey::Field(ctx.fun.add_string(ident.name)));
                             Some((PathBase::Env, None.into()))
                         }
                     }
@@ -501,17 +492,17 @@ impl<'b> Builder<'b> {
     }
 
     fn build_assign(&self, ctx: &mut Ctx, lhs: &Expr, rhs: InstrId, is_def: bool) {
-        if let ExprData::Ident(name) = lhs.data {
-            let NodeInfoData::Ident(info) = ctx.node_infos[lhs.id].data else { unreachable!() };
+        if let ExprData::Ident(ident) = lhs.data {
+            let info = ident.info.unwrap();
 
             match info.target {
-                IdentTarget::Local(local) => {
+                data::IdentTarget::Local(local) => {
                     let local = bbir::LocalId::new_unck(local.value());
                     ctx.fun.instr_set_local(lhs.source, local, rhs);
                 }
 
                 _ => {
-                    let name = ctx.fun.add_string(name);
+                    let name = ctx.fun.add_string(ident.name);
                     ctx.fun.instr_write_path(lhs.source, PathBase::Env, &[PathKey::Field(name)], rhs, is_def);
                 }
             }
@@ -532,11 +523,11 @@ impl<'b> Builder<'b> {
         }
     }
 
-    fn build_fn(&self, ctx: &mut Ctx, fun: &data::Fn, fn_info: &FnInfo) -> FunctionId {
+    fn build_fn(&self, ctx: &mut Ctx, fun: &data::Fn) -> FunctionId {
         let _ = ctx;
 
         let mut inner_fun = self.module.new_function();
-        let mut inner_ctx = Ctx::new(&fn_info.node_infos, &mut inner_fun);
+        let mut inner_ctx = Ctx::new(&mut inner_fun);
 
         for param in &fun.params {
             let _id = inner_ctx.fun.new_param(param.name, SourceRange::null());
@@ -561,15 +552,14 @@ struct BreakScope {
 
 
 struct Ctx<'a> {
-    node_infos:     &'a IndexVec<NodeId, NodeInfo>,
     fun:            &'a mut Function,
     break_scopes:   Vec<BreakScope>,
 }
 
 impl<'a> Ctx<'a> {
     #[inline(always)]
-    pub fn new(node_infos: &'a IndexVec<NodeId, NodeInfo>, fun: &'a mut Function) -> Self {
-        Ctx { node_infos, fun, break_scopes: vec![] }
+    pub fn new(fun: &'a mut Function) -> Self {
+        Ctx { fun, break_scopes: vec![] }
     }
 
     pub fn begin_break_scope(&mut self, node: NodeId, bb_break: BlockId, bb_continue: OptBlockId, has_value: bool) -> u32 {
