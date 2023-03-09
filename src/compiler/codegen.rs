@@ -5,7 +5,7 @@ use super::*;
 
 
 impl Function {
-    pub fn compile_ex(&self, post_order: &PostOrder, idoms: &ImmediateDominators, dom_tree: &DomTree, fun_protos: &[u32]) -> (Vec<Instruction>, Vec<Constant>, u32) {
+    pub fn compile_ex(&self, post_order: &PostOrder, idoms: &ImmediateDominators, dom_tree: &DomTree) -> (Vec<Instruction>, Vec<Constant>, u32) {
         let block_order = self.block_order_dominators_first(&idoms, &dom_tree);
 
         let (block_begins, instr_indices) = block_order.block_begins_and_instr_indices(self);
@@ -27,7 +27,7 @@ impl Function {
 
         let regs = alloc_regs_linear_scan(self, &live_intervals, &instr_indices);
 
-        let (code, constants, num_regs) = generate_bytecode(self, &block_order, &regs, fun_protos);
+        let (code, constants, num_regs) = generate_bytecode(self, &block_order, &regs);
 
         (code, constants, num_regs)
     }
@@ -401,8 +401,8 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, instr_i
                     InstrData::Op2 { op: _,  src1, src2: _ } => src1,
                     InstrData::WritePath { path_id, value: _, is_def: _ } => {
                         match path_id.get(fun).base {
-                            PathBase::Env => break 'first_arg,
                             PathBase::Instr(base) => base,
+                            PathBase::Items | PathBase::Env => break 'first_arg,
                         }
                     }
                     _ => break 'first_arg,
@@ -476,7 +476,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, instr_i
 }
 
 
-pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &RegisterAllocation, fun_protos: &[u32]) -> (Vec<Instruction>, Vec<Constant>, u32) {
+pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &RegisterAllocation) -> (Vec<Instruction>, Vec<Constant>, u32) {
     assert_eq!(block_order[0], BlockId::ENTRY);
 
     // for instr in fun.instr_ids() {
@@ -607,12 +607,11 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
                     bcb.load_unit(dst);
                 }
 
-                NewFunction { id } => bcb.new_function(dst, fun_protos[id.usize()].try_into().unwrap()),
-
                 ReadPath { path_id } => {
                     let path = path_id.get(fun);
 
                     let base = match path.base {
+                        PathBase::Items        => crate::bytecode::PathBase::ITEMS,
                         PathBase::Env          => crate::bytecode::PathBase::ENV,
                         PathBase::Instr(instr) => crate::bytecode::PathBase::reg(reg(instr)),
                     };
@@ -630,7 +629,8 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
                     let path = path_id.get(fun);
 
                     let base = match path.base {
-                        PathBase::Env => crate::bytecode::PathBase::ENV,
+                        PathBase::Items => crate::bytecode::PathBase::ITEMS,
+                        PathBase::Env   => crate::bytecode::PathBase::ENV,
                         PathBase::Instr(instr) => {
                             let base = reg(instr);
                             assert_eq!(dst, base);
@@ -737,7 +737,6 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
             LIST_NEW |
             TUPLE_NEW | LOAD_UNIT |
             MAP_NEW |
-            NEW_FUNCTION |
             READ_PATH | WRITE_PATH | WRITE_PATH_DEF |
             ADD | SUB | MUL | DIV | FLOOR_DIV | REM |
             ADD_INT | NEGATE |

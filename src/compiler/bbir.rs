@@ -2,7 +2,8 @@ use core::cell::{RefCell, Ref, RefMut};
 use derive_more::{Deref, DerefMut, Display};
 use crate::index_vec::*;
 use crate::macros::define_id;
-use super::*;
+use super::{SourceRange, ItemId, Op1, Op2};
+use super::{opt, transform};
 
 
 
@@ -45,8 +46,6 @@ pub enum InstrData {
 
     TupleNew { values: InstrListId },
     TupleNew0,
-
-    NewFunction { id: FunctionId },
 
     ReadPath { path_id: PathId },
     WritePath { path_id: PathId, value: InstrId, is_def: bool },
@@ -95,6 +94,7 @@ define_id!(PathId);
 
 #[derive(Clone, Copy, Debug, Display)]
 pub enum PathBase {
+    Items,
     Env,
     Instr(InstrId),
 }
@@ -177,14 +177,22 @@ define_id!(StringId, "str{}");
 
 
 
-// ### Module ###
+// ### Crate ###
 
-pub struct Module {
-    inner: RefCell<ModuleInner>,
+pub struct Crate {
+    functions: IndexVec<FunctionId, &'static RefCell<Function>>,
+    items:     IndexVec<ItemId, Item>,
 }
 
-struct ModuleInner {
-    functions: IndexVec<FunctionId, &'static RefCell<Function>>,
+#[derive(Clone, Debug)]
+pub struct Item {
+    pub data: ItemData,
+}
+
+#[derive(Clone, Debug)]
+pub enum ItemData {
+    None,
+    Func    (FunctionId),
 }
 
 
@@ -256,8 +264,6 @@ impl<'a> core::fmt::Display for InstrFmt<'a> {
 
             TupleNew { values } => write!(f, "tuple_new {}", values.get(fun)),
             TupleNew0 => write!(f, "tuple_new []"),
-
-            NewFunction { id } => write!(f, "new_function {}", id),
 
             ReadPath { path_id } => write!(f, "read_path {}", path_id.get(fun)),
 
@@ -341,7 +347,6 @@ impl InstrData {
             ListNew { values: _ } |
             TupleNew { values: _ } |
             TupleNew0 |
-            NewFunction { id: _ } |
             ReadPath { path_id: _ } |
             WritePath { path_id: _, value: _, is_def: _ } |
             Call { func: _, args_id: _ } |
@@ -369,7 +374,6 @@ impl InstrData {
             ListNew { values: _ } |
             TupleNew { values: _ } |
             TupleNew0 |
-            NewFunction { id: _ } |
             ReadPath { path_id: _ } |
             WritePath { path_id: _, value: _, is_def: _ } |
             Call { func: _, args_id: _ } |
@@ -411,8 +415,6 @@ impl InstrData {
 
             TupleNew { values } => { values.each(fun, f) }
             TupleNew0 => (),
-
-            NewFunction { id: _ } => (),
 
             ReadPath { path_id } => { path_id.each_instr(fun, f) }
             WritePath { path_id, value, is_def: _ } => { path_id.each_instr(fun, &mut f); f(*value) }
@@ -462,8 +464,6 @@ impl InstrData {
 
             TupleNew { values } => { values.each_mut(fun, f) }
             TupleNew0 => (),
-
-            NewFunction { id: _ } => (),
 
             ReadPath { path_id } => { path_id.each_instr_mut(fun, f) }
             WritePath { path_id, value, is_def: _ } => { path_id.each_instr_mut(fun, &mut f); f(fun, value) }
@@ -531,7 +531,8 @@ impl PathId {
         let path = &fun.paths[self];
 
         match path.base {
-            PathBase::Env => (),
+            PathBase::Items => (),
+            PathBase::Env   => (),
             PathBase::Instr(instr) => f(instr),
         }
 
@@ -548,7 +549,8 @@ impl PathId {
         let mut path = core::mem::replace(&mut fun.paths[self], PathImpl { base: PathBase::Env, keys: vec![] });
 
         match &mut path.base {
-            PathBase::Env => (),
+            PathBase::Items => (),
+            PathBase::Env   => (),
             PathBase::Instr(instr) => f(fun, instr),
         }
 
@@ -1162,11 +1164,6 @@ impl Function {
     }
 
     #[inline]
-    pub fn instr_new_function(&mut self, source: SourceRange, id: FunctionId) -> InstrId {
-        self.add_instr(source, InstrData::NewFunction { id })
-    }
-
-    #[inline]
     pub fn instr_read_path(&mut self, source: SourceRange, base: PathBase, keys: &[PathKey]) -> InstrId {
         assert!(keys.len() > 0);
         let path_id = PathId(self.paths.len() as u32);
@@ -1510,43 +1507,47 @@ impl StringId {
 
 
 
-// --- Module ---
+// --- Crate ---
 
-impl Module {
-    pub fn new() -> Module {
-        Module { inner: RefCell::new(ModuleInner {
+impl Crate {
+    pub fn new() -> Crate {
+        Crate {
             functions: index_vec![],
-        })}
+            items:     index_vec![],
+        }
     }
 
-    pub fn new_function(&self) -> RefMut<'static, Function> {
-        let mut this = self.inner.borrow_mut();
-        let id = FunctionId(this.functions.len() as u32);
+    pub fn new_function(&mut self) -> RefMut<'static, Function> {
+        let id = FunctionId(self.functions.len() as u32);
         let function = Box::leak(Box::new(RefCell::new(Function::new(id))));
         let result = function.borrow_mut();
-        this.functions.push(function);
+        self.functions.push(function);
         result
     }
 
+    pub fn def_item(&mut self, id: ItemId, value: Item) {
+        if id.usize() >= self.items.len() {
+            self.items.inner_mut().resize(id.value() as usize + 1,
+                Item { data: ItemData::None });
+        }
+
+        let slot = &mut self.items[id];
+        let ItemData::None = slot.data else { unreachable!() };
+        *slot = value;
+    }
+
     pub fn read_function(&self, id: FunctionId) -> Ref<'static, Function> {
-        let this = self.inner.borrow();
-        this.functions[id].borrow()
+        self.functions[id].borrow()
     }
 
     pub fn write_function(&self, id: FunctionId) -> RefMut<'static, Function> {
-        let this = self.inner.borrow();
-        this.functions[id].borrow_mut()
+        self.functions[id].borrow_mut()
     }
 
-    pub fn temp_load(self, vm: &mut crate::Vm) {
-        let this = self.inner.borrow();
+    pub fn build(self) -> (Vec<crate::FuncDesc>, IndexVec<ItemId, Item>) {
+        let mut funcs = Vec::with_capacity(self.functions.len());
 
-        let mut fun_protos = vec![];
-        for i in 0..this.functions.len() {
-            fun_protos.push((vm.inner.func_protos.len() + i) as u32);
-        }
-
-        for fun in this.functions.iter() {
+        for fun in self.functions.iter() {
             let mut fun = fun.borrow_mut();
             //fun.dump();
 
@@ -1585,19 +1586,11 @@ impl Module {
             //println!("cssa");
             //fun.dump();
 
-            let (code, constants, num_regs) = fun.compile_ex(&post_order, &idoms, &dom_tree, &fun_protos);
+            let (code, constants, num_regs) = fun.compile_ex(&post_order, &idoms, &dom_tree);
             //println!("bytecode:");
             //crate::bytecode::dump(&code);
 
-            use crate::{Constant, Value};
-            let constants = constants.into_iter().map(|c| { match c {
-                Constant::Nil              => Value::Nil,
-                Constant::Bool   { value } => Value::Bool { value },
-                Constant::Number { value } => Value::Number { value },
-                Constant::String { value } => vm.temp_string_new(&value),
-            }}).collect();
-
-            vm.inner.func_protos.push(crate::FuncProto {
+            funcs.push(crate::FuncDesc {
                 code: crate::FuncCode::ByteCode(code),
                 constants,
                 num_params: fun.num_params,
@@ -1605,9 +1598,7 @@ impl Module {
             });
         }
 
-        assert_eq!(vm.inner.func_protos.len(), *fun_protos.last().unwrap() as usize + 1);
-
-        vm.inner.push_func(fun_protos[0] as usize);
+        (funcs, self.items)
     }
 }
 

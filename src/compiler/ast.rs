@@ -292,9 +292,14 @@ pub mod expr {
 
     #[derive(Clone, Copy, Debug)]
     pub enum IdentTarget {
-        Dynamic,
-        Local { node: NodeId, local: LocalId },
         Item (ItemId),
+        Local { node: NodeId, local: LocalId },
+        Dynamic,
+    }
+
+    impl IdentTarget {
+        #[inline(always)]
+        pub fn is_item(self) -> bool { if let IdentTarget::Item(_) = self { true } else { false } }
     }
 
     #[derive(Clone, Copy, Debug)]

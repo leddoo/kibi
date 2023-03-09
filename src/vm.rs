@@ -26,6 +26,7 @@ impl Vm {
         }}).collect();
 
         self.inner.add_func(name, FuncProto {
+            krate: None.into(),
             code: desc.code,
             constants,
             num_params: desc.num_params,
@@ -33,19 +34,56 @@ impl Vm {
         });
     }
 
-    pub fn temp_call(&mut self) -> VmResult<()> {
+    pub fn load_crate(&mut self, funcs: &[FuncDesc], items: &[crate::bbir::Item]) -> VmResult<()> {
+        let krate = CrateId::from_usize(self.inner.krates.len());
+
+        let func_base = self.inner.func_protos.len();
+        for desc in funcs {
+            let constants = desc.constants.iter().map(|c| { match c {
+                Constant::Nil              => Value::Nil,
+                Constant::Bool   { value } => (*value).into(),
+                Constant::Number { value } => (*value).into(),
+                Constant::String { value } => VmImpl::string_new(value),
+            }}).collect();
+
+            self.inner.func_protos.push(FuncProto {
+                krate: krate.some(),
+                code: desc.code.clone(),
+                constants,
+                num_params: desc.num_params,
+                stack_size: desc.stack_size,
+            });
+        }
+
+        let crate_items = items.iter().map(|item| {
+            let mut value = Value::Nil;
+            let read_only = true;
+            let mut uninitialized = true;
+            match item.data {
+                crate::bbir::ItemData::None => (),
+
+                crate::bbir::ItemData::Func(id) => {
+                    value = Value::Func { proto: func_base + id.usize() };
+                    uninitialized = false;
+                }
+            }
+
+            Item { value, read_only, uninitialized }
+        }).collect();
+        self.inner.krates.push(Crate { items: crate_items });
+
+        self.inner.push(Value::Func { proto: func_base });
+
         let i = self.inner.stack.len() as u32 - 1;
         if self.inner.pre_call(i, i, 0, |_, _|{})? {
             self.inner.run().0?;
         }
+
         let result = self.inner.pop();
         self.inner.generic_print(&result);
         println!();
-        Ok(())
-    }
 
-    pub(crate) fn temp_string_new(&self, value: &str) -> Value {
-        Value::String { value: Rc::new(value.into()) }
+        Ok(())
     }
 
 
@@ -105,10 +143,20 @@ impl StackFrame {
     };
 }
 
+struct Item {
+    value:          Value,
+    read_only:      bool,
+    uninitialized:  bool,
+}
 
-#[derive(Debug)]
+struct Crate {
+    items: Vec<Item>,
+}
+
+
 pub(crate) struct VmImpl {
-    pub func_protos: Vec<FuncProto>,
+    func_protos: Vec<FuncProto>,
+    krates:      Vec<Crate>,
 
     pc:     usize,
     frames: Vec<StackFrame>,
@@ -131,6 +179,7 @@ impl VmImpl {
     fn new() -> Self {
         let mut vm = VmImpl {
             func_protos: vec![],
+            krates:      vec![],
 
             pc:     usize::MAX,
             frames: vec![StackFrame::ROOT],
@@ -806,6 +855,13 @@ impl VmImpl {
                 };
             }
 
+            macro_rules! vm_err {
+                ($err: expr) => {{
+                    result = Err($err);
+                    break;
+                }};
+            }
+
             macro_rules! vm_jump {
                 ($target: expr) => {
                     self.pc = $target as usize;
@@ -826,8 +882,7 @@ impl VmImpl {
                     NOP => (),
 
                     UNREACHABLE => {
-                        result = Err(VmError::InvalidOperation);
-                        break;
+                        vm_err!(VmError::InvalidOperation);
                     }
 
 
@@ -926,11 +981,38 @@ impl VmImpl {
                         let keys = &code[self.pc .. self.pc + num_keys as usize];
                         self.pc += num_keys as usize;
 
-                        let value = if base == 255 {
-                            vm_try!(self.read_path(&self.env, keys))
-                        }
-                        else {
-                            vm_try!(self.read_path(self.reg(base), keys))
+                        let value = match base as u8 {
+                            // Items
+                            254 => {
+                                let key = PathKey::decode(keys[0]);
+                                let rem_keys = &keys[1..];
+
+                                // this is waaay too nasty!!!
+                                let PathKey::Index { reg: index } = key else { unreachable!()};
+                                let index = self.reg(index as u32);
+                                let Value::Number { value: index } = index else { unreachable!()};
+                                let index = *index as usize;
+
+                                let frame = self.frames.last().unwrap();
+                                let proto = &self.func_protos[frame.func_proto];
+                                let krate = &self.krates[proto.krate.unwrap().usize()];
+
+                                let item = &krate.items[index];
+                                if item.uninitialized { vm_err!(VmError::InvalidOperation) }
+
+                                if rem_keys.len() > 0 {
+                                    vm_try!(self.read_path(&item.value, rem_keys))
+                                }
+                                else {
+                                    item.value.clone()
+                                }
+                            }
+
+                            // Env
+                            255 => vm_try!(self.read_path(&self.env, keys)),
+
+                            // Reg
+                            0..=253 => vm_try!(self.read_path(self.reg(base), keys)),
                         };
 
                         *self.reg_mut(dst) = value;
@@ -949,11 +1031,42 @@ impl VmImpl {
                         // @todo-safety: this is UB, if base is in the keys.
                         let this = unsafe { &mut *(self as *mut VmImpl)  };
 
-                        if base == 255 {
-                            vm_try!(self.write_path(&mut this.env, keys, value, is_def));
-                        }
-                        else {
-                            vm_try!(self.write_path(this.reg_mut(base), keys, value, is_def));
+                        match base as u8 {
+                            // Items
+                            254 => {
+                                let key = PathKey::decode(keys[0]);
+                                let rem_keys = &keys[1..];
+
+                                // this is waaay too nasty!!!
+                                let PathKey::Index { reg: index } = key else { unreachable!()};
+                                let index = self.reg(index as u32);
+                                let Value::Number { value: index } = index else { unreachable!()};
+                                let index = *index as usize;
+
+                                let frame = self.frames.last().unwrap();
+                                let proto = &self.func_protos[frame.func_proto];
+                                let krate = &mut this.krates[proto.krate.unwrap().usize()];
+
+                                let item = &mut krate.items[index];
+                                if item.uninitialized { vm_err!(VmError::InvalidOperation) }
+                                if item.read_only     { vm_err!(VmError::InvalidOperation) }
+
+                                if rem_keys.len() > 0 {
+                                    // unsafe
+                                    vm_try!(self.write_path(&mut item.value, rem_keys, value, is_def));
+                                }
+                                else {
+                                    item.value = value;
+                                }
+                            }
+
+                            // Env
+                            // unsafe
+                            255 => vm_try!(self.write_path(&mut this.env, keys, value, is_def)),
+
+                            // Reg
+                            // unsafe
+                            0..=253 => vm_try!(self.write_path(this.reg_mut(base), keys, value, is_def)),
                         }
                     }
 
@@ -995,8 +1108,7 @@ impl VmImpl {
                     ADD_INT => {
                         let (dst, imm) = instr.c1u16();
                         let Value::Number { value } = self.reg_mut(dst) else {
-                            result = Err(VmError::InvalidOperation);
-                            break;
+                            vm_err!(VmError::InvalidOperation);
                         };
                         *value += imm as u16 as i16 as f64;
                     }
@@ -1014,8 +1126,7 @@ impl VmImpl {
 
                         // @todo-cleanup: value utils.
                         let Value::Bool { value } = src else {
-                            result = Err(VmError::InvalidOperation);
-                            break;
+                            vm_err!(VmError::InvalidOperation);
                         };
                         *self.reg_mut(dst) = Value::Bool { value: !value };
                     }
@@ -1071,8 +1182,7 @@ impl VmImpl {
 
                         // @todo-cleanup: value utils.
                         let Value::Bool { value } = condition else {
-                            result = Err(VmError::InvalidOperation);
-                            break;
+                            vm_err!(VmError::InvalidOperation);
                         };
 
                         if *value {
@@ -1088,8 +1198,7 @@ impl VmImpl {
 
                         // @todo-cleanup: value utils.
                         let Value::Bool { value } = condition else {
-                            result = Err(VmError::InvalidOperation);
-                            break;
+                            vm_err!(VmError::InvalidOperation);
                         };
 
                         if !value {
@@ -1153,12 +1262,6 @@ impl VmImpl {
                         }
                     }
 
-                    NEW_FUNCTION => {
-                        let (dst, proto) = instr.c1u16();
-                        let fun = self.func_new(proto as usize);
-                        *self.reg_mut(dst) = fun;
-                    }
-
                     // @todo-speed: this inserts a check to reduce dispatch table size.
                     //  may want an unreachable_unchecked() in release.
                     0 | END ..= 255 => unreachable!()
@@ -1202,16 +1305,6 @@ impl VmImpl {
         self.stack.pop().unwrap()
     }
 
-
-    fn func_new(&mut self, proto: usize) -> Value {
-        Value::Func { proto }
-    }
-
-    // @temp: for module load hack.
-    pub fn push_func(&mut self, proto: usize) {
-        let f = self.func_new(proto);
-        self.push(f);
-    }
 
     fn pre_call<CopyArgs: FnOnce(&mut VmImpl, usize)>(&mut self,
         dst: u32, func: u32, num_args: u32, copy_args: CopyArgs

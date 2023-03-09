@@ -54,8 +54,12 @@ pub struct NativeFuncPtrEx(pub NativeFuncPtr);
 impl core::fmt::Debug for NativeFuncPtrEx { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { (self.0 as *const u8).fmt(f) } }
 
 
+crate::macros::define_id!(CrateId, OptCrateId);
+
+
 #[derive(Debug)]
 pub(crate) struct FuncProto {
+    pub krate:      OptCrateId,
     pub code:       FuncCode,
     pub constants:  Vec<Value>,
     pub num_params: u32,

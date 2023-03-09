@@ -60,13 +60,13 @@ fn main() {
         let dt_infer = t0.elapsed();
 
         let t0 = std::time::Instant::now();
-        let builder = bbir_builder::Builder::new();
+        let mut builder = bbir_builder::Builder::new();
         builder.build(&module);
-        builder.module.temp_load(&mut vm);
+        let (funcs, items) = builder.krate.build();
         let dt_compile = t0.elapsed();
 
         let t0 = std::time::Instant::now();
-        vm.temp_call().unwrap();
+        vm.load_crate(&funcs, items.inner()).unwrap();
         let dt_run = t0.elapsed();
 
         println!("parse:   {:?}", dt_parse);
@@ -141,14 +141,14 @@ fn main() {
         infer.assign_ids(&mut module);
         infer.infer(&mut module);
 
-        let builder = bbir_builder::Builder::new();
+        let mut builder = bbir_builder::Builder::new();
         builder.build(&module);
+        let (funcs, items) = builder.krate.build();
         buffer.clear();
 
 
         running.store(true, core::sync::atomic::Ordering::SeqCst);
-        builder.module.temp_load(&mut vm);
-        let result = vm.temp_call();
+        let result = vm.load_crate(&funcs, items.inner());
         running.store(false, core::sync::atomic::Ordering::SeqCst);
 
         if let Err(_) = result {

@@ -177,7 +177,7 @@ impl Infer {
     }
 
     fn infer_module(&mut self, module: &mut item::Module) {
-        let mut ctx = InferCtx::new();
+        let mut ctx = InferCtx::new(None);
         self.infer_block(&mut ctx, &mut module.block.stmts);
     }
 
@@ -191,7 +191,13 @@ impl Infer {
                     }
 
                     ItemData::Func(func) => {
-                        self.infer_func(ctx, stmt.id, func);
+                        let mut fctx = InferCtx::new(Some(ctx));
+
+                        for param in &func.params {
+                            fctx.add_local_decl(stmt.id, param.name);
+                        }
+
+                        self.infer_value_block(&mut fctx, &mut func.body, None);
                     }
                 }
             }
@@ -527,26 +533,12 @@ impl Infer {
             self.infer_value_block(ctx, &mut block.stmts, expected_ty)
         }
     }
-
-    fn infer_func(&mut self, ctx: &mut InferCtx, node: NodeId, func: &mut item::Func) -> Type {
-        // @temp: need ctx for closures.
-        let _ = ctx;
-
-        let mut fctx = InferCtx::new();
-
-        for param in &func.params {
-            fctx.add_local_decl(node, param.name);
-        }
-
-        self.infer_value_block(&mut fctx, &mut func.body, None);
-
-        Type::Any
-    }
 }
 
 
 define_id!(LocalId);
 
+#[derive(Clone)]
 struct Decl {
     name:   String,
     scope:  u32,
@@ -563,17 +555,28 @@ struct BreakScope {
 
 struct InferCtx {
     scope:          u32,
-    locals:         Vec<()>,
     decls:          Vec<Decl>,
+    locals:         Vec<()>,
     break_scopes:   Vec<BreakScope>,
 }
 
 impl InferCtx {
-    pub fn new() -> InferCtx {
+    pub fn new(parent: Option<&InferCtx>) -> InferCtx {
+        let mut decls = vec![];
+        let mut scope = 0;
+
+        if let Some(parent) = parent {
+            decls = parent.decls.iter()
+                .filter(|decl| { decl.target.is_item() })
+                .cloned()
+                .collect();
+            scope = parent.scope + 1;
+        }
+
         InferCtx {
-            scope:  0,
+            scope,
+            decls,
             locals: vec![],
-            decls:  vec![],
             break_scopes: vec![],
         }
     }

@@ -42,20 +42,7 @@
 
 
 - todo:
-    - compiler:
-        - support nested items, self-recursion, accessing module state.
-        - output bytecode & metadata (h2 set up envs) instead of loading directly into vm.
-            - no longer set up func items in code.
-    - vm module loading:
-        - set up environments.
-            - state uninit flags.
-            - parent pointers.
-            - function values.
-            - persistent for now, later optional gc.
-            - can specify root env.
-        - support indexed env access.
-            - literally a `Number` used as the index in the path.
-            - bytecode patching.
+    - module state.
 
 - prev:
     - tuples.

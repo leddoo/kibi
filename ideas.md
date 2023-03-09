@@ -27,6 +27,13 @@
         - types enable the runtime to find and replace all instances of a struct by running a migration function.
         - introspection & rtti can make statically types (and packed values) accessible to dynamic code. this can be transparent (as with `Any` duck typing) or explicit (with an introspection api).
     - features like dynamic binding are very powerful, but in (sane) practice, they're not used that much, or only in very specific cases. opt-in dynamic binding, like with `var fn` can offer many of the benefits, without making everything else slow, cause "everything needs to be dynamic".
+    - no dynamic by-name binding of globals.
+        - undeclared identifier will be an error.
+            - it won't prevent code execution, but executing the access will trigger a trap.
+        - potential use cases:
+            - global variables: just define one. you can use `Any` as the type. this is not much effort.
+            - code generation & "decorators": we do this kind of stuff at compile time with macros. adding code at runtime will be possible, but binding will likely occur through traits. we may support adding methods dynamically. those would be accessible through dynamic method calls, as with `Any`.
+            - dynamic "linking": you know what functions you're expecting, so list them (or generate that list). that way you'll get load time errors. and if you specify types & versions, the runtime can even verify those.
 
 - static error resilience:
     - compile errors should not prevent code from being executed.

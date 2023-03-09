@@ -2,25 +2,26 @@ use crate::index_vec::*;
 use crate::ast::*;
 use crate::infer;
 use crate::bbir::{*, self};
+use crate::ast::ItemData;
 
 
 pub struct Builder {
-    pub module: bbir::Module,
+    pub krate: bbir::Crate,
 }
 
 impl Builder {
     pub fn new() -> Self {
         Builder {
-            module: bbir::Module::new(),
+            krate: bbir::Crate::new(),
         }
     }
 
-    pub fn build(&self, module: &item::Module) {
+    pub fn build(&mut self, module: &item::Module) {
         self.build_module(NodeId::new_unck(1), module);
     }
 
-    fn build_module(&self, module_id: NodeId, module: &item::Module) {
-        let mut fun = self.module.new_function();
+    fn build_module(&mut self, module_id: NodeId, module: &item::Module) {
+        let mut fun = self.krate.new_function();
         let mut ctx = Ctx::new(&mut fun, module_id, &[]);
 
         let stmts = &module.block.stmts;
@@ -37,7 +38,7 @@ impl Builder {
         ctx.fun.instr_return(SourceRange::null(), value);
     }
 
-    fn build_stmt(&self, ctx: &mut Ctx, stmt: &Stmt) {
+    fn build_stmt(&mut self, ctx: &mut Ctx, stmt: &Stmt) {
         match &stmt.data {
             StmtData::Item(item) => {
                 match &item.data {
@@ -48,13 +49,9 @@ impl Builder {
 
                     ItemData::Func(func) => {
                         let func_id = self.build_func(ctx, stmt.id, func);
-
-                        // @temp: nested vm environments.
-                        if let Some(name) = func.name {
-                            let name = ctx.fun.add_string(name);
-                            let func_val = ctx.fun.instr_new_function(stmt.source, func_id);
-                            ctx.fun.instr_write_path(stmt.source, PathBase::Env, &[PathKey::Field(name)], func_val, true);
-                        }
+                        self.krate.def_item(item.id, bbir::Item {
+                            data: bbir::ItemData::Func(func_id)
+                        });
                     }
                 }
             }
@@ -81,7 +78,7 @@ impl Builder {
         }
     }
 
-    fn build_expr(&self, ctx: &mut Ctx, expr: &Expr, need_value: bool) -> Option<InstrId> {
+    fn build_expr(&mut self, ctx: &mut Ctx, expr: &Expr, need_value: bool) -> Option<InstrId> {
         match &expr.data {
             ExprData::Nil => {
                 Some(ctx.fun.instr_load_nil(expr.source))
@@ -105,12 +102,17 @@ impl Builder {
                 let info = ident.info.unwrap();
 
                 match info.target {
+                    expr::IdentTarget::Item(item) => {
+                        let index = ctx.fun.instr_load_int(expr.source, item.value() as i64);
+                        Some(ctx.fun.instr_read_path(expr.source, PathBase::Items, &[PathKey::Index(index)]))
+                    }
+
                     expr::IdentTarget::Local { node, local } => {
                         let local = ctx.get_local_id(node, local);
                         Some(ctx.fun.instr_get_local(expr.source, local))
                     }
 
-                    _ => {
+                    expr::IdentTarget::Dynamic => {
                         let name = ctx.fun.add_string(ident.name);
                         Some(ctx.fun.instr_read_path(expr.source, PathBase::Env, &[PathKey::Field(name)]))
                     }
@@ -397,13 +399,13 @@ impl Builder {
         }
     }
 
-    fn build_block(&self, ctx: &mut Ctx, block: &[Stmt]) {
+    fn build_block(&mut self, ctx: &mut Ctx, block: &[Stmt]) {
         for stmt in block {
             self.build_stmt(ctx, stmt);
         }
     }
 
-    fn build_do_block(&self, ctx: &mut Ctx, node: NodeId, block: &[Stmt], need_value: bool) -> Option<InstrId> {
+    fn build_do_block(&mut self, ctx: &mut Ctx, node: NodeId, block: &[Stmt], need_value: bool) -> Option<InstrId> {
         let bb_after = ctx.fun.new_block();
 
         let bs = ctx.begin_break_scope(node, bb_after, None.into(), need_value);
@@ -423,7 +425,7 @@ impl Builder {
         })
     }
 
-    fn build_value_block(&self, ctx: &mut Ctx, block: &[Stmt], need_value: bool) -> Option<InstrId> {
+    fn build_value_block(&mut self, ctx: &mut Ctx, block: &[Stmt], need_value: bool) -> Option<InstrId> {
         if block.len() == 1 {
             if let StmtData::Expr(expr) = &block[0].data {
                 return self.build_expr(ctx, expr, need_value);
@@ -434,7 +436,7 @@ impl Builder {
         need_value.then(|| ctx.fun.instr_load_unit(SourceRange::null()))
     }
 
-    fn build_if_block(&self, ctx: &mut Ctx, node: NodeId, block: &expr::IfBlock, need_value: bool) -> Option<InstrId> {
+    fn build_if_block(&mut self, ctx: &mut Ctx, node: NodeId, block: &expr::IfBlock, need_value: bool) -> Option<InstrId> {
         if block.is_do {
             self.build_do_block(ctx, node, &block.stmts, need_value)
         }
@@ -443,8 +445,8 @@ impl Builder {
         }
     }
 
-    fn build_path(&self, ctx: &mut Ctx, expr: &Expr) -> Option<(PathBase, bbir::OptLocalId, Vec<PathKey>)> {
-        fn rec(this: &Builder, ctx: &mut Ctx, expr: &Expr, keys: &mut Vec<PathKey>) -> Option<(PathBase, bbir::OptLocalId)> {
+    fn build_path(&mut self, ctx: &mut Ctx, expr: &Expr) -> Option<(PathBase, bbir::OptLocalId, Vec<PathKey>)> {
+        fn rec(this: &mut Builder, ctx: &mut Ctx, expr: &Expr, keys: &mut Vec<PathKey>) -> Option<(PathBase, bbir::OptLocalId)> {
             match &expr.data {
                 ExprData::Field(field) => {
                     let result = rec(this, ctx, &field.base, keys)?;
@@ -464,12 +466,17 @@ impl Builder {
                     let info = ident.info.unwrap();
 
                     match info.target {
+                        expr::IdentTarget::Item(item) => {
+                            let _ = item;
+                            unimplemented!()
+                        }
+
                         expr::IdentTarget::Local { node, local } => {
                             let local = ctx.get_local_id(node, local);
                             Some((PathBase::Instr(ctx.fun.instr_get_local(expr.source, local)), local.some()))
                         }
 
-                        _ => {
+                        expr::IdentTarget::Dynamic => {
                             keys.push(PathKey::Field(ctx.fun.add_string(ident.name)));
                             Some((PathBase::Env, None.into()))
                         }
@@ -492,7 +499,7 @@ impl Builder {
         Some((base, lid, keys))
     }
 
-    fn build_read_path(&self, ctx: &mut Ctx, expr: &Expr) -> Option<InstrId> {
+    fn build_read_path(&mut self, ctx: &mut Ctx, expr: &Expr) -> Option<InstrId> {
         if let Some((base, _, keys)) = self.build_path(ctx, expr) {
             return Some(ctx.fun.instr_read_path(expr.source, base, &keys))
         }
@@ -500,17 +507,22 @@ impl Builder {
         Some(ctx.fun.instr_load_unit(expr.source))
     }
 
-    fn build_assign(&self, ctx: &mut Ctx, lhs: &Expr, rhs: InstrId, is_def: bool) {
+    fn build_assign(&mut self, ctx: &mut Ctx, lhs: &Expr, rhs: InstrId, is_def: bool) {
         if let ExprData::Ident(ident) = lhs.data {
             let info = ident.info.unwrap();
 
             match info.target {
+                expr::IdentTarget::Item(item) => {
+                    let index = ctx.fun.instr_load_int(lhs.source, item.value() as i64);
+                    ctx.fun.instr_write_path(lhs.source, PathBase::Items, &[PathKey::Index(index)], rhs, is_def);
+                }
+
                 expr::IdentTarget::Local { node, local } => {
                     let local = ctx.get_local_id(node, local);
                     ctx.fun.instr_set_local(lhs.source, local, rhs);
                 }
 
-                _ => {
+                expr::IdentTarget::Dynamic => {
                     let name = ctx.fun.add_string(ident.name);
                     ctx.fun.instr_write_path(lhs.source, PathBase::Env, &[PathKey::Field(name)], rhs, is_def);
                 }
@@ -532,10 +544,10 @@ impl Builder {
         }
     }
 
-    fn build_func(&self, ctx: &mut Ctx, node: NodeId, func: &item::Func) -> FunctionId {
+    fn build_func(&mut self, ctx: &mut Ctx, node: NodeId, func: &item::Func) -> FunctionId {
         let _ = ctx;
 
-        let mut inner_fun = self.module.new_function();
+        let mut inner_fun = self.krate.new_function();
         let mut inner_ctx = Ctx::new(&mut inner_fun, node, &func.params);
 
         let value = self.build_value_block(&mut inner_ctx, &func.body, true).unwrap();

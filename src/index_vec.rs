@@ -51,6 +51,18 @@ impl<K: Key, V> IndexVec<K, V> {
     pub fn retain_mut<F: FnMut(&mut V) -> bool>(&mut self, f: F) {
         self.values.retain_mut(f)
     }
+
+    #[inline(always)]
+    pub fn iter(&self) -> core::slice::Iter<V> { self.values.iter() }
+
+    #[inline(always)]
+    pub fn iter_mut(&mut self) -> core::slice::IterMut<V> { self.values.iter_mut() }
+
+    #[inline(always)]
+    pub fn inner(&self) -> &Vec<V> { &self.values }
+
+    #[inline(always)]
+    pub fn inner_mut(&mut self) -> &mut Vec<V> { &mut self.values }
 }
 
 
@@ -132,50 +144,6 @@ impl<K: Key, V> FromIterator<V> for IndexVec<K, V> {
     #[inline(always)]
     fn from_iter<T: IntoIterator<Item = V>>(iter: T) -> Self {
         Self { values: Vec::from_iter(iter), unused: PhantomData }
-    }
-}
-
-
-impl<K: Key, V> core::ops::Deref for IndexVec<K, V> {
-    type Target = [V];
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target {
-        &self.values
-    }
-}
-
-impl<K: Key, V> core::ops::DerefMut for IndexVec<K, V> {
-    #[inline(always)]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.values
-    }
-}
-
-impl<K: Key, V> core::borrow::Borrow<[V]> for IndexVec<K, V> {
-    #[inline(always)]
-    fn borrow(&self) -> &[V] {
-        &self.values
-    }
-}
-
-impl<K: Key, V> core::borrow::BorrowMut<[V]> for IndexVec<K, V> {
-    #[inline(always)]
-    fn borrow_mut(&mut self) -> &mut [V] {
-        &mut self.values
-    }
-}
-
-impl<K: Key, V> AsRef<[V]> for IndexVec<K, V> {
-    #[inline(always)]
-    fn as_ref(&self) -> &[V] {
-        &self.values
-    }
-}
-
-impl<K: Key, V> AsMut<[V]> for IndexVec<K, V> {
-    #[inline(always)]
-    fn as_mut(&mut self) -> &mut [V] {
-        &mut self.values
     }
 }
 

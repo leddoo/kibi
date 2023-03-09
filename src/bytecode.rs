@@ -18,40 +18,38 @@ pub mod opcode {
 
     pub const MAP_NEW:          u8 = 13;
 
-    pub const NEW_FUNCTION:     u8 = 14;
+    pub const READ_PATH:        u8 = 14;
+    pub const WRITE_PATH:       u8 = 15;
+    pub const WRITE_PATH_DEF:   u8 = 16;
 
-    pub const READ_PATH:        u8 = 15;
-    pub const WRITE_PATH:       u8 = 16;
-    pub const WRITE_PATH_DEF:   u8 = 17;
+    pub const ADD:              u8 = 17;
+    pub const SUB:              u8 = 18;
+    pub const MUL:              u8 = 19;
+    pub const DIV:              u8 = 20;
+    pub const FLOOR_DIV:        u8 = 21;
+    pub const REM:              u8 = 22;
+    pub const ADD_INT:          u8 = 23;
+    pub const NEGATE:           u8 = 24;
 
-    pub const ADD:              u8 = 18;
-    pub const SUB:              u8 = 19;
-    pub const MUL:              u8 = 20;
-    pub const DIV:              u8 = 21;
-    pub const FLOOR_DIV:        u8 = 22;
-    pub const REM:              u8 = 23;
-    pub const ADD_INT:          u8 = 24;
-    pub const NEGATE:           u8 = 25;
+    pub const NOT:              u8 = 25;
 
-    pub const NOT:              u8 = 26;
+    pub const CMP_EQ:           u8 = 26;
+    pub const CMP_NE:           u8 = 27;
+    pub const CMP_LE:           u8 = 28;
+    pub const CMP_LT:           u8 = 29;
+    pub const CMP_GE:           u8 = 30;
+    pub const CMP_GT:           u8 = 31;
 
-    pub const CMP_EQ:           u8 = 27;
-    pub const CMP_NE:           u8 = 28;
-    pub const CMP_LE:           u8 = 29;
-    pub const CMP_LT:           u8 = 30;
-    pub const CMP_GE:           u8 = 31;
-    pub const CMP_GT:           u8 = 32;
+    pub const JUMP:             u8 = 32;
+    pub const JUMP_TRUE:        u8 = 33;
+    pub const JUMP_FALSE:       u8 = 34;
+    pub const JUMP_NIL:         u8 = 35;
+    pub const JUMP_NOT_NIL:     u8 = 36;
 
-    pub const JUMP:             u8 = 33;
-    pub const JUMP_TRUE:        u8 = 34;
-    pub const JUMP_FALSE:       u8 = 35;
-    pub const JUMP_NIL:         u8 = 36;
-    pub const JUMP_NOT_NIL:     u8 = 37;
+    pub const CALL:             u8 = 37;
+    pub const RET:              u8 = 38;
 
-    pub const CALL:             u8 = 38;
-    pub const RET:              u8 = 39;
-
-    pub const END:              u8 = 40;
+    pub const END:              u8 = 39;
 
     pub const EXTRA:            u8 = 255;
 }
@@ -169,11 +167,15 @@ impl Instruction {
 pub struct PathBase(u8);
 
 impl PathBase {
-    pub const ENV: PathBase = PathBase(255);
+    pub const ITEMS: PathBase = PathBase(254);
+    pub const ENV:   PathBase = PathBase(255);
+
+    #[inline(always)]
+    pub const fn value(self) -> u8 { self.0 }
 
     #[inline(always)]
     pub fn reg(reg: u8) -> PathBase {
-        assert_ne!(reg, Self::ENV.0);
+        assert!(reg < 254);
         PathBase(reg)
     }
 }
@@ -293,11 +295,6 @@ impl ByteCodeBuilder {
 
     pub fn map_new(&mut self, dst: u8) {
         self.buffer.push(Instruction::encode_c1(opcode::MAP_NEW, dst));
-    }
-
-
-    pub fn new_function(&mut self, dst: u8, proto: u16) {
-        self.buffer.push(Instruction::encode_c1u16(opcode::NEW_FUNCTION, dst, proto));
     }
 
 
@@ -554,7 +551,9 @@ pub fn dump(code: &[Instruction]) {
             READ_PATH => {
                 let (dst, base, num_keys) = instr.c3();
                 print!("  read_path r{}, ", dst);
-                if base == 255 { print!("ENV[") } else { print!("r{}[", base) };
+                if      base == 254 { print!("ITEMS[") }
+                else if base == 255 { print!("ENV[") }
+                else                { print!("r{}[", base) };
                 for i in 0..num_keys {
                     print!("{}", PathKey::decode(next_instr_extra!()));
                     if i < num_keys-1 { print!(", "); }
@@ -567,7 +566,10 @@ pub fn dump(code: &[Instruction]) {
                 let (base, num_keys, value) = instr.c3();
                 print!("  write_path");
                 if is_def { print!("(d)") }
-                if base == 255 { print!(" ENV[") } else { print!(" r{}[", base) };
+                print!(" ");
+                if      base == 254 { print!("ITEMS[") }
+                else if base == 255 { print!("ENV[") }
+                else                { print!("r{}[", base) };
                 for i in 0..num_keys {
                     print!("{}", PathKey::decode(next_instr_extra!()));
                     if i < num_keys-1 { print!(", "); }
@@ -702,11 +704,6 @@ pub fn dump(code: &[Instruction]) {
             RET => {
                 let src = instr.c1();
                 println!("  ret r{}", src);
-            }
-
-            NEW_FUNCTION => {
-                let (dst, proto) = instr.c1u16();
-                println!("  new_function r{}, f{}", dst, proto);
             }
 
             // @todo-speed: this inserts a check to reduce dispatch table size.
