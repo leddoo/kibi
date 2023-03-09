@@ -1,5 +1,5 @@
 use crate::index_vec::*;
-use crate::ast::{*, self};
+use crate::ast::*;
 use crate::infer;
 use crate::bbir::{*, self};
 
@@ -15,9 +15,13 @@ impl Builder {
         }
     }
 
-    pub fn build_module(&self, module: &ast::Module) {
+    pub fn build(&self, module: &data::Module) {
+        self.build_module(NodeId::new_unck(1), module);
+    }
+
+    fn build_module(&self, module_id: NodeId, module: &data::Module) {
         let mut fun = self.module.new_function();
-        let mut ctx = Ctx::new(&mut fun, module.id, &[]);
+        let mut ctx = Ctx::new(&mut fun, module_id, &[]);
 
         let stmts = &module.block.stmts;
 
@@ -37,14 +41,19 @@ impl Builder {
         match &stmt.data {
             StmtData::Item(item) => {
                 match &item.data {
-                    ItemData::Fn(fun) => {
-                        let fun_id = self.build_fn(ctx, stmt.id, fun);
+                    ItemData::Module(module) => {
+                        let _ = module;
+                        unimplemented!()
+                    }
+
+                    ItemData::Func(func) => {
+                        let func_id = self.build_func(ctx, stmt.id, func);
 
                         // @temp: nested vm environments.
-                        if let Some(name) = fun.name {
+                        if let Some(name) = func.name {
                             let name = ctx.fun.add_string(name);
-                            let fun_val = ctx.fun.instr_new_function(stmt.source, fun_id);
-                            ctx.fun.instr_write_path(stmt.source, PathBase::Env, &[PathKey::Field(name)], fun_val, true);
+                            let func_val = ctx.fun.instr_new_function(stmt.source, func_id);
+                            ctx.fun.instr_write_path(stmt.source, PathBase::Env, &[PathKey::Field(name)], func_val, true);
                         }
                     }
                 }
@@ -379,13 +388,11 @@ impl Builder {
                 need_value.then(|| ctx.fun.instr_load_unit(expr.source))
             }
 
-            ExprData::Fn (fun) => {
-                let fun_id = self.build_fn(ctx, expr.id, fun);
-                Some(ctx.fun.instr_new_function(expr.source, fun_id))
-            }
-
             ExprData::Env => {
-                Some(ctx.fun.instr_load_env(expr.source))
+                // @temp-no-env-access.
+                //Some(ctx.fun.instr_load_env(expr.source))
+                println!("ignoring error: no env access");
+                need_value.then(|| ctx.fun.instr_load_unit(expr.source))
             }
         }
     }
@@ -525,13 +532,13 @@ impl Builder {
         }
     }
 
-    fn build_fn(&self, ctx: &mut Ctx, node: NodeId, fun: &data::Fn) -> FunctionId {
+    fn build_func(&self, ctx: &mut Ctx, node: NodeId, func: &data::Func) -> FunctionId {
         let _ = ctx;
 
         let mut inner_fun = self.module.new_function();
-        let mut inner_ctx = Ctx::new(&mut inner_fun, node, &fun.params);
+        let mut inner_ctx = Ctx::new(&mut inner_fun, node, &func.params);
 
-        let value = self.build_value_block(&mut inner_ctx, &fun.body, true).unwrap();
+        let value = self.build_value_block(&mut inner_ctx, &func.body, true).unwrap();
         inner_ctx.fun.instr_return(SourceRange::null(), value);
 
         inner_ctx.fun.id()
@@ -557,7 +564,7 @@ struct Ctx<'a> {
 
 impl<'a> Ctx<'a> {
     #[inline(always)]
-    pub fn new(fun: &'a mut Function, node: NodeId, params: &[data::FnParam]) -> Self {
+    pub fn new(fun: &'a mut Function, node: NodeId, params: &[data::FuncParam]) -> Self {
         let mut locals = index_vec![];
         for param in params {
             let lid = fun.new_param(param.name, SourceRange::null());

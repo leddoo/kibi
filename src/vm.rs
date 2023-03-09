@@ -875,8 +875,10 @@ impl VmImpl {
 
 
                     LOAD_ENV => {
-                        let dst = instr.c1();
-                        *self.reg_mut(dst) = self.env.clone();
+                        //let dst = instr.c1();
+                        //*self.reg_mut(dst) = self.env.clone();
+                        // @temp-no-env-access.
+                        unimplemented!()
                     }
 
 

@@ -50,6 +50,20 @@
     - general stuff:
         - module state is defined using `var` and `let`. compiler should warn on shadowing definitions.
         - only functions defined after module variables can access them. this is to make the behavior consistent with closures inside other functions.
+            - actually, there's no reason to do this.
+            - closures are different. and local functions can't access the outer function's `var`s at all.
+            - and in a 2d code editor, there's no longer a linear ordering anyway. so we'd have to force the user to declare an order somewhere, again, for no practical reason.
+            - the non-item code is still ordered. in 2d, there won't be any code in modules. only independent startup code snippets (which can be ordered arbitrarily), and initializers (which can be implemented as functions, so they can access all other module state).
+            - i gotta think less in terms of the current tools (shoutout to bret victor).
+            - this also solves the weird circular re-export thing.
+            - though:
+                - it's kinda unintuitive, how at the top level, you can't shadow, and functions can magically see every local.
+                - better idea: locals & regular code behave as if concated and put into a function. items can't access them. it's just an implicit main function for each module. then introduce `global` (mutable with dynamic initializer) and `const` (immutable with static initializer) items.
+                - also consider `let mut` for function wide type inference, no implicit `Any`. and `var` always means `Any` and can't take type annotations (syntactically it can, but the compiler ignores it & errors).
+                - ig `var fn` should also be `global fn` then?
+                    - not all that intuitive/consistent/useful.
+                    - seems better to just `global the_fun = fn...`
+                    - and maybe we should use different syntax for closures, cause that kinda looks like it could capute module main locals, but it can't.
         - imports have access to everything visible at the end of the imported module.
             - for shadowing definitions: the last definition.
             - what about re-export cycles?? (can they give access to `var`s defined below?)
@@ -60,4 +74,16 @@
         - static code does not make these checks, if possible. the compiler must prove that static code never accesses uninitialized module state. if it can't prove that, it should raise a compile error and fall back to a checked dynamic access.
             - hmm, don't really need to use a dynamic access. just check whether the thing is initialized. and that really doesn't cost much (if anything).
             - so we should differentiate between static/dynamic binding (by pointer vs by name) and checked/unchecked access (ensuring proper initialization; though again, skipping this check is unlikely to be beneficial, even c and rust do these checks).
+
+
+- random ideas:
+    - field-like syntax for indices:
+        - to make `foo["bar"]` more ergonomic.
+        - eg to work with dynamic json-like data.
+        - syntax: `foo:index`.
+    - dynamic field access:
+        - something like python's `getattr`.
+        - cause `foo["field"]` is an index access, not a field access.
+        - syntax: `foo.["field"]`.
+        - unlike field-like indexing, this one isn't too common, so a built-in could be enough.
 

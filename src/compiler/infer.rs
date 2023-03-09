@@ -36,12 +36,14 @@ impl Infer {
         self.prev_item_id.inc()
     }
 
-    pub fn assign_ids_module(&mut self, module: &mut Module) {
-        module.id = NodeId::new_unck(1);
+    pub fn assign_ids(&mut self, module: &mut data::Module) {
+        self.assign_ids_module(module);
+    }
 
+    pub fn assign_ids_module(&mut self, module: &mut data::Module) -> u32 {
         let mut id = NodeId::ZERO;
         self.assign_ids_block(&mut id, &mut module.block.stmts);
-        module.num_nodes = id.inc().value();
+        id.inc().value()
     }
 
     fn assign_ids_stmt(&mut self, id: &mut NodeId, stmt: &mut Stmt) {
@@ -52,8 +54,13 @@ impl Infer {
                 item.id = self.next_item_id();
 
                 match &mut item.data {
-                    ItemData::Fn(fun) => {
-                        self.assign_ids_fn(fun);
+                    ItemData::Module(module) => {
+                        let _ = module;
+                        unimplemented!()
+                    }
+
+                    ItemData::Func(func) => {
+                        self.assign_ids_func(func);
                     }
                 }
             }
@@ -153,18 +160,13 @@ impl Infer {
                 }
             }
 
-            ExprData::Fn (fun) => {
-                self.assign_ids_fn(fun)
-            }
-
             ExprData::Env => {}
         }
     }
 
-    fn assign_ids_fn(&mut self, fun: &mut data::Fn) {
-        let mut fun_id = NodeId::ZERO;
-        self.assign_ids_block(&mut fun_id, &mut fun.body);
-        fun.num_nodes = fun_id.inc().value();
+    fn assign_ids_func(&mut self, func: &mut data::Func) {
+        let mut func_id = NodeId::ZERO;
+        self.assign_ids_block(&mut func_id, &mut func.body);
     }
 
     fn assign_ids_block(&mut self, id: &mut NodeId, block: &mut [Stmt]) {
@@ -174,8 +176,12 @@ impl Infer {
     }
 
 
-    pub fn infer_module(&mut self, module: &mut Module) {
-        let mut ctx = InferCtx::new(module.num_nodes);
+    pub fn infer(&mut self, module: &mut data::Module) {
+        self.infer_module(module);
+    }
+
+    fn infer_module(&mut self, module: &mut data::Module) {
+        let mut ctx = InferCtx::new();
         self.infer_block(&mut ctx, &mut module.block.stmts);
     }
 
@@ -183,8 +189,13 @@ impl Infer {
         match &mut stmt.data {
             StmtData::Item (item) => {
                 match &mut item.data {
-                    ItemData::Fn(fun) => {
-                        self.infer_fn(ctx, stmt.id, fun);
+                    ItemData::Module(module) => {
+                        let _ = module;
+                        unimplemented!()
+                    }
+
+                    ItemData::Func(func) => {
+                        self.infer_func(ctx, stmt.id, func);
                     }
                 }
             }
@@ -390,11 +401,9 @@ impl Infer {
                 Type::Unit
             }
 
-            ExprData::Fn (fun) => {
-                self.infer_fn(ctx, expr.id, fun)
-            }
-
             ExprData::Env => {
+                // @temp-no-env-access.
+                println!("error {}: can't read ENV.", expr.source);
                 Type::Any
             }
         };
@@ -433,7 +442,7 @@ impl Infer {
             }
 
             _ => {
-                println!("invalid path base");
+                println!("error {}: invalid path base", expr.source);
                 Type::Error
             }
         }
@@ -471,8 +480,13 @@ impl Infer {
         for stmt in block.iter() {
             if let StmtData::Item(item) = &stmt.data {
                 match &item.data {
-                    ItemData::Fn(fun) => {
-                        if let Some(name) = fun.name {
+                    ItemData::Module(module) => {
+                        let _ = module;
+                        unimplemented!()
+                    }
+
+                    ItemData::Func(func) => {
+                        if let Some(name) = func.name {
                             ctx.add_item_decl(name, item.id);
                         }
                     }
@@ -518,17 +532,17 @@ impl Infer {
         }
     }
 
-    fn infer_fn(&mut self, ctx: &mut InferCtx, node: NodeId, fun: &mut data::Fn) -> Type {
+    fn infer_func(&mut self, ctx: &mut InferCtx, node: NodeId, func: &mut data::Func) -> Type {
         // @temp: need ctx for closures.
         let _ = ctx;
 
-        let mut fctx = InferCtx::new(fun.num_nodes);
+        let mut fctx = InferCtx::new();
 
-        for param in &fun.params {
+        for param in &func.params {
             fctx.add_local_decl(node, param.name);
         }
 
-        self.infer_value_block(&mut fctx, &mut fun.body, None);
+        self.infer_value_block(&mut fctx, &mut func.body, None);
 
         Type::Any
     }
@@ -559,9 +573,7 @@ struct InferCtx {
 }
 
 impl InferCtx {
-    pub fn new(num_nodes: u32) -> InferCtx {
-        assert!(num_nodes > 0);
-
+    pub fn new() -> InferCtx {
         InferCtx {
             scope:  0,
             locals: vec![],

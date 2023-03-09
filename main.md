@@ -43,10 +43,12 @@
 
 - todo:
     - compiler:
+        - make node ids global.
+            - less of a hassle with debug info & inlining.
+            - could later add an item-local id field for external tools (so they don't need hashmaps).
         - support nested items, self-recursion, accessing module state.
-        - prevent env reading.
-        - output bytecode & metadata instead of loading directly into vm.
-        - todo: what meta data?
+        - output bytecode & metadata (h2 set up envs) instead of loading directly into vm.
+            - no longer set up func items in code.
     - vm module loading:
         - set up environments.
             - state uninit flags.
@@ -54,9 +56,9 @@
             - function values.
             - persistent for now, later optional gc.
             - can specify root env.
-        - prevent env reading.
         - support indexed env access.
-    - kbtf.
+            - literally a `Number` used as the index in the path.
+            - bytecode patching.
 
 - prev:
     - tuples.

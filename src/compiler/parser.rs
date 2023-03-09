@@ -866,12 +866,6 @@ impl<'p, 'i> Parser<'p, 'i> {
             return Ok(Expr::new(source, data));
         }
 
-        // functions
-        if let TokenData::KwFn = current.data {
-            let (source, fun) = self.parse_fn(begin)?;
-            return Ok(Expr::new(source, ExprData::Fn(Box::new(fun))));
-        }
-
         // list.
         if let TokenData::LBracket = current.data {
             let values = self.parse_comma_exprs(TokenData::RBracket)?.0;
@@ -1082,11 +1076,14 @@ impl<'p, 'i> Parser<'p, 'i> {
                 let source = at.source;
                 end = source.end;
             }
-            // fn
+            // mod
+            //else if at.data == TokenData::KwMod {
+            //}
+            // func
             else if at.data == TokenData::KwFn {
                 self.next().unwrap();
-                let (source, fun) = self.parse_fn(at.source.begin)?;
-                stmts.push(Stmt::new(source, StmtData::Item(Item::new(source, ItemData::Fn(fun)))));
+                let (source, func) = self.parse_func(at.source.begin)?;
+                stmts.push(Stmt::new(source, StmtData::Item(Item::new(source, ItemData::Func(func)))));
             }
             // local ::= (let | var) ident (= expr)? (;)?
             else if at.data == TokenData::KwLet
@@ -1175,13 +1172,13 @@ impl<'p, 'i> Parser<'p, 'i> {
     }
 
     // bool: ends with comma.
-    pub fn parse_fn_params(&mut self) -> ParseResult<(Vec<data::FnParam<'i>>, bool)> {
+    pub fn parse_func_params(&mut self) -> ParseResult<(Vec<data::FuncParam<'i>>, bool)> {
         let mut result = vec![];
 
         let mut had_comma = true;
         while had_comma {
             let Some(name) = self.next_if_ident() else { break };
-            result.push(data::FnParam { name });
+            result.push(data::FuncParam { name });
 
             if !self.next_if(TokenData::Comma) {
                 had_comma = false;
@@ -1191,7 +1188,7 @@ impl<'p, 'i> Parser<'p, 'i> {
         Ok((result, had_comma))
     }
 
-    pub fn parse_fn(&mut self, begin: SourcePos) -> ParseResult<(SourceRange, data::Fn<'i>)> {
+    pub fn parse_func(&mut self, begin: SourcePos) -> ParseResult<(SourceRange, data::Func<'i>)> {
         let at   = self.peek_or_eof(0)?;
         let next = self.peek_or_eof(1)?;
 
@@ -1205,18 +1202,18 @@ impl<'p, 'i> Parser<'p, 'i> {
                 } else { None };
             self.expect(TokenData::LParen).unwrap();
 
-            let params = self.parse_fn_params()?.0;
+            let params = self.parse_func_params()?.0;
             self.expect(TokenData::RParen)?;
             let body_begin = self.expect(TokenData::Colon)?.end;
 
             let body = self.parse_block(body_begin)?.1.stmts;
             let end = self.expect(TokenData::KwEnd)?.end;
 
-            return Ok((SourceRange { begin, end }, data::Fn { name, params, body, num_nodes: 0 }));
+            return Ok((SourceRange { begin, end }, data::Func { name, params, body }));
         }
         // fn params => expr
         else {
-            let params = self.parse_fn_params()?.0;
+            let params = self.parse_func_params()?.0;
             self.expect(TokenData::FatArrow)?;
 
             let name = None;
@@ -1224,14 +1221,14 @@ impl<'p, 'i> Parser<'p, 'i> {
             let end = body.source.end;
             let body = vec![body.to_stmt()];
 
-            return Ok((SourceRange { begin, end }, data::Fn { name, params, body, num_nodes: 0 }));
+            return Ok((SourceRange { begin, end }, data::Func { name, params, body }));
         }
     }
 
 
-    pub fn parse_module(&mut self, begin: SourcePos) -> ParseResult<Module<'i>> {
+    pub fn parse_module(&mut self, begin: SourcePos) -> ParseResult<data::Module<'i>> {
         let (source, block) = self.parse_block(begin)?;
-        return Ok(Module::new(source, block));
+        return Ok(data::Module { source, block });
     }
 }
 
@@ -1248,7 +1245,7 @@ pub fn parse_single<'i>(input: &'i [u8]) -> ParseResult<Expr<'i>> {
     Ok(result)
 }
 
-pub fn parse_module<'i>(input: &'i [u8]) -> ParseResult<Module<'i>> {
+pub fn parse_module<'i>(input: &'i [u8]) -> ParseResult<data::Module<'i>> {
     let tokens = Tokenizer::tokenize(input, true)?;
     let mut p = Parser::new(&tokens);
     p.parse_module(SourcePos { line: 0, column: 0 })

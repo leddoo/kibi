@@ -10,13 +10,16 @@ end
 
 
 
-(fn(a, b, c):
-    print("a: ")
-    print(a)
-    print(", c: ")
-    print(c)
-    println("")
-end)(1, 2, 3)
+do:
+    fn abc(a, b, c):
+        print("a: ")
+        print(a)
+        print(", c: ")
+        print(c)
+        println("")
+    end
+    abc(1, 2, 3)
+end
 
 
 
@@ -49,7 +52,7 @@ end
 
 
 
-let list = [1, 5, 4, "hi", ENV]
+let list = [1, 5, 4, "hi", nil]
 list[5] := list[1] + list[2]    -- `list[5] = ...` would error.
 
 println(list[0])
@@ -61,7 +64,7 @@ println(list[5])
 
 
 
-(fn():
+fn cycle():
     var a = 1
     var b = 2
     var c = 3
@@ -78,10 +81,11 @@ println(list[5])
     print(c)
     print(" ")
     println(n)
-end)()
+end
+cycle()
 
 
-(fn whiler():
+fn whiler():
     print("whiler: ")
     while true:
         break
@@ -105,9 +109,10 @@ end)()
         undefined()
     end
     println("kk.")
-end)()
+end
+whiler()
 
-(fn doer():
+fn doer():
     print("doer: ")
     do:
         break
@@ -162,6 +167,7 @@ end)()
     print(", ")
 
     println("kk.")
-end)()
+end
+doer()
 
 

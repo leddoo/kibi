@@ -161,41 +161,25 @@ impl ItemId {
 }
 
 
-
-#[derive(Clone, Debug)]
-pub struct Module<'a> {
-    pub source:    SourceRange,
-    pub block:     data::Block<'a>,
-    pub id:        NodeId,  // computed by `Infer::assign_ids_*`.
-    pub num_nodes: u32,     // computed by `Infer::assign_ids_*`.
-}
-
-impl<'a> Module<'a> {
-    #[inline(always)]
-    pub fn new(source: SourceRange, block: data::Block<'a>) -> Module {
-        Module { source, block, id: NodeId::ZERO, num_nodes: 0 }
-    }
-}
-
-
-
 #[derive(Clone, Debug, Deref)]
 pub struct Item<'a> {
     #[deref]
     pub data:   ItemData<'a>,
     pub source: SourceRange,
     pub id:     ItemId,     // computed by `Infer::assign_ids_*`.
+    pub num_nodes: u32,     // computed by `Infer::assign_ids_*`.
 }
 
 #[derive(Clone, Debug)]
 pub enum ItemData<'a> {
-    Fn              (data::Fn<'a>),
+    Module          (data::Module<'a>),
+    Func            (data::Func<'a>),
 }
 
 impl<'a> Item<'a> {
     #[inline(always)]
     pub fn new(source: SourceRange, data: ItemData<'a>) -> Self {
-        Item { source, data, id: ItemId::ZERO }
+        Item { source, data, id: ItemId::ZERO, num_nodes: 0 }
     }
 }
 
@@ -256,7 +240,6 @@ pub enum ExprData<'a> {
     Break           (Box<data::Break<'a>>),
     Continue        (Box<data::Continue<'a>>),
     Return          (data::Return<'a>),
-    Fn              (Box<data::Fn<'a>>),
     Env,
 }
 
@@ -277,6 +260,30 @@ impl<'a> Expr<'a> {
 pub mod data {
     use super::*;
 
+    // items
+
+    #[derive(Clone, Debug)]
+    pub struct Func<'a> {
+        pub name:   Option<&'a str>,
+        pub params: Vec<FuncParam<'a>>,
+        pub body:   Vec<Stmt<'a>>,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    pub struct FuncParam<'a> {
+        pub name: &'a str,
+    }
+
+
+    #[derive(Clone, Debug)]
+    pub struct Module<'a> {
+        pub source:    SourceRange,
+        pub block:     data::Block<'a>,
+    }
+
+
+
+    // exprs
 
     #[derive(Clone, Copy, Debug)]
     pub struct Ident<'a> {
@@ -498,20 +505,6 @@ pub mod data {
     #[derive(Clone, Debug)]
     pub struct Return<'a> {
         pub value: Option<Box<Expr<'a>>>,
-    }
-
-
-    #[derive(Clone, Debug)]
-    pub struct Fn<'a> {
-        pub name:   Option<&'a str>,
-        pub params: Vec<FnParam<'a>>,
-        pub body:   Vec<Stmt<'a>>,
-        pub num_nodes: u32,     // computed by `Infer::assign_ids_*`.
-    }
-
-    #[derive(Clone, Copy, Debug)]
-    pub struct FnParam<'a> {
-        pub name: &'a str,
     }
 }
 

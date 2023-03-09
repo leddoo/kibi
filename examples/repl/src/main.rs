@@ -55,13 +55,13 @@ fn main() {
 
         let t0 = std::time::Instant::now();
         let mut infer = infer::Infer::new();
-        infer.assign_ids_module(&mut module);
-        infer.infer_module(&mut module);
+        infer.assign_ids(&mut module);
+        infer.infer(&mut module);
         let dt_infer = t0.elapsed();
 
         let t0 = std::time::Instant::now();
         let builder = bbir_builder::Builder::new();
-        builder.build_module(&module);
+        builder.build(&module);
         builder.module.temp_load(&mut vm);
         let dt_compile = t0.elapsed();
 
@@ -135,14 +135,14 @@ fn main() {
             }
         };
 
-        let mut module = ast::Module::new(ast.source, data::Block { stmts: vec![ast.to_stmt()] });
+        let mut module = data::Module { source: ast.source, block: data::Block { stmts: vec![ast.to_stmt()] } };
 
         let mut infer = infer::Infer::new();
-        infer.assign_ids_module(&mut module);
-        infer.infer_module(&mut module);
+        infer.assign_ids(&mut module);
+        infer.infer(&mut module);
 
         let builder = bbir_builder::Builder::new();
-        builder.build_module(&module);
+        builder.build(&module);
         buffer.clear();
 
 
