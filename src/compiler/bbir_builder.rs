@@ -15,11 +15,11 @@ impl Builder {
         }
     }
 
-    pub fn build(&self, module: &data::Module) {
+    pub fn build(&self, module: &item::Module) {
         self.build_module(NodeId::new_unck(1), module);
     }
 
-    fn build_module(&self, module_id: NodeId, module: &data::Module) {
+    fn build_module(&self, module_id: NodeId, module: &item::Module) {
         let mut fun = self.module.new_function();
         let mut ctx = Ctx::new(&mut fun, module_id, &[]);
 
@@ -105,7 +105,7 @@ impl Builder {
                 let info = ident.info.unwrap();
 
                 match info.target {
-                    data::IdentTarget::Local { node, local } => {
+                    expr::IdentTarget::Local { node, local } => {
                         let local = ctx.get_local_id(node, local);
                         Some(ctx.fun.instr_get_local(expr.source, local))
                     }
@@ -149,9 +149,9 @@ impl Builder {
 
             ExprData::Op2 (op2) => {
                 match op2.kind {
-                    data::Op2Kind::Assign | data::Op2Kind::Define => {
+                    expr::Op2Kind::Assign | expr::Op2Kind::Define => {
                         if let ExprData::Tuple(lhs) = &op2.children[0].data {
-                            if op2.kind != data::Op2Kind::Assign {
+                            if op2.kind != expr::Op2Kind::Assign {
                                 // todo: error.
                                 unimplemented!()
                             }
@@ -180,13 +180,13 @@ impl Builder {
                         }
                         else {
                             let value = self.build_expr(ctx, &op2.children[1], true).unwrap();
-                            let is_define = op2.kind == data::Op2Kind::Define;
+                            let is_define = op2.kind == expr::Op2Kind::Define;
                             self.build_assign(ctx, &op2.children[0], value, is_define);
                         }
                         need_value.then(|| ctx.fun.instr_load_unit(expr.source))
                     }
 
-                    data::Op2Kind::Op2Assign(op) => {
+                    expr::Op2Kind::Op2Assign(op) => {
                         if op.is_cancelling() {
                             unimplemented!()
                         }
@@ -201,7 +201,7 @@ impl Builder {
                         need_value.then(|| ctx.fun.instr_load_unit(expr.source))
                     }
 
-                    data::Op2Kind::Op2(op) => {
+                    expr::Op2Kind::Op2(op) => {
                         if op.is_cancelling() {
                             let bb_2 = ctx.fun.new_block();
                             let bb_after = ctx.fun.new_block();
@@ -434,7 +434,7 @@ impl Builder {
         need_value.then(|| ctx.fun.instr_load_unit(SourceRange::null()))
     }
 
-    fn build_if_block(&self, ctx: &mut Ctx, node: NodeId, block: &data::IfBlock, need_value: bool) -> Option<InstrId> {
+    fn build_if_block(&self, ctx: &mut Ctx, node: NodeId, block: &expr::IfBlock, need_value: bool) -> Option<InstrId> {
         if block.is_do {
             self.build_do_block(ctx, node, &block.stmts, need_value)
         }
@@ -464,7 +464,7 @@ impl Builder {
                     let info = ident.info.unwrap();
 
                     match info.target {
-                        data::IdentTarget::Local { node, local } => {
+                        expr::IdentTarget::Local { node, local } => {
                             let local = ctx.get_local_id(node, local);
                             Some((PathBase::Instr(ctx.fun.instr_get_local(expr.source, local)), local.some()))
                         }
@@ -505,7 +505,7 @@ impl Builder {
             let info = ident.info.unwrap();
 
             match info.target {
-                data::IdentTarget::Local { node, local } => {
+                expr::IdentTarget::Local { node, local } => {
                     let local = ctx.get_local_id(node, local);
                     ctx.fun.instr_set_local(lhs.source, local, rhs);
                 }
@@ -532,7 +532,7 @@ impl Builder {
         }
     }
 
-    fn build_func(&self, ctx: &mut Ctx, node: NodeId, func: &data::Func) -> FunctionId {
+    fn build_func(&self, ctx: &mut Ctx, node: NodeId, func: &item::Func) -> FunctionId {
         let _ = ctx;
 
         let mut inner_fun = self.module.new_function();
@@ -564,7 +564,7 @@ struct Ctx<'a> {
 
 impl<'a> Ctx<'a> {
     #[inline(always)]
-    pub fn new(fun: &'a mut Function, node: NodeId, params: &[data::FuncParam]) -> Self {
+    pub fn new(fun: &'a mut Function, node: NodeId, params: &[item::FuncParam]) -> Self {
         let mut locals = index_vec![];
         for param in params {
             let lid = fun.new_param(param.name, SourceRange::null());

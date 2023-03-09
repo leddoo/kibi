@@ -36,11 +36,11 @@ impl Infer {
         self.prev_item_id.inc()
     }
 
-    pub fn assign_ids(&mut self, module: &mut data::Module) {
+    pub fn assign_ids(&mut self, module: &mut item::Module) {
         self.assign_ids_module(module);
     }
 
-    pub fn assign_ids_module(&mut self, module: &mut data::Module) -> u32 {
+    pub fn assign_ids_module(&mut self, module: &mut item::Module) -> u32 {
         let mut id = NodeId::ZERO;
         self.assign_ids_block(&mut id, &mut module.block.stmts);
         id.inc().value()
@@ -164,7 +164,7 @@ impl Infer {
         }
     }
 
-    fn assign_ids_func(&mut self, func: &mut data::Func) {
+    fn assign_ids_func(&mut self, func: &mut item::Func) {
         let mut func_id = NodeId::ZERO;
         self.assign_ids_block(&mut func_id, &mut func.body);
     }
@@ -176,11 +176,11 @@ impl Infer {
     }
 
 
-    pub fn infer(&mut self, module: &mut data::Module) {
+    pub fn infer(&mut self, module: &mut item::Module) {
         self.infer_module(module);
     }
 
-    fn infer_module(&mut self, module: &mut data::Module) {
+    fn infer_module(&mut self, module: &mut item::Module) {
         let mut ctx = InferCtx::new();
         self.infer_block(&mut ctx, &mut module.block.stmts);
     }
@@ -205,7 +205,7 @@ impl Infer {
                 if let Some(value) = &mut local.value {
                     self.infer_expr(ctx, value, None);
                 }
-                local.info = Some(data::LocalInfo { id: lid });
+                local.info = Some(expr::LocalInfo { id: lid });
             }
 
             StmtData::Expr (expr) => { self.infer_expr(ctx, expr, None); }
@@ -234,10 +234,10 @@ impl Infer {
 
             ExprData::Ident (ident) => {
                 if let Some(decl) = ctx.find_decl(ident.name) {
-                    ident.info = Some(data::IdentInfo { target: decl.target });
+                    ident.info = Some(expr::IdentInfo { target: decl.target });
                 }
                 else {
-                    ident.info = Some(data::IdentInfo { target: data::IdentTarget::Dynamic });
+                    ident.info = Some(expr::IdentInfo { target: expr::IdentTarget::Dynamic });
                 }
                 Type::Any
             }
@@ -273,11 +273,11 @@ impl Infer {
 
             ExprData::Op2 (op2) => {
                 match op2.kind {
-                    data::Op2Kind::Assign | data::Op2Kind::Define => {
+                    expr::Op2Kind::Assign | expr::Op2Kind::Define => {
                         let [op_lhs, op_rhs] = &mut op2.children;
 
                         if let ExprData::Tuple(lhs) = &mut op_lhs.data {
-                            if op2.kind != data::Op2Kind::Assign {
+                            if op2.kind != expr::Op2Kind::Assign {
                                 println!("error: tried to define tuple");
                             }
 
@@ -305,14 +305,14 @@ impl Infer {
                             op_lhs.ty = Some(Type::Any);
                         }
                         else {
-                            let is_def = op2.kind == data::Op2Kind::Define;
+                            let is_def = op2.kind == expr::Op2Kind::Define;
                             let rhs = self.infer_expr(ctx, &mut op2.children[1], None);
                             self.infer_assign(ctx, &mut op2.children[0], &rhs, is_def);
                         }
                         Type::Any
                     }
 
-                    data::Op2Kind::Op2Assign(op) => {
+                    expr::Op2Kind::Op2Assign(op) => {
                         let [src1, src2] = &mut op2.children;
                         let src1 = self.infer_expr(ctx, src1, None);
                         let src2 = self.infer_expr(ctx, src2, None);
@@ -327,7 +327,7 @@ impl Infer {
                         Type::Unit
                     }
 
-                    data::Op2Kind::Op2(op) => {
+                    expr::Op2Kind::Op2(op) => {
                         let [src1, src2] = &mut op2.children;
                         let src1 = self.infer_expr(ctx, src1, None);
                         let src2 = self.infer_expr(ctx, src2, None);
@@ -375,7 +375,7 @@ impl Infer {
 
             ExprData::Break (brk) => {
                 let target = ctx.current_break_target(expr.source, brk.label);
-                brk.info = Some(target.map(|bs| data::BreakInfo {
+                brk.info = Some(target.map(|bs| expr::BreakInfo {
                     node: bs.node, scope_index: bs.index }));
 
                 if let Some(value) = &mut brk.value {
@@ -388,7 +388,7 @@ impl Infer {
 
             ExprData::Continue (cont) => {
                 let target = ctx.current_continue_target(expr.source, cont.label);
-                cont.info = Some(target.map(|bs| data::BreakInfo {
+                cont.info = Some(target.map(|bs| expr::BreakInfo {
                     node: bs.node, scope_index: bs.index }));
 
                 Type::Unit
@@ -429,10 +429,10 @@ impl Infer {
 
             ExprData::Ident(ident) => {
                 if let Some(decl) = ctx.find_decl(ident.name) {
-                    ident.info = Some(data::IdentInfo { target: decl.target });
+                    ident.info = Some(expr::IdentInfo { target: decl.target });
                 }
                 else {
-                    ident.info = Some(data::IdentInfo { target: data::IdentTarget::Dynamic });
+                    ident.info = Some(expr::IdentInfo { target: expr::IdentTarget::Dynamic });
                 }
                 Type::Any
             }
@@ -451,13 +451,13 @@ impl Infer {
     fn infer_assign(&mut self, ctx: &mut InferCtx, lhs: &mut Expr, rhs: &Type, is_def: bool) {
         if let ExprData::Ident(ident) = &mut lhs.data {
             if let Some(decl) = ctx.find_decl(ident.name) {
-                ident.info = Some(data::IdentInfo { target: decl.target });
+                ident.info = Some(expr::IdentInfo { target: decl.target });
             }
             else {
                 if is_def != false {
                     println!("error: tried to define global");
                 }
-                ident.info = Some(data::IdentInfo { target: data::IdentTarget::Dynamic });
+                ident.info = Some(expr::IdentInfo { target: expr::IdentTarget::Dynamic });
             }
             lhs.ty = Some(Type::Any);
         }
@@ -523,7 +523,7 @@ impl Infer {
         Type::Any
     }
 
-    fn infer_if_block(&mut self, ctx: &mut InferCtx, node: NodeId, block: &mut data::IfBlock, expected_ty: Option<&Type>) -> Type {
+    fn infer_if_block(&mut self, ctx: &mut InferCtx, node: NodeId, block: &mut expr::IfBlock, expected_ty: Option<&Type>) -> Type {
         if block.is_do {
             self.infer_do_block(ctx, node, None, &mut block.stmts, expected_ty)
         }
@@ -532,7 +532,7 @@ impl Infer {
         }
     }
 
-    fn infer_func(&mut self, ctx: &mut InferCtx, node: NodeId, func: &mut data::Func) -> Type {
+    fn infer_func(&mut self, ctx: &mut InferCtx, node: NodeId, func: &mut item::Func) -> Type {
         // @temp: need ctx for closures.
         let _ = ctx;
 
@@ -554,7 +554,7 @@ define_id!(LocalId);
 struct Decl {
     name:   String,
     scope:  u32,
-    target: data::IdentTarget,
+    target: expr::IdentTarget,
 }
 
 struct BreakScope {
@@ -588,7 +588,7 @@ impl InferCtx {
         self.decls.push(Decl {
             name:   name.to_string(),
             scope:  self.scope,
-            target: data::IdentTarget::Local { node, local: id },
+            target: expr::IdentTarget::Local { node, local: id },
         });
         id
     }
@@ -602,7 +602,7 @@ impl InferCtx {
         self.decls.push(Decl {
             name:   name.to_string(),
             scope:  self.scope,
-            target: data::IdentTarget::Item(id)
+            target: expr::IdentTarget::Item(id)
         });
     }
 

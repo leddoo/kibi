@@ -135,7 +135,7 @@ fn main() {
             }
         };
 
-        let mut module = data::Module { source: ast.source, block: data::Block { stmts: vec![ast.to_stmt()] } };
+        let mut module = item::Module { source: ast.source, block: expr::Block { stmts: vec![ast.to_stmt()] } };
 
         let mut infer = infer::Infer::new();
         infer.assign_ids(&mut module);

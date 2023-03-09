@@ -172,8 +172,8 @@ pub struct Item<'a> {
 
 #[derive(Clone, Debug)]
 pub enum ItemData<'a> {
-    Module          (data::Module<'a>),
-    Func            (data::Func<'a>),
+    Module          (item::Module<'a>),
+    Func            (item::Func<'a>),
 }
 
 impl<'a> Item<'a> {
@@ -196,7 +196,7 @@ pub struct Stmt<'a> {
 #[derive(Clone, Debug)]
 pub enum StmtData<'a> {
     Item            (Item<'a>),
-    Local           (data::Local<'a>),
+    Local           (expr::Local<'a>),
     Expr            (Expr<'a>),
     Empty,
 }
@@ -225,21 +225,21 @@ pub enum ExprData<'a> {
     Bool            (bool),
     Number          (&'a str),
     QuotedString    (&'a str),
-    Ident           (data::Ident<'a>),
-    Tuple           (Box<data::Tuple<'a>>),
-    List            (Box<data::List<'a>>),
-    Do              (Box<data::Do<'a>>),
+    Ident           (expr::Ident<'a>),
+    Tuple           (Box<expr::Tuple<'a>>),
+    List            (Box<expr::List<'a>>),
+    Do              (Box<expr::Do<'a>>),
     SubExpr         (Box<Expr<'a>>),
-    Op1             (Box<data::Op1<'a>>),
-    Op2             (Box<data::Op2<'a>>),
-    Field           (Box<data::Field<'a>>),
-    Index           (Box<data::Index<'a>>),
-    Call            (Box<data::Call<'a>>),
-    If              (Box<data::If<'a>>),
-    While           (Box<data::While<'a>>),
-    Break           (Box<data::Break<'a>>),
-    Continue        (Box<data::Continue<'a>>),
-    Return          (data::Return<'a>),
+    Op1             (Box<expr::Op1<'a>>),
+    Op2             (Box<expr::Op2<'a>>),
+    Field           (Box<expr::Field<'a>>),
+    Index           (Box<expr::Index<'a>>),
+    Call            (Box<expr::Call<'a>>),
+    If              (Box<expr::If<'a>>),
+    While           (Box<expr::While<'a>>),
+    Break           (Box<expr::Break<'a>>),
+    Continue        (Box<expr::Continue<'a>>),
+    Return          (expr::Return<'a>),
     Env,
 }
 
@@ -257,10 +257,8 @@ impl<'a> Expr<'a> {
 
 
 
-pub mod data {
+pub mod item {
     use super::*;
-
-    // items
 
     #[derive(Clone, Debug)]
     pub struct Func<'a> {
@@ -278,12 +276,13 @@ pub mod data {
     #[derive(Clone, Debug)]
     pub struct Module<'a> {
         pub source:    SourceRange,
-        pub block:     data::Block<'a>,
+        pub block:     expr::Block<'a>,
     }
+}
 
 
-
-    // exprs
+pub mod expr {
+    use super::*;
 
     #[derive(Clone, Copy, Debug)]
     pub struct Ident<'a> {

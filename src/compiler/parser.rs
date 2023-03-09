@@ -204,44 +204,44 @@ impl<'a> TokenData<'a> {
     }
 
 
-    pub fn try_op1(&self) -> Option<data::Op1Kind> {
+    pub fn try_op1(&self) -> Option<expr::Op1Kind> {
         use TokenData::*;
         use super::Op1::*;
         Some(match self {
-            KwNot    => data::Op1Kind(Not),
-            OpMinus  => data::Op1Kind(Negate),
+            KwNot    => expr::Op1Kind(Not),
+            OpMinus  => expr::Op1Kind(Negate),
             _ => return None,
         })
     }
 
-    pub fn try_op2(&self) -> Option<data::Op2Kind> {
+    pub fn try_op2(&self) -> Option<expr::Op2Kind> {
         use TokenData::*;
         use super::Op2::*;
         Some(match self {
-            OpAdd               => data::Op2Kind::Op2(Add),
-            OpAddAssign         => data::Op2Kind::Op2Assign(Add),
-            OpMinus             => data::Op2Kind::Op2(Sub),
-            OpMinusAssign       => data::Op2Kind::Op2Assign(Sub),
-            OpMul               => data::Op2Kind::Op2(Mul),
-            OpMulAssign         => data::Op2Kind::Op2Assign(Mul),
-            OpDiv               => data::Op2Kind::Op2(Div),
-            OpDivAssign         => data::Op2Kind::Op2Assign(Div),
-            OpFloorDiv          => data::Op2Kind::Op2(FloorDiv),
-            OpFloorDivAssign    => data::Op2Kind::Op2Assign(FloorDiv),
-            OpRem               => data::Op2Kind::Op2(Rem),
-            OpRemAssign         => data::Op2Kind::Op2Assign(Rem),
-            KwAnd               => data::Op2Kind::Op2(And),
-            KwOr                => data::Op2Kind::Op2(Or),
-            OpOrElse            => data::Op2Kind::Op2(OrElse),
-            OpOrElseAssign      => data::Op2Kind::Op2Assign(OrElse),
-            ColonEq             => data::Op2Kind::Define,
-            OpAssign            => data::Op2Kind::Assign,
-            OpEq                => data::Op2Kind::Op2(CmpEq),
-            OpNe                => data::Op2Kind::Op2(CmpNe),
-            OpLe                => data::Op2Kind::Op2(CmpLe),
-            OpLt                => data::Op2Kind::Op2(CmpLt),
-            OpGe                => data::Op2Kind::Op2(CmpGe),
-            OpGt                => data::Op2Kind::Op2(CmpGt),
+            OpAdd               => expr::Op2Kind::Op2(Add),
+            OpAddAssign         => expr::Op2Kind::Op2Assign(Add),
+            OpMinus             => expr::Op2Kind::Op2(Sub),
+            OpMinusAssign       => expr::Op2Kind::Op2Assign(Sub),
+            OpMul               => expr::Op2Kind::Op2(Mul),
+            OpMulAssign         => expr::Op2Kind::Op2Assign(Mul),
+            OpDiv               => expr::Op2Kind::Op2(Div),
+            OpDivAssign         => expr::Op2Kind::Op2Assign(Div),
+            OpFloorDiv          => expr::Op2Kind::Op2(FloorDiv),
+            OpFloorDivAssign    => expr::Op2Kind::Op2Assign(FloorDiv),
+            OpRem               => expr::Op2Kind::Op2(Rem),
+            OpRemAssign         => expr::Op2Kind::Op2Assign(Rem),
+            KwAnd               => expr::Op2Kind::Op2(And),
+            KwOr                => expr::Op2Kind::Op2(Or),
+            OpOrElse            => expr::Op2Kind::Op2(OrElse),
+            OpOrElseAssign      => expr::Op2Kind::Op2Assign(OrElse),
+            ColonEq             => expr::Op2Kind::Define,
+            OpAssign            => expr::Op2Kind::Assign,
+            OpEq                => expr::Op2Kind::Op2(CmpEq),
+            OpNe                => expr::Op2Kind::Op2(CmpNe),
+            OpLe                => expr::Op2Kind::Op2(CmpLe),
+            OpLt                => expr::Op2Kind::Op2(CmpLt),
+            OpGe                => expr::Op2Kind::Op2(CmpGe),
+            OpGt                => expr::Op2Kind::Op2(CmpGt),
             _ => return None
         })
     }
@@ -755,7 +755,7 @@ impl<'p, 'i> Parser<'p, 'i> {
         // ident.
         if let TokenData::Ident(name) = current.data {
             let source = current.source;
-            return Ok(Expr::new(source, ExprData::Ident(data::Ident { name, info: None })));
+            return Ok(Expr::new(source, ExprData::Ident(expr::Ident { name, info: None })));
         }
 
         // number.
@@ -792,7 +792,7 @@ impl<'p, 'i> Parser<'p, 'i> {
                     ExprData::SubExpr(Box::new(values.into_iter().next().unwrap()))
                 }
                 else {
-                    ExprData::Tuple(Box::new(data::Tuple { values }))
+                    ExprData::Tuple(Box::new(expr::Tuple { values }))
                 };
 
             let end = self.expect(TokenData::RParen)?.end;
@@ -818,7 +818,7 @@ impl<'p, 'i> Parser<'p, 'i> {
 
             let body = self.parse_block(body_begin)?.1.stmts;
 
-            let data = ExprData::While(Box::new(data::While { label, condition, body }));
+            let data = ExprData::While(Box::new(expr::While { label, condition, body }));
             let end = self.expect(TokenData::KwEnd)?.end;
             return Ok(Expr::new(SourceRange { begin, end }, data));
         }
@@ -835,7 +835,7 @@ impl<'p, 'i> Parser<'p, 'i> {
             let body_begin = self.expect(TokenData::Colon)?.end;
 
             let block = self.parse_block(body_begin)?.1;
-            let data = ExprData::Do(Box::new(data::Do { label, stmts: block.stmts }));
+            let data = ExprData::Do(Box::new(expr::Do { label, stmts: block.stmts }));
 
             let end = self.expect(TokenData::KwEnd)?.end;
             return Ok(Expr::new(SourceRange { begin, end }, data));
@@ -847,7 +847,7 @@ impl<'p, 'i> Parser<'p, 'i> {
             let (source, label) = self.next_if_label(source);
             let (source, value) = self.next_if_expr(source, 0)?;
             return Ok(Expr::new(source, ExprData::Break(Box::new(
-                data::Break { label, value, info: None }))));
+                expr::Break { label, value, info: None }))));
         }
 
         // continue
@@ -855,14 +855,14 @@ impl<'p, 'i> Parser<'p, 'i> {
             let source = current.source;
             let (source, label) = self.next_if_label(source);
             return Ok(Expr::new(source, ExprData::Continue(Box::new(
-                data::Continue { label, info: None }))));
+                expr::Continue { label, info: None }))));
         }
 
         // return
         if let TokenData::KwReturn = current.data {
             let source = current.source;
             let (source, value) = self.next_if_expr(source, 0)?;
-            let data = ExprData::Return(data::Return { value });
+            let data = ExprData::Return(expr::Return { value });
             return Ok(Expr::new(source, data));
         }
 
@@ -871,7 +871,7 @@ impl<'p, 'i> Parser<'p, 'i> {
             let values = self.parse_comma_exprs(TokenData::RBracket)?.0;
             let end = self.expect(TokenData::RBracket)?.end;
 
-            let data = ExprData::List(Box::new(data::List { values }));
+            let data = ExprData::List(Box::new(expr::List { values }));
             return Ok(Expr::new(SourceRange { begin, end }, data));
         }
 
@@ -888,14 +888,14 @@ impl<'p, 'i> Parser<'p, 'i> {
 
         // prefix operators.
         if let Some(op1) = current.try_op1() {
-            if data::PREC_PREFIX < prec {
+            if expr::PREC_PREFIX < prec {
                 unimplemented!()
             }
 
-            let value = self.parse_expr(data::PREC_PREFIX)?;
+            let value = self.parse_expr(expr::PREC_PREFIX)?;
 
             let end = value.source.end;
-            let data = ExprData::Op1(Box::new(data::Op1 { kind: op1, child: value }));
+            let data = ExprData::Op1(Box::new(expr::Op1 { kind: op1, child: value }));
             return Ok(Expr::new(SourceRange { begin, end }, data));
         }
 
@@ -925,7 +925,7 @@ impl<'p, 'i> Parser<'p, 'i> {
                     let end   = other.source.end;
                     result = Expr::new(
                         SourceRange { begin, end },
-                        ExprData::Op2(Box::new(data::Op2 {
+                        ExprData::Op2(Box::new(expr::Op2 {
                             kind: op2,
                             children: [result, other]
                         })));
@@ -934,7 +934,7 @@ impl<'p, 'i> Parser<'p, 'i> {
             }
 
             // "postfix" operators.
-            if data::PREC_POSTFIX < prec {
+            if expr::PREC_POSTFIX < prec {
                 break;
             }
 
@@ -948,7 +948,7 @@ impl<'p, 'i> Parser<'p, 'i> {
                 let end   = self.expect(TokenData::RParen)?.end;
                 result = Expr::new(
                     SourceRange { begin, end },
-                    ExprData::Call(Box::new(data::Call {
+                    ExprData::Call(Box::new(expr::Call {
                         func: result,
                         args,
                     })));
@@ -965,7 +965,7 @@ impl<'p, 'i> Parser<'p, 'i> {
                 let end   = name.source.end;
                 result = Expr::new(
                     SourceRange { begin, end },
-                    ExprData::Field(Box::new(data::Field {
+                    ExprData::Field(Box::new(expr::Field {
                         base: result,
                         name: name.value,
                     })));
@@ -1001,7 +1001,7 @@ impl<'p, 'i> Parser<'p, 'i> {
                 let end   = self.expect(TokenData::RBracket)?.end;
                 result = Expr::new(
                     SourceRange { begin, end },
-                    ExprData::Index(Box::new(data::Index {
+                    ExprData::Index(Box::new(expr::Index {
                         base: result,
                         index,
                     })));
@@ -1056,7 +1056,7 @@ impl<'p, 'i> Parser<'p, 'i> {
     }
     */
 
-    pub fn parse_block(&mut self, begin: SourcePos) -> ParseResult<(SourceRange, data::Block<'i>)> {
+    pub fn parse_block(&mut self, begin: SourcePos) -> ParseResult<(SourceRange, expr::Block<'i>)> {
         let mut end = begin;
 
         let mut stmts = vec![];
@@ -1089,8 +1089,8 @@ impl<'p, 'i> Parser<'p, 'i> {
             else if at.data == TokenData::KwLet
             ||      at.data == TokenData::KwVar {
                 let kind = match at.data {
-                    TokenData::KwLet => data::LocalKind::Let,
-                    TokenData::KwVar => data::LocalKind::Var,
+                    TokenData::KwLet => expr::LocalKind::Let,
+                    TokenData::KwVar => expr::LocalKind::Var,
                     _ => unreachable!()
                 };
                 self.next().unwrap();
@@ -1108,7 +1108,7 @@ impl<'p, 'i> Parser<'p, 'i> {
 
                 stmts.push(Stmt::new(
                     SourceRange { begin, end },
-                    StmtData::Local(data::Local {
+                    StmtData::Local(expr::Local {
                         name: name.value, value, kind, info: None
                     }),
                 ));
@@ -1123,19 +1123,19 @@ impl<'p, 'i> Parser<'p, 'i> {
             }
         }
 
-        Ok((SourceRange { begin, end }, data::Block { stmts }))
+        Ok((SourceRange { begin, end }, expr::Block { stmts }))
     }
 
     // consumes `do` & colon.
-    pub fn parse_if_block(&mut self) -> ParseResult<data::IfBlock<'i>> {
+    pub fn parse_if_block(&mut self) -> ParseResult<expr::IfBlock<'i>> {
         let is_do = self.next_if(TokenData::KwDo);
         let block_begin = self.expect(TokenData::Colon)?.end;
 
         let block = self.parse_block(block_begin)?.1;
-        Ok(data::IfBlock { stmts: block.stmts, is_do })
+        Ok(expr::IfBlock { stmts: block.stmts, is_do })
     }
 
-    pub fn parse_if(&mut self) -> ParseResult<(SourcePos, data::If<'i>)> {
+    pub fn parse_if(&mut self) -> ParseResult<(SourcePos, expr::If<'i>)> {
         let condition = self.parse_expr(0)?;
 
         let on_true = self.parse_if_block()?;
@@ -1146,7 +1146,7 @@ impl<'p, 'i> Parser<'p, 'i> {
             if at.data == TokenData::KwElif {
                 let begin = at.source.begin;
                 let body = self.parse_if_as_expr(begin)?.to_stmt();
-                (body.source.end, Some(data::IfBlock { stmts: vec![body], is_do: false }))
+                (body.source.end, Some(expr::IfBlock { stmts: vec![body], is_do: false }))
             }
             else if at.data == TokenData::KwElse {
                 let body = self.parse_if_block()?;
@@ -1162,7 +1162,7 @@ impl<'p, 'i> Parser<'p, 'i> {
             }
         };
 
-        Ok((end, data::If { condition, on_true, on_false }))
+        Ok((end, expr::If { condition, on_true, on_false }))
     }
 
     pub fn parse_if_as_expr(&mut self, begin: SourcePos) -> ParseResult<Expr<'i>> {
@@ -1172,13 +1172,13 @@ impl<'p, 'i> Parser<'p, 'i> {
     }
 
     // bool: ends with comma.
-    pub fn parse_func_params(&mut self) -> ParseResult<(Vec<data::FuncParam<'i>>, bool)> {
+    pub fn parse_func_params(&mut self) -> ParseResult<(Vec<item::FuncParam<'i>>, bool)> {
         let mut result = vec![];
 
         let mut had_comma = true;
         while had_comma {
             let Some(name) = self.next_if_ident() else { break };
-            result.push(data::FuncParam { name });
+            result.push(item::FuncParam { name });
 
             if !self.next_if(TokenData::Comma) {
                 had_comma = false;
@@ -1188,7 +1188,7 @@ impl<'p, 'i> Parser<'p, 'i> {
         Ok((result, had_comma))
     }
 
-    pub fn parse_func(&mut self, begin: SourcePos) -> ParseResult<(SourceRange, data::Func<'i>)> {
+    pub fn parse_func(&mut self, begin: SourcePos) -> ParseResult<(SourceRange, item::Func<'i>)> {
         let at   = self.peek_or_eof(0)?;
         let next = self.peek_or_eof(1)?;
 
@@ -1209,7 +1209,7 @@ impl<'p, 'i> Parser<'p, 'i> {
             let body = self.parse_block(body_begin)?.1.stmts;
             let end = self.expect(TokenData::KwEnd)?.end;
 
-            return Ok((SourceRange { begin, end }, data::Func { name, params, body }));
+            return Ok((SourceRange { begin, end }, item::Func { name, params, body }));
         }
         // fn params => expr
         else {
@@ -1221,14 +1221,14 @@ impl<'p, 'i> Parser<'p, 'i> {
             let end = body.source.end;
             let body = vec![body.to_stmt()];
 
-            return Ok((SourceRange { begin, end }, data::Func { name, params, body }));
+            return Ok((SourceRange { begin, end }, item::Func { name, params, body }));
         }
     }
 
 
-    pub fn parse_module(&mut self, begin: SourcePos) -> ParseResult<data::Module<'i>> {
+    pub fn parse_module(&mut self, begin: SourcePos) -> ParseResult<item::Module<'i>> {
         let (source, block) = self.parse_block(begin)?;
-        return Ok(data::Module { source, block });
+        return Ok(item::Module { source, block });
     }
 }
 
@@ -1245,7 +1245,7 @@ pub fn parse_single<'i>(input: &'i [u8]) -> ParseResult<Expr<'i>> {
     Ok(result)
 }
 
-pub fn parse_module<'i>(input: &'i [u8]) -> ParseResult<data::Module<'i>> {
+pub fn parse_module<'i>(input: &'i [u8]) -> ParseResult<item::Module<'i>> {
     let tokens = Tokenizer::tokenize(input, true)?;
     let mut p = Parser::new(&tokens);
     p.parse_module(SourcePos { line: 0, column: 0 })
