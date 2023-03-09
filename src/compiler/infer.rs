@@ -23,36 +23,35 @@ pub enum Type {
 
 pub struct Infer {
     prev_item_id: ItemId,
+    prev_node_id: NodeId,
 }
 
 impl Infer {
     pub fn new() -> Self {
         Infer {
             prev_item_id: ItemId::ZERO,
+            prev_node_id: NodeId::ZERO,
         }
     }
 
-    fn next_item_id(&mut self) -> ItemId {
-        self.prev_item_id.inc()
-    }
+    #[inline(always)]
+    fn next_item_id(&mut self) -> ItemId { self.prev_item_id.inc() }
+
+    #[inline(always)]
+    fn next_node_id(&mut self) -> NodeId { self.prev_node_id.inc() }
 
     pub fn assign_ids(&mut self, module: &mut item::Module) {
-        self.assign_ids_module(module);
+        self.assign_ids_block(&mut module.block.stmts);
     }
 
-    pub fn assign_ids_module(&mut self, module: &mut item::Module) -> u32 {
-        let mut id = NodeId::ZERO;
-        self.assign_ids_block(&mut id, &mut module.block.stmts);
-        id.inc().value()
-    }
-
-    fn assign_ids_stmt(&mut self, id: &mut NodeId, stmt: &mut Stmt) {
-        stmt.id = id.inc();
+    fn assign_ids_stmt(&mut self, stmt: &mut Stmt) {
+        stmt.id = self.next_node_id();
 
         match &mut stmt.data {
             StmtData::Item (item) => {
                 item.id = self.next_item_id();
 
+                let id0 = self.prev_node_id;
                 match &mut item.data {
                     ItemData::Module(module) => {
                         let _ = module;
@@ -60,25 +59,27 @@ impl Infer {
                     }
 
                     ItemData::Func(func) => {
-                        self.assign_ids_func(func);
+                        self.assign_ids_block(&mut func.body);
                     }
                 }
+                let id1 = self.prev_node_id;
+                item.num_nodes = id1.value() - id0.value();
             }
 
             StmtData::Local (local) => {
                 if let Some(value) = &mut local.value {
-                    self.assign_ids_expr(id, value);
+                    self.assign_ids_expr(value);
                 }
             }
 
-            StmtData::Expr (expr) => { self.assign_ids_expr(id, expr); }
+            StmtData::Expr (expr) => { self.assign_ids_expr(expr); }
 
             StmtData::Empty => (),
         }
     }
 
-    fn assign_ids_expr(&mut self, id: &mut NodeId, expr: &mut Expr) {
-        expr.id = id.inc();
+    fn assign_ids_expr(&mut self, expr: &mut Expr) {
+        expr.id = self.next_node_id();
 
         match &mut expr.data {
             ExprData::Nil |
@@ -90,65 +91,65 @@ impl Infer {
 
             ExprData::Tuple (tuple) => {
                 for value in &mut tuple.values {
-                    self.assign_ids_expr(id, value);
+                    self.assign_ids_expr(value);
                 }
             }
 
             ExprData::List (list) => {
                 for value in &mut list.values {
-                    self.assign_ids_expr(id, value);
+                    self.assign_ids_expr(value);
                 }
             }
 
             ExprData::Do (doo) => {
-                self.assign_ids_block(id, &mut doo.stmts);
+                self.assign_ids_block(&mut doo.stmts);
             }
 
             ExprData::SubExpr (sub_expr) => {
-                self.assign_ids_expr(id, sub_expr);
+                self.assign_ids_expr(sub_expr);
             }
 
             ExprData::Op1 (op1) => {
-                self.assign_ids_expr(id, &mut op1.child);
+                self.assign_ids_expr(&mut op1.child);
             }
 
             ExprData::Op2 (op2) => {
-                self.assign_ids_expr(id, &mut op2.children[0]);
-                self.assign_ids_expr(id, &mut op2.children[1]);
+                self.assign_ids_expr(&mut op2.children[0]);
+                self.assign_ids_expr(&mut op2.children[1]);
             }
 
             ExprData::Field (field) => {
-                self.assign_ids_expr(id, &mut field.base);
+                self.assign_ids_expr(&mut field.base);
             }
 
             ExprData::Index (index) => {
-                self.assign_ids_expr(id, &mut index.base);
-                self.assign_ids_expr(id, &mut index.index);
+                self.assign_ids_expr(&mut index.base);
+                self.assign_ids_expr(&mut index.index);
             }
 
             ExprData::Call (call) => {
-                self.assign_ids_expr(id, &mut call.func);
+                self.assign_ids_expr(&mut call.func);
                 for arg in &mut call.args {
-                    self.assign_ids_expr(id, arg);
+                    self.assign_ids_expr(arg);
                 }
             }
 
             ExprData::If (iff) => {
-                self.assign_ids_expr(id, &mut iff.condition);
-                self.assign_ids_block(id, &mut iff.on_true.stmts);
+                self.assign_ids_expr(&mut iff.condition);
+                self.assign_ids_block(&mut iff.on_true.stmts);
                 if let Some(on_false) = &mut iff.on_false {
-                    self.assign_ids_block(id, &mut on_false.stmts);
+                    self.assign_ids_block(&mut on_false.stmts);
                 }
             }
 
             ExprData::While (whilee) => {
-                self.assign_ids_expr(id, &mut whilee.condition);
-                self.assign_ids_block(id, &mut whilee.body);
+                self.assign_ids_expr(&mut whilee.condition);
+                self.assign_ids_block(&mut whilee.body);
             }
 
             ExprData::Break (brk) => {
                 if let Some(value) = &mut brk.value {
-                    self.assign_ids_expr(id, value);
+                    self.assign_ids_expr(value);
                 }
             }
 
@@ -156,7 +157,7 @@ impl Infer {
 
             ExprData::Return (ret) => {
                 if let Some(value) = &mut ret.value {
-                    self.assign_ids_expr(id, value);
+                    self.assign_ids_expr(value);
                 }
             }
 
@@ -164,14 +165,9 @@ impl Infer {
         }
     }
 
-    fn assign_ids_func(&mut self, func: &mut item::Func) {
-        let mut func_id = NodeId::ZERO;
-        self.assign_ids_block(&mut func_id, &mut func.body);
-    }
-
-    fn assign_ids_block(&mut self, id: &mut NodeId, block: &mut [Stmt]) {
+    fn assign_ids_block(&mut self, block: &mut [Stmt]) {
         for stmt in block.iter_mut() {
-            self.assign_ids_stmt(id, stmt);
+            self.assign_ids_stmt(stmt);
         }
     }
 
