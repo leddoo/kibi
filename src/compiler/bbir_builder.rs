@@ -29,11 +29,11 @@ impl Builder {
         let as_value_block = false;
         let value = 
             if as_value_block {
-                self.build_value_block(&mut ctx, stmts, true).unwrap()
+                self.build_value_block(&mut ctx, module_id, stmts, true).unwrap()
             }
             else {
                 self.build_block(&mut ctx, stmts);
-                ctx.fun.instr_load_unit(SourceRange::null())
+                ctx.fun.instr_load_unit((SourceRange::null(), None.into()))
             };
         ctx.fun.instr_return(SourceRange::null(), value);
     }
@@ -62,12 +62,12 @@ impl Builder {
                         self.build_expr(ctx, value, true).unwrap()
                     }
                     else {
-                        ctx.fun.instr_load_unit(stmt.source)
+                        ctx.fun.instr_load_unit((stmt.source, None.into()))
                     };
 
                 let lid = ctx.add_local_decl(stmt.source, local.name,
                     stmt.id, local.info.unwrap().id);
-                ctx.fun.instr_set_local(stmt.source, lid, v);
+                ctx.fun.instr_set_local((stmt.source, stmt.id.some()), lid, v);
             }
 
             StmtData::Expr (expr) => {
@@ -81,21 +81,21 @@ impl Builder {
     fn build_expr(&mut self, ctx: &mut Ctx, expr: &Expr, need_value: bool) -> Option<InstrId> {
         match &expr.data {
             ExprData::Nil => {
-                Some(ctx.fun.instr_load_nil(expr.source))
+                Some(ctx.fun.instr_load_nil((expr.source, expr.id.some())))
             }
 
             ExprData::Bool (value) => {
-                Some(ctx.fun.instr_load_bool(expr.source, *value))
+                Some(ctx.fun.instr_load_bool((expr.source, expr.id.some()), *value))
             }
 
             ExprData::Number (value) => {
                 let value = value.parse().unwrap();
-                Some(ctx.fun.instr_load_int(expr.source, value))
+                Some(ctx.fun.instr_load_int((expr.source, expr.id.some()), value))
             }
 
             ExprData::QuotedString (value) => {
                 let string = ctx.fun.add_string(value);
-                Some(ctx.fun.instr_load_string(expr.source, string))
+                Some(ctx.fun.instr_load_string((expr.source, expr.id.some()), string))
             }
 
             ExprData::Ident (ident) => {
@@ -103,18 +103,18 @@ impl Builder {
 
                 match info.target {
                     expr::IdentTarget::Item(item) => {
-                        let index = ctx.fun.instr_load_int(expr.source, item.value() as i64);
-                        Some(ctx.fun.instr_read_path(expr.source, PathBase::Items, &[PathKey::Index(index)]))
+                        let index = ctx.fun.instr_load_int((expr.source, None.into()), item.value() as i64);
+                        Some(ctx.fun.instr_read_path((expr.source, expr.id.some()), PathBase::Items, &[PathKey::Index(index)]))
                     }
 
                     expr::IdentTarget::Local { node, local } => {
                         let local = ctx.get_local_id(node, local);
-                        Some(ctx.fun.instr_get_local(expr.source, local))
+                        Some(ctx.fun.instr_get_local((expr.source, expr.id.some()), local))
                     }
 
                     expr::IdentTarget::Dynamic => {
                         let name = ctx.fun.add_string(ident.name);
-                        Some(ctx.fun.instr_read_path(expr.source, PathBase::Env, &[PathKey::Field(name)]))
+                        Some(ctx.fun.instr_read_path((expr.source, expr.id.some()), PathBase::Env, &[PathKey::Field(name)]))
                     }
                 }
             }
@@ -124,7 +124,7 @@ impl Builder {
                 for v in &tuple.values {
                     values.push(self.build_expr(ctx, v, true).unwrap());
                 }
-                Some(ctx.fun.instr_tuple_new(expr.source, &values))
+                Some(ctx.fun.instr_tuple_new((expr.source, expr.id.some()), &values))
             }
 
             ExprData::List (list) => {
@@ -132,7 +132,7 @@ impl Builder {
                 for v in &list.values {
                     values.push(self.build_expr(ctx, v, true).unwrap());
                 }
-                Some(ctx.fun.instr_list_new(expr.source, &values))
+                Some(ctx.fun.instr_list_new((expr.source, expr.id.some()), &values))
             }
 
             ExprData::Do (doo) => {
@@ -146,7 +146,7 @@ impl Builder {
             ExprData::Op1 (op1) => {
                 let src = self.build_expr(ctx, &op1.child, true).unwrap();
                 let op  = op1.kind.0;
-                Some(ctx.fun.instr_op1(expr.source, op, src))
+                Some(ctx.fun.instr_op1((expr.source, expr.id.some()), op, src))
             }
 
             ExprData::Op2 (op2) => {
@@ -185,7 +185,7 @@ impl Builder {
                             let is_define = op2.kind == expr::Op2Kind::Define;
                             self.build_assign(ctx, &op2.children[0], value, is_define);
                         }
-                        need_value.then(|| ctx.fun.instr_load_unit(expr.source))
+                        need_value.then(|| ctx.fun.instr_load_unit((expr.source, expr.id.some())))
                     }
 
                     expr::Op2Kind::Op2Assign(op) => {
@@ -196,11 +196,11 @@ impl Builder {
                         let src1 = self.build_expr(ctx, &op2.children[0], true).unwrap();
                         let src2 = self.build_expr(ctx, &op2.children[1], true).unwrap();
 
-                        let value = ctx.fun.instr_op2(expr.source, op, src1, src2);
+                        let value = ctx.fun.instr_op2((expr.source, None.into()), op, src1, src2);
                         let is_def = false;
                         self.build_assign(ctx, &op2.children[0], value, is_def);
 
-                        need_value.then(|| ctx.fun.instr_load_unit(expr.source))
+                        need_value.then(|| ctx.fun.instr_load_unit((expr.source, expr.id.some())))
                     }
 
                     expr::Op2Kind::Op2(op) => {
@@ -227,12 +227,12 @@ impl Builder {
 
                             // join.
                             ctx.fun.set_current_block(bb_after);
-                            Some(ctx.fun.instr_phi(expr.source, &[(bb_1, src1), (bb_2, src2)]))
+                            Some(ctx.fun.instr_phi((expr.source, expr.id.some()), &[(bb_1, src1), (bb_2, src2)]))
                         }
                         else {
                             let src1 = self.build_expr(ctx, &op2.children[0], true).unwrap();
                             let src2 = self.build_expr(ctx, &op2.children[1], true).unwrap();
-                            Some(ctx.fun.instr_op2(expr.source, op, src1, src2))
+                            Some(ctx.fun.instr_op2((expr.source, expr.id.some()), op, src1, src2))
                         }
                     }
                 }
@@ -252,7 +252,7 @@ impl Builder {
                 for arg in &call.args {
                     args.push(self.build_expr(ctx, arg, true).unwrap());
                 }
-                Some(ctx.fun.instr_call(expr.source, func, &args))
+                Some(ctx.fun.instr_call((expr.source, expr.id.some()), func, &args))
             }
 
             ExprData::If (iff) => {
@@ -282,7 +282,7 @@ impl Builder {
                     }
                     else {
                         let source = expr.source.end.to_range();
-                        let v = need_value.then(|| ctx.fun.instr_load_unit(source));
+                        let v = need_value.then(|| ctx.fun.instr_load_unit((source, None.into())));
                         (v, source)
                     };
                 ctx.fun.instr_jump(on_false_src, after_if);
@@ -291,7 +291,7 @@ impl Builder {
 
                 ctx.fun.set_current_block(after_if);
                 need_value.then(||
-                    ctx.fun.instr_phi(expr.source, &[
+                    ctx.fun.instr_phi((expr.source, expr.id.some()), &[
                         (bb_true,  value_true.unwrap()),
                         (bb_false, value_false.unwrap()),
                     ]))
@@ -323,7 +323,7 @@ impl Builder {
 
 
                 ctx.fun.set_current_block(bb_after);
-                need_value.then(|| ctx.fun.instr_load_unit(expr.source))
+                need_value.then(|| ctx.fun.instr_load_unit((expr.source, expr.id.some())))
             }
 
             ExprData::Break(brk) => {
@@ -341,7 +341,7 @@ impl Builder {
 
                     if let Some(values) = &mut scope.values {
                         let value = value.unwrap_or_else(||
-                            ctx.fun.instr_load_unit(expr.source));
+                            ctx.fun.instr_load_unit((expr.source, None.into())));
                         values.push((ctx.fun.get_current_block(), value));
                     }
                     else if value.is_some() {
@@ -354,7 +354,7 @@ impl Builder {
                     ctx.fun.set_current_block(bb_unreach);
                 }
 
-                need_value.then(|| ctx.fun.instr_load_unit(expr.source))
+                need_value.then(|| ctx.fun.instr_load_unit((expr.source, expr.id.some())))
             }
 
             ExprData::Continue(cont) => {
@@ -371,7 +371,7 @@ impl Builder {
                     ctx.fun.set_current_block(bb_unreach);
                 }
 
-                need_value.then(|| ctx.fun.instr_load_unit(expr.source))
+                need_value.then(|| ctx.fun.instr_load_unit((expr.source, expr.id.some())))
             }
 
             ExprData::Return (returnn) => {
@@ -380,21 +380,21 @@ impl Builder {
                         self.build_expr(ctx, value, true).unwrap()
                     }
                     else {
-                        ctx.fun.instr_load_unit(expr.source)
+                        ctx.fun.instr_load_unit((expr.source, None.into()))
                     };
                 ctx.fun.instr_return(expr.source, value);
 
                 let new_block = ctx.fun.new_block();
                 ctx.fun.set_current_block(new_block);
 
-                need_value.then(|| ctx.fun.instr_load_unit(expr.source))
+                need_value.then(|| ctx.fun.instr_load_unit((expr.source, expr.id.some())))
             }
 
             ExprData::Env => {
                 // @temp-no-env-access.
                 //Some(ctx.fun.instr_load_env(expr.source))
                 println!("ignoring error: no env access");
-                need_value.then(|| ctx.fun.instr_load_unit(expr.source))
+                need_value.then(|| ctx.fun.instr_load_unit((expr.source, None.into())))
             }
         }
     }
@@ -414,18 +414,18 @@ impl Builder {
 
         let default_block = ctx.fun.get_current_block();
         let default_value = need_value.then(||
-            ctx.fun.instr_load_unit(SourceRange::null()));
+            ctx.fun.instr_load_unit((SourceRange::null(), None.into())));
         ctx.fun.instr_jump(SourceRange::null(), bb_after);
         ctx.fun.set_current_block(bb_after);
 
         need_value.then(|| {
             let mut values = values.unwrap();
             values.push((default_block, default_value.unwrap()));
-            ctx.fun.instr_phi(SourceRange::null(), &values)
+            ctx.fun.instr_phi((SourceRange::null(), node.some()), &values)
         })
     }
 
-    fn build_value_block(&mut self, ctx: &mut Ctx, block: &[Stmt], need_value: bool) -> Option<InstrId> {
+    fn build_value_block(&mut self, ctx: &mut Ctx, node: NodeId, block: &[Stmt], need_value: bool) -> Option<InstrId> {
         if block.len() == 1 {
             if let StmtData::Expr(expr) = &block[0].data {
                 return self.build_expr(ctx, expr, need_value);
@@ -433,7 +433,7 @@ impl Builder {
         }
 
         self.build_block(ctx, block);
-        need_value.then(|| ctx.fun.instr_load_unit(SourceRange::null()))
+        need_value.then(|| ctx.fun.instr_load_unit((SourceRange::null(), node.some())))
     }
 
     fn build_if_block(&mut self, ctx: &mut Ctx, node: NodeId, block: &expr::IfBlock, need_value: bool) -> Option<InstrId> {
@@ -441,7 +441,7 @@ impl Builder {
             self.build_do_block(ctx, node, &block.stmts, need_value)
         }
         else {
-            self.build_value_block(ctx, &block.stmts, need_value)
+            self.build_value_block(ctx, node, &block.stmts, need_value)
         }
     }
 
@@ -473,7 +473,7 @@ impl Builder {
 
                         expr::IdentTarget::Local { node, local } => {
                             let local = ctx.get_local_id(node, local);
-                            Some((PathBase::Instr(ctx.fun.instr_get_local(expr.source, local)), local.some()))
+                            Some((PathBase::Instr(ctx.fun.instr_get_local((expr.source, expr.id.some()), local)), local.some()))
                         }
 
                         expr::IdentTarget::Dynamic => {
@@ -501,10 +501,10 @@ impl Builder {
 
     fn build_read_path(&mut self, ctx: &mut Ctx, expr: &Expr) -> Option<InstrId> {
         if let Some((base, _, keys)) = self.build_path(ctx, expr) {
-            return Some(ctx.fun.instr_read_path(expr.source, base, &keys))
+            return Some(ctx.fun.instr_read_path((expr.source, expr.id.some()), base, &keys))
         }
         // ignore error.
-        Some(ctx.fun.instr_load_unit(expr.source))
+        Some(ctx.fun.instr_load_unit((expr.source, expr.id.some())))
     }
 
     fn build_assign(&mut self, ctx: &mut Ctx, lhs: &Expr, rhs: InstrId, is_def: bool) {
@@ -513,18 +513,18 @@ impl Builder {
 
             match info.target {
                 expr::IdentTarget::Item(item) => {
-                    let index = ctx.fun.instr_load_int(lhs.source, item.value() as i64);
-                    ctx.fun.instr_write_path(lhs.source, PathBase::Items, &[PathKey::Index(index)], rhs, is_def);
+                    let index = ctx.fun.instr_load_int((lhs.source, None.into()), item.value() as i64);
+                    ctx.fun.instr_write_path((lhs.source, None.into()), PathBase::Items, &[PathKey::Index(index)], rhs, is_def);
                 }
 
                 expr::IdentTarget::Local { node, local } => {
                     let local = ctx.get_local_id(node, local);
-                    ctx.fun.instr_set_local(lhs.source, local, rhs);
+                    ctx.fun.instr_set_local((lhs.source, lhs.id.some()), local, rhs);
                 }
 
                 expr::IdentTarget::Dynamic => {
                     let name = ctx.fun.add_string(ident.name);
-                    ctx.fun.instr_write_path(lhs.source, PathBase::Env, &[PathKey::Field(name)], rhs, is_def);
+                    ctx.fun.instr_write_path((lhs.source, None.into()), PathBase::Env, &[PathKey::Field(name)], rhs, is_def);
                 }
             }
         }
@@ -533,9 +533,10 @@ impl Builder {
         }
         else if let ExprData::Field(_) | ExprData::Index(_) = lhs.data {
             if let Some((base, lid, keys)) = self.build_path(ctx, lhs) {
-                let new_value = ctx.fun.instr_write_path(lhs.source, base, &keys, rhs, is_def);
+                let new_value = ctx.fun.instr_write_path((lhs.source, None.into()), base, &keys, rhs, is_def);
                 if let Some(lid) = lid.to_option() {
-                    ctx.fun.instr_set_local(lhs.source, lid, new_value);
+                    // todo: this is scuffed.
+                    ctx.fun.instr_set_local((lhs.source, None.into()), lid, new_value);
                 }
             }
         }
@@ -550,7 +551,7 @@ impl Builder {
         let mut inner_fun = self.krate.new_function();
         let mut inner_ctx = Ctx::new(&mut inner_fun, node, &func.params);
 
-        let value = self.build_value_block(&mut inner_ctx, &func.body, true).unwrap();
+        let value = self.build_value_block(&mut inner_ctx, node, &func.body, true).unwrap();
         inner_ctx.fun.instr_return(SourceRange::null(), value);
 
         inner_ctx.fun.id()

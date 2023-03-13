@@ -36,7 +36,7 @@ pub fn local2reg_ex(fun: &mut Function, preds: &Predecessors, dom_tree: &DomTree
 
                     // init phi.
                     let map = preds.iter().map(|p| (*p, None.into())).collect();
-                    let instr = fun.new_phi(SourceRange::null(), &[]);
+                    let instr = fun.new_phi((SourceRange::null(), None.into()), &[]);
                     to_phis.push((lid, map, instr));
 
                     // to_bb now defines the local.
@@ -149,9 +149,29 @@ pub fn dead_copy_elim(fun: &mut Function) {
     let mut visited = index_vec![false; fun.num_instrs()];
     fun.all_args(|arg| visited[arg] = true);
 
-    fun.retain_instrs(|instr| {
-        visited[instr.id()] || !instr.is_copy()
-    });
+    for bb in fun.block_ids() {
+        let mut current = bb.get(fun).first();
+
+        while let Some(at) = current.to_option() {
+            let instr = at.get_mut(fun);
+            let next = instr.next();
+            if !visited[at] {
+                if let InstrData::Copy { src } = instr.data {
+                    let source_values = core::mem::take(&mut instr.source.values);
+
+                    // put value info on copy src.
+                    let src = src.get_mut(fun);
+                    src.source.values.extend(source_values);
+
+                    // remove.
+                    fun.remove_instr(at);
+                }
+            }
+
+            current = next;
+        }
+    }
+
     fun.slow_integrity_check();
 }
 

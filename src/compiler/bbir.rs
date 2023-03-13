@@ -2,8 +2,20 @@ use core::cell::{RefCell, Ref, RefMut};
 use derive_more::{Deref, DerefMut, Display};
 use crate::index_vec::*;
 use crate::macros::define_id;
-use super::{SourceRange, ItemId, Op1, Op2};
+use super::{SourceRange, ItemId, NodeId, OptNodeId, Op1, Op2};
 use super::{opt, transform};
+
+
+
+// ### Source Info ###
+
+pub type SourceInfoIn = (SourceRange, OptNodeId);
+
+#[derive(Clone, Debug)]
+pub struct SourceInfo {
+    pub range:  SourceRange,
+    pub values: Vec<NodeId>,
+}
 
 
 
@@ -11,11 +23,11 @@ use super::{opt, transform};
 
 define_id!(InstrId, OptInstrId, "i{}");
 
-#[derive(Clone, Debug, Deref, DerefMut)]
+#[derive(Debug, Deref, DerefMut)]
 pub struct Instr {
     #[deref] #[deref_mut]
     pub data:   InstrData,
-    pub source: SourceRange,
+    pub source: SourceInfo,
     id:         InstrId,
     prev:       OptInstrId,
     next:       OptInstrId,
@@ -231,7 +243,7 @@ impl InstrId {
 
 #[derive(Clone, Copy)]
 pub struct InstrFmt<'a>(pub &'a Instr, pub &'a Function);
-    
+
 impl<'a> core::fmt::Display for InstrFmt<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let InstrFmt (instr, fun) = self;
@@ -687,7 +699,7 @@ impl Function {
 
     #[inline(always)]
     pub fn instr_ids(&self) -> InstrIdIter { InstrIdIter { at: 0, end: self.instrs.len() as u32 } }
-    
+
 
     #[inline(always)]
     pub fn num_blocks(&self) -> usize { self.blocks.len() }
@@ -728,7 +740,7 @@ impl Function {
 
 // instructions
 impl Function {
-    pub fn new_instr(&mut self, source: SourceRange, data: InstrData) -> InstrId {
+    pub fn new_instr_ex(&mut self, source: SourceInfo, data: InstrData) -> InstrId {
         let id = InstrId(self.instrs.len() as u32);
         self.instrs.push(Instr {
             data, source, id,
@@ -739,8 +751,16 @@ impl Function {
         id
     }
 
+    pub fn new_instr(&mut self, source: SourceInfoIn, data: InstrData) -> InstrId {
+        let source = SourceInfo {
+            range: source.0,
+            values: source.1.to_option().map_or(vec![], |node| vec![node]),
+        };
+        self.new_instr_ex(source, data)
+    }
 
-    pub fn new_phi(&mut self, source: SourceRange, map: &[PhiEntry]) -> InstrId {
+
+    pub fn new_phi(&mut self, source: SourceInfoIn, map: &[PhiEntry]) -> InstrId {
         let map_id = PhiMapId(self.phi_maps.len() as u32);
         self.phi_maps.push(PhiMapImpl { map: map.into() });
         self.new_instr(source, InstrData::Phi { map_id })
@@ -761,7 +781,7 @@ impl Function {
     }
 
 
-    pub fn new_call(&mut self, source: SourceRange, func: InstrId, args: &[InstrId]) -> InstrId {
+    pub fn new_call(&mut self, source: SourceInfoIn, func: InstrId, args: &[InstrId]) -> InstrId {
         let args_id = InstrListId(self.instr_lists.len() as u32);
         self.instr_lists.push(InstrListImpl { values: args.into() });
         self.new_instr(source, InstrData::Call { func, args_id })
@@ -782,7 +802,7 @@ impl Function {
         }
     }
 }
-    
+
 
 // blocks
 impl Function {
@@ -1010,7 +1030,7 @@ impl Function {
         let old_param_cursor = self.param_cursor;
 
         // "hoist params".
-        let param = self.new_instr(source, InstrData::Param { id });
+        let param = self.new_instr((source, None.into()), InstrData::Param { id });
         self.insert_after(BlockId::ENTRY, self.param_cursor, param);
         self.param_cursor = param.some();
         self.num_params  += 1;
@@ -1027,7 +1047,7 @@ impl Function {
         self.locals.push(Local { id, name: name.into(), source });
 
         // "hoist locals".
-        let local = self.new_instr(source, InstrData::Local { id });
+        let local = self.new_instr((source, None.into()), InstrData::Local { id });
         self.insert_after(BlockId::ENTRY, self.local_cursor, local);
         self.local_cursor = local.some();
 
@@ -1054,7 +1074,7 @@ impl Function {
     }
 
 
-    pub fn add_instr(&mut self, source: SourceRange, data: InstrData) -> InstrId {
+    pub fn add_instr(&mut self, source: SourceInfoIn, data: InstrData) -> InstrId {
         assert!(self.instrs.len() < u32::MAX as usize / 2);
         let id = InstrId(self.instrs.len() as u32);
 
@@ -1078,6 +1098,11 @@ impl Function {
             block.len   = 1;
         }
 
+        let source = SourceInfo {
+            range: source.0,
+            values: source.1.to_option().map_or(vec![], |node| vec![node]),
+        };
+
         self.instrs.push(Instr {
             data, source, id,
             prev: old_last,
@@ -1090,64 +1115,64 @@ impl Function {
 
 
     #[inline]
-    pub fn instr_copy(&mut self, source: SourceRange, src: InstrId) -> InstrId {
+    pub fn instr_copy(&mut self, source: SourceInfoIn, src: InstrId) -> InstrId {
         self.add_instr(source, InstrData::Copy { src })
     }
 
-    pub fn instr_phi(&mut self, source: SourceRange, map: &[PhiEntry]) -> InstrId {
+    pub fn instr_phi(&mut self, source: SourceInfoIn, map: &[PhiEntry]) -> InstrId {
         let map_id = PhiMapId(self.phi_maps.len() as u32);
         self.phi_maps.push(PhiMapImpl { map: map.into() });
         self.add_instr(source, InstrData::Phi { map_id })
     }
 
     #[inline]
-    pub fn instr_get_local(&mut self, source: SourceRange, src: LocalId) -> InstrId {
+    pub fn instr_get_local(&mut self, source: SourceInfoIn, src: LocalId) -> InstrId {
         self.add_instr(source, InstrData::GetLocal { src })
     }
 
     #[inline]
-    pub fn instr_set_local(&mut self, source: SourceRange, dst: LocalId, src: InstrId) -> InstrId {
+    pub fn instr_set_local(&mut self, source: SourceInfoIn, dst: LocalId, src: InstrId) -> InstrId {
         self.add_instr(source, InstrData::SetLocal { dst, src })
     }
 
     #[inline]
-    pub fn instr_load_nil(&mut self, source: SourceRange) -> InstrId {
+    pub fn instr_load_nil(&mut self, source: SourceInfoIn) -> InstrId {
         self.add_instr(source, InstrData::LoadNil)
     }
 
     #[inline]
-    pub fn instr_load_bool(&mut self, source: SourceRange, value: bool) -> InstrId {
+    pub fn instr_load_bool(&mut self, source: SourceInfoIn, value: bool) -> InstrId {
         self.add_instr(source, InstrData::LoadBool { value })
     }
 
     #[inline]
-    pub fn instr_load_int(&mut self, source: SourceRange, value: i64) -> InstrId {
+    pub fn instr_load_int(&mut self, source: SourceInfoIn, value: i64) -> InstrId {
         self.add_instr(source, InstrData::LoadInt { value })
     }
 
     #[inline]
-    pub fn instr_load_float(&mut self, source: SourceRange, value: f64) -> InstrId {
+    pub fn instr_load_float(&mut self, source: SourceInfoIn, value: f64) -> InstrId {
         self.add_instr(source, InstrData::LoadFloat { value })
     }
 
     #[inline]
-    pub fn instr_load_string(&mut self, source: SourceRange, id: StringId) -> InstrId {
+    pub fn instr_load_string(&mut self, source: SourceInfoIn, id: StringId) -> InstrId {
         self.add_instr(source, InstrData::LoadString { id })
     }
 
     #[inline]
-    pub fn instr_load_env(&mut self, source: SourceRange) -> InstrId {
+    pub fn instr_load_env(&mut self, source: SourceInfoIn) -> InstrId {
         self.add_instr(source, InstrData::LoadEnv)
     }
 
     #[inline]
-    pub fn instr_list_new(&mut self, source: SourceRange, values: &[InstrId]) -> InstrId {
+    pub fn instr_list_new(&mut self, source: SourceInfoIn, values: &[InstrId]) -> InstrId {
         let values_id = InstrListId(self.instr_lists.len() as u32);
         self.instr_lists.push(InstrListImpl { values: values.into() });
         self.add_instr(source, InstrData::ListNew { values: values_id })
     }
 
-    pub fn instr_tuple_new(&mut self, source: SourceRange, values: &[InstrId]) -> InstrId {
+    pub fn instr_tuple_new(&mut self, source: SourceInfoIn, values: &[InstrId]) -> InstrId {
         if values.len() == 0 {
             self.add_instr(source, InstrData::TupleNew0)
         }
@@ -1159,12 +1184,12 @@ impl Function {
     }
 
     #[inline]
-    pub fn instr_load_unit(&mut self, source: SourceRange) -> InstrId {
+    pub fn instr_load_unit(&mut self, source: SourceInfoIn) -> InstrId {
         self.add_instr(source, InstrData::TupleNew0)
     }
 
     #[inline]
-    pub fn instr_read_path(&mut self, source: SourceRange, base: PathBase, keys: &[PathKey]) -> InstrId {
+    pub fn instr_read_path(&mut self, source: SourceInfoIn, base: PathBase, keys: &[PathKey]) -> InstrId {
         assert!(keys.len() > 0);
         let path_id = PathId(self.paths.len() as u32);
         self.paths.push(PathImpl { base, keys: keys.into() });
@@ -1172,7 +1197,7 @@ impl Function {
     }
 
     #[inline]
-    pub fn instr_write_path(&mut self, source: SourceRange, base: PathBase, keys: &[PathKey], value: InstrId, is_def: bool) -> InstrId {
+    pub fn instr_write_path(&mut self, source: SourceInfoIn, base: PathBase, keys: &[PathKey], value: InstrId, is_def: bool) -> InstrId {
         assert!(keys.len() > 0);
         let path_id = PathId(self.paths.len() as u32);
         self.paths.push(PathImpl { base, keys: keys.into() });
@@ -1180,40 +1205,40 @@ impl Function {
     }
 
     #[inline]
-    pub fn instr_call(&mut self, source: SourceRange, func: InstrId, args: &[InstrId]) -> InstrId {
+    pub fn instr_call(&mut self, source: SourceInfoIn, func: InstrId, args: &[InstrId]) -> InstrId {
         let args_id = InstrListId(self.instr_lists.len() as u32);
         self.instr_lists.push(InstrListImpl { values: args.into() });
         self.add_instr(source, InstrData::Call { func, args_id })
     }
 
     #[inline]
-    pub fn instr_op1(&mut self, source: SourceRange, op: Op1, src: InstrId) -> InstrId {
+    pub fn instr_op1(&mut self, source: SourceInfoIn, op: Op1, src: InstrId) -> InstrId {
         self.add_instr(source, InstrData::Op1 { op, src })
     }
 
     #[inline]
-    pub fn instr_op2(&mut self, source: SourceRange, op: Op2, src1: InstrId, src2: InstrId) -> InstrId {
+    pub fn instr_op2(&mut self, source: SourceInfoIn, op: Op2, src1: InstrId, src2: InstrId) -> InstrId {
         self.add_instr(source, InstrData::Op2 { op, src1, src2 })
     }
 
     #[inline]
     pub fn instr_jump(&mut self, source: SourceRange, target: BlockId) -> InstrId {
-        self.add_instr(source, InstrData::Jump { target })
+        self.add_instr((source, None.into()), InstrData::Jump { target })
     }
 
     #[inline]
     pub fn instr_switch_bool(&mut self, source: SourceRange, src: InstrId, on_true: BlockId, on_false: BlockId) -> InstrId {
-        self.add_instr(source, InstrData::SwitchBool { src, on_true, on_false })
+        self.add_instr((source, None.into()), InstrData::SwitchBool { src, on_true, on_false })
     }
 
     #[inline]
     pub fn instr_switch_nil(&mut self, source: SourceRange, src: InstrId, on_nil: BlockId, on_non_nil: BlockId) -> InstrId {
-        self.add_instr(source, InstrData::SwitchNil { src, on_nil, on_non_nil })
+        self.add_instr((source, None.into()), InstrData::SwitchNil { src, on_nil, on_non_nil })
     }
 
     #[inline]
     pub fn instr_return(&mut self, source: SourceRange, src: InstrId) -> InstrId {
-        self.add_instr(source, InstrData::Return { src })
+        self.add_instr((source, None.into()), InstrData::Return { src })
     }
 }
 
@@ -1252,7 +1277,7 @@ impl Function {
         let block = &mut self.blocks[bb];
         debug_assert_eq!(block.id, bb);
 
-        let (prev, next) = 
+        let (prev, next) =
             if let Some(ref_id) = ref_id.to_option() {
                 let rf = &self.instrs[ref_id];
                 assert_eq!(rf.bb, bb.some());
@@ -1270,7 +1295,7 @@ impl Function {
         let block = &mut self.blocks[bb];
         debug_assert_eq!(block.id, bb);
 
-        let (prev, next) = 
+        let (prev, next) =
             if let Some(ref_id) = ref_id.to_option() {
                 let rf = &self.instrs[ref_id];
                 assert_eq!(rf.bb, bb.some());
@@ -1336,6 +1361,12 @@ impl Function {
         block.len -= 1;
 
         old_next
+    }
+
+    pub fn remove_instr(&mut self, id: InstrId) -> OptInstrId {
+        let bb = id.get(self).bb.to_option().unwrap();
+        let block = &mut self.blocks[bb];
+        Self::_remove(block, &mut self.instrs, id)
     }
 
     pub fn retain_block_instr<F: FnMut(&Instr) -> bool>(&mut self, bb: BlockId, mut f: F) {
@@ -1495,6 +1526,13 @@ impl Function {
             self.block_instrs(bb, |instr| println!("  {}", instr.fmt(self)));
         }
     }
+
+    pub fn big_dump(&self) {
+        for bb in self.block_ids() {
+            println!("{}:", bb);
+            self.block_instrs(bb, |instr| println!("  {} | {} {:?}", instr.fmt(self), instr.source.range, instr.source.values));
+        }
+    }
 }
 
 
@@ -1550,6 +1588,7 @@ impl Crate {
         for fun in self.functions.iter() {
             let mut fun = fun.borrow_mut();
             //fun.dump();
+            //fun.big_dump();
 
             fun.remove_unreachable_blocks();
             //fun.dump();
@@ -1585,16 +1624,17 @@ impl Crate {
             transform::convert_to_cssa_naive(&mut fun, &preds);
             //println!("cssa");
             //fun.dump();
+            //fun.big_dump();
 
-            let (code, constants, num_regs) = fun.compile_ex(&post_order, &idoms, &dom_tree);
+            let result = fun.compile_ex(&post_order, &idoms, &dom_tree);
             //println!("bytecode:");
-            //crate::bytecode::dump(&code);
+            //crate::bytecode::dump(&result.code);
 
             funcs.push(crate::FuncDesc {
-                code: crate::FuncCode::ByteCode(code),
-                constants,
+                code: crate::FuncCode::ByteCode(result.code),
+                constants:  result.constants,
                 num_params: fun.num_params,
-                stack_size: num_regs,
+                stack_size: result.stack_size,
             });
         }
 

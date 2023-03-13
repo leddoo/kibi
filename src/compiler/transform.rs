@@ -29,9 +29,9 @@ pub fn convert_to_cssa_naive(fun: &mut Function, preds: &Predecessors) {
                 // update phi map.
                 let mut phi_map = phi_map.to_vec();
                 for (pred, src) in &mut phi_map {
-                    let source = src.get(fun).source;
+                    let source = src.get(fun).source.clone();
                     let copy_id = pred_copy_ids[*pred].unwrap();
-                    let copy = fun.new_instr(source,
+                    let copy = fun.new_instr_ex(source,
                         InstrData::ParallelCopy { src: *src, copy_id });
 
                     fun.insert_before_terminator(*pred, copy);
@@ -44,7 +44,7 @@ pub fn convert_to_cssa_naive(fun: &mut Function, preds: &Predecessors) {
                 // so uses don't have to be updated.
                 // new phis are inserted at the start of the block.
                 let phi = at.get(fun);
-                let new_phi = fun.new_instr(phi.source, phi.data);
+                let new_phi = fun.new_instr_ex(phi.source.clone(), phi.data);
 
                 let phi = at.get_mut(fun);
                 phi.data = InstrData::ParallelCopy { src: new_phi, copy_id: phis_copy_id };
@@ -68,7 +68,7 @@ pub fn convert_to_cssa_naive(fun: &mut Function, preds: &Predecessors) {
 
             if let InstrData::WritePath { path_id, value: _, is_def: _ } = instr.data {
                 if let PathBase::Instr(base) = path_id.get(fun).base {
-                    let copy = fun.new_instr(instr.source, InstrData::Copy { src: base });
+                    let copy = fun.new_instr_ex(instr.source.clone(), InstrData::Copy { src: base });
                     fun.insert_before(bb, at.some(), copy);
 
                     path_id.set_base(fun, PathBase::Instr(copy));

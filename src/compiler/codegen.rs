@@ -4,8 +4,23 @@ use crate::index_vec::*;
 use super::*;
 
 
+pub struct CompileResult {
+    pub code:       Vec<Instruction>,
+    pub constants:  Vec<Constant>,
+    pub stack_size: u32,
+    pub value_mapping: IndexVec<Reg, Vec<ValueMapping>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ValueMapping {
+    pub pc_begin: u32,
+    pub pc_end:   u32,
+    pub values:   Vec<NodeId>,
+}
+
+
 impl Function {
-    pub fn compile_ex(&self, post_order: &PostOrder, idoms: &ImmediateDominators, dom_tree: &DomTree) -> (Vec<Instruction>, Vec<Constant>, u32) {
+    pub fn compile_ex(&self, post_order: &PostOrder, idoms: &ImmediateDominators, dom_tree: &DomTree) -> CompileResult {
         let block_order = self.block_order_dominators_first(&idoms, &dom_tree);
 
         let (block_begins, instr_indices) = block_order.block_begins_and_instr_indices(self);
@@ -27,9 +42,29 @@ impl Function {
 
         let regs = alloc_regs_linear_scan(self, &live_intervals, &instr_indices);
 
-        let (code, constants, num_regs) = generate_bytecode(self, &block_order, &regs);
+        let (code, constants, stack_size, instr_index_to_pc) = generate_bytecode(self, &block_order, &regs);
 
-        (code, constants, num_regs)
+        let value_mapping = {
+            let mut mapping = index_vec![vec![]; stack_size as usize];
+
+            for bb in self.block_ids() {
+                self.block_instrs(bb, |instr| {
+                    let Some(reg) = regs.mapping[instr.id()].to_option() else { return };
+                    for (begin, end) in &live_intervals[instr.id()] {
+                        let pc_begin = instr_index_to_pc[*begin];
+                        let pc_end   = instr_index_to_pc[*end];
+                        if pc_begin != pc_end {
+                            let values = instr.source.values.clone();
+                            mapping[reg].push(ValueMapping { pc_begin, pc_end, values });
+                        }
+                    }
+                });
+            }
+
+            mapping
+        };
+
+        CompileResult { code, constants, stack_size, value_mapping }
     }
 }
 
@@ -487,7 +522,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, instr_i
 }
 
 
-pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &RegisterAllocation) -> (Vec<Instruction>, Vec<Constant>, u32) {
+pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &RegisterAllocation) -> (Vec<Instruction>, Vec<Constant>, u32, IndexVec<InstrIndex, u32>) {
     assert_eq!(block_order[0], BlockId::ENTRY);
 
     // for instr in fun.instr_ids() {
@@ -520,6 +555,8 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
         constants.push(Constant::String { value: StringId::from_usize(i).get(fun).into() });
     }
 
+    let mut instr_index_to_pc = index_vec![];
+
     for (block_index, bb) in block_order.iter().enumerate() {
         block_offsets[bb.usize()] = bcb.current_offset() as u16;
 
@@ -536,6 +573,8 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
                 copied_to[reg(src) as usize].push(reg(instr_id));
 
                 while let Some(at) = instr_cursor.to_option() {
+                    instr_index_to_pc.push(bcb.current_offset() as u32);
+
                     let copy_instr = at.get(fun);
                     let InstrData::ParallelCopy { src, copy_id: cid } = copy_instr.data else { break };
                     if cid != copy_id { break }
@@ -551,6 +590,8 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
                 continue;
             }
             // else (no parallel copy):
+
+            instr_index_to_pc.push(bcb.current_offset() as u32);
 
             let dst = reg(instr.id());
 
@@ -761,7 +802,7 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
         }
     }
 
-    (code, constants, num_regs)
+    (code, constants, num_regs, instr_index_to_pc)
 }
 
 fn impl_parallel_copy(num_regs: usize, copied_to: &[Vec<u8>], bcb: &mut crate::ByteCodeBuilder) {

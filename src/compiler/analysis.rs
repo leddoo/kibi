@@ -529,3 +529,15 @@ impl BlockOrder {
     }
 }
 
+
+impl crate::index_vec::Key for InstrIndex {
+    #[inline(always)]
+    fn from_usize(value: usize) -> Self {
+        debug_assert_eq!(value as u32 as usize, value);
+        Self { value: value as u32 }
+    }
+    #[inline(always)]
+    fn usize(self) -> usize { self.value as usize }
+}
+
+

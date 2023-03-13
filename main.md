@@ -33,8 +33,7 @@
 
 
 - todo: debug info.
-    - generate (register, pc) -> source value mapping.
-        -
+    - h2c?
 
 
 - decisions to make:
