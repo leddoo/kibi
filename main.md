@@ -1,14 +1,5 @@
 
 - next steps:
-    - basic crates.
-        - static name binding, unless functions are declared as `var fn`.
-        - basic type checking.
-        - and `var` validation.
-        - env:
-            - there's one env per module (so one env total for now).
-            - functions are tagged with their module, this can't be changed.
-            - an env isn't quite a map, but close. it prevents writes to imported & non-var symbols.
-        - kbtf.
     - debug info.
         - better source info (eg: `ast::Block::source`, `ast::Op1::op_source`).
         - variable mapping.
@@ -41,16 +32,10 @@
     - ui.
 
 
-- todo:
-    - module state.
+- todo: debug info.
+    - generate (register, pc) -> source value mapping.
+        -
 
-- prev:
-    - tuples.
-        - destructuring.
-        - tuple ret.
-    - barely usable host api.
-    - kbtf & validation.
-    - trace logging.
 
 - decisions to make:
     - kwargs?
@@ -59,8 +44,12 @@
         - definitely not ub.
 
 - general backlog:
+    - module state.
     - inout params.
         - can't pass globals.
+    - tuples.
+        - destructuring.
+        - tuple ret.
     - optional args & varargs.
     - del.
     - table -> map.

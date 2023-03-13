@@ -9,7 +9,7 @@ use super::{opt, transform};
 
 // ### Instruction ###
 
-define_id!(InstrId, OptInstrId, "s{}");
+define_id!(InstrId, OptInstrId, "i{}");
 
 #[derive(Clone, Debug, Deref, DerefMut)]
 pub struct Instr {

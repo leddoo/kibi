@@ -44,6 +44,24 @@ pub struct RegisterAllocation {
 pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, instr_indices: &InstrIndices) -> RegisterAllocation {
     let mut intervals = intervals.intervals.clone();
     let mut joins     = fun.instr_ids().collect::<IndexVec<InstrId, InstrId>>();
+
+    // NOTE: hints are currently disabled.
+    //  they cause unintuitive behavior with loops that swap variables:
+    //  the swap is done in the loop header, instead of being done at the
+    //  end of the loop body, as it should be. this happens because the 
+    //  parallel copies in the bb before the loop header are joined with
+    //  the parallel copies at the end of the loop body. meaning they're
+    //  already assigned a register when processing the loop header.
+    //  and the parallel copies in the loop header get "copy src" hints
+    //  from the parallel copies at the end of the loop body (these hints are
+    //  currently disabled). so the parallel copies in the loop header choose
+    //  the registers that the variables should end up in. meaning those parallel copies
+    //  becomes the swap, if that makes sense :D
+    //  also, the hints don't actually do anything for regular copies,
+    //  as their arguments are always processed before them.
+    //  disabling hints does sometimes result in an extra copy with cancelling
+    //  boolean operators (and/or). but the code generated for those looks
+    //  kinda sus anyway & should be investigated.
     let mut hints     = fun.instr_ids().collect::<IndexVec<InstrId, InstrId>>();
 
     fn rep(instr: InstrId, joins: &IndexVec<InstrId, InstrId>) -> InstrId {
@@ -373,12 +391,8 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, instr_i
                 break 'find_reg reg;
             }
 
-            // todo: how much does this help?
-            if 1==1
-            {
-
             // regular hint.
-            {
+            if 0==1 {
                 // @todo-opt: do rep thing after hint construction.
                 let reg_hint = hints[new_int.instr];
                 if reg_hint != new_int.instr {
@@ -393,7 +407,6 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, instr_i
 
             // first arg hint.
             'first_arg: {
-
                 let first_arg = match new_int.instr.get(fun).data {
                     InstrData::Copy  { src }                 => src,
                     InstrData::ParallelCopy { src, copy_id: _ } => src,
@@ -415,8 +428,6 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, instr_i
                         break 'find_reg reg;
                     }
                 }
-            }
-
             }
 
             // reuse some register.
