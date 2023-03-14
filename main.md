@@ -32,8 +32,25 @@
     - ui.
 
 
+- todo: explorer.
+    - draw source code.
+        - split into lines.
+        - store layouts.
+    - token based syntax highlighting.
+
 - todo: debug info.
-    - h2c?
+    - node info for pc.
+        - own value vs aliases.
+        - store own values (opt) & node for each op.
+        - well, own value is always node id.
+            - so replace source info with node id.
+            - then have flag for "is value": if true, the instr produces the value of its node id.
+    - control flow info.
+        - basic blocks + semantic annotations.
+            - loop header/body.
+            - if then/else branch.
+            - do block body.
+            - function body.
 
 
 - decisions to make:

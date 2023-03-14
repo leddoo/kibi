@@ -203,10 +203,10 @@ impl Infer {
             }
 
             StmtData::Local (local) => {
-                let lid = ctx.add_local_decl(stmt.id, local.name);
                 if let Some(value) = &mut local.value {
                     self.infer_expr(ctx, value, None);
                 }
+                let lid = ctx.add_local_decl(stmt.id, local.name);
                 local.info = Some(expr::LocalInfo { id: lid });
             }
 
