@@ -33,27 +33,12 @@
 
 
 - todo: explorer.
-    - decorations.
-        - repr.
-            - style vs replace.
-            - replace styled text only for now.
-        - build text layout.
-    - token based syntax highlighting.
-    - show inserted semicolons.
     - show token type.
         - hit testing.
         - draw popup.
-- stuff:
-    - decorations:
-        - base text as string.
-        - then ordered set of "decorations".
-        - effects are applied in order, last writer wins.
-        - decorations are applied to source ranges.
-        - text is segmented based on decorations (like style in text layout).
-        - it's basically linear scan register allocation.
-        - "replace" is a "point decoration" -> just skips the range of text.
-            - we may later want to be more sophisticated about this.
-        - this does mean that we always have spans with consistent style.
+    - stuff:
+        - properly sort decorations.
+        - handle conflicting replacements.
 
 - todo: debug info.
     - node info for pc.
