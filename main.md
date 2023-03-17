@@ -34,10 +34,10 @@
 
 - todo: explorer.
     - show token type.
-        - text layout hit testing.
         - reverse mapping.
         - draw popup.
     - stuff:
+        - baselines.
         - properly sort decorations.
         - handle conflicting replacements.
 

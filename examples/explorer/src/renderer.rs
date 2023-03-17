@@ -121,7 +121,7 @@ impl Renderer {
         for line in &layout.lines {
             let mut x0 = x0 as f32;
             for span in &layout.spans[line.span_range()] {
-                for glyph in &layout.glyphs[span.glyph_begin as usize .. span.glyph_end as usize] {
+                for glyph in &layout.glyphs[span.glyph_range()] {
                     let (metrics, mask) = fonts.glyph_mask(span.face_id, span.font_size, glyph.index);
                     self.draw_mask_abs(
                         x0 as i32 + glyph.dx as i32,
@@ -296,14 +296,6 @@ struct Line {
     max_gap:     f32,
 }
 
-impl Line {
-    #[inline(always)]
-    fn span_range(&self) -> core::ops::Range<usize> {
-        self.span_begin as usize .. self.span_end as usize
-    }
-}
-
-
 struct Span<E> {
     text_begin:  u32,
     text_end:    u32,
@@ -316,6 +308,7 @@ struct Span<E> {
     font_size: NotNan<f32>,
     effect:    E,
 }
+
 
 impl Line {
     #[inline(always)]
@@ -333,7 +326,20 @@ impl Line {
     fn height(&self) -> f32 {
         self.max_ascent + self.max_descent + self.max_gap
     }
+
+    #[inline(always)]
+    fn span_range(&self) -> core::ops::Range<usize> {
+        self.span_begin as usize .. self.span_end as usize
+    }
 }
+
+impl<E> Span<E> {
+    #[inline(always)]
+    fn glyph_range(&self) -> core::ops::Range<usize> {
+        self.glyph_begin as usize .. self.glyph_end as usize
+    }
+}
+
 
 impl<E> TextLayout<E> {
     pub fn new(fonts: &FontCtx) -> Self {
@@ -505,6 +511,93 @@ impl<E> TextLayout<E> {
 
         assert_eq!(self.text.len(), 0);
         return PosMetrics { x: 0.0, y: 0.0, glyph_width: 0.0, line_height: 0.0, line_index: 0 };
+    }
+}
+
+
+#[derive(Clone, Copy, Debug)]
+pub struct HitMetrics {
+    pub text_pos_left:  u32,
+    pub text_pos_right: u32,
+
+    pub fraction: f32,
+    pub out_of_bounds: [bool; 2],
+}
+
+impl<E> TextLayout<E> {
+    pub fn hit_test_line(&self, line_index: usize, x: f32) -> HitMetrics {
+        let line = &self.lines[line_index];
+
+        if x < 0.0 {
+            return HitMetrics {
+                text_pos_left:  line.text_begin,
+                text_pos_right: line.text_begin,
+                fraction: 0.0,
+                out_of_bounds: [true, false],
+            };
+        }
+
+        let mut cursor = 0.0;
+        for span in &self.spans[line.span_range()] {
+            for glyph in span.glyph_range() {
+                let new_cursor = cursor + self.glyphs[glyph].advance;
+
+                if x >= cursor && x < new_cursor {
+                    let fraction = (x - cursor) / (new_cursor - cursor);
+
+                    let offset = glyph as u32 - span.glyph_begin;
+                    return HitMetrics {
+                        text_pos_left:  span.text_begin + offset,
+                        text_pos_right: span.text_begin + offset + 1,
+                        fraction,
+                        out_of_bounds: [false, false],
+                    }
+                }
+
+                cursor = new_cursor;
+            }
+        }
+
+        return HitMetrics {
+            text_pos_left:  line.text_end,
+            text_pos_right: line.text_end,
+            fraction: 0.0,
+            out_of_bounds: [true, false],
+        };
+    }
+
+    pub fn hit_test_pos(&self, x: f32, y: f32) -> HitMetrics {
+        if self.lines.len() == 0 {
+            return HitMetrics {
+                text_pos_left:  0,
+                text_pos_right: 0,
+                fraction: 0.0,
+                out_of_bounds: [true, true],
+            }
+        }
+
+        // above.
+        if y < 0.0 {
+            let mut result = self.hit_test_line(0, x);
+            result.out_of_bounds[1] = true;
+            return result;
+        }
+
+        let mut line_y = 0.0;
+        for (line_index, line) in self.lines.iter().enumerate() {
+            let new_line_y = line_y + line.height();
+
+            if y >= line_y && y < new_line_y {
+                return self.hit_test_line(line_index, x);
+            }
+
+            line_y = new_line_y;
+        }
+
+        // below.
+        let mut result = self.hit_test_line(self.lines.len() - 1, x);
+        result.out_of_bounds[1] = true;
+        return result;
     }
 }
 

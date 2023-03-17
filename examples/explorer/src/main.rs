@@ -272,6 +272,12 @@ impl Explorer {
                 }
             }
 
+            if self.window.get_mouse_down(minifb::MouseButton::Left) {
+                let (x, y) = self.window.get_mouse_pos(minifb::MouseMode::Pass).unwrap();
+                let metrics = self.code.layout.hit_test_pos(x - 50., y - 30.);
+                self.temp = metrics.text_pos_left as usize;
+            }
+
             let r = &mut self.renderer;
             r.set_size(size.0 as u32, size.1 as u32);
 
