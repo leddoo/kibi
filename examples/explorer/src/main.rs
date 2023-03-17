@@ -1,21 +1,230 @@
 use minifb::{Window, WindowOptions};
+use kibi::index_vec::*;
+use kibi::ast::*;
 
 
 mod renderer;
 use renderer::*;
 
 
+struct ItemInfo {
+    item_id: ItemId,
+    node_id: NodeId,
+    #[allow(dead_code)] // @temp.
+    source_range: SourceRange,
+}
+
+enum NodeRef<'a> {
+    None,
+    Stmt(&'a Stmt<'a>),
+    Expr(&'a Expr<'a>),
+}
+
+struct NodeInfo<'a> {
+    #[allow(dead_code)] // @temp.
+    parent:  OptNodeId,
+    node_id: NodeId,
+    node_ref: NodeRef<'a>,
+    source_range: SourceRange,
+}
+
+struct AstInfo<'a> {
+    items: IndexVec<kibi::ItemId, ItemInfo>,
+    nodes: IndexVec<kibi::NodeId, NodeInfo<'a>>,
+}
+
+
+impl<'a> AstInfo<'a> {
+    fn new() -> Self {
+        AstInfo { items: IndexVec::new(), nodes: IndexVec::new() }
+    }
+
+    fn add_item_info(&mut self, info: ItemInfo) {
+        assert_eq!(self.items.len(), info.item_id.usize());
+        self.items.push(info);
+    }
+
+    fn add_node_info(&mut self, info: NodeInfo<'a>) {
+        assert_eq!(self.nodes.len(), info.node_id.usize());
+        self.nodes.push(info);
+    }
+
+    fn collect(&mut self, module: &'a item::Module<'a>) {
+        self.add_item_info(ItemInfo { item_id: ItemId::ZERO, node_id: NodeId::ZERO, source_range: SourceRange::null() });
+        self.add_node_info(NodeInfo { parent: None.into(), node_id: NodeId::ZERO, node_ref: NodeRef::None, source_range: SourceRange::null() });
+        self.collect_block(&module.block.stmts, NodeId::ZERO.some());
+    }
+
+    fn collect_stmt(&mut self, stmt: &'a Stmt<'a>, parent: OptNodeId) {
+        self.add_node_info(NodeInfo {
+            parent,
+            node_id: stmt.id,
+            node_ref: NodeRef::Stmt(stmt),
+            source_range: stmt.source,
+        });
+        let stmt_id = stmt.id.some();
+
+        match &stmt.data {
+            StmtData::Item (item) => {
+                self.add_item_info(ItemInfo {
+                    item_id: item.id,
+                    node_id: stmt.id,
+                    source_range: item.source,
+                });
+
+                match &item.data {
+                    ItemData::Module(module) => {
+                        let _ = module;
+                        unimplemented!()
+                    }
+
+                    ItemData::Func(func) => {
+                        self.collect_block(&func.body, stmt_id);
+                    }
+                }
+            }
+
+            StmtData::Local (local) => {
+                if let Some(value) = &local.value {
+                    self.collect_expr(value, stmt_id);
+                }
+            }
+
+            StmtData::Expr (expr) => { self.collect_expr(expr, stmt_id); }
+
+            StmtData::Empty => (),
+        }
+    }
+
+    fn collect_expr(&mut self, expr: &'a Expr<'a>, parent: OptNodeId) {
+        self.add_node_info(NodeInfo {
+            parent,
+            node_id: expr.id,
+            node_ref: NodeRef::Expr(expr),
+            source_range: expr.source,
+        });
+        let expr_id = expr.id.some();
+
+        match &expr.data {
+            ExprData::Nil |
+            ExprData::Bool (_) |
+            ExprData::Number (_) |
+            ExprData::QuotedString (_) |
+            ExprData::Ident (_) => {}
+
+
+            ExprData::Tuple (tuple) => {
+                for value in &tuple.values {
+                    self.collect_expr(value, expr_id);
+                }
+            }
+
+            ExprData::List (list) => {
+                for value in &list.values {
+                    self.collect_expr(value, expr_id);
+                }
+            }
+
+            ExprData::Do (doo) => {
+                self.collect_block(&doo.stmts, expr_id);
+            }
+
+            ExprData::SubExpr (sub_expr) => {
+                self.collect_expr(sub_expr, expr_id);
+            }
+
+            ExprData::Op1 (op1) => {
+                self.collect_expr(&op1.child, expr_id);
+            }
+
+            ExprData::Op2 (op2) => {
+                self.collect_expr(&op2.children[0], expr_id);
+                self.collect_expr(&op2.children[1], expr_id);
+            }
+
+            ExprData::Field (field) => {
+                self.collect_expr(&field.base, expr_id);
+            }
+
+            ExprData::Index (index) => {
+                self.collect_expr(&index.base, expr_id);
+                self.collect_expr(&index.index, expr_id);
+            }
+
+            ExprData::Call (call) => {
+                self.collect_expr(&call.func, expr_id);
+                for arg in &call.args {
+                    self.collect_expr(arg, expr_id);
+                }
+            }
+
+            ExprData::If (iff) => {
+                self.collect_expr(&iff.condition, expr_id);
+                self.collect_block(&iff.on_true.stmts, expr_id);
+                if let Some(on_false) = &iff.on_false {
+                    self.collect_block(&on_false.stmts, expr_id);
+                }
+            }
+
+            ExprData::While (whilee) => {
+                self.collect_expr(&whilee.condition, expr_id);
+                self.collect_block(&whilee.body, expr_id);
+            }
+
+            ExprData::Break (brk) => {
+                if let Some(value) = &brk.value {
+                    self.collect_expr(value, expr_id);
+                }
+            }
+
+            ExprData::Continue (_) => {}
+
+            ExprData::Return (ret) => {
+                if let Some(value) = &ret.value {
+                    self.collect_expr(value, expr_id);
+                }
+            }
+
+            ExprData::Env => {}
+        }
+    }
+
+    fn collect_block(&mut self, block: &'a [Stmt<'a>], parent: OptNodeId) {
+        for stmt in block.iter() {
+            self.collect_stmt(stmt, parent);
+        }
+    }
+}
+
+
 struct CodeInfo<'a> {
     tokens: Vec<kibi::Token<'a>>,
+    #[allow(dead_code)] // used by the `NodeRef`s in ast_info.
+    ast: Box<kibi::ast::item::Module<'a>>,
+    ast_info: AstInfo<'a>,
 }
 
 impl<'a> CodeInfo<'a> {
     pub fn new(source: &'a str) -> CodeInfo<'a> {
         let tokens = kibi::Tokenizer::tokenize(source.as_bytes(), true).unwrap();
 
-        CodeInfo {
+        let mut p = kibi::Parser::new(&tokens);
+        let mut ast = Box::new(p.parse_module(kibi::SourcePos { line: 1, column: 1 }).unwrap());
+
+        let mut i = kibi::infer::Infer::new();
+        i.assign_ids(&mut ast);
+        i.infer(&mut ast);
+
+        let mut ast_info = AstInfo::new();
+        ast_info.collect(&ast);
+
+        let ast_info = unsafe { core::mem::transmute(ast_info) };
+
+        return CodeInfo {
             tokens,
-        }
+            ast,
+            ast_info,
+        };
     }
 }
 
@@ -119,31 +328,69 @@ impl TokenClass {
 
 
 #[derive(Clone, Copy, Debug)]
-struct TextMap {
+struct SourceSpan {
     source_begin: u32,
     source_end:   u32,
-    data: TextMapData,
+    data: SourceSpanData,
 }
 
-#[allow(dead_code)] // @temp: text_end not used.
 #[derive(Clone, Copy, Debug)]
-enum TextMapData {
+enum SourceSpanData {
     None,
-    TextRange { text_begin: u32, text_end: u32 },
+    TextRange { text_begin: u32 },
 }
 
 #[derive(Clone, Copy, Debug)]
-struct SourceMap {
+struct TextSpan {
     text_begin: u32,
     text_end:   u32,
-    data: SourceMapData,
+    data: TextSpanData,
 }
 
-#[allow(dead_code)] // @temp: source_end not used.
 #[derive(Clone, Copy, Debug)]
-enum SourceMapData {
+enum TextSpanData {
     None,
-    SourceRange { source_begin: u32, source_end: u32 },
+    SourceRange { source_begin: u32 },
+}
+
+struct SourceMap {
+    line_begins:  Vec<u32>,
+    source_spans: Vec<SourceSpan>,
+    text_spans:   Vec<TextSpan>,
+}
+
+impl SourceMap {
+    pub fn source_pos_to_offset(&self, pos: SourcePos) -> u32 {
+        if pos.line < 1 {
+            return 0;
+        }
+
+        self.line_begins[pos.line as usize - 1] + pos.column - 1
+    }
+
+    pub fn text_to_source(&self, pos: u32) -> Option<u32> {
+        for span in &self.text_spans {
+            if pos >= span.text_begin && pos < span.text_end {
+                let offset = pos - span.text_begin;
+                if let TextSpanData::SourceRange { source_begin } = span.data {
+                    return Some(source_begin + offset);
+                }
+            }
+        }
+        None
+    }
+
+    pub fn source_to_text(&self, pos: u32) -> Option<u32> {
+        for span in &self.source_spans {
+            if pos >= span.source_begin && pos < span.source_end {
+                let offset = pos - span.source_begin;
+                if let SourceSpanData::TextRange { text_begin } = span.data {
+                    return Some(text_begin + offset);
+                }
+            }
+        }
+        None
+    }
 }
 
 
@@ -151,9 +398,7 @@ struct CodeView {
     text: String,
     info: CodeInfo<'static>,
     layout: TextLayout<u32>,
-    line_begins: Vec<u32>,
-    text_map:    Vec<TextMap>,
-    source_map:  Vec<SourceMap>,
+    source_map:  SourceMap,
 }
 
 impl CodeView {
@@ -162,14 +407,8 @@ impl CodeView {
             text:   "".into(),
             info:   CodeInfo::new(""),
             layout: TextLayout::new(fonts),
-            line_begins: vec![],
-            text_map:    vec![],
-            source_map:  vec![],
+            source_map: SourceMap { line_begins: vec![], source_spans: vec![], text_spans: vec![] },
         }
-    }
-
-    pub fn source_pos_to_offset(&self, pos: kibi::SourcePos) -> u32 {
-        self.line_begins[pos.line as usize - 1] + pos.column - 1
     }
 
     pub fn set_text(&mut self, text: &str) {
@@ -179,9 +418,9 @@ impl CodeView {
         let info = CodeInfo::new(&self.text);
 
         // @todo: looks like offset based source positions are more useful (here).
-        self.line_begins.clear();
+        self.source_map.line_begins.clear();
         for line in text.lines() {
-            self.line_begins.push((line.as_ptr() as usize - text.as_ptr() as usize) as u32);
+            self.source_map.line_begins.push((line.as_ptr() as usize - text.as_ptr() as usize) as u32);
         }
 
         let mut decos = vec![];
@@ -189,7 +428,7 @@ impl CodeView {
             // inserted semicolons.
             if token.source.begin == token.source.end {
                 if let kibi::TokenData::Semicolon = token.data {
-                    let text_begin = self.source_pos_to_offset(token.source.begin);
+                    let text_begin = self.source_map.source_pos_to_offset(token.source.begin);
                     decos.push(Decoration {
                         text_begin,
                         text_end: text_begin,
@@ -202,8 +441,8 @@ impl CodeView {
             }
             // syntax highlighting.
             else {
-                let text_begin = self.source_pos_to_offset(token.source.begin);
-                let text_end   = self.source_pos_to_offset(token.source.end);
+                let text_begin = self.source_map.source_pos_to_offset(token.source.begin);
+                let text_end   = self.source_map.source_pos_to_offset(token.source.end);
                 let class = TokenClass::from_data(token.data);
                 decos.push(Decoration { text_begin, text_end,
                     data: DecorationData::Style { color: class.color() }
@@ -214,9 +453,10 @@ impl CodeView {
 
         self.info = unsafe { core::mem::transmute(info) };
 
+        // update text layout & mappings.
         self.layout.clear();
-        self.text_map.clear();
-        self.source_map.clear();
+        self.source_map.source_spans.clear();
+        self.source_map.text_spans.clear();
         {
             let font_size = 24.;
 
@@ -235,15 +475,15 @@ impl CodeView {
                         self.layout.append_ex(&text[source_begin as usize .. source_end as usize], FaceId::DEFAULT, font_size, TokenClass::Default.color());
                         let text_end = self.layout.text().len() as u32;
 
-                        self.text_map.push(TextMap {
+                        self.source_map.source_spans.push(SourceSpan {
                             source_begin,
                             source_end,
-                            data: TextMapData::TextRange { text_begin, text_end },
+                            data: SourceSpanData::TextRange { text_begin },
                         });
-                        self.source_map.push(SourceMap {
+                        self.source_map.text_spans.push(TextSpan {
                             text_begin,
                             text_end,
-                            data: SourceMapData::SourceRange { source_begin, source_end },
+                            data: TextSpanData::SourceRange { source_begin },
                         });
                     }
 
@@ -256,15 +496,15 @@ impl CodeView {
                             self.layout.append_ex(&text[source_begin as usize .. source_end as usize], FaceId::DEFAULT, font_size, *color);
                             let text_end = self.layout.text().len() as u32;
 
-                            self.text_map.push(TextMap {
+                            self.source_map.source_spans.push(SourceSpan {
                                 source_begin,
                                 source_end,
-                                data: TextMapData::TextRange { text_begin, text_end },
+                                data: SourceSpanData::TextRange { text_begin },
                             });
-                            self.source_map.push(SourceMap {
+                            self.source_map.text_spans.push(TextSpan {
                                 text_begin,
                                 text_end,
-                                data: SourceMapData::SourceRange { source_begin, source_end },
+                                data: TextSpanData::SourceRange { source_begin },
                             });
                         }
 
@@ -276,15 +516,15 @@ impl CodeView {
                             self.layout.append_ex(text, FaceId::DEFAULT, font_size, *color);
                             let text_end = self.layout.text().len() as u32;
 
-                            self.text_map.push(TextMap {
+                            self.source_map.source_spans.push(SourceSpan {
                                 source_begin,
                                 source_end,
-                                data: TextMapData::None,
+                                data: SourceSpanData::None,
                             });
-                            self.source_map.push(SourceMap {
+                            self.source_map.text_spans.push(TextSpan {
                                 text_begin,
                                 text_end,
-                                data: SourceMapData::None,
+                                data: TextSpanData::None,
                             });
                         }
                     }
@@ -300,15 +540,15 @@ impl CodeView {
                     self.layout.append_ex(&text[source_begin as usize .. source_end as usize], FaceId::DEFAULT, font_size, TokenClass::Default.color());
                     let text_end = self.layout.text().len() as u32;
 
-                    self.text_map.push(TextMap {
+                    self.source_map.source_spans.push(SourceSpan {
                         source_begin,
                         source_end,
-                        data: TextMapData::TextRange { text_begin, text_end },
+                        data: SourceSpanData::TextRange { text_begin },
                     });
-                    self.source_map.push(SourceMap {
+                    self.source_map.text_spans.push(TextSpan {
                         text_begin,
                         text_end,
-                        data: SourceMapData::SourceRange { source_begin, source_end },
+                        data: TextSpanData::SourceRange { source_begin },
                     });
 
                     text_cursor = text.len();
@@ -352,65 +592,128 @@ impl Explorer {
         while self.window.is_open() {
             let size = self.window.get_size();
 
+            let (mx, my) = self.window.get_mouse_pos(minifb::MouseMode::Pass).unwrap();
+            let mhit = self.code.layout.hit_test_pos(mx - 50., my - 30.);
+
+            let mut hover     = None;
+            let mut highlight = None;
+
+            'foo: {
+                if mhit.out_of_bounds[0] || mhit.out_of_bounds[1] { break 'foo }
+
+                let Some(source_pos) = self.code.source_map.text_to_source(mhit.text_pos_left) else { break 'foo };
+
+                for info in self.code.info.ast_info.nodes.iter().rev() {
+                    let begin = self.code.source_map.source_pos_to_offset(info.source_range.begin);
+                    let end   = self.code.source_map.source_pos_to_offset(info.source_range.end);
+
+                    if source_pos < begin || source_pos >= end { continue }
+
+                    let Some(text_first) = self.code.source_map.source_to_text(begin)   else { continue };
+                    let Some(text_last)  = self.code.source_map.source_to_text(end - 1) else { continue };
+
+                    hover = Some((text_first, text_last, info));
+
+                    if let NodeRef::Expr(expr) = info.node_ref {
+                        if let ExprData::Ident(ident) = &expr.data {
+                            let info = ident.info.unwrap();
+                            match info.target {
+                                expr::IdentTarget::Item(item) => {
+                                    let item_info = &self.code.info.ast_info.items[item];
+                                    let node_info = &self.code.info.ast_info.nodes[item_info.node_id];
+                                    let begin = self.code.source_map.source_pos_to_offset(node_info.source_range.begin);
+                                    let end   = self.code.source_map.source_pos_to_offset(node_info.source_range.end);
+                                    if let (Some(text_first), Some(text_last)) = (
+                                        self.code.source_map.source_to_text(begin),
+                                        self.code.source_map.source_to_text(end - 1))
+                                    {
+                                        highlight = Some((text_first, text_last));
+                                    }
+                                }
+
+                                expr::IdentTarget::Local { node, local: _ } => {
+                                    let node_info = &self.code.info.ast_info.nodes[node];
+                                    let begin = self.code.source_map.source_pos_to_offset(node_info.source_range.begin);
+                                    let end   = self.code.source_map.source_pos_to_offset(node_info.source_range.end);
+                                    if let (Some(text_first), Some(text_last)) = (
+                                        self.code.source_map.source_to_text(begin),
+                                        self.code.source_map.source_to_text(end - 1))
+                                    {
+                                        highlight = Some((text_first, text_last));
+                                    }
+                                }
+
+                                expr::IdentTarget::Dynamic => {
+                                    highlight = Some((text_first, text_last));
+                                }
+                            }
+                        }
+                        else if let ExprData::Continue(cont) = &expr.data {
+                            let info = cont.info.unwrap();
+                            if let Some(info) = info {
+                                let node_info = &self.code.info.ast_info.nodes[info.node];
+                                let begin = self.code.source_map.source_pos_to_offset(node_info.source_range.begin);
+                                let end   = self.code.source_map.source_pos_to_offset(node_info.source_range.end);
+                                if let (Some(text_first), Some(text_last)) = (
+                                    self.code.source_map.source_to_text(begin),
+                                    self.code.source_map.source_to_text(end - 1))
+                                {
+                                    highlight = Some((text_first, text_last));
+                                }
+                            }
+                        }
+                        else if let ExprData::Break(bkr) = &expr.data {
+                            let info = bkr.info.unwrap();
+                            if let Some(info) = info {
+                                let node_info = &self.code.info.ast_info.nodes[info.node];
+                                let begin = self.code.source_map.source_pos_to_offset(node_info.source_range.begin);
+                                let end   = self.code.source_map.source_pos_to_offset(node_info.source_range.end);
+                                if let (Some(text_first), Some(text_last)) = (
+                                    self.code.source_map.source_to_text(begin),
+                                    self.code.source_map.source_to_text(end - 1))
+                                {
+                                    highlight = Some((text_first, text_last));
+                                }
+                            }
+                        }
+                    }
+
+                    break;
+                }
+            }
+
+
             let r = &mut self.renderer;
             r.set_size(size.0 as u32, size.1 as u32);
 
             r.clear(13, 16, 23);
 
-            if let Some((x, y)) = self.window.get_mouse_pos(minifb::MouseMode::Pass) {
-                let metrics = self.code.layout.hit_test_pos(x - 50., y - 30.);
-                let pos = metrics.text_pos_left;
+            if let Some((first, last, info)) = hover {
+                self.code.layout.hit_test_text_ranges(first, last + 1, |range| {
+                    r.fill_rect(
+                        50. + range.x, 30. + range.y,
+                        range.width, range.line_height,
+                        &raqote::Source::Solid(raqote::SolidSource::from_unpremultiplied_argb(255, 50, 55, 60)),
+                        &Default::default());
+                });
 
-                if !metrics.out_of_bounds[0] && !metrics.out_of_bounds[1] {
-                    for mapping in &self.code.source_map {
-                        if pos >= mapping.text_begin && pos < mapping.text_end {
-                            let offset = pos - mapping.text_begin;
-                            if let SourceMapData::SourceRange { source_begin, source_end: _ } = mapping.data {
-                                let source_pos = source_begin + offset;
-
-                                for token in &self.code.info.tokens {
-                                    let tok_begin = self.code.source_pos_to_offset(token.source.begin);
-                                    let tok_end   = self.code.source_pos_to_offset(token.source.end);
-                                    if source_pos >= tok_begin && source_pos < tok_end {
-                                        let text_begin = self.code.text_map.iter()
-                                            .find(|map| tok_begin >= map.source_begin && tok_begin < map.source_end)
-                                            .and_then(|map|
-                                                if let TextMapData::TextRange { text_begin, text_end: _ } = map.data {
-                                                    Some(text_begin + (tok_begin - map.source_begin))
-                                                }
-                                                else { None });
-
-                                        let tok_last = tok_end - 1;
-                                        let text_last = self.code.text_map.iter()
-                                            .find(|map| tok_last >= map.source_begin && tok_last < map.source_end)
-                                            .and_then(|map|
-                                                if let TextMapData::TextRange { text_begin, text_end: _ } = map.data {
-                                                    Some(text_begin + (tok_last - map.source_begin))
-                                                }
-                                                else { None });
-
-                                        if let (Some(text_begin), Some(text_last)) = (text_begin, text_last) {
-                                            self.code.layout.hit_test_text_ranges(text_begin, text_last + 1, |range| {
-                                                r.fill_rect(
-                                                    50. + range.x, 30. + range.y,
-                                                    range.width, range.line_height,
-                                                    &raqote::Source::Solid(raqote::SolidSource::from_unpremultiplied_argb(255, 50, 55, 60)),
-                                                    &Default::default());
-                                            });
-
-                                            let begin = self.code.layout.hit_test_text_pos(text_begin);
-                                            let dump = format!("{:#?}", token);
-                                            let mut temp_layout = TextLayout::new(r.fonts());
-                                            temp_layout.append_ex(&dump, FaceId::DEFAULT, 16., TokenClass::Default.color());
-                                            r.draw_text_layout_abs(500, 30 + begin.y as i32, &temp_layout);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                let m = self.code.layout.hit_test_text_pos(first);
+                let dump = format!("{:?}", info.node_id);
+                let mut temp_layout = TextLayout::new(r.fonts());
+                temp_layout.append_ex(&dump, FaceId::DEFAULT, 16., TokenClass::Default.color());
+                r.draw_text_layout_abs(500, 30 + m.y as i32, &temp_layout);
             }
+
+            if let Some((first, last)) = highlight {
+                self.code.layout.hit_test_text_ranges(first, last + 1, |range| {
+                    r.fill_rect(
+                        50. + range.x, 30. + range.y,
+                        range.width, range.line_height,
+                        &raqote::Source::Solid(raqote::SolidSource::from_unpremultiplied_argb(255, 64, 139, 183)),
+                        &Default::default());
+                });
+            }
+
 
             self.code.draw(r);
 

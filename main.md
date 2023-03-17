@@ -33,8 +33,9 @@
 
 
 - todo: explorer.
-    - ast viewer & cleanup.
+    - h2c?
     - stuff:
+        - ast child visitors.
         - baselines.
         - properly sort decorations.
         - handle conflicting replacements.

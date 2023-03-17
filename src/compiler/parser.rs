@@ -1088,6 +1088,8 @@ impl<'p, 'i> Parser<'p, 'i> {
             // local ::= (let | var) ident (= expr)? (;)?
             else if at.data == TokenData::KwLet
             ||      at.data == TokenData::KwVar {
+                let begin = at.source.begin;
+
                 let kind = match at.data {
                     TokenData::KwLet => expr::LocalKind::Let,
                     TokenData::KwVar => expr::LocalKind::Var,
