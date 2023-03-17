@@ -224,6 +224,8 @@ struct Explorer {
     window:   Window,
     renderer: Renderer,
     code:     CodeView,
+
+    temp: usize,
 }
 
 impl Explorer {
@@ -242,6 +244,8 @@ impl Explorer {
             window,
             renderer: Renderer::new(&fonts),
             code:     CodeView::new(&fonts),
+
+            temp: 0,
         }
     }
 
@@ -249,12 +253,38 @@ impl Explorer {
         while self.window.is_open() {
             let size = self.window.get_size();
 
+            for key in self.window.get_keys_pressed(minifb::KeyRepeat::Yes) {
+                use minifb::Key::*;
+                match key {
+                    Left => {
+                        if self.temp > 0 {
+                            self.temp -= 1;
+                        }
+                    }
+
+                    Right => {
+                        if self.temp < self.code.layout.text().len() {
+                            self.temp += 1;
+                        }
+                    }
+
+                    _ => ()
+                }
+            }
+
             let r = &mut self.renderer;
             r.set_size(size.0 as u32, size.1 as u32);
 
             r.clear(13, 16, 23);
 
             self.code.draw(r);
+
+            let metrics = self.code.layout.hit_test_text_pos(self.temp);
+            r.fill_rect(
+                50. + metrics.x, 30. + metrics.y, 
+                metrics.glyph_width, metrics.line_height, 
+                &raqote::Source::Solid(raqote::SolidSource::from_unpremultiplied_argb(64, 255, 127, 200)),
+                &Default::default());
 
             self.window.update_with_buffer(r.data(), size.0, size.1).unwrap();
         }

@@ -34,7 +34,8 @@
 
 - todo: explorer.
     - show token type.
-        - hit testing.
+        - text layout hit testing.
+        - reverse mapping.
         - draw popup.
     - stuff:
         - properly sort decorations.

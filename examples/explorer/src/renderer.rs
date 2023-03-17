@@ -113,27 +113,40 @@ impl Renderer {
         }
     }
 
-    pub fn draw_text_layout_abs(&mut self, x: i32, y: i32, layout: &TextLayout<u32>) {
+    pub fn draw_text_layout_abs(&mut self, x0: i32, y0: i32, layout: &TextLayout<u32>) {
         let fonts = self.fonts.clone();
         let mut fonts = fonts.inner.borrow_mut();
 
-        let mut y = y as i32;
+        let mut y0 = y0 as f32;
         for line in &layout.lines {
-            for span in &layout.spans[line.span_begin as usize .. line.span_end as usize] {
+            let mut x0 = x0 as f32;
+            for span in &layout.spans[line.span_range()] {
                 for glyph in &layout.glyphs[span.glyph_begin as usize .. span.glyph_end as usize] {
                     let (metrics, mask) = fonts.glyph_mask(span.face_id, span.font_size, glyph.index);
                     self.draw_mask_abs(
-                        x + glyph.x.floor() as i32,
-                        y + glyph.y.floor() as i32,
+                        x0 as i32 + glyph.dx as i32,
+                        y0 as i32 + glyph.dy as i32,
                         &mask, metrics.width as u32, metrics.height as u32,
                         span.effect
                     );
+                    x0 += glyph.advance;
                 }
             }
 
-            y += line.height().ceil() as i32;
+            y0 += line.height();
         }
     }
+}
+
+impl core::ops::Deref for Renderer {
+    type Target = DrawTarget;
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target { &self.target }
+}
+
+impl core::ops::DerefMut for Renderer {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.target }
 }
 
 
@@ -266,19 +279,16 @@ pub struct TextLayout<E> {
 #[derive(Clone, Copy, Debug)]
 struct Glyph {
     index: u16,
-    x: f32,
-    y: f32,
+    advance: f32,
+    dx: f32,
+    dy: f32,
 }
 
 struct Line {
-    #[allow(dead_code)] // @temp: hit testing.
     text_begin:  u32,
     text_end:    u32,
     span_begin: u32,
     span_end: u32,
-    #[allow(dead_code)] // @temp: hit testing.
-    glyph_begin: u32,
-    glyph_end:   u32,
 
     width:  f32,
     max_ascent:  f32,
@@ -286,15 +296,20 @@ struct Line {
     max_gap:     f32,
 }
 
+impl Line {
+    #[inline(always)]
+    fn span_range(&self) -> core::ops::Range<usize> {
+        self.span_begin as usize .. self.span_end as usize
+    }
+}
+
+
 struct Span<E> {
-    #[allow(dead_code)] // @temp: hit testing.
     text_begin:  u32,
-    #[allow(dead_code)] // @temp: hit testing.
     text_end:    u32,
     glyph_begin: u32,
     glyph_end:   u32,
 
-    #[allow(dead_code)] // @temp: hit testing.
     width: f32,
 
     face_id:   FaceId,
@@ -304,11 +319,10 @@ struct Span<E> {
 
 impl Line {
     #[inline(always)]
-    fn new(text_begin: u32, span_begin: u32, glyph_begin: u32) -> Line {
+    fn new(text_begin: u32, span_begin: u32) -> Line {
         Line {
             text_begin,  text_end:  text_begin,
             span_begin,  span_end:  span_begin,
-            glyph_begin, glyph_end: glyph_begin,
             width: 0.0,
             max_ascent: 0.0, max_descent: 0.0,
             max_gap: 0.0,
@@ -326,16 +340,21 @@ impl<E> TextLayout<E> {
         TextLayout {
             fonts:  fonts.clone(),
             text:   "".into(),
-            lines:  vec![Line::new(0, 0, 0)],
+            lines:  vec![Line::new(0, 0)],
             spans:  vec![],
             glyphs: vec![],
         }
     }
 
+    #[inline(always)]
+    pub fn text(&self) -> &str { &self.text }
+
     pub fn clear(&mut self) {
         self.text.clear();
         self.lines.clear();
-        self.lines.push(Line::new(0, 0, 0));
+        self.spans.clear();
+        self.glyphs.clear();
+        self.lines.push(Line::new(0, 0));
     }
 
     pub fn append_ex(&mut self, text: &str, face_id: FaceId, font_size: f32, effect: E) where E: Copy {
@@ -358,68 +377,134 @@ impl<E> TextLayout<E> {
 
         let mut text = text;
         while text.len() > 0 {
-            let (line_end, is_line) =
-                text.find('\n').map(|index| (index + 1, true))
+            let (segment_end, is_line) =
+                text.find('\n').map(|index| (index, true))
                 .unwrap_or((text.len(), false));
-
-            let line_len = line_end - is_line as usize;
 
             let pos_begin = pos_cursor;
 
             // add glyphs.
             // assume one glyph per char.
             let glyph_begin = self.glyphs.len() as u32;
-            for c in text[..line_len].chars() {
+            for c in text[..segment_end].chars() {
                 // @todo: kern.
                 let glyph_index = face.font.lookup_glyph_index(c);
                 let metrics     = face.font.metrics_indexed(glyph_index, *font_size);
 
                 self.glyphs.push(Glyph {
                     index: glyph_index,
-                    x: pos_cursor + metrics.bounds.xmin,
-                    y: -metrics.bounds.height - metrics.bounds.ymin,
+                    advance: metrics.advance_width,
+                    dx: metrics.bounds.xmin,
+                    dy: -metrics.bounds.height - metrics.bounds.ymin,
                 });
 
                 pos_cursor += metrics.advance_width;
             }
-            assert_eq!(self.glyphs.len(), glyph_begin as usize + line_len);
+            assert_eq!(self.glyphs.len(), glyph_begin as usize + segment_end);
             let glyph_end = self.glyphs.len() as u32;
 
             // add span.
-            let text_begin  = text_cursor;
-            let text_end    = text_begin + line_len as u32;
             self.spans.push(Span {
-                text_begin, text_end,
+                text_begin: text_cursor,
+                text_end:   text_cursor + segment_end as u32,
                 glyph_begin, glyph_end,
                 width: pos_cursor - pos_begin,
                 face_id, font_size, effect,
             });
 
+
             // update line.
-            current_line.text_end  = text_end;
+            let line_end = text_cursor + segment_end as u32;
+            current_line.text_end  = line_end;
             current_line.span_end += 1;
-            current_line.glyph_end = glyph_end;
             current_line.width     = pos_cursor;
 
-            text_cursor += line_end as u32;
             if is_line {
                 self.new_line();
                 current_line = self.lines.last_mut().unwrap();
                 pos_cursor   = 0.0;
 
+                // need to fix up text begin/end,
+                // as we've added the entire `text` already.
+                // line ranges are weird. they don't include the `\n`.
+                // so the next line starts after the current line's `\n`.
+                current_line.text_begin  = line_end + 1;
+                current_line.text_end    = line_end + 1;
+
                 current_line.max_ascent  = font_metrics.ascent;
                 current_line.max_descent = -font_metrics.descent;
                 current_line.max_gap     = font_metrics.line_gap;
             }
-            text = &text[line_end..];
+
+            let text_advance = segment_end + is_line as usize;
+            text_cursor += text_advance as u32;
+            text = &text[text_advance..];
         }
     }
 
     pub fn new_line(&mut self) {
         let text_begin  = self.text.len()   as u32;
         let span_begin  = self.spans.len()  as u32;
-        let glyph_begin = self.glyphs.len() as u32;
-        self.lines.push(Line::new(text_begin, span_begin, glyph_begin));
+        self.lines.push(Line::new(text_begin, span_begin));
+    }
+}
+
+
+#[derive(Clone, Copy, Debug)]
+pub struct PosMetrics {
+    pub x: f32,
+    pub y: f32,
+    pub glyph_width: f32,
+    pub line_height: f32,
+    pub line_index:  usize,
+}
+
+impl<E> TextLayout<E> {
+    pub fn hit_test_text_pos(&self, pos: usize) -> PosMetrics {
+        let pos = pos.min(self.text.len()) as u32;
+
+        let mut y = 0.0;
+        for (line_index, line) in self.lines.iter().enumerate() {
+            let mut x = 0.0;
+            if pos >= line.text_begin && pos <= line.text_end {
+                for span in &self.spans[line.span_range()] {
+                    // in current span.
+                    if pos >= span.text_begin
+                    && pos <  span.text_end {
+                        let offset = (pos - span.text_begin) as usize;
+                        let glyph_begin = span.glyph_begin as usize;
+
+                        for i in 0..offset {
+                            x += self.glyphs[glyph_begin + i].advance;
+                        }
+
+                        let advance = self.glyphs[glyph_begin + offset].advance;
+                        return PosMetrics {
+                            x, y,
+                            glyph_width: advance,
+                            line_height: line.height(),
+                            line_index,
+                        };
+                    }
+
+                    x += span.width;
+                }
+
+                // end of line.
+                let x = line.width;
+                return PosMetrics {
+                    x, y,
+                    glyph_width: 1.,
+                    line_height: line.height(),
+                    line_index,
+                };
+            }
+
+            y += line.height();
+        }
+
+        assert_eq!(self.text.len(), 0);
+        return PosMetrics { x: 0.0, y: 0.0, glyph_width: 0.0, line_height: 0.0, line_index: 0 };
     }
 }
 
