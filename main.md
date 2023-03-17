@@ -33,9 +33,7 @@
 
 
 - todo: explorer.
-    - show token type.
-        - reverse mapping.
-        - draw popup.
+    - ast viewer & cleanup.
     - stuff:
         - baselines.
         - properly sort decorations.

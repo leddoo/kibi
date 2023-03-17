@@ -27,8 +27,8 @@ struct Decoration {
 }
 
 enum DecorationData {
-    Style  { color: u32 },
-    Insert { text: String, color: u32 },
+    Style   { color: u32 },
+    Replace { text: String, color: u32 },
 }
 
 
@@ -118,10 +118,42 @@ impl TokenClass {
 }
 
 
+#[derive(Clone, Copy, Debug)]
+struct TextMap {
+    source_begin: u32,
+    source_end:   u32,
+    data: TextMapData,
+}
+
+#[allow(dead_code)] // @temp: text_end not used.
+#[derive(Clone, Copy, Debug)]
+enum TextMapData {
+    None,
+    TextRange { text_begin: u32, text_end: u32 },
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SourceMap {
+    text_begin: u32,
+    text_end:   u32,
+    data: SourceMapData,
+}
+
+#[allow(dead_code)] // @temp: source_end not used.
+#[derive(Clone, Copy, Debug)]
+enum SourceMapData {
+    None,
+    SourceRange { source_begin: u32, source_end: u32 },
+}
+
+
 struct CodeView {
     text: String,
     info: CodeInfo<'static>,
     layout: TextLayout<u32>,
+    line_begins: Vec<u32>,
+    text_map:    Vec<TextMap>,
+    source_map:  Vec<SourceMap>,
 }
 
 impl CodeView {
@@ -130,7 +162,14 @@ impl CodeView {
             text:   "".into(),
             info:   CodeInfo::new(""),
             layout: TextLayout::new(fonts),
+            line_begins: vec![],
+            text_map:    vec![],
+            source_map:  vec![],
         }
+    }
+
+    pub fn source_pos_to_offset(&self, pos: kibi::SourcePos) -> u32 {
+        self.line_begins[pos.line as usize - 1] + pos.column - 1
     }
 
     pub fn set_text(&mut self, text: &str) {
@@ -140,34 +179,31 @@ impl CodeView {
         let info = CodeInfo::new(&self.text);
 
         // @todo: looks like offset based source positions are more useful (here).
-        let mut line_begins = vec![];
+        self.line_begins.clear();
         for line in text.lines() {
-            line_begins.push(line.as_ptr() as usize - text.as_ptr() as usize);
+            self.line_begins.push((line.as_ptr() as usize - text.as_ptr() as usize) as u32);
         }
-        let line_to_offset = |line: u32| {
-            line_begins[line as usize - 1] as u32
-        };
 
         let mut decos = vec![];
         for token in &info.tokens {
             // inserted semicolons.
             if token.source.begin == token.source.end {
                 if let kibi::TokenData::Semicolon = token.data {
-                    let begin = token.source.begin;
-                    let text_begin = line_to_offset(begin.line) + begin.column - 1;
+                    let text_begin = self.source_pos_to_offset(token.source.begin);
                     decos.push(Decoration {
                         text_begin,
                         text_end: text_begin,
-                        data: DecorationData::Insert { text: ";".to_string(), color: TokenClass::Comment.color() },
+                        data: DecorationData::Replace {
+                            text: ";".to_string(),
+                            color: TokenClass::Comment.color(),
+                        },
                     });
                 }
             }
             // syntax highlighting.
             else {
-                let begin = token.source.begin;
-                let end   = token.source.end;
-                let text_begin = line_to_offset(begin.line) + begin.column - 1;
-                let text_end   = line_to_offset(end.line)   + end.column - 1;
+                let text_begin = self.source_pos_to_offset(token.source.begin);
+                let text_end   = self.source_pos_to_offset(token.source.end);
                 let class = TokenClass::from_data(token.data);
                 decos.push(Decoration { text_begin, text_end,
                     data: DecorationData::Style { color: class.color() }
@@ -179,6 +215,8 @@ impl CodeView {
         self.info = unsafe { core::mem::transmute(info) };
 
         self.layout.clear();
+        self.text_map.clear();
+        self.source_map.clear();
         {
             let font_size = 24.;
 
@@ -190,16 +228,64 @@ impl CodeView {
                     let deco_end   = next_deco.text_end   as usize;
 
                     if text_cursor < deco_begin {
-                        self.layout.append_ex(&text[text_cursor..deco_begin], FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                        let source_begin = text_cursor as u32;
+                        let source_end   = deco_begin  as u32;
+
+                        let text_begin = self.layout.text().len() as u32;
+                        self.layout.append_ex(&text[source_begin as usize .. source_end as usize], FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                        let text_end = self.layout.text().len() as u32;
+
+                        self.text_map.push(TextMap {
+                            source_begin,
+                            source_end,
+                            data: TextMapData::TextRange { text_begin, text_end },
+                        });
+                        self.source_map.push(SourceMap {
+                            text_begin,
+                            text_end,
+                            data: SourceMapData::SourceRange { source_begin, source_end },
+                        });
                     }
 
                     match &next_deco.data {
                         DecorationData::Style { color } => {
-                            self.layout.append_ex(&text[deco_begin..deco_end], FaceId::DEFAULT, font_size, *color);
+                            let source_begin = deco_begin as u32;
+                            let source_end   = deco_end   as u32;
+
+                            let text_begin = self.layout.text().len() as u32;
+                            self.layout.append_ex(&text[source_begin as usize .. source_end as usize], FaceId::DEFAULT, font_size, *color);
+                            let text_end = self.layout.text().len() as u32;
+
+                            self.text_map.push(TextMap {
+                                source_begin,
+                                source_end,
+                                data: TextMapData::TextRange { text_begin, text_end },
+                            });
+                            self.source_map.push(SourceMap {
+                                text_begin,
+                                text_end,
+                                data: SourceMapData::SourceRange { source_begin, source_end },
+                            });
                         }
 
-                        DecorationData::Insert { text, color } => {
+                        DecorationData::Replace { text, color } => {
+                            let source_begin = deco_begin as u32;
+                            let source_end   = deco_end   as u32;
+
+                            let text_begin = self.layout.text().len() as u32;
                             self.layout.append_ex(text, FaceId::DEFAULT, font_size, *color);
+                            let text_end = self.layout.text().len() as u32;
+
+                            self.text_map.push(TextMap {
+                                source_begin,
+                                source_end,
+                                data: TextMapData::None,
+                            });
+                            self.source_map.push(SourceMap {
+                                text_begin,
+                                text_end,
+                                data: SourceMapData::None,
+                            });
                         }
                     }
 
@@ -207,7 +293,24 @@ impl CodeView {
                     text_cursor  = deco_end;
                 }
                 else {
-                    self.layout.append_ex(&text[text_cursor..], FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    let source_begin = text_cursor as u32;
+                    let source_end   = text.len()  as u32;
+
+                    let text_begin = self.layout.text().len() as u32;
+                    self.layout.append_ex(&text[source_begin as usize .. source_end as usize], FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    let text_end = self.layout.text().len() as u32;
+
+                    self.text_map.push(TextMap {
+                        source_begin,
+                        source_end,
+                        data: TextMapData::TextRange { text_begin, text_end },
+                    });
+                    self.source_map.push(SourceMap {
+                        text_begin,
+                        text_end,
+                        data: SourceMapData::SourceRange { source_begin, source_end },
+                    });
+
                     text_cursor = text.len();
                 }
             }
@@ -224,8 +327,6 @@ struct Explorer {
     window:   Window,
     renderer: Renderer,
     code:     CodeView,
-
-    temp: usize,
 }
 
 impl Explorer {
@@ -244,8 +345,6 @@ impl Explorer {
             window,
             renderer: Renderer::new(&fonts),
             code:     CodeView::new(&fonts),
-
-            temp: 0,
         }
     }
 
@@ -253,44 +352,67 @@ impl Explorer {
         while self.window.is_open() {
             let size = self.window.get_size();
 
-            for key in self.window.get_keys_pressed(minifb::KeyRepeat::Yes) {
-                use minifb::Key::*;
-                match key {
-                    Left => {
-                        if self.temp > 0 {
-                            self.temp -= 1;
-                        }
-                    }
-
-                    Right => {
-                        if self.temp < self.code.layout.text().len() {
-                            self.temp += 1;
-                        }
-                    }
-
-                    _ => ()
-                }
-            }
-
-            if self.window.get_mouse_down(minifb::MouseButton::Left) {
-                let (x, y) = self.window.get_mouse_pos(minifb::MouseMode::Pass).unwrap();
-                let metrics = self.code.layout.hit_test_pos(x - 50., y - 30.);
-                self.temp = metrics.text_pos_left as usize;
-            }
-
             let r = &mut self.renderer;
             r.set_size(size.0 as u32, size.1 as u32);
 
             r.clear(13, 16, 23);
 
-            self.code.draw(r);
+            if let Some((x, y)) = self.window.get_mouse_pos(minifb::MouseMode::Pass) {
+                let metrics = self.code.layout.hit_test_pos(x - 50., y - 30.);
+                let pos = metrics.text_pos_left;
 
-            let metrics = self.code.layout.hit_test_text_pos(self.temp);
-            r.fill_rect(
-                50. + metrics.x, 30. + metrics.y, 
-                metrics.glyph_width, metrics.line_height, 
-                &raqote::Source::Solid(raqote::SolidSource::from_unpremultiplied_argb(64, 255, 127, 200)),
-                &Default::default());
+                if !metrics.out_of_bounds[0] && !metrics.out_of_bounds[1] {
+                    for mapping in &self.code.source_map {
+                        if pos >= mapping.text_begin && pos < mapping.text_end {
+                            let offset = pos - mapping.text_begin;
+                            if let SourceMapData::SourceRange { source_begin, source_end: _ } = mapping.data {
+                                let source_pos = source_begin + offset;
+
+                                for token in &self.code.info.tokens {
+                                    let tok_begin = self.code.source_pos_to_offset(token.source.begin);
+                                    let tok_end   = self.code.source_pos_to_offset(token.source.end);
+                                    if source_pos >= tok_begin && source_pos < tok_end {
+                                        let text_begin = self.code.text_map.iter()
+                                            .find(|map| tok_begin >= map.source_begin && tok_begin < map.source_end)
+                                            .and_then(|map|
+                                                if let TextMapData::TextRange { text_begin, text_end: _ } = map.data {
+                                                    Some(text_begin + (tok_begin - map.source_begin))
+                                                }
+                                                else { None });
+
+                                        let tok_last = tok_end - 1;
+                                        let text_last = self.code.text_map.iter()
+                                            .find(|map| tok_last >= map.source_begin && tok_last < map.source_end)
+                                            .and_then(|map|
+                                                if let TextMapData::TextRange { text_begin, text_end: _ } = map.data {
+                                                    Some(text_begin + (tok_last - map.source_begin))
+                                                }
+                                                else { None });
+
+                                        if let (Some(text_begin), Some(text_last)) = (text_begin, text_last) {
+                                            self.code.layout.hit_test_text_ranges(text_begin, text_last + 1, |range| {
+                                                r.fill_rect(
+                                                    50. + range.x, 30. + range.y,
+                                                    range.width, range.line_height,
+                                                    &raqote::Source::Solid(raqote::SolidSource::from_unpremultiplied_argb(255, 50, 55, 60)),
+                                                    &Default::default());
+                                            });
+
+                                            let begin = self.code.layout.hit_test_text_pos(text_begin);
+                                            let dump = format!("{:#?}", token);
+                                            let mut temp_layout = TextLayout::new(r.fonts());
+                                            temp_layout.append_ex(&dump, FaceId::DEFAULT, 16., TokenClass::Default.color());
+                                            r.draw_text_layout_abs(500, 30 + begin.y as i32, &temp_layout);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            self.code.draw(r);
 
             self.window.update_with_buffer(r.data(), size.0, size.1).unwrap();
         }

@@ -57,6 +57,7 @@ impl Renderer {
         }}
         while i < buffer.len() {
             buffer[i] = c;
+            i += 1;
         }
     }
 
@@ -457,20 +458,24 @@ impl<E> TextLayout<E> {
 
 
 #[derive(Clone, Copy, Debug)]
-pub struct PosMetrics {
+pub struct RangeMetrics {
     pub x: f32,
     pub y: f32,
-    pub glyph_width: f32,
+    pub width: f32,
+    // @todo: baseline.
     pub line_height: f32,
-    pub line_index:  usize,
+    pub line_index:  u32,
 }
 
 impl<E> TextLayout<E> {
-    pub fn hit_test_text_pos(&self, pos: usize) -> PosMetrics {
-        let pos = pos.min(self.text.len()) as u32;
+    pub fn hit_test_text_pos(&self, pos: u32) -> RangeMetrics {
+        let pos = pos.min(self.text.len() as u32);
 
         let mut y = 0.0;
         for (line_index, line) in self.lines.iter().enumerate() {
+            let line_index  = line_index as u32;
+            let line_height = line.height();
+
             let mut x = 0.0;
             if pos >= line.text_begin && pos <= line.text_end {
                 for span in &self.spans[line.span_range()] {
@@ -485,11 +490,10 @@ impl<E> TextLayout<E> {
                         }
 
                         let advance = self.glyphs[glyph_begin + offset].advance;
-                        return PosMetrics {
+                        return RangeMetrics {
                             x, y,
-                            glyph_width: advance,
-                            line_height: line.height(),
-                            line_index,
+                            width: advance,
+                            line_height, line_index,
                         };
                     }
 
@@ -498,19 +502,111 @@ impl<E> TextLayout<E> {
 
                 // end of line.
                 let x = line.width;
-                return PosMetrics {
+                return RangeMetrics {
                     x, y,
-                    glyph_width: 1.,
-                    line_height: line.height(),
-                    line_index,
+                    width: 1.,
+                    line_height, line_index,
                 };
             }
 
-            y += line.height();
+            y += line_height;
         }
 
         assert_eq!(self.text.len(), 0);
-        return PosMetrics { x: 0.0, y: 0.0, glyph_width: 0.0, line_height: 0.0, line_index: 0 };
+        return RangeMetrics { x: 0.0, y: 0.0, width: 0.0, line_height: 0.0, line_index: 0 };
+    }
+}
+
+
+impl<E> TextLayout<E> {
+    pub fn hit_test_text_ranges<F: FnMut(&RangeMetrics)>(&self, begin: u32, end: u32, mut f: F) {
+        let begin = begin.min(self.text.len() as u32);
+        let end   = end.min(self.text.len() as u32);
+        if begin >= end { return }
+        
+        let mut target   = begin;
+        let mut in_range = false;
+
+        let mut y = 0.0;
+
+        for (line_index, line) in self.lines.iter().enumerate() {
+            let line_index  = line_index as u32;
+            let line_height = line.height();
+
+            let f = &mut f;
+            let mut f = |x0: f32, x1: f32| {
+                if x0 < x1 {
+                    f(&RangeMetrics {
+                        x: x0, y,
+                        width: x1 - x0,
+                        line_height, line_index,
+                    });
+                }
+            };
+
+            let mut x = 0.0;
+            if target >= line.text_begin && target <= line.text_end {
+                for span in &self.spans[line.span_range()] {
+                    // in current span.
+                    if target >= span.text_begin
+                    && target <  span.text_end {
+                        let offset = (target - span.text_begin) as usize;
+                        let glyph_begin = span.glyph_begin as usize;
+
+                        let span_x = x;
+                        let mut target_x = x;
+                        for i in 0..offset {
+                            target_x += self.glyphs[glyph_begin + i].advance;
+                        }
+
+                        if in_range {
+                            f(span_x, target_x);
+                            return;
+                        }
+                        else {
+                            in_range = true;
+                            target   = end;
+
+                            if target < span.text_end {
+                                let mut end_x = target_x;
+                                let end_offset = (target - span.text_begin) as usize;
+                                for i in offset..end_offset {
+                                    end_x += self.glyphs[glyph_begin + i].advance;
+                                }
+
+                                f(target_x, end_x);
+                                return;
+                            }
+                            else {
+                                f(target_x, x + span.width);
+                            }
+                        }
+                    }
+                    else if in_range {
+                        f(x, x + span.width);
+                    }
+
+                    x += span.width;
+                }
+
+                if target == line.text_end {
+                    if in_range {
+                        return;
+                    }
+                    else {
+                        in_range = true;
+                        target   = end;
+                    }
+                }
+            }
+            else if in_range {
+                f(0., line.width);
+            }
+
+            y += line_height;
+        }
+
+        unreachable!()
     }
 }
 
@@ -525,8 +621,8 @@ pub struct HitMetrics {
 }
 
 impl<E> TextLayout<E> {
-    pub fn hit_test_line(&self, line_index: usize, x: f32) -> HitMetrics {
-        let line = &self.lines[line_index];
+    pub fn hit_test_line(&self, line_index: u32, x: f32) -> HitMetrics {
+        let line = &self.lines[line_index as usize];
 
         if x < 0.0 {
             return HitMetrics {
@@ -588,14 +684,14 @@ impl<E> TextLayout<E> {
             let new_line_y = line_y + line.height();
 
             if y >= line_y && y < new_line_y {
-                return self.hit_test_line(line_index, x);
+                return self.hit_test_line(line_index as u32, x);
             }
 
             line_y = new_line_y;
         }
 
         // below.
-        let mut result = self.hit_test_line(self.lines.len() - 1, x);
+        let mut result = self.hit_test_line(self.lines.len() as u32 - 1, x);
         result.out_of_bounds[1] = true;
         return result;
     }
