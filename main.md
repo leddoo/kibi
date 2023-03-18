@@ -33,8 +33,15 @@
 
 
 - todo: explorer.
-    - panning.
     - draw bytecode.
+        - decode to structured repr.
+        - draw it.
+    - align functions & bytecode.
+        - based on which has more lines.
+        - split up the code view's text layout.
+    - control flow info.
+        - generate it.
+        - use it.
     - stuff:
         - ast child visitors.
         - properly sort decorations.

@@ -395,6 +395,7 @@ impl SourceMap {
 
 
 struct CodeView {
+    pos: (f32, f32),
     text: String,
     info: CodeInfo<'static>,
     layout: TextLayout<u32>,
@@ -404,6 +405,7 @@ struct CodeView {
 impl CodeView {
     pub fn new(fonts: &FontCtx) -> CodeView {
         CodeView {
+            pos:    (150., 50.),
             text:   "".into(),
             info:   CodeInfo::new(""),
             layout: TextLayout::new(fonts),
@@ -557,8 +559,146 @@ impl CodeView {
         }
     }
 
-    pub fn draw(&mut self, r: &mut Renderer) {
-        r.draw_text_layout_abs(50, 50, &self.layout);
+    pub fn update(&mut self, window: &Window, offset: (f32, f32), r: &mut Renderer) {
+        let (mx, my) = window.get_mouse_pos(minifb::MouseMode::Pass).unwrap();
+        let mx = mx + offset.0;
+        let my = my + offset.1;
+        let mhit = self.layout.hit_test_pos(mx - self.pos.0, my - self.pos.1);
+
+        let mut hover     = None;
+        let mut highlight = None;
+
+        'foo: {
+            if mhit.out_of_bounds[0] || mhit.out_of_bounds[1] { break 'foo }
+
+            let Some(source_pos) = self.source_map.text_to_source(mhit.text_pos_left) else { break 'foo };
+
+            for info in self.info.ast_info.nodes.iter().rev() {
+                let begin = self.source_map.source_pos_to_offset(info.source_range.begin);
+                let end   = self.source_map.source_pos_to_offset(info.source_range.end);
+
+                if source_pos < begin || source_pos >= end { continue }
+
+                let Some(text_first) = self.source_map.source_to_text(begin)   else { continue };
+                let Some(text_last)  = self.source_map.source_to_text(end - 1) else { continue };
+
+                hover = Some((text_first, text_last, info));
+
+                if let NodeRef::Expr(expr) = info.node_ref {
+                    if let ExprData::Ident(ident) = &expr.data {
+                        let info = ident.info.unwrap();
+                        match info.target {
+                            expr::IdentTarget::Item(item) => {
+                                let item_info = &self.info.ast_info.items[item];
+                                let node_info = &self.info.ast_info.nodes[item_info.node_id];
+                                let begin = self.source_map.source_pos_to_offset(node_info.source_range.begin);
+                                let end   = self.source_map.source_pos_to_offset(node_info.source_range.end);
+                                if let (Some(text_first), Some(text_last)) = (
+                                    self.source_map.source_to_text(begin),
+                                    self.source_map.source_to_text(end - 1))
+                                {
+                                    highlight = Some((text_first, text_last));
+                                }
+                            }
+
+                            expr::IdentTarget::Local { node, local: _ } => {
+                                let node_info = &self.info.ast_info.nodes[node];
+                                let begin = self.source_map.source_pos_to_offset(node_info.source_range.begin);
+                                let end   = self.source_map.source_pos_to_offset(node_info.source_range.end);
+                                if let (Some(text_first), Some(text_last)) = (
+                                    self.source_map.source_to_text(begin),
+                                    self.source_map.source_to_text(end - 1))
+                                {
+                                    highlight = Some((text_first, text_last));
+                                }
+                            }
+
+                            expr::IdentTarget::Dynamic => {
+                                highlight = Some((text_first, text_last));
+                            }
+                        }
+                    }
+                    else if let ExprData::Continue(cont) = &expr.data {
+                        let info = cont.info.unwrap();
+                        if let Some(info) = info {
+                            let node_info = &self.info.ast_info.nodes[info.node];
+                            let begin = self.source_map.source_pos_to_offset(node_info.source_range.begin);
+                            let end   = self.source_map.source_pos_to_offset(node_info.source_range.end);
+                            if let (Some(text_first), Some(text_last)) = (
+                                self.source_map.source_to_text(begin),
+                                self.source_map.source_to_text(end - 1))
+                            {
+                                highlight = Some((text_first, text_last));
+                            }
+                        }
+                    }
+                    else if let ExprData::Break(bkr) = &expr.data {
+                        let info = bkr.info.unwrap();
+                        if let Some(info) = info {
+                            let node_info = &self.info.ast_info.nodes[info.node];
+                            let begin = self.source_map.source_pos_to_offset(node_info.source_range.begin);
+                            let end   = self.source_map.source_pos_to_offset(node_info.source_range.end);
+                            if let (Some(text_first), Some(text_last)) = (
+                                self.source_map.source_to_text(begin),
+                                self.source_map.source_to_text(end - 1))
+                            {
+                                highlight = Some((text_first, text_last));
+                            }
+                        }
+                    }
+                }
+
+                break;
+            }
+        }
+
+
+        let view_x0 = self.pos.0 - offset.0;
+        let view_y0 = self.pos.1 - offset.1;
+        let view_x0i = view_x0.floor() as i32;
+        let view_y0i = view_y0.floor() as i32;
+
+        r.fill_rect(
+            view_x0, view_y0,
+            self.layout.width(), self.layout.height(),
+            &raqote::Source::Solid(raqote::SolidSource::from_unpremultiplied_argb(255, 30, 35, 40)),
+            &Default::default());
+
+        if let Some((first, last, info)) = hover {
+            self.layout.hit_test_text_ranges(first, last + 1, |range| {
+                let x0 = (view_x0 + range.x0).floor();
+                let x1 = (view_x0 + range.x1).floor();
+                let y0 = (view_y0 + range.y).floor();
+                let y1 = (view_y0 + range.y + range.line_height).floor();
+                r.fill_rect(
+                    x0, y0,
+                    x1 - x0, y1 - y0,
+                    &raqote::Source::Solid(raqote::SolidSource::from_unpremultiplied_argb(255, 50, 55, 60)),
+                    &Default::default());
+            });
+
+            let m = self.layout.hit_test_text_pos(first);
+            let dump = format!("{:?}", info.node_id);
+            let mut temp_layout = TextLayout::new(r.fonts());
+            temp_layout.append_ex(&dump, FaceId::DEFAULT, 16., TokenClass::Default.color());
+            r.draw_text_layout_abs(view_x0i - 125, view_y0i + m.y as i32, &temp_layout);
+        }
+
+        if let Some((first, last)) = highlight {
+            self.layout.hit_test_text_ranges(first, last + 1, |range| {
+                let x0 = (view_x0 + range.x0).floor();
+                let x1 = (view_x0 + range.x1).floor();
+                let y0 = (view_y0 + range.y).floor();
+                let y1 = (view_y0 + range.y + range.line_height).floor();
+                r.fill_rect(
+                    x0, y0,
+                    x1 - x0, y1 - y0,
+                    &raqote::Source::Solid(raqote::SolidSource::from_unpremultiplied_argb(255, 64, 73, 91)),
+                    &Default::default());
+            });
+        }
+
+        r.draw_text_layout_abs(view_x0i, view_y0i, &self.layout);
     }
 }
 
@@ -566,6 +706,8 @@ impl CodeView {
 struct Explorer {
     window:   Window,
     renderer: Renderer,
+    offset:     (f32, f32),
+    last_mouse: (f32, f32),
     code:     CodeView,
 }
 
@@ -576,7 +718,7 @@ impl Explorer {
             ..Default::default()
         }).unwrap();
 
-        window.limit_update_rate(Some(std::time::Duration::from_millis(6)));
+        window.limit_update_rate(Some(std::time::Duration::from_millis(5)));
 
         let fonts = FontCtx::new();
         fonts.add_face("Source Code Pro", Bold(false), Italic(false), include_bytes!("../res/SourceCodePro-Regular.ttf"));
@@ -584,6 +726,8 @@ impl Explorer {
         Explorer {
             window,
             renderer: Renderer::new(&fonts),
+            offset:     (0., 0.),
+            last_mouse: (0., 0.),
             code:     CodeView::new(&fonts),
         }
     }
@@ -593,143 +737,20 @@ impl Explorer {
             let size = self.window.get_size();
 
             let (mx, my) = self.window.get_mouse_pos(minifb::MouseMode::Pass).unwrap();
-            let mhit = self.code.layout.hit_test_pos(mx - 50., my - 50.);
-
-            let mut hover     = None;
-            let mut highlight = None;
-
-            'foo: {
-                if mhit.out_of_bounds[0] || mhit.out_of_bounds[1] { break 'foo }
-
-                let Some(source_pos) = self.code.source_map.text_to_source(mhit.text_pos_left) else { break 'foo };
-
-                for info in self.code.info.ast_info.nodes.iter().rev() {
-                    let begin = self.code.source_map.source_pos_to_offset(info.source_range.begin);
-                    let end   = self.code.source_map.source_pos_to_offset(info.source_range.end);
-
-                    if source_pos < begin || source_pos >= end { continue }
-
-                    let Some(text_first) = self.code.source_map.source_to_text(begin)   else { continue };
-                    let Some(text_last)  = self.code.source_map.source_to_text(end - 1) else { continue };
-
-                    hover = Some((text_first, text_last, info));
-
-                    if let NodeRef::Expr(expr) = info.node_ref {
-                        if let ExprData::Ident(ident) = &expr.data {
-                            let info = ident.info.unwrap();
-                            match info.target {
-                                expr::IdentTarget::Item(item) => {
-                                    let item_info = &self.code.info.ast_info.items[item];
-                                    let node_info = &self.code.info.ast_info.nodes[item_info.node_id];
-                                    let begin = self.code.source_map.source_pos_to_offset(node_info.source_range.begin);
-                                    let end   = self.code.source_map.source_pos_to_offset(node_info.source_range.end);
-                                    if let (Some(text_first), Some(text_last)) = (
-                                        self.code.source_map.source_to_text(begin),
-                                        self.code.source_map.source_to_text(end - 1))
-                                    {
-                                        highlight = Some((text_first, text_last));
-                                    }
-                                }
-
-                                expr::IdentTarget::Local { node, local: _ } => {
-                                    let node_info = &self.code.info.ast_info.nodes[node];
-                                    let begin = self.code.source_map.source_pos_to_offset(node_info.source_range.begin);
-                                    let end   = self.code.source_map.source_pos_to_offset(node_info.source_range.end);
-                                    if let (Some(text_first), Some(text_last)) = (
-                                        self.code.source_map.source_to_text(begin),
-                                        self.code.source_map.source_to_text(end - 1))
-                                    {
-                                        highlight = Some((text_first, text_last));
-                                    }
-                                }
-
-                                expr::IdentTarget::Dynamic => {
-                                    highlight = Some((text_first, text_last));
-                                }
-                            }
-                        }
-                        else if let ExprData::Continue(cont) = &expr.data {
-                            let info = cont.info.unwrap();
-                            if let Some(info) = info {
-                                let node_info = &self.code.info.ast_info.nodes[info.node];
-                                let begin = self.code.source_map.source_pos_to_offset(node_info.source_range.begin);
-                                let end   = self.code.source_map.source_pos_to_offset(node_info.source_range.end);
-                                if let (Some(text_first), Some(text_last)) = (
-                                    self.code.source_map.source_to_text(begin),
-                                    self.code.source_map.source_to_text(end - 1))
-                                {
-                                    highlight = Some((text_first, text_last));
-                                }
-                            }
-                        }
-                        else if let ExprData::Break(bkr) = &expr.data {
-                            let info = bkr.info.unwrap();
-                            if let Some(info) = info {
-                                let node_info = &self.code.info.ast_info.nodes[info.node];
-                                let begin = self.code.source_map.source_pos_to_offset(node_info.source_range.begin);
-                                let end   = self.code.source_map.source_pos_to_offset(node_info.source_range.end);
-                                if let (Some(text_first), Some(text_last)) = (
-                                    self.code.source_map.source_to_text(begin),
-                                    self.code.source_map.source_to_text(end - 1))
-                                {
-                                    highlight = Some((text_first, text_last));
-                                }
-                            }
-                        }
-                    }
-
-                    break;
-                }
+            let mdx = mx - self.last_mouse.0;
+            let mdy = my - self.last_mouse.1;
+            if self.window.get_mouse_down(minifb::MouseButton::Right) {
+                self.offset.0 -= mdx;
+                self.offset.1 -= mdy;
             }
-
+            self.last_mouse = (mx, my);
 
             let r = &mut self.renderer;
             r.set_size(size.0 as u32, size.1 as u32);
 
             r.clear(13, 16, 23);
 
-            r.fill_rect(
-                50.0, 50.0,
-                self.code.layout.width(), self.code.layout.height(),
-                &raqote::Source::Solid(raqote::SolidSource::from_unpremultiplied_argb(255, 30, 35, 40)),
-                &Default::default());
-
-            if let Some((first, last, info)) = hover {
-                self.code.layout.hit_test_text_ranges(first, last + 1, |range| {
-                    let x0 = (50. + range.x0).floor();
-                    let x1 = (50. + range.x1).floor();
-                    let y0 = (50. + range.y).floor();
-                    let y1 = (50. + range.y + range.line_height).floor();
-                    r.fill_rect(
-                        x0, y0,
-                        x1 - x0, y1 - y0,
-                        &raqote::Source::Solid(raqote::SolidSource::from_unpremultiplied_argb(255, 50, 55, 60)),
-                        &Default::default());
-                });
-
-                let m = self.code.layout.hit_test_text_pos(first);
-                let dump = format!("{:?}", info.node_id);
-                let mut temp_layout = TextLayout::new(r.fonts());
-                temp_layout.append_ex(&dump, FaceId::DEFAULT, 16., TokenClass::Default.color());
-                r.draw_text_layout_abs(500, 50 + m.y as i32, &temp_layout);
-            }
-
-            if let Some((first, last)) = highlight {
-                self.code.layout.hit_test_text_ranges(first, last + 1, |range| {
-                    let x0 = (50. + range.x0).floor();
-                    let x1 = (50. + range.x1).floor();
-                    let y0 = (50. + range.y).floor();
-                    let y1 = (50. + range.y + range.line_height).floor();
-                    r.fill_rect(
-                        x0, y0,
-                        x1 - x0, y1 - y0,
-                        &raqote::Source::Solid(raqote::SolidSource::from_unpremultiplied_argb(255, 64, 139, 183)),
-                        &Default::default());
-                });
-            }
-
-
-            self.code.draw(r);
+            self.code.update(&self.window, self.offset, r);
 
             self.window.update_with_buffer(r.data(), size.0, size.1).unwrap();
         }
@@ -738,6 +759,14 @@ impl Explorer {
 
 
 fn main() {
+    #[cfg(target_os="windows")] {
+        // otherwise `Sleep` resolution is 16 ms.
+        // at least on my machine.
+        // and that feels horrible.
+        // we of course wanna do vsync eventually.
+        unsafe { windows_sys::Win32::Media::timeBeginPeriod(1); }
+    }
+
     let mut e = Explorer::new();
     e.code.set_text(include_str!("../../fib.kb"));
     e.run();

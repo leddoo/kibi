@@ -10,3 +10,8 @@ raqote = { version = "0.8.2", default-features = false }
 fontdue = "0.7.2"
 lru = "0.10.0"
 ordered-float = "3.4.0"
+
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.45.0", features = ["Win32_Media"] }
+

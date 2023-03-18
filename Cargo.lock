@@ -159,6 +159,7 @@ dependencies = [
  "minifb",
  "ordered-float",
  "raqote",
+ "windows-sys 0.45.0",
 ]
 
 [[package]]
