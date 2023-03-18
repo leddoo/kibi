@@ -86,9 +86,9 @@ impl Renderer {
             let a = src >> 24;
             let a = 256 - a;
             let mask = 0xff00ff;
-            let rb = ((dst & 0xff00ff) * a) >> 8;
-            let ag = ((dst >> 8) & 0xff00ff) * a;
-            src + (rb & mask) | (ag & !mask)
+            let rb = ((dst & mask) * a) >> 8;
+            let ag = ((dst >> 8) & mask) * a;
+            src + ((rb & mask) | (ag & !mask))
         }
 
         let a = (color >> 24) & 0xff;
@@ -120,13 +120,15 @@ impl Renderer {
 
         let mut y0 = y0 as f32;
         for line in &layout.lines {
+            let baseline = (y0 + line.max_ascent) as i32;
+
             let mut x0 = x0 as f32;
             for span in &layout.spans[line.span_range()] {
                 for glyph in &layout.glyphs[span.glyph_range()] {
                     let (metrics, mask) = fonts.glyph_mask(span.face_id, span.font_size, glyph.index);
                     self.draw_mask_abs(
                         x0 as i32 + glyph.dx as i32,
-                        y0 as i32 + glyph.dy as i32,
+                        baseline  + glyph.dy as i32,
                         &mask, metrics.width as u32, metrics.height as u32,
                         span.effect
                     );
@@ -134,7 +136,7 @@ impl Renderer {
                 }
             }
 
-            y0 += line.height();
+            y0 += line.height;
         }
     }
 }
@@ -295,6 +297,7 @@ struct Line {
     max_ascent:  f32,
     max_descent: f32,
     max_gap:     f32,
+    height:      f32,
 }
 
 struct Span<E> {
@@ -318,14 +321,11 @@ impl Line {
             text_begin,  text_end:  text_begin,
             span_begin,  span_end:  span_begin,
             width: 0.0,
-            max_ascent: 0.0, max_descent: 0.0,
-            max_gap: 0.0,
+            max_ascent:  0.0,
+            max_descent: 0.0,
+            max_gap:     0.0,
+            height:      0.0,
         }
-    }
-
-    #[inline(always)]
-    fn height(&self) -> f32 {
-        self.max_ascent + self.max_descent + self.max_gap
     }
 
     #[inline(always)]
@@ -381,6 +381,7 @@ impl<E> TextLayout<E> {
         current_line.max_ascent  = current_line.max_ascent.max(font_metrics.ascent);
         current_line.max_descent = current_line.max_descent.max(-font_metrics.descent);
         current_line.max_gap     = current_line.max_gap.max(font_metrics.line_gap);
+        current_line.height = current_line.max_ascent + current_line.max_descent + current_line.max_gap;
 
         let mut text = text;
         while text.len() > 0 {
@@ -441,6 +442,7 @@ impl<E> TextLayout<E> {
                 current_line.max_ascent  = font_metrics.ascent;
                 current_line.max_descent = -font_metrics.descent;
                 current_line.max_gap     = font_metrics.line_gap;
+                current_line.height = current_line.max_ascent + current_line.max_descent + current_line.max_gap;
             }
 
             let text_advance = segment_end + is_line as usize;
@@ -454,14 +456,30 @@ impl<E> TextLayout<E> {
         let span_begin  = self.spans.len()  as u32;
         self.lines.push(Line::new(text_begin, span_begin));
     }
+
+    pub fn width(&self) -> f32 {
+        let mut width = 0f32;
+        for line in &self.lines {
+            width = width.max(line.width);
+        }
+        width
+    }
+
+    pub fn height(&self) -> f32 {
+        let mut height = 0.0;
+        for line in &self.lines {
+            height += line.height;
+        }
+        height
+    }
 }
 
 
 #[derive(Clone, Copy, Debug)]
 pub struct RangeMetrics {
-    pub x: f32,
+    pub x0: f32,
+    pub x1: f32,
     pub y: f32,
-    pub width: f32,
     // @todo: baseline.
     pub line_height: f32,
     pub line_index:  u32,
@@ -474,7 +492,7 @@ impl<E> TextLayout<E> {
         let mut y = 0.0;
         for (line_index, line) in self.lines.iter().enumerate() {
             let line_index  = line_index as u32;
-            let line_height = line.height();
+            let line_height = line.height;
 
             let mut x = 0.0;
             if pos >= line.text_begin && pos <= line.text_end {
@@ -491,8 +509,9 @@ impl<E> TextLayout<E> {
 
                         let advance = self.glyphs[glyph_begin + offset].advance;
                         return RangeMetrics {
-                            x, y,
-                            width: advance,
+                            x0: x,
+                            x1: x + advance,
+                            y,
                             line_height, line_index,
                         };
                     }
@@ -503,8 +522,9 @@ impl<E> TextLayout<E> {
                 // end of line.
                 let x = line.width;
                 return RangeMetrics {
-                    x, y,
-                    width: 1.,
+                    x0: x,
+                    x1: x,
+                    y,
                     line_height, line_index,
                 };
             }
@@ -513,7 +533,7 @@ impl<E> TextLayout<E> {
         }
 
         assert_eq!(self.text.len(), 0);
-        return RangeMetrics { x: 0.0, y: 0.0, width: 0.0, line_height: 0.0, line_index: 0 };
+        return RangeMetrics { x0: 0.0, x1: 0.0, y: 0.0, line_height: 0.0, line_index: 0 };
     }
 }
 
@@ -531,14 +551,13 @@ impl<E> TextLayout<E> {
 
         for (line_index, line) in self.lines.iter().enumerate() {
             let line_index  = line_index as u32;
-            let line_height = line.height();
+            let line_height = line.height;
 
             let f = &mut f;
             let mut f = |x0: f32, x1: f32| {
                 if x0 < x1 {
                     f(&RangeMetrics {
-                        x: x0, y,
-                        width: x1 - x0,
+                        x0, x1, y,
                         line_height, line_index,
                     });
                 }
@@ -681,7 +700,7 @@ impl<E> TextLayout<E> {
 
         let mut line_y = 0.0;
         for (line_index, line) in self.lines.iter().enumerate() {
-            let new_line_y = line_y + line.height();
+            let new_line_y = line_y + line.height;
 
             if y >= line_y && y < new_line_y {
                 return self.hit_test_line(line_index as u32, x);

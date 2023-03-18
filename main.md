@@ -33,10 +33,10 @@
 
 
 - todo: explorer.
-    - h2c?
+    - panning.
+    - draw bytecode.
     - stuff:
         - ast child visitors.
-        - baselines.
         - properly sort decorations.
         - handle conflicting replacements.
 

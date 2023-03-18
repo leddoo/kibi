@@ -593,7 +593,7 @@ impl Explorer {
             let size = self.window.get_size();
 
             let (mx, my) = self.window.get_mouse_pos(minifb::MouseMode::Pass).unwrap();
-            let mhit = self.code.layout.hit_test_pos(mx - 50., my - 30.);
+            let mhit = self.code.layout.hit_test_pos(mx - 50., my - 50.);
 
             let mut hover     = None;
             let mut highlight = None;
@@ -688,11 +688,21 @@ impl Explorer {
 
             r.clear(13, 16, 23);
 
+            r.fill_rect(
+                50.0, 50.0,
+                self.code.layout.width(), self.code.layout.height(),
+                &raqote::Source::Solid(raqote::SolidSource::from_unpremultiplied_argb(255, 30, 35, 40)),
+                &Default::default());
+
             if let Some((first, last, info)) = hover {
                 self.code.layout.hit_test_text_ranges(first, last + 1, |range| {
+                    let x0 = (50. + range.x0).floor();
+                    let x1 = (50. + range.x1).floor();
+                    let y0 = (50. + range.y).floor();
+                    let y1 = (50. + range.y + range.line_height).floor();
                     r.fill_rect(
-                        50. + range.x, 30. + range.y,
-                        range.width, range.line_height,
+                        x0, y0,
+                        x1 - x0, y1 - y0,
                         &raqote::Source::Solid(raqote::SolidSource::from_unpremultiplied_argb(255, 50, 55, 60)),
                         &Default::default());
                 });
@@ -701,14 +711,18 @@ impl Explorer {
                 let dump = format!("{:?}", info.node_id);
                 let mut temp_layout = TextLayout::new(r.fonts());
                 temp_layout.append_ex(&dump, FaceId::DEFAULT, 16., TokenClass::Default.color());
-                r.draw_text_layout_abs(500, 30 + m.y as i32, &temp_layout);
+                r.draw_text_layout_abs(500, 50 + m.y as i32, &temp_layout);
             }
 
             if let Some((first, last)) = highlight {
                 self.code.layout.hit_test_text_ranges(first, last + 1, |range| {
+                    let x0 = (50. + range.x0).floor();
+                    let x1 = (50. + range.x1).floor();
+                    let y0 = (50. + range.y).floor();
+                    let y1 = (50. + range.y + range.line_height).floor();
                     r.fill_rect(
-                        50. + range.x, 30. + range.y,
-                        range.width, range.line_height,
+                        x0, y0,
+                        x1 - x0, y1 - y0,
                         &raqote::Source::Solid(raqote::SolidSource::from_unpremultiplied_argb(255, 64, 139, 183)),
                         &Default::default());
                 });
