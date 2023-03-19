@@ -199,9 +199,14 @@ impl<'a> AstInfo<'a> {
 
 struct CodeInfo<'a> {
     tokens: Vec<kibi::Token<'a>>,
-    #[allow(dead_code)] // used by the `NodeRef`s in ast_info.
+
+    #[allow(dead_code)] // @important: used by the `NodeRef`s in ast_info.
     ast: Box<kibi::ast::item::Module<'a>>,
     ast_info: AstInfo<'a>,
+
+    funcs: Vec<kibi::FuncDesc>,
+    #[allow(dead_code)] // temp.
+    items: IndexVec<ItemId, kibi::bbir::Item>,
 }
 
 impl<'a> CodeInfo<'a> {
@@ -220,10 +225,16 @@ impl<'a> CodeInfo<'a> {
 
         let ast_info = unsafe { core::mem::transmute(ast_info) };
 
+        let mut builder = kibi::bbir_builder::Builder::new();
+        builder.build(&ast);
+        let (funcs, items) = builder.krate.build();
+
         return CodeInfo {
             tokens,
             ast,
             ast_info,
+            funcs,
+            items,
         };
     }
 }
@@ -691,6 +702,15 @@ impl CodeView {
         }
 
         r.draw_text_layout_abs(view_x0i, view_y0i, &self.layout);
+
+        // @temp: draw bytecode.
+        let mut bc_layout = TextLayout::new(r.fonts());
+        for func in &self.info.funcs {
+            let kibi::FuncCode::ByteCode(code) = &func.code else { unreachable!() };
+            let code = kibi::bytecode::ByteCodeDecoder::decode(code).unwrap();
+            bc_layout.append_ex(&format!("{:#?}\n", code), FaceId::DEFAULT, 24., TokenClass::Default.color());
+        }
+        r.draw_text_layout_abs(view_x0i + self.layout.width() as i32, view_y0i, &bc_layout);
     }
 }
 

@@ -68,7 +68,7 @@ pub(crate) struct FuncProto {
 
 #[derive(Clone, Debug)]
 pub enum FuncCode {
-    ByteCode (Vec<Instruction>),
+    ByteCode (Vec<InstrWord>),
     Native   (NativeFuncPtrEx),
 }
 

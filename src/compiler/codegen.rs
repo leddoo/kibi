@@ -1,11 +1,11 @@
-use crate::bytecode::Instruction;
+use crate::bytecode::InstrWord;
 use crate::Constant;
 use crate::index_vec::*;
 use super::*;
 
 
 pub struct CompileResult {
-    pub code:       Vec<Instruction>,
+    pub code:       Vec<InstrWord>,
     pub constants:  Vec<Constant>,
     pub stack_size: u32,
     pub value_mapping: IndexVec<Reg, Vec<ValueMapping>>,
@@ -522,7 +522,7 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, instr_i
 }
 
 
-pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &RegisterAllocation) -> (Vec<Instruction>, Vec<Constant>, u32, IndexVec<InstrIndex, u32>) {
+pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &RegisterAllocation) -> (Vec<InstrWord>, Vec<Constant>, u32, IndexVec<InstrIndex, u32>) {
     assert_eq!(block_order[0], BlockId::ENTRY);
 
     // for instr in fun.instr_ids() {

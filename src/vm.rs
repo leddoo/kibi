@@ -603,7 +603,7 @@ impl VmImpl {
         Ok(())
     }
 
-    fn read_path(&self, base: &Value, keys: &[Instruction]) -> VmResult<Value> {
+    fn read_path(&self, base: &Value, keys: &[InstrWord]) -> VmResult<Value> {
         let key = PathKey::decode(keys[0]);
         let rem_keys = &keys[1..];
 
@@ -651,7 +651,7 @@ impl VmImpl {
         }
     }
 
-    fn write_path(&self, base: &mut Value, keys: &[Instruction], value: Value, is_def: bool) -> VmResult<()> {
+    fn write_path(&self, base: &mut Value, keys: &[InstrWord], value: Value, is_def: bool) -> VmResult<()> {
         let key = PathKey::decode(keys[0]);
         let rem_keys = &keys[1..];
 
@@ -796,17 +796,17 @@ impl VmImpl {
     }
 
     #[inline(always)]
-    unsafe fn get_current_function_bytecode<'c>(&self) -> &'c Vec<Instruction> {
+    unsafe fn get_current_function_bytecode<'c>(&self) -> &'c Vec<InstrWord> {
         // @todo-speed: obviously don't do this.
         let frame = self.frames.last().unwrap();
         let proto = &self.func_protos[frame.func_proto];
 
         let FuncCode::ByteCode(code) = &proto.code else { unreachable!() };
-        &*(code as *const Vec<Instruction>)
+        &*(code as *const Vec<InstrWord>)
     }
 
     #[inline(always)]
-    fn next_instr(&mut self) -> Instruction {
+    fn next_instr(&mut self) -> InstrWord {
         // @todo-speed: obviously don't do this.
         let frame = self.frames.last().unwrap();
         let proto = &self.func_protos[frame.func_proto];
@@ -819,7 +819,7 @@ impl VmImpl {
     }
 
     #[inline(always)]
-    fn next_instr_extra(&mut self) -> Instruction {
+    fn next_instr_extra(&mut self) -> InstrWord {
         let result = self.next_instr();
         debug_assert_eq!(result.opcode() as u8, opcode::EXTRA);
         result
@@ -910,7 +910,7 @@ impl VmImpl {
                     }
 
                     LOAD_BOOL => {
-                        let (dst, value) = instr.c1b();
+                        let (dst, value) = instr.c1_bool();
                         // @todo-speed: remove checks.
                         *self.reg_mut(dst) = value.into();
                     }

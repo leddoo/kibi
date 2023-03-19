@@ -1,3 +1,5 @@
+// @todo-robust: this file should be generated from a table.
+
 pub mod opcode {
     pub const NOP:              u8 = 1;
     pub const UNREACHABLE:      u8 = 2;
@@ -55,11 +57,11 @@ pub mod opcode {
 }
 
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, Debug)]
 #[repr(transparent)]
-pub struct Instruction (u32);
+pub struct InstrWord(u32);
 
-impl Instruction {
+impl InstrWord {
     #[inline(always)]
     pub fn opcode(self) -> u32 {
         let opcode = self.0 & 0xff;
@@ -74,7 +76,7 @@ impl Instruction {
     }
 
     #[inline(always)]
-    pub fn _b2(self) -> bool {
+    pub fn _bool2(self) -> bool {
         unsafe { core::mem::transmute(((self.0 >> 16) & 1) as u8) }
     }
 
@@ -101,13 +103,13 @@ impl Instruction {
 
 
     #[inline(always)]
-    pub fn encode_op(op: u8) -> Instruction {
-        Instruction(op as u32)
+    pub fn encode_op(op: u8) -> InstrWord {
+        InstrWord(op as u32)
     }
 
     #[inline(always)]
-    pub fn encode_c1(op: u8, c1: u8) -> Instruction {
-        Instruction(op as u32 | (c1 as u32) << 8)
+    pub fn encode_c1(op: u8, c1: u8) -> InstrWord {
+        InstrWord(op as u32 | (c1 as u32) << 8)
     }
 
     #[inline(always)]
@@ -116,8 +118,8 @@ impl Instruction {
     }
 
     #[inline(always)]
-    pub fn encode_c2(op: u8, c1: u8, c2: u8) -> Instruction {
-        Instruction(op as u32 | (c1 as u32) << 8 | (c2 as u32) << 16)
+    pub fn encode_c2(op: u8, c1: u8, c2: u8) -> InstrWord {
+        InstrWord(op as u32 | (c1 as u32) << 8 | (c2 as u32) << 16)
     }
 
     #[inline(always)]
@@ -126,13 +128,13 @@ impl Instruction {
     }
 
     #[inline(always)]
-    pub fn c1b(self) -> (u32, bool) {
-        (self._c1(), self._b2())
+    pub fn c1_bool(self) -> (u32, bool) {
+        (self._c1(), self._bool2())
     }
 
     #[inline(always)]
-    pub fn encode_c3(op: u8, c1: u8, c2: u8, c3: u8) -> Instruction {
-        Instruction(op as u32 | (c1 as u32) << 8 | (c2 as u32) << 16 | (c3 as u32) << 24)
+    pub fn encode_c3(op: u8, c1: u8, c2: u8, c3: u8) -> InstrWord {
+        InstrWord(op as u32 | (c1 as u32) << 8 | (c2 as u32) << 16 | (c3 as u32) << 24)
     }
 
     #[inline(always)]
@@ -141,8 +143,8 @@ impl Instruction {
     }
 
     #[inline(always)]
-    pub fn encode_c1u16(op: u8, c1: u8, v: u16) -> Instruction {
-        Instruction(op as u32 | (c1 as u32) << 8 | (v as u32) << 16)
+    pub fn encode_c1u16(op: u8, c1: u8, v: u16) -> InstrWord {
+        InstrWord(op as u32 | (c1 as u32) << 8 | (v as u32) << 16)
     }
 
     #[inline(always)]
@@ -151,8 +153,8 @@ impl Instruction {
     }
 
     #[inline(always)]
-    pub fn encode_u16(op: u8, v: u16) -> Instruction {
-        Instruction(op as u32 | (v as u32) << 16)
+    pub fn encode_u16(op: u8, v: u16) -> InstrWord {
+        InstrWord(op as u32 | (v as u32) << 16)
     }
 
     #[inline(always)]
@@ -198,7 +200,7 @@ impl PathKey {
         }
     }
 
-    pub fn decode(instr: Instruction) -> PathKey {
+    pub fn decode(instr: InstrWord) -> PathKey {
         let (kind, value) = instr.c1u16();
         if kind == Self::TYPE_FIELD as u32 {
             PathKey::Field { string: value as u16 }
@@ -223,7 +225,7 @@ impl core::fmt::Display for PathKey {
 
 
 pub struct ByteCodeBuilder {
-    buffer: Vec<Instruction>,
+    buffer: Vec<InstrWord>,
 }
 
 impl ByteCodeBuilder {
@@ -234,186 +236,186 @@ impl ByteCodeBuilder {
     }
 
     pub fn nop(&mut self) {
-        self.buffer.push(Instruction::encode_op(opcode::NOP));
+        self.buffer.push(InstrWord::encode_op(opcode::NOP));
     }
 
     pub fn unreachable(&mut self) {
-        self.buffer.push(Instruction::encode_op(opcode::UNREACHABLE));
+        self.buffer.push(InstrWord::encode_op(opcode::UNREACHABLE));
     }
 
     pub fn copy(&mut self, dst: u8, src: u8) {
-        self.buffer.push(Instruction::encode_c2(opcode::COPY, dst, src));
+        self.buffer.push(InstrWord::encode_c2(opcode::COPY, dst, src));
     }
 
     pub fn swap(&mut self, dst: u8, src: u8) {
-        self.buffer.push(Instruction::encode_c2(opcode::SWAP, dst, src));
+        self.buffer.push(InstrWord::encode_c2(opcode::SWAP, dst, src));
     }
 
 
     pub fn load_nil(&mut self, dst: u8) {
-        self.buffer.push(Instruction::encode_c1(opcode::LOAD_NIL, dst));
+        self.buffer.push(InstrWord::encode_c1(opcode::LOAD_NIL, dst));
     }
 
     pub fn load_bool(&mut self, dst: u8, value: bool) {
-        self.buffer.push(Instruction::encode_c2(opcode::LOAD_BOOL, dst, value as u8));
+        self.buffer.push(InstrWord::encode_c2(opcode::LOAD_BOOL, dst, value as u8));
     }
 
     pub fn load_int(&mut self, dst: u8, value: i16) {
-        self.buffer.push(Instruction::encode_c1u16(opcode::LOAD_INT, dst, value as u16));
+        self.buffer.push(InstrWord::encode_c1u16(opcode::LOAD_INT, dst, value as u16));
     }
 
     pub fn load_const(&mut self, dst: u8, index: u16) {
-        self.buffer.push(Instruction::encode_c1u16(opcode::LOAD_CONST, dst, index));
+        self.buffer.push(InstrWord::encode_c1u16(opcode::LOAD_CONST, dst, index));
     }
 
     pub fn load_env(&mut self, dst: u8) {
-        self.buffer.push(Instruction::encode_c1(opcode::LOAD_ENV, dst));
+        self.buffer.push(InstrWord::encode_c1(opcode::LOAD_ENV, dst));
     }
 
 
     pub fn list_new(&mut self, dst: u8, values: &[u8]) {
         assert!(values.len() < 128);
-        self.buffer.push(Instruction::encode_c1u16(opcode::LIST_NEW, dst, values.len() as u16));
+        self.buffer.push(InstrWord::encode_c1u16(opcode::LIST_NEW, dst, values.len() as u16));
         for v in values {
-            self.buffer.push(Instruction::encode_u16(opcode::EXTRA, *v as u16));
+            self.buffer.push(InstrWord::encode_u16(opcode::EXTRA, *v as u16));
         }
     }
 
 
     pub fn tuple_new(&mut self, dst: u8, values: &[u8]) {
         assert!(values.len() < 128);
-        self.buffer.push(Instruction::encode_c1u16(opcode::TUPLE_NEW, dst, values.len() as u16));
+        self.buffer.push(InstrWord::encode_c1u16(opcode::TUPLE_NEW, dst, values.len() as u16));
         for v in values {
-            self.buffer.push(Instruction::encode_u16(opcode::EXTRA, *v as u16));
+            self.buffer.push(InstrWord::encode_u16(opcode::EXTRA, *v as u16));
         }
     }
 
     pub fn load_unit(&mut self, dst: u8) {
-        self.buffer.push(Instruction::encode_c1(opcode::LOAD_UNIT, dst));
+        self.buffer.push(InstrWord::encode_c1(opcode::LOAD_UNIT, dst));
     }
 
 
     pub fn map_new(&mut self, dst: u8) {
-        self.buffer.push(Instruction::encode_c1(opcode::MAP_NEW, dst));
+        self.buffer.push(InstrWord::encode_c1(opcode::MAP_NEW, dst));
     }
 
 
     pub fn read_path(&mut self, dst: u8, base: PathBase, keys: &[PathKey]) {
         assert!(keys.len() < 128);
-        self.buffer.push(Instruction::encode_c3(opcode::READ_PATH, dst, base.0, keys.len() as u8));
+        self.buffer.push(InstrWord::encode_c3(opcode::READ_PATH, dst, base.0, keys.len() as u8));
         for key in keys {
             let (kind, value) = key.encode();
-            self.buffer.push(Instruction::encode_c1u16(opcode::EXTRA, kind, value));
+            self.buffer.push(InstrWord::encode_c1u16(opcode::EXTRA, kind, value));
         }
     }
 
     pub fn write_path(&mut self, base: PathBase, keys: &[PathKey], value: u8, is_define: bool) {
         assert!(keys.len() < 128);
         let op = if is_define { opcode::WRITE_PATH_DEF } else { opcode::WRITE_PATH };
-        self.buffer.push(Instruction::encode_c3(op, base.0, keys.len() as u8, value));
+        self.buffer.push(InstrWord::encode_c3(op, base.0, keys.len() as u8, value));
         for key in keys {
             let (kind, value) = key.encode();
-            self.buffer.push(Instruction::encode_c1u16(opcode::EXTRA, kind, value));
+            self.buffer.push(InstrWord::encode_c1u16(opcode::EXTRA, kind, value));
         }
     }
 
 
     pub fn add(&mut self, dst: u8, src1: u8, src2: u8) {
-        self.buffer.push(Instruction::encode_c3(opcode::ADD, dst, src1, src2));
+        self.buffer.push(InstrWord::encode_c3(opcode::ADD, dst, src1, src2));
     }
 
     pub fn sub(&mut self, dst: u8, src1: u8, src2: u8) {
-        self.buffer.push(Instruction::encode_c3(opcode::SUB, dst, src1, src2));
+        self.buffer.push(InstrWord::encode_c3(opcode::SUB, dst, src1, src2));
     }
 
     pub fn mul(&mut self, dst: u8, src1: u8, src2: u8) {
-        self.buffer.push(Instruction::encode_c3(opcode::MUL, dst, src1, src2));
+        self.buffer.push(InstrWord::encode_c3(opcode::MUL, dst, src1, src2));
     }
 
     pub fn div(&mut self, dst: u8, src1: u8, src2: u8) {
-        self.buffer.push(Instruction::encode_c3(opcode::DIV, dst, src1, src2));
+        self.buffer.push(InstrWord::encode_c3(opcode::DIV, dst, src1, src2));
     }
 
     pub fn floor_div(&mut self, dst: u8, src1: u8, src2: u8) {
-        self.buffer.push(Instruction::encode_c3(opcode::FLOOR_DIV, dst, src1, src2));
+        self.buffer.push(InstrWord::encode_c3(opcode::FLOOR_DIV, dst, src1, src2));
     }
 
     pub fn rem(&mut self, dst: u8, src1: u8, src2: u8) {
-        self.buffer.push(Instruction::encode_c3(opcode::REM, dst, src1, src2));
+        self.buffer.push(InstrWord::encode_c3(opcode::REM, dst, src1, src2));
     }
 
     pub fn add_int(&mut self, dst: u8, value: i16) {
-        self.buffer.push(Instruction::encode_c1u16(opcode::ADD_INT, dst, value as u16));
+        self.buffer.push(InstrWord::encode_c1u16(opcode::ADD_INT, dst, value as u16));
     }
 
     pub fn negate(&mut self, dst: u8, src: u8) {
-        self.buffer.push(Instruction::encode_c2(opcode::NEGATE, dst, src));
+        self.buffer.push(InstrWord::encode_c2(opcode::NEGATE, dst, src));
     }
 
 
     pub fn not(&mut self, dst: u8, src: u8) {
-        self.buffer.push(Instruction::encode_c2(opcode::NOT, dst, src));
+        self.buffer.push(InstrWord::encode_c2(opcode::NOT, dst, src));
     }
 
 
 
     pub fn cmp_eq(&mut self, dst: u8, src1: u8, src2: u8) {
-        self.buffer.push(Instruction::encode_c3(opcode::CMP_EQ, dst, src1, src2));
+        self.buffer.push(InstrWord::encode_c3(opcode::CMP_EQ, dst, src1, src2));
     }
 
     pub fn cmp_ne(&mut self, dst: u8, src1: u8, src2: u8) {
-        self.buffer.push(Instruction::encode_c3(opcode::CMP_NE, dst, src1, src2));
+        self.buffer.push(InstrWord::encode_c3(opcode::CMP_NE, dst, src1, src2));
     }
 
     pub fn cmp_le(&mut self, dst: u8, src1: u8, src2: u8) {
-        self.buffer.push(Instruction::encode_c3(opcode::CMP_LE, dst, src1, src2));
+        self.buffer.push(InstrWord::encode_c3(opcode::CMP_LE, dst, src1, src2));
     }
 
     pub fn cmp_lt(&mut self, dst: u8, src1: u8, src2: u8) {
-        self.buffer.push(Instruction::encode_c3(opcode::CMP_LT, dst, src1, src2));
+        self.buffer.push(InstrWord::encode_c3(opcode::CMP_LT, dst, src1, src2));
     }
 
     pub fn cmp_ge(&mut self, dst: u8, src1: u8, src2: u8) {
-        self.buffer.push(Instruction::encode_c3(opcode::CMP_GE, dst, src1, src2));
+        self.buffer.push(InstrWord::encode_c3(opcode::CMP_GE, dst, src1, src2));
     }
 
     pub fn cmp_gt(&mut self, dst: u8, src1: u8, src2: u8) {
-        self.buffer.push(Instruction::encode_c3(opcode::CMP_GT, dst, src1, src2));
+        self.buffer.push(InstrWord::encode_c3(opcode::CMP_GT, dst, src1, src2));
     }
 
 
     pub fn jump(&mut self, target: u16) {
-        self.buffer.push(Instruction::encode_u16(opcode::JUMP, target));
+        self.buffer.push(InstrWord::encode_u16(opcode::JUMP, target));
     }
 
     pub fn jump_true(&mut self, src: u8, target: u16) {
-        self.buffer.push(Instruction::encode_c1u16(opcode::JUMP_TRUE, src, target));
+        self.buffer.push(InstrWord::encode_c1u16(opcode::JUMP_TRUE, src, target));
     }
 
     pub fn jump_false(&mut self, src: u8, target: u16) {
-        self.buffer.push(Instruction::encode_c1u16(opcode::JUMP_FALSE, src, target));
+        self.buffer.push(InstrWord::encode_c1u16(opcode::JUMP_FALSE, src, target));
     }
 
     pub fn jump_nil(&mut self, src: u8, target: u16) {
-        self.buffer.push(Instruction::encode_c1u16(opcode::JUMP_NIL, src, target));
+        self.buffer.push(InstrWord::encode_c1u16(opcode::JUMP_NIL, src, target));
     }
 
     pub fn jump_non_nil(&mut self, src: u8, target: u16) {
-        self.buffer.push(Instruction::encode_c1u16(opcode::JUMP_NOT_NIL, src, target));
+        self.buffer.push(InstrWord::encode_c1u16(opcode::JUMP_NOT_NIL, src, target));
     }
 
 
     pub fn call(&mut self, dst: u8, func: u8, args: &[u8]) {
         assert!(args.len() < 128);
-        self.buffer.push(Instruction::encode_c2(opcode::CALL, dst, func));
-        self.buffer.push(Instruction::encode_u16(opcode::EXTRA, args.len() as u16));
+        self.buffer.push(InstrWord::encode_c2(opcode::CALL, dst, func));
+        self.buffer.push(InstrWord::encode_u16(opcode::EXTRA, args.len() as u16));
         for arg in args {
-            self.buffer.push(Instruction::encode_u16(opcode::EXTRA, *arg as u16));
+            self.buffer.push(InstrWord::encode_u16(opcode::EXTRA, *arg as u16));
         }
     }
 
     pub fn ret(&mut self, src: u8) {
-        self.buffer.push(Instruction::encode_c1(opcode::RET, src));
+        self.buffer.push(InstrWord::encode_c1(opcode::RET, src));
     }
 
 
@@ -424,14 +426,260 @@ impl ByteCodeBuilder {
     }
 
 
-    pub fn build(self) -> Vec<Instruction> {
+    pub fn build(self) -> Vec<InstrWord> {
         assert!(self.buffer.len() < (1 << 16));
         self.buffer
     }
 }
 
 
-pub fn dump(code: &[Instruction]) {
+
+#[derive(Debug)]
+pub struct Instr {
+    pub pc:     u16,
+    pub opcode: u8,
+    pub data:   InstrData,
+}
+
+#[derive(Debug)]
+pub enum InstrData {
+    Nop,
+    Unreachable,
+
+    Copy                { dst: u8, src: u8 },
+    Swap                { dst: u8, src: u8 },
+
+    LoadNil             { dst: u8 },
+    LoadBool            { dst: u8, value: bool },
+    LoadInt             { dst: u8, value: i16 },
+    LoadConst           { dst: u8, index: u16 },
+    LoadEnv             { dst: u8 },
+
+    ListNew             { dst: u8, values: Vec<u8>, },
+
+    TupleNew            { dst: u8, values: Vec<u8> },
+    LoadUnit            { dst: u8 },
+
+    MapNew              { dst: u8 }, 
+
+    ReadPath            { dst: u8, base: PathBase, keys: Vec<PathKey> },
+    WritePath           { base: PathBase, keys: Vec<PathKey>, value: u8 },
+
+    Op1                 { dst: u8, src: u8 },
+    Op2                 { dst: u8, src1: u8, src2: u8 },
+
+    AddInt              { dst: u8, value: i16 },
+
+    Jump                { target: u16 },
+    JumpC1              { target: u16, src: u8 },
+
+    Call                { dst: u8, func: u8, args: Vec<u8> },
+    Ret                 { src: u8 },
+}
+
+
+pub struct ByteCodeDecoder<'a> {
+    code: &'a [InstrWord],
+    pc:   usize,
+}
+
+impl<'a> ByteCodeDecoder<'a> {
+    pub fn new(code: &'a [InstrWord]) -> Self {
+        ByteCodeDecoder { code, pc: 0 }
+    }
+
+    pub fn done(&self) -> bool {
+        self.pc >= self.code.len()
+    }
+
+    fn next_instr(&mut self) -> Option<(InstrWord, u16)> {
+        let instr = *self.code.get(self.pc)?;
+        let pc    = self.pc as u16;
+        self.pc += 1;
+        Some((instr, pc))
+    }
+
+    fn next_instr_extra(&mut self) -> Option<InstrWord> {
+        let (extra, _) = self.next_instr()?;
+        assert_eq!(extra.opcode() as u8, crate::bytecode::opcode::EXTRA);
+        Some(extra)
+    }
+
+    pub fn next(&mut self) -> Option<Instr> {
+        let (instr, pc) = self.next_instr()?;
+        let opcode = instr.opcode() as u8;
+
+        use crate::bytecode::opcode::*;
+        let data = match opcode {
+            NOP => {
+                InstrData::Nop
+            }
+
+            UNREACHABLE => {
+                InstrData::Unreachable
+            }
+
+
+            COPY => {
+                let (dst, src) = instr.c2();
+                InstrData::Copy { dst: dst as u8, src: src as u8 }
+            }
+
+            SWAP => {
+                let (dst, src) = instr.c2();
+                InstrData::Swap { dst: dst as u8, src: src as u8 }
+            }
+
+
+            LOAD_NIL => {
+                let dst = instr.c1();
+                InstrData::LoadNil { dst: dst as u8 }
+            }
+
+            LOAD_BOOL => {
+                let (dst, value) = instr.c1_bool();
+                InstrData::LoadBool { dst: dst as u8, value }
+            }
+
+            LOAD_INT => {
+                let (dst, value) = instr.c1u16();
+                let value = value as u16 as i16;
+                InstrData::LoadInt { dst: dst as u8, value }
+            }
+
+            LOAD_CONST => {
+                let (dst, index) = instr.c1u16();
+                InstrData::LoadConst { dst: dst as u8, index: index as u16 }
+            }
+
+            LOAD_ENV => {
+                let dst = instr.c1();
+                InstrData::LoadEnv { dst: dst as u8 }
+            }
+
+
+            LIST_NEW => {
+                let (dst, len) = instr.c1u16();
+
+                let mut values = Vec::with_capacity(len as usize);
+                for _ in 0..len {
+                    let v = self.next_instr_extra()?;
+                    values.push(v.u16() as u8);
+                }
+
+                InstrData::ListNew { dst: dst as u8, values }
+            }
+            
+
+            TUPLE_NEW => {
+                let (dst, len) = instr.c1u16();
+
+                let mut values = Vec::with_capacity(len as usize);
+                for _ in 0..len {
+                    let v = self.next_instr_extra()?;
+                    values.push(v.u16() as u8);
+                }
+
+                InstrData::TupleNew { dst: dst as u8, values }
+            }
+
+            LOAD_UNIT => {
+                let dst = instr.c1();
+                InstrData::LoadUnit { dst: dst as u8 }
+            }
+
+
+            MAP_NEW => {
+                let dst = instr.c1();
+                InstrData::MapNew { dst: dst as u8 }
+            }
+
+
+            READ_PATH => {
+                let (dst, base, num_keys) = instr.c3();
+                let mut keys = Vec::with_capacity(num_keys as usize);
+                for _ in 0..num_keys {
+                    keys.push(PathKey::decode(self.next_instr_extra()?));
+                }
+                InstrData::ReadPath { dst: dst as u8, base: PathBase(base as u8), keys }
+            }
+
+            WRITE_PATH | WRITE_PATH_DEF => {
+                let (base, num_keys, value) = instr.c3();
+                let mut keys = Vec::with_capacity(num_keys as usize);
+                for _ in 0..num_keys {
+                    keys.push(PathKey::decode(self.next_instr_extra()?));
+                }
+                InstrData::WritePath { base: PathBase(base as u8), keys, value: value as u8 }
+            }
+
+
+            NEGATE | NOT => {
+                let (dst, src) = instr.c2();
+                InstrData::Op1 { dst: dst as u8, src: src as u8 }
+            }
+
+            ADD | SUB | MUL | DIV | FLOOR_DIV | REM |
+            CMP_EQ | CMP_NE | CMP_LE | CMP_LT | CMP_GE | CMP_GT => {
+                let (dst, src1, src2) = instr.c3();
+                InstrData::Op2 { dst: dst as u8, src1: src1 as u8, src2: src2 as u8 }
+            }
+
+            ADD_INT => {
+                let (dst, value) = instr.c1u16();
+                let value = value as u16 as i16;
+                InstrData::AddInt { dst: dst as u8, value }
+            }
+
+
+            JUMP => {
+                let target = instr.u16();
+                InstrData::Jump { target: target as u16 }
+            }
+
+            JUMP_TRUE | JUMP_FALSE | JUMP_NIL | JUMP_NOT_NIL => {
+                let (src, target) = instr.c1u16();
+                InstrData::JumpC1 { target: target as u16, src: src as u8 }
+            }
+
+
+            CALL => {
+                let (dst, func) = instr.c2();
+                let num_args = self.next_instr_extra()?.u16();
+
+                let mut args = Vec::with_capacity(num_args as usize);
+                for _ in 0..num_args {
+                    let arg = self.next_instr_extra()?;
+                    args.push(arg.u16() as u8);
+                }
+
+                InstrData::Call { dst: dst as u8, func: func as u8, args }
+            }
+
+            RET => {
+                let src = instr.c1();
+                InstrData::Ret { src: src as u8 }
+            }
+
+            // @todo-speed: this inserts a check to reduce dispatch table size.
+            //  may want an unreachable_unchecked() in release.
+            0 | END ..= 255 => unreachable!()
+        };
+        Some(Instr { pc, opcode, data })
+    }
+
+    pub fn decode(code: &[InstrWord]) -> Option<Vec<Instr>> {
+        let mut decoder = ByteCodeDecoder::new(code);
+        let mut instrs = vec![];
+        while let Some(instr) = decoder.next() {
+            instrs.push(instr);
+        }
+        decoder.done().then_some(instrs)
+    }
+}
+
+
+pub fn dump(code: &[InstrWord]) {
     let mut pc = 0;
 
     macro_rules! next_instr {
@@ -484,7 +732,7 @@ pub fn dump(code: &[Instruction]) {
             }
 
             LOAD_BOOL => {
-                let (dst, value) = instr.c1b();
+                let (dst, value) = instr.c1_bool();
                 println!("  load_bool r{}, {}", dst, value);
             }
 
