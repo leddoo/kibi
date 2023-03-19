@@ -60,6 +60,10 @@
             - if then/else branch.
             - do block body.
             - function body.
+    - value query.
+        - call stack.
+        - getting register values from other stack frames.
+        - extensible stack for host functions -> regs are the "slots".
 
 
 - decisions to make:

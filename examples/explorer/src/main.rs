@@ -315,13 +315,13 @@ impl TokenClass {
 
     fn color(self) -> u32 {
         match self {
-            TokenClass::Default  => 0xffbfbdb6,
-            TokenClass::Keyword  => 0xffff8f40,
-            TokenClass::Comment  => 0x8cacb6bf,
-            TokenClass::Label    => 0xffff8f40,
-            TokenClass::Operator => 0xfff29668,
-            TokenClass::Literal  => 0xffd2a6ff,
-            TokenClass::String   => 0xffaad94c,
+            TokenClass::Default  => color_pre_multiply(0xffbfbdb6),
+            TokenClass::Keyword  => color_pre_multiply(0xffff8f40),
+            TokenClass::Comment  => color_pre_multiply(0x8cacb6bf),
+            TokenClass::Label    => color_pre_multiply(0xffff8f40),
+            TokenClass::Operator => color_pre_multiply(0xfff29668),
+            TokenClass::Literal  => color_pre_multiply(0xffd2a6ff),
+            TokenClass::String   => color_pre_multiply(0xffaad94c),
         }
     }
 }
@@ -658,23 +658,19 @@ impl CodeView {
         let view_x0i = view_x0.floor() as i32;
         let view_y0i = view_y0.floor() as i32;
 
-        r.fill_rect(
-            view_x0, view_y0,
-            self.layout.width(), self.layout.height(),
-            &raqote::Source::Solid(raqote::SolidSource::from_unpremultiplied_argb(255, 30, 35, 40)),
-            &Default::default());
+        r.fill_rect_abs_opaque(
+            view_x0i, view_y0i,
+            (view_x0 + self.layout.width()  + 0.5) as i32,
+            (view_y0 + self.layout.height() + 0.5) as i32,
+            color_pack((30, 35, 40, 255)));
 
         if let Some((first, last, info)) = hover {
             self.layout.hit_test_text_ranges(first, last + 1, |range| {
-                let x0 = (view_x0 + range.x0).floor();
-                let x1 = (view_x0 + range.x1).floor();
-                let y0 = (view_y0 + range.y).floor();
-                let y1 = (view_y0 + range.y + range.line_height).floor();
-                r.fill_rect(
-                    x0, y0,
-                    x1 - x0, y1 - y0,
-                    &raqote::Source::Solid(raqote::SolidSource::from_unpremultiplied_argb(255, 50, 55, 60)),
-                    &Default::default());
+                let x0 = (view_x0 + range.x0) as i32;
+                let x1 = (view_x0 + range.x1) as i32;
+                let y0 = (view_y0 + range.y)  as i32;
+                let y1 = (view_y0 + range.y + range.line_height) as i32;
+                r.fill_rect_abs_opaque(x0, y0, x1, y1, color_pack((50, 55, 60, 255)));
             });
 
             let m = self.layout.hit_test_text_pos(first);
@@ -686,15 +682,11 @@ impl CodeView {
 
         if let Some((first, last)) = highlight {
             self.layout.hit_test_text_ranges(first, last + 1, |range| {
-                let x0 = (view_x0 + range.x0).floor();
-                let x1 = (view_x0 + range.x1).floor();
-                let y0 = (view_y0 + range.y).floor();
-                let y1 = (view_y0 + range.y + range.line_height).floor();
-                r.fill_rect(
-                    x0, y0,
-                    x1 - x0, y1 - y0,
-                    &raqote::Source::Solid(raqote::SolidSource::from_unpremultiplied_argb(255, 64, 73, 91)),
-                    &Default::default());
+                let x0 = (view_x0 + range.x0) as i32;
+                let x1 = (view_x0 + range.x1) as i32;
+                let y0 = (view_y0 + range.y)  as i32;
+                let y1 = (view_y0 + range.y + range.line_height) as i32;
+                r.fill_rect_abs_opaque(x0, y0, x1, y1, color_pack((64, 73, 91, 255)));
             });
         }
 

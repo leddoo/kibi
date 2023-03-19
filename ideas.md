@@ -93,4 +93,30 @@
         - cause `foo["field"]` is an index access, not a field access.
         - syntax: `foo.["field"]`.
         - unlike field-like indexing, this one isn't too common, so a built-in could be enough.
+    - just unwind & free memory on panic, no destructors, no defer.
+        - simpler, avoids issues with double panics.
+        - problem with defer: inout may leave values in an unexpected state.
+        - non-memory resources are cleaned up by finalizers.
+            - panics in finalizers are ignored but logged.
+            - finalizers are run on unwind, if ref count drops to zero.
+    - `Number` type:
+        - a non-nan & non-inf `F64`.
+        - default number type in dynamic code.
+    - function with untyped parameters returns `Any` by default.
+        - tbd: entire function in "dynamic mode"?
+            - or can `Number` be inferred based on types?
+            - so like if `Any` is expected (eg cause assigned to var), then number literals default to `Number`.
+    - ad-hoc type unions, implemented as (link-time) deduplicated traits.
+    - named tuples.
+    - dynamic tuple indexing (returns union of possible types).
+    - mutable capture: implicit boxing.
+        - optimizer can stack allocate based on escape analysis.
+    - no auto-deref on boxes in `Any`.
+        - confusing. and can put a box into itself -> cycle.
+    - eval order: function after args.
+        - cause inout: `foo.m1(foo.m2())`.
+            - inner call happens first.
+            - and want the modified `foo` to go into the outer call.
+        - analogous to the `&mut self` error in rust.
+            - can in fact only be resolved by changing the evaulation order.
 

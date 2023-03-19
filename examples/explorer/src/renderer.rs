@@ -23,8 +23,16 @@ impl Renderer {
     #[inline(always)]
     pub fn fonts(&self) -> &FontCtx { &self.fonts }
 
+
     #[inline(always)]
     pub fn data(&self) -> &[u32] { self.target.get_data() }
+
+    #[inline(always)]
+    pub fn width(&self) -> i32 { self.target.width() }
+
+    #[inline(always)]
+    pub fn height(&self) -> i32 { self.target.height() }
+
 
     pub fn set_size(&mut self, w: u32, h: u32) {
         if w as i32 != self.target.width() || h as i32 != self.target.height() {
@@ -33,33 +41,53 @@ impl Renderer {
     }
 
 
-    pub fn clear(&mut self, r: u8, g: u8, b: u8) {
-        let c = 255 << 24 | (r as u32) << 16 | (g as u32) << 8 | (b as u32);
+    pub fn fill_rect_abs_opaque(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, color: u32) {
+        let tw = self.target.width();
+        let th = self.target.height();
 
-        let buffer = self.target.get_data_mut();
-        let len_8 = buffer.len() & !(8 - 1);
+        let x0 = x0.clamp(0, tw) as usize;
+        let y0 = y0.clamp(0, th) as usize;
+        let x1 = x1.clamp(0, tw) as usize;
+        let y1 = y1.clamp(0, th) as usize;
 
-        // this is to make debug builds a little faster.
-        // though i should really put this into a separate crate
-        // and enable optimizations for dependencies.
-        let buffer_base = buffer.as_mut_ptr();
-        let mut i = 0;
-        while i < len_8 { unsafe {
-            buffer_base.add(i + 0).write(c);
-            buffer_base.add(i + 1).write(c);
-            buffer_base.add(i + 2).write(c);
-            buffer_base.add(i + 3).write(c);
-            buffer_base.add(i + 4).write(c);
-            buffer_base.add(i + 5).write(c);
-            buffer_base.add(i + 6).write(c);
-            buffer_base.add(i + 7).write(c);
-            i += 8;
-        }}
-        while i < buffer.len() {
-            buffer[i] = c;
-            i += 1;
+        if x0 == x1 || y0 == y1 { return }
+
+        let buf  = self.target.get_data_mut();
+        let base = buf.as_mut_ptr();
+
+        let mut offset = y0 * tw as usize;
+        for _ in y0..y1 {
+            let mut x = x0;
+
+            let offset_ptr = unsafe { base.add(offset) };
+
+            let x1_8 = x0 + ((x1 - x0) & !(8 - 1));
+            while x < x1_8 { unsafe {
+                // this is for fast drawing in debug mode.
+                // deal with it.
+                offset_ptr.add(x + 0).write(color);
+                offset_ptr.add(x + 1).write(color);
+                offset_ptr.add(x + 2).write(color);
+                offset_ptr.add(x + 3).write(color);
+                offset_ptr.add(x + 4).write(color);
+                offset_ptr.add(x + 5).write(color);
+                offset_ptr.add(x + 6).write(color);
+                offset_ptr.add(x + 7).write(color);
+                x += 8;
+            }}
+            while x < x1 {
+                buf[offset + x] = color;
+                x += 1;
+            }
+
+            offset += tw as usize;
         }
     }
+
+    pub fn clear(&mut self, r: u8, g: u8, b: u8) {
+        self.fill_rect_abs_opaque(0, 0, self.width(), self.height(), color_pack_u8(r, g, b, 255));
+    }
+
 
     pub fn draw_mask_abs(&mut self, x: i32, y: i32, mask: &[u8], mask_w: u32, mask_h: u32, color: u32) {
         let x0 = x;
@@ -76,25 +104,7 @@ impl Renderer {
         let x1c = x1.clamp(0, tw);
         let y1c = y1.clamp(0, th);
 
-
-        // taken from swcomposite, cause i ain't adding an explicit dependency for one function.
-        // this is an approximation of true 'over' that does a division by 256 instead
-        // of 255. It is the same style of blending that Skia does. It corresponds 
-        // to Skia's SKPMSrcOver
-        #[inline(always)]
-        pub fn over(src: u32, dst: u32) -> u32 {
-            let a = src >> 24;
-            let a = 256 - a;
-            let mask = 0xff00ff;
-            let rb = ((dst & mask) * a) >> 8;
-            let ag = ((dst >> 8) & mask) * a;
-            src + ((rb & mask) | (ag & !mask))
-        }
-
-        let a = (color >> 24) & 0xff;
-        let r = (color >> 16) & 0xff;
-        let g = (color >>  8) & 0xff;
-        let b = (color >>  0) & 0xff;
+        let (r, g, b, a) = color_unpack(color);
 
         for y in y0c..y1c {
             for x in x0c..x1c {
@@ -102,11 +112,11 @@ impl Renderer {
                 let cy = (y - y0) as usize;
                 let c  = mask[cy * mask_w as usize + cx] as u32;
 
-                let a  = a*c >> 8;
-                let r  = a*r >> 8;
-                let g  = a*g >> 8;
-                let b  = a*b >> 8;
-                let src = a << 24 | r << 16 | g << 8 | b;
+                let src = color_pack((
+                    c*r >> 8,
+                    c*g >> 8,
+                    c*b >> 8,
+                    c*a >> 8));
 
                 let value = &mut buf[(y*tw + x) as usize];
                 *value = over(src, *value);
@@ -139,17 +149,6 @@ impl Renderer {
             y0 += line.height;
         }
     }
-}
-
-impl core::ops::Deref for Renderer {
-    type Target = DrawTarget;
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target { &self.target }
-}
-
-impl core::ops::DerefMut for Renderer {
-    #[inline(always)]
-    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.target }
 }
 
 
@@ -715,4 +714,59 @@ impl<E> TextLayout<E> {
         return result;
     }
 }
+
+
+
+#[inline(always)]
+pub fn color_from_unmult_rgba((r, g, b, a): (u32, u32, u32, u32)) -> u32 {
+    color_pack((muldiv255(r, a), muldiv255(g, a), muldiv255(b, a), a))
+}
+
+#[inline(always)]
+pub fn color_pack((r, g, b, a): (u32, u32, u32, u32)) -> u32 {
+    a << 24 | r << 16 | g << 8 | b
+}
+
+#[inline(always)]
+pub fn color_pack_u8(r: u8, g: u8, b: u8, a: u8) -> u32 {
+    color_pack((r as u32, g as u32, b as u32, a as u32))
+}
+
+#[inline(always)]
+pub fn color_unpack(c: u32) -> (u32, u32, u32, u32) {
+    ((c >> 16) & 0xff, (c >>  8) & 0xff, (c >>  0) & 0xff, (c >> 24) & 0xff)
+}
+
+#[inline(always)]
+pub fn color_pre_multiply(c: u32) -> u32 {
+    color_from_unmult_rgba(color_unpack(c))
+}
+
+
+// function's down here are taken from swcomposite,
+// cause i ain't adding an explicit dependency for one function.
+
+// this is an approximation of true 'over' that does a division by 256 instead
+// of 255. It is the same style of blending that Skia does. It corresponds 
+// to Skia's SKPMSrcOver
+#[inline(always)]
+pub fn over(src: u32, dst: u32) -> u32 {
+    let a = src >> 24;
+    let a = 256 - a;
+    let mask = 0xff00ff;
+    let rb = ((dst & mask) * a) >> 8;
+    let ag = ((dst >> 8) & mask) * a;
+    src + ((rb & mask) | (ag & !mask))
+}
+
+// Calculates floor(a*b/255 + 0.5)
+#[inline(always)]
+pub fn muldiv255(x: u32, y: u32) -> u32 {
+    // The deriviation for this formula can be
+    // found in "Three Wrongs Make a Right" by Jim Blinn.
+    let tmp = x * y + 128;
+    (tmp + (tmp >> 8)) >> 8
+}
+
+// end of sw-composite functions.
 
