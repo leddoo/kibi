@@ -204,7 +204,7 @@ struct CodeInfo<'a> {
     ast: Box<kibi::ast::item::Module<'a>>,
     ast_info: AstInfo<'a>,
 
-    funcs: Vec<kibi::FuncDesc>,
+    funcs: IndexVec<kibi::FunctionId, kibi::FuncDesc>,
     #[allow(dead_code)] // temp.
     items: IndexVec<ItemId, kibi::bbir::Item>,
 }
@@ -437,6 +437,7 @@ impl CodeView {
         for line in text.lines() {
             self.source_map.line_begins.push((line.as_ptr() as usize - text.as_ptr() as usize) as u32);
         }
+        self.source_map.line_begins.push(text.len() as u32);
 
         let mut decos = vec![];
         for token in &info.tokens {
@@ -474,13 +475,49 @@ impl CodeView {
         self.layout.clear();
         self.source_map.source_spans.clear();
         self.source_map.text_spans.clear();
-        {
-            let mut deco_cursor = 0;
-            let mut text_cursor = 0;
-            while text_cursor < text.len() {
-                if let Some(next_deco) = decos.get(deco_cursor) {
-                    let deco_begin = next_deco.text_begin as usize;
-                    let deco_end   = next_deco.text_end   as usize;
+        self.bc_layout.clear();
+
+        let mut deco_cursor = 0;
+        let mut line_index = 0;
+        let mut line_begin = 0;
+        let mut src_lines = 0;
+        let mut bc_lines  = 0;
+        let mut active_items = vec![]; // source_line_end, bc_line_end
+        for line_end in self.source_map.line_begins[1..].iter() {
+            let line_end = *line_end as usize;
+
+            // new item starts?
+            if let Some(item) = 
+                self.info.ast_info.items.iter()
+                .find(|item| item.source_range.begin.line == line_index + 1)
+            {
+                if let kibi::bbir::ItemData::Func(func) = self.info.items[item.item_id].data {
+                    // sync source & bytecode.
+                    for _ in src_lines..bc_lines {
+                        self.layout.append_ex("\n", FaceId::DEFAULT, font_size, 0);
+                    }
+                    for _ in bc_lines..src_lines {
+                        self.bc_layout.append_ex("\n", FaceId::DEFAULT, font_size, 0);
+                    }
+                    src_lines = src_lines.max(bc_lines);
+                    bc_lines  = bc_lines.max(src_lines);
+
+                    let func = &self.info.funcs[func];
+                    bc_lines += Self::add_bytecode_fn(&mut self.bc_layout, func, font_size);
+                    active_items.push((item.source_range.end.line, bc_lines));
+                }
+            }
+
+            let mut text_cursor = line_begin;
+            while text_cursor < line_end {
+                let next_deco =
+                    decos.get(deco_cursor)
+                    .filter(|deco| deco.text_begin as usize <= line_end);
+
+                if let Some(next_deco) = next_deco {
+                    let deco_begin = (next_deco.text_begin as usize).max(line_begin);
+                    let deco_end   = (next_deco.text_end   as usize).min(line_end);
+                    debug_assert!(deco_begin <= deco_end);
 
                     if text_cursor < deco_begin {
                         let source_begin = text_cursor as u32;
@@ -544,12 +581,14 @@ impl CodeView {
                         }
                     }
 
-                    deco_cursor += 1;
-                    text_cursor  = deco_end;
+                    if next_deco.text_end as usize <= line_end {
+                        deco_cursor += 1;
+                    }
+                    text_cursor = deco_end;
                 }
                 else {
                     let source_begin = text_cursor as u32;
-                    let source_end   = text.len()  as u32;
+                    let source_end   = line_end    as u32;
 
                     let text_begin = self.layout.text().len() as u32;
                     self.layout.append_ex(&text[source_begin as usize .. source_end as usize], FaceId::DEFAULT, font_size, TokenClass::Default.color());
@@ -566,98 +605,115 @@ impl CodeView {
                         data: TextSpanData::SourceRange { source_begin },
                     });
 
-                    text_cursor = text.len();
+                    text_cursor = line_end;
                 }
             }
-        }
 
-        self.bc_layout.clear();
-        for func in &self.info.funcs {
-            let kibi::FuncCode::ByteCode(code) = &func.code else { unreachable!() };
-            let code = kibi::bytecode::ByteCodeDecoder::decode(code).unwrap();
-            for instr in &code {
-                let name = instr.name();
-                self.bc_layout.append_ex(&format!("{:03} ", instr.pc), FaceId::DEFAULT, font_size, TokenClass::Comment.color());
-                self.bc_layout.append_ex(&format!("{:11} ", name), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+            line_index += 1;
+            line_begin = line_end;
+            src_lines += 1;
 
-                use kibi::bytecode::InstrData::*;
-                match &instr.data {
-                    Nop => (),
-                    Unreachable => (),
-
-                    LoadNil  { dst } |
-                    LoadEnv  { dst } |
-                    LoadUnit { dst } |
-                    MapNew   { dst } => {
-                        self.bc_layout.append_ex(&format!("r{dst}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+            // old item expired? -> pad source.
+            while let Some((source_line_end, bc_line_end)) = active_items.last().copied() {
+                if source_line_end <= line_index {
+                    for _ in src_lines..bc_line_end {
+                        self.layout.append_ex("\n", FaceId::DEFAULT, font_size, 0);
                     }
-
-                    Copy { dst, src } |
-                    Swap { dst, src } |
-                    Op1  { dst, src } => {
-                        self.bc_layout.append_ex(&format!("r{dst}, r{src}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
-                    }
-
-                    Op2 { dst, src1, src2 } => {
-                        self.bc_layout.append_ex(&format!("r{dst}, r{src1}, r{src2}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
-                    }
-
-
-                    LoadBool { dst, value } => {
-                        self.bc_layout.append_ex(&format!("r{dst}, "), FaceId::DEFAULT, font_size, TokenClass::Default.color());
-                        self.bc_layout.append_ex(&format!("{value}"), FaceId::DEFAULT, font_size, TokenClass::from_data(kibi::TokenData::Bool(false)).color());
-                    }
-
-                    LoadInt   { dst, value } |
-                    AddInt    { dst, value } => {
-                        self.bc_layout.append_ex(&format!("r{dst}, "), FaceId::DEFAULT, font_size, TokenClass::Default.color());
-                        self.bc_layout.append_ex(&format!("#{value}"), FaceId::DEFAULT, font_size, TokenClass::from_data(kibi::TokenData::Number("")).color());
-                    }
-
-                    LoadConst { dst, index } => {
-                        // @todo: render the const's value.
-                        self.bc_layout.append_ex(&format!("r{dst}, c{index}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
-                    }
-
-                    ListNew  { dst, values } |
-                    TupleNew { dst, values } => {
-                        let _ = (dst, values);
-                        self.bc_layout.append_ex(&format!("..."), FaceId::DEFAULT, font_size, TokenClass::Default.color());
-                    }
-
-
-                    ReadPath { dst, base, keys } => {
-                        let _ = (dst, base, keys);
-                        self.bc_layout.append_ex(&format!("..."), FaceId::DEFAULT, font_size, TokenClass::Default.color());
-                    }
-
-                    WritePath { base, keys, value } => {
-                        let _ = (base, keys, value);
-                        self.bc_layout.append_ex(&format!("..."), FaceId::DEFAULT, font_size, TokenClass::Default.color());
-                    }
-
-
-                    Jump { target } => {
-                        self.bc_layout.append_ex(&format!("{target}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
-                    }
-
-                    JumpC1 { target, src } => {
-                        self.bc_layout.append_ex(&format!("r{src}, {target}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
-                    }
-
-                    Call { dst, func, args } => {
-                        let _ = (dst, func, args);
-                        self.bc_layout.append_ex(&format!("..."), FaceId::DEFAULT, font_size, TokenClass::Default.color());
-                    }
-
-                    Ret { src } => {
-                        self.bc_layout.append_ex(&format!("r{src}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
-                    }
+                    src_lines = src_lines.max(bc_line_end);
+                    active_items.pop();
                 }
-                self.bc_layout.append_ex("\n", FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                else { break }
             }
-            self.bc_layout.append_ex("\n", FaceId::DEFAULT, font_size, TokenClass::Default.color());
         }
+    }
+
+    fn add_bytecode_fn(bc_layout: &mut TextLayout<u32>, func: &kibi::FuncDesc, font_size: f32) -> u32 {
+        let kibi::FuncCode::ByteCode(code) = &func.code else { unreachable!() };
+        let code = kibi::bytecode::ByteCodeDecoder::decode(code).unwrap();
+        for instr in &code {
+            let name = instr.name();
+            bc_layout.append_ex(&format!("{:03} ", instr.pc), FaceId::DEFAULT, font_size, TokenClass::Comment.color());
+            bc_layout.append_ex(&format!("{:11} ", name), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+
+            use kibi::bytecode::InstrData::*;
+            match &instr.data {
+                Nop => (),
+                Unreachable => (),
+
+                LoadNil  { dst } |
+                LoadEnv  { dst } |
+                LoadUnit { dst } |
+                MapNew   { dst } => {
+                    bc_layout.append_ex(&format!("r{dst}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                }
+
+                Copy { dst, src } |
+                Swap { dst, src } |
+                Op1  { dst, src } => {
+                    bc_layout.append_ex(&format!("r{dst}, r{src}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                }
+
+                Op2 { dst, src1, src2 } => {
+                    bc_layout.append_ex(&format!("r{dst}, r{src1}, r{src2}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                }
+
+
+                LoadBool { dst, value } => {
+                    bc_layout.append_ex(&format!("r{dst}, "), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    bc_layout.append_ex(&format!("{value}"), FaceId::DEFAULT, font_size, TokenClass::from_data(kibi::TokenData::Bool(false)).color());
+                }
+
+                LoadInt   { dst, value } |
+                AddInt    { dst, value } => {
+                    bc_layout.append_ex(&format!("r{dst}, "), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    bc_layout.append_ex(&format!("#{value}"), FaceId::DEFAULT, font_size, TokenClass::from_data(kibi::TokenData::Number("")).color());
+                }
+
+                LoadConst { dst, index } => {
+                    // @todo: render the const's value.
+                    bc_layout.append_ex(&format!("r{dst}, c{index}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                }
+
+                ListNew  { dst, values } |
+                TupleNew { dst, values } => {
+                    let _ = (dst, values);
+                    bc_layout.append_ex(&format!("..."), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                }
+
+
+                ReadPath { dst, base, keys } => {
+                    let _ = (dst, base, keys);
+                    bc_layout.append_ex(&format!("..."), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                }
+
+                WritePath { base, keys, value } => {
+                    let _ = (base, keys, value);
+                    bc_layout.append_ex(&format!("..."), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                }
+
+
+                Jump { target } => {
+                    bc_layout.append_ex(&format!("{target}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                }
+
+                JumpC1 { target, src } => {
+                    bc_layout.append_ex(&format!("r{src}, {target}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                }
+
+                Call { dst, func, args } => {
+                    let _ = (dst, func, args);
+                    bc_layout.append_ex(&format!("..."), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                }
+
+                Ret { src } => {
+                    bc_layout.append_ex(&format!("r{src}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                }
+            }
+            bc_layout.append_ex("\n", FaceId::DEFAULT, font_size, TokenClass::Default.color());
+        }
+        bc_layout.append_ex("\n", FaceId::DEFAULT, font_size, TokenClass::Default.color());
+
+        code.len() as u32 + 1
     }
 
     pub fn update(&mut self, window: &Window, offset: (f32, f32), r: &mut Renderer) {
@@ -793,7 +849,7 @@ impl CodeView {
 
         r.draw_text_layout_abs(view_x0i, view_y0i, &self.layout);
 
-        r.draw_text_layout_abs(view_x0i + self.layout.width() as i32, view_y0i, &self.bc_layout);
+        r.draw_text_layout_abs(view_x0i + self.layout.width() as i32 + 16, view_y0i, &self.bc_layout);
     }
 }
 

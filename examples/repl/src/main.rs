@@ -66,7 +66,7 @@ fn main() {
         let dt_compile = t0.elapsed();
 
         let t0 = std::time::Instant::now();
-        vm.load_crate(&funcs, items.inner()).unwrap();
+        vm.load_crate(funcs.inner(), items.inner()).unwrap();
         let dt_run = t0.elapsed();
 
         println!("parse:   {:?}", dt_parse);
@@ -148,7 +148,7 @@ fn main() {
 
 
         running.store(true, core::sync::atomic::Ordering::SeqCst);
-        let result = vm.load_crate(&funcs, items.inner());
+        let result = vm.load_crate(funcs.inner(), items.inner());
         running.store(false, core::sync::atomic::Ordering::SeqCst);
 
         if let Err(_) = result {

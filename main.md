@@ -33,9 +33,9 @@
 
 
 - todo: explorer.
-    - align functions & bytecode.
-        - based on which has more lines.
-        - split up the code view's text layout.
+    - bytecode interaction:
+        - highlight source values.
+    - h2c: time for some gui utils?
     - control flow info.
         - generate it.
         - use it: align basic blocks with code.

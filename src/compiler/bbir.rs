@@ -1582,8 +1582,8 @@ impl Crate {
         self.functions[id].borrow_mut()
     }
 
-    pub fn build(self) -> (Vec<crate::FuncDesc>, IndexVec<ItemId, Item>) {
-        let mut funcs = Vec::with_capacity(self.functions.len());
+    pub fn build(self) -> (IndexVec<FunctionId, crate::FuncDesc>, IndexVec<ItemId, Item>) {
+        let mut funcs = IndexVec::with_capacity(self.functions.len());
 
         for fun in self.functions.iter() {
             let mut fun = fun.borrow_mut();
