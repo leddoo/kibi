@@ -1582,8 +1582,10 @@ impl Crate {
         self.functions[id].borrow_mut()
     }
 
-    pub fn build(self) -> (IndexVec<FunctionId, crate::FuncDesc>, IndexVec<ItemId, Item>) {
+    pub fn build(self) -> (IndexVec<FunctionId, crate::FuncDesc>, IndexVec<ItemId, Item>, IndexVec<FunctionId, Vec<Vec<super::codegen::ValueMapping>>>) {
         let mut funcs = IndexVec::with_capacity(self.functions.len());
+
+        let mut debug_infos = IndexVec::with_capacity(self.functions.len());
 
         for fun in self.functions.iter() {
             let mut fun = fun.borrow_mut();
@@ -1636,9 +1638,10 @@ impl Crate {
                 num_params: fun.num_params,
                 stack_size: result.stack_size,
             });
+            debug_infos.push(result.value_mapping.into_inner());
         }
 
-        (funcs, self.items)
+        (funcs, self.items, debug_infos)
     }
 }
 

@@ -63,6 +63,9 @@ impl<K: Key, V> IndexVec<K, V> {
 
     #[inline(always)]
     pub fn inner_mut(&mut self) -> &mut Vec<V> { &mut self.values }
+
+    #[inline(always)]
+    pub fn into_inner(self) -> Vec<V> { self.values }
 }
 
 

@@ -33,8 +33,6 @@
 
 
 - todo: explorer.
-    - bytecode interaction:
-        - highlight source values.
     - h2c: time for some gui utils?
     - control flow info.
         - generate it.

@@ -62,7 +62,7 @@ fn main() {
         let t0 = std::time::Instant::now();
         let mut builder = bbir_builder::Builder::new();
         builder.build(&module);
-        let (funcs, items) = builder.krate.build();
+        let (funcs, items, _) = builder.krate.build();
         let dt_compile = t0.elapsed();
 
         let t0 = std::time::Instant::now();
@@ -143,7 +143,7 @@ fn main() {
 
         let mut builder = bbir_builder::Builder::new();
         builder.build(&module);
-        let (funcs, items) = builder.krate.build();
+        let (funcs, items, _) = builder.krate.build();
         buffer.clear();
 
 

@@ -205,8 +205,8 @@ struct CodeInfo<'a> {
     ast_info: AstInfo<'a>,
 
     funcs: IndexVec<kibi::FunctionId, kibi::FuncDesc>,
-    #[allow(dead_code)] // temp.
     items: IndexVec<ItemId, kibi::bbir::Item>,
+    value_maps: IndexVec<kibi::FunctionId, Vec<Vec<kibi::codegen::ValueMapping>>>,
 }
 
 impl<'a> CodeInfo<'a> {
@@ -227,7 +227,7 @@ impl<'a> CodeInfo<'a> {
 
         let mut builder = kibi::bbir_builder::Builder::new();
         builder.build(&ast);
-        let (funcs, items) = builder.krate.build();
+        let (funcs, items, value_maps) = builder.krate.build();
 
         return CodeInfo {
             tokens,
@@ -235,6 +235,7 @@ impl<'a> CodeInfo<'a> {
             ast_info,
             funcs,
             items,
+            value_maps,
         };
     }
 }
@@ -405,6 +406,16 @@ impl SourceMap {
 }
 
 
+#[derive(Clone, Copy, Debug)]
+struct RegSpan {
+    text_begin: u32,
+    text_end:   u32,
+    func: kibi::FunctionId,
+    pc:   u16,
+    reg:  u8,
+}
+
+
 struct CodeView {
     pos: (f32, f32),
     text: String,
@@ -412,6 +423,7 @@ struct CodeView {
     layout: TextLayout<u32>,
     source_map:  SourceMap,
     bc_layout: TextLayout<u32>,
+    reg_spans: Vec<RegSpan>,
 }
 
 impl CodeView {
@@ -423,6 +435,7 @@ impl CodeView {
             layout: TextLayout::new(fonts),
             source_map: SourceMap { line_begins: vec![], source_spans: vec![], text_spans: vec![] },
             bc_layout: TextLayout::new(fonts),
+            reg_spans: vec![],
         }
     }
 
@@ -476,6 +489,7 @@ impl CodeView {
         self.source_map.source_spans.clear();
         self.source_map.text_spans.clear();
         self.bc_layout.clear();
+        self.reg_spans.clear();
 
         let mut deco_cursor = 0;
         let mut line_index = 0;
@@ -491,7 +505,7 @@ impl CodeView {
                 self.info.ast_info.items.iter()
                 .find(|item| item.source_range.begin.line == line_index + 1)
             {
-                if let kibi::bbir::ItemData::Func(func) = self.info.items[item.item_id].data {
+                if let kibi::bbir::ItemData::Func(func_id) = self.info.items[item.item_id].data {
                     // sync source & bytecode.
                     for _ in src_lines..bc_lines {
                         self.layout.append_ex("\n", FaceId::DEFAULT, font_size, 0);
@@ -502,8 +516,8 @@ impl CodeView {
                     src_lines = src_lines.max(bc_lines);
                     bc_lines  = bc_lines.max(src_lines);
 
-                    let func = &self.info.funcs[func];
-                    bc_lines += Self::add_bytecode_fn(&mut self.bc_layout, func, font_size);
+                    let func = &self.info.funcs[func_id];
+                    bc_lines += Self::add_bytecode_fn(func_id, func, font_size, &mut self.bc_layout, &mut self.reg_spans);
                     active_items.push((item.source_range.end.line, bc_lines));
                 }
             }
@@ -627,7 +641,15 @@ impl CodeView {
         }
     }
 
-    fn add_bytecode_fn(bc_layout: &mut TextLayout<u32>, func: &kibi::FuncDesc, font_size: f32) -> u32 {
+    fn add_bytecode_fn(func_id: kibi::FunctionId, func: &kibi::FuncDesc, font_size: f32, bc_layout: &mut TextLayout<u32>, reg_spans: &mut Vec<RegSpan>) -> u32 {
+        fn add_reg(func: kibi::FunctionId, pc: u16, reg: u8, font_size: f32, bc_layout: &mut TextLayout<u32>, reg_spans: &mut Vec<RegSpan>) {
+            let text_begin = bc_layout.text().len() as u32;
+            bc_layout.append_ex(&format!("r{reg}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+            let text_end = bc_layout.text().len() as u32;
+
+            reg_spans.push(RegSpan { text_begin, text_end, func, pc, reg });
+        }
+
         let kibi::FuncCode::ByteCode(code) = &func.code else { unreachable!() };
         let code = kibi::bytecode::ByteCodeDecoder::decode(code).unwrap();
         for instr in &code {
@@ -644,34 +666,49 @@ impl CodeView {
                 LoadEnv  { dst } |
                 LoadUnit { dst } |
                 MapNew   { dst } => {
-                    bc_layout.append_ex(&format!("r{dst}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    add_reg(func_id, instr.pc + 1, *dst, font_size, bc_layout, reg_spans);
+                }
+
+                Swap { dst, src } => {
+                    add_reg(func_id, instr.pc, *dst, font_size, bc_layout, reg_spans);
+                    bc_layout.append_ex(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    add_reg(func_id, instr.pc, *src, font_size, bc_layout, reg_spans);
                 }
 
                 Copy { dst, src } |
-                Swap { dst, src } |
                 Op1  { dst, src } => {
-                    bc_layout.append_ex(&format!("r{dst}, r{src}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    add_reg(func_id, instr.pc + 1, *dst, font_size, bc_layout, reg_spans);
+                    bc_layout.append_ex(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    add_reg(func_id, instr.pc, *src, font_size, bc_layout, reg_spans);
                 }
 
                 Op2 { dst, src1, src2 } => {
-                    bc_layout.append_ex(&format!("r{dst}, r{src1}, r{src2}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    add_reg(func_id, instr.pc + 1, *dst, font_size, bc_layout, reg_spans);
+                    bc_layout.append_ex(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    add_reg(func_id, instr.pc, *src1, font_size, bc_layout, reg_spans);
+                    bc_layout.append_ex(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    add_reg(func_id, instr.pc, *src2, font_size, bc_layout, reg_spans);
                 }
 
 
                 LoadBool { dst, value } => {
-                    bc_layout.append_ex(&format!("r{dst}, "), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    add_reg(func_id, instr.pc + 1, *dst, font_size, bc_layout, reg_spans);
+                    bc_layout.append_ex(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color());
                     bc_layout.append_ex(&format!("{value}"), FaceId::DEFAULT, font_size, TokenClass::from_data(kibi::TokenData::Bool(false)).color());
                 }
 
                 LoadInt   { dst, value } |
                 AddInt    { dst, value } => {
-                    bc_layout.append_ex(&format!("r{dst}, "), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    add_reg(func_id, instr.pc + 1, *dst, font_size, bc_layout, reg_spans);
+                    bc_layout.append_ex(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color());
                     bc_layout.append_ex(&format!("#{value}"), FaceId::DEFAULT, font_size, TokenClass::from_data(kibi::TokenData::Number("")).color());
                 }
 
                 LoadConst { dst, index } => {
+                    add_reg(func_id, instr.pc + 1, *dst, font_size, bc_layout, reg_spans);
+                    bc_layout.append_ex(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color());
                     // @todo: render the const's value.
-                    bc_layout.append_ex(&format!("r{dst}, c{index}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    bc_layout.append_ex(&format!("c{index}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
                 }
 
                 ListNew  { dst, values } |
@@ -697,7 +734,9 @@ impl CodeView {
                 }
 
                 JumpC1 { target, src } => {
-                    bc_layout.append_ex(&format!("r{src}, {target}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    add_reg(func_id, instr.pc, *src, font_size, bc_layout, reg_spans);
+                    bc_layout.append_ex(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    bc_layout.append_ex(&format!("{target}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
                 }
 
                 Call { dst, func, args } => {
@@ -706,7 +745,7 @@ impl CodeView {
                 }
 
                 Ret { src } => {
-                    bc_layout.append_ex(&format!("r{src}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    add_reg(func_id, instr.pc, *src, font_size, bc_layout, reg_spans);
                 }
             }
             bc_layout.append_ex("\n", FaceId::DEFAULT, font_size, TokenClass::Default.color());
@@ -718,17 +757,27 @@ impl CodeView {
 
     pub fn update(&mut self, window: &Window, offset: (f32, f32), r: &mut Renderer) {
         let (mx, my) = window.get_mouse_pos(minifb::MouseMode::Pass).unwrap();
-        let mx = mx + offset.0;
-        let my = my + offset.1;
-        let mhit = self.layout.hit_test_pos(mx - self.pos.0, my - self.pos.1);
 
-        let mut hover     = None;
-        let mut highlight = None;
+        let src_x0 = self.pos.0 - offset.0;
+        let src_y0 = self.pos.1 - offset.1;
+        let src_x0i = src_x0.floor() as i32;
+        let src_y0i = src_y0.floor() as i32;
 
-        'foo: {
-            if mhit.out_of_bounds[0] || mhit.out_of_bounds[1] { break 'foo }
+        let bc_x0 = self.pos.0 + self.layout.width().ceil() - offset.0;
+        let bc_y0 = self.pos.1 - offset.1;
+        let bc_x0i = bc_x0.floor() as i32;
+        let bc_y0i = bc_y0.floor() as i32;
 
-            let Some(source_pos) = self.source_map.text_to_source(mhit.text_pos_left) else { break 'foo };
+        let mut src_hover     = vec![];
+        let mut src_highlight = vec![];
+        let mut bc_hover      = vec![];
+        //let mut bc_highlight  = vec![];
+
+        'hit_test_src: {
+            let mhit = self.layout.hit_test_pos(mx - src_x0, my - src_y0);
+            if mhit.out_of_bounds[0] || mhit.out_of_bounds[1] { break 'hit_test_src }
+
+            let Some(source_pos) = self.source_map.text_to_source(mhit.text_pos_left) else { break 'hit_test_src };
 
             for info in self.info.ast_info.nodes.iter().rev() {
                 let begin = self.source_map.source_pos_to_offset(info.source_range.begin);
@@ -739,7 +788,7 @@ impl CodeView {
                 let Some(text_first) = self.source_map.source_to_text(begin)   else { continue };
                 let Some(text_last)  = self.source_map.source_to_text(end - 1) else { continue };
 
-                hover = Some((text_first, text_last, info));
+                src_hover.push((text_first, text_last));
 
                 if let NodeRef::Expr(expr) = info.node_ref {
                     if let ExprData::Ident(ident) = &expr.data {
@@ -754,7 +803,7 @@ impl CodeView {
                                     self.source_map.source_to_text(begin),
                                     self.source_map.source_to_text(end - 1))
                                 {
-                                    highlight = Some((text_first, text_last));
+                                    src_highlight.push((text_first, text_last));
                                 }
                             }
 
@@ -766,12 +815,12 @@ impl CodeView {
                                     self.source_map.source_to_text(begin),
                                     self.source_map.source_to_text(end - 1))
                                 {
-                                    highlight = Some((text_first, text_last));
+                                    src_highlight.push((text_first, text_last));
                                 }
                             }
 
                             expr::IdentTarget::Dynamic => {
-                                highlight = Some((text_first, text_last));
+                                src_highlight.push((text_first, text_last));
                             }
                         }
                     }
@@ -785,7 +834,7 @@ impl CodeView {
                                 self.source_map.source_to_text(begin),
                                 self.source_map.source_to_text(end - 1))
                             {
-                                highlight = Some((text_first, text_last));
+                                src_highlight.push((text_first, text_last));
                             }
                         }
                     }
@@ -799,7 +848,7 @@ impl CodeView {
                                 self.source_map.source_to_text(begin),
                                 self.source_map.source_to_text(end - 1))
                             {
-                                highlight = Some((text_first, text_last));
+                                src_highlight.push((text_first, text_last));
                             }
                         }
                     }
@@ -809,47 +858,94 @@ impl CodeView {
             }
         }
 
+        'hit_test_bc: {
+            let mhit = self.bc_layout.hit_test_pos(mx - bc_x0, my - bc_y0);
+            if mhit.out_of_bounds[0] || mhit.out_of_bounds[1] { break 'hit_test_bc }
 
-        let view_x0 = self.pos.0 - offset.0;
-        let view_y0 = self.pos.1 - offset.1;
-        let view_x0i = view_x0.floor() as i32;
-        let view_y0i = view_y0.floor() as i32;
+            let text_pos = mhit.text_pos_left;
 
-        r.fill_rect_abs_opaque(
-            view_x0i, view_y0i,
-            (view_x0 + self.layout.width()  + 0.5) as i32,
-            (view_y0 + self.layout.height() + 0.5) as i32,
-            color_pack((30, 35, 40, 255)));
+            for span in &self.reg_spans {
+                if text_pos < span.text_begin || text_pos >= span.text_end {
+                    continue;
+                }
 
-        if let Some((first, last, info)) = hover {
-            self.layout.hit_test_text_ranges(first, last + 1, |range| {
-                let x0 = (view_x0 + range.x0) as i32;
-                let x1 = (view_x0 + range.x1) as i32;
-                let y0 = (view_y0 + range.y)  as i32;
-                let y1 = (view_y0 + range.y + range.line_height) as i32;
-                r.fill_rect_abs_opaque(x0, y0, x1, y1, color_pack((50, 55, 60, 255)));
-            });
+                bc_hover.push((span.text_begin, span.text_end - 1));
 
-            let m = self.layout.hit_test_text_pos(first);
-            let dump = format!("{:?}", info.node_id);
-            let mut temp_layout = TextLayout::new(r.fonts());
-            temp_layout.append_ex(&dump, FaceId::DEFAULT, 16., TokenClass::Default.color());
-            r.draw_text_layout_abs(view_x0i - 125, view_y0i + m.y as i32, &temp_layout);
+                let value_mapping = &self.info.value_maps[span.func];
+                for range in &value_mapping[span.reg as usize] {
+                    let pc = span.pc as u32;
+                    if pc <= range.pc_begin || pc > range.pc_end {
+                        continue;
+                    }
+
+                    for node_id in range.values.iter().copied() {
+                        let node_info = &self.info.ast_info.nodes[node_id];
+                        let begin = self.source_map.source_pos_to_offset(node_info.source_range.begin);
+                        let end   = self.source_map.source_pos_to_offset(node_info.source_range.end);
+                        if let (Some(text_first), Some(text_last)) = (
+                            self.source_map.source_to_text(begin),
+                            self.source_map.source_to_text(end - 1))
+                        {
+                            src_highlight.push((text_first, text_last));
+                        }
+                    }
+                }
+            }
         }
 
-        if let Some((first, last)) = highlight {
+
+        r.fill_rect_abs_opaque(
+            src_x0i, src_y0i,
+            (src_x0 + self.layout.width()  + 0.5) as i32,
+            (src_y0 + self.layout.height() + 0.5) as i32,
+            color_pack((30, 35, 40, 255)));
+
+        for (first, last) in src_hover.iter().copied() {
             self.layout.hit_test_text_ranges(first, last + 1, |range| {
-                let x0 = (view_x0 + range.x0) as i32;
-                let x1 = (view_x0 + range.x1) as i32;
-                let y0 = (view_y0 + range.y)  as i32;
-                let y1 = (view_y0 + range.y + range.line_height) as i32;
+                let x0 = (src_x0 + range.x0) as i32;
+                let x1 = (src_x0 + range.x1) as i32;
+                let y0 = (src_y0 + range.y)  as i32;
+                let y1 = (src_y0 + range.y + range.line_height) as i32;
+                r.fill_rect_abs_opaque(x0, y0, x1, y1, color_pack((50, 55, 60, 255)));
+            });
+        }
+
+        for (first, last) in src_highlight.iter().copied() {
+            self.layout.hit_test_text_ranges(first, last + 1, |range| {
+                let x0 = (src_x0 + range.x0) as i32;
+                let x1 = (src_x0 + range.x1) as i32;
+                let y0 = (src_y0 + range.y)  as i32;
+                let y1 = (src_y0 + range.y + range.line_height) as i32;
                 r.fill_rect_abs_opaque(x0, y0, x1, y1, color_pack((64, 73, 91, 255)));
             });
         }
 
-        r.draw_text_layout_abs(view_x0i, view_y0i, &self.layout);
+        r.draw_text_layout_abs(src_x0i, src_y0i, &self.layout);
 
-        r.draw_text_layout_abs(view_x0i + self.layout.width() as i32 + 16, view_y0i, &self.bc_layout);
+
+        for (first, last) in bc_hover.iter().copied() {
+            self.bc_layout.hit_test_text_ranges(first, last + 1, |range| {
+                let x0 = (bc_x0 + range.x0) as i32;
+                let x1 = (bc_x0 + range.x1) as i32;
+                let y0 = (bc_y0 + range.y)  as i32;
+                let y1 = (bc_y0 + range.y + range.line_height) as i32;
+                r.fill_rect_abs_opaque(x0, y0, x1, y1, color_pack((50, 55, 60, 255)));
+            });
+        }
+
+        /*
+        for (first, last) in bc_highlight.iter().copied() {
+            self.layout.hit_test_text_ranges(first, last + 1, |range| {
+                let x0 = (bc_x0 + range.x0) as i32;
+                let x1 = (bc_x0 + range.x1) as i32;
+                let y0 = (bc_y0 + range.y)  as i32;
+                let y1 = (bc_y0 + range.y + range.line_height) as i32;
+                r.fill_rect_abs_opaque(x0, y0, x1, y1, color_pack((64, 73, 91, 255)));
+            });
+        }
+        */
+
+        r.draw_text_layout_abs(bc_x0i, bc_y0i, &self.bc_layout);
     }
 }
 
@@ -919,7 +1015,19 @@ fn main() {
     }
 
     let mut e = Explorer::new();
-    e.code.set_text(include_str!("../../fib.kb"));
+
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 {
+        assert_eq!(args.len(), 2);
+
+        let path = &args[1];
+        let source = std::fs::read_to_string(path).unwrap();
+        e.code.set_text(&source);
+    }
+    else {
+        e.code.set_text(include_str!("../../fib.kb"));
+    }
+
     e.run();
 }
 

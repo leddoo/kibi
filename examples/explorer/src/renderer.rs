@@ -483,6 +483,7 @@ pub struct RangeMetrics {
 }
 
 impl<E> TextLayout<E> {
+    #[allow(dead_code)] // @temp
     pub fn hit_test_text_pos(&self, pos: u32) -> RangeMetrics {
         let pos = pos.min(self.text.len() as u32);
 
