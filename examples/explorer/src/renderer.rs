@@ -427,33 +427,31 @@ impl<E> TextLayout<E> {
             current_line.width     = pos_cursor;
 
             if is_line {
-                self.new_line();
-                current_line = self.lines.last_mut().unwrap();
-                pos_cursor   = 0.0;
-
-                // need to fix up text begin/end,
-                // as we've added the entire `text` already.
                 // line ranges are weird. they don't include the `\n`.
                 // so the next line starts after the current line's `\n`.
-                current_line.text_begin  = line_end + 1;
-                current_line.text_end    = line_end + 1;
+                let text_begin = line_end + 1;
+                let span_begin = self.spans.len()  as u32;
 
-                current_line.max_ascent  = font_metrics.ascent;
-                current_line.max_descent = -font_metrics.descent;
-                current_line.max_gap     = font_metrics.line_gap;
-                current_line.height = current_line.max_ascent + current_line.max_descent + current_line.max_gap;
+                let max_ascent  = font_metrics.ascent;
+                let max_descent = -font_metrics.descent;
+                let max_gap     = font_metrics.line_gap;
+
+                self.lines.push(Line {
+                    text_begin, text_end: text_begin,
+                    span_begin, span_end: span_begin,
+                    width: 0.0,
+                    max_ascent, max_descent, max_gap,
+                    height: max_ascent+ max_descent + max_gap,
+                });
+
+                current_line = self.lines.last_mut().unwrap();
+                pos_cursor   = 0.0;
             }
 
             let text_advance = segment_end + is_line as usize;
             text_cursor += text_advance as u32;
             text = &text[text_advance..];
         }
-    }
-
-    pub fn new_line(&mut self) {
-        let text_begin  = self.text.len()   as u32;
-        let span_begin  = self.spans.len()  as u32;
-        self.lines.push(Line::new(text_begin, span_begin));
     }
 
     pub fn width(&self) -> f32 {

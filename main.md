@@ -34,8 +34,6 @@
 
 - todo: explorer.
     - align functions & bytecode.
-        - pwetty drawing.
-        - bytecode layout on code view.
         - based on which has more lines.
         - split up the code view's text layout.
     - control flow info.

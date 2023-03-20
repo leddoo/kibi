@@ -54,6 +54,51 @@ pub mod opcode {
     pub const END:              u8 = 39;
 
     pub const EXTRA:            u8 = 255;
+
+
+    pub const fn name(opcode: u8) -> &'static str {
+        match opcode {
+            NOP                 => "nop",
+            UNREACHABLE         => "unreachable",
+            COPY                => "copy",
+            SWAP                => "swap",
+            LOAD_NIL            => "load_nil",
+            LOAD_BOOL           => "load_bool",
+            LOAD_INT            => "load_int",
+            LOAD_CONST          => "load_const",
+            LOAD_ENV            => "load_env",
+            LIST_NEW            => "list_new",
+            TUPLE_NEW           => "tuple_new",
+            LOAD_UNIT           => "load_unit",
+            MAP_NEW             => "map_new",
+            READ_PATH           => "read_path",
+            WRITE_PATH          => "write_path",
+            WRITE_PATH_DEF      => "write_path_def",
+            ADD                 => "add",
+            SUB                 => "sub",
+            MUL                 => "mul",
+            DIV                 => "div",
+            FLOOR_DIV           => "floor_div",
+            REM                 => "rem",
+            ADD_INT             => "add_int",
+            NEGATE              => "negate",
+            NOT                 => "not",
+            CMP_EQ              => "cmp_eq",
+            CMP_NE              => "cmp_ne",
+            CMP_LE              => "cmp_le",
+            CMP_LT              => "cmp_lt",
+            CMP_GE              => "cmp_ge",
+            CMP_GT              => "cmp_gt",
+            JUMP                => "jump",
+            JUMP_TRUE           => "jump_true",
+            JUMP_FALSE          => "jump_false",
+            JUMP_NIL            => "jump_nil",
+            JUMP_NOT_NIL        => "jump_not_nil",
+            CALL                => "call",
+            RET                 => "ret",
+            0 | 39..=255 => unreachable!()
+        }
+    }
 }
 
 
@@ -475,6 +520,13 @@ pub enum InstrData {
 
     Call                { dst: u8, func: u8, args: Vec<u8> },
     Ret                 { src: u8 },
+}
+
+impl Instr {
+    #[inline(always)]
+    pub fn name(&self) -> &'static str {
+        opcode::name(self.opcode)
+    }
 }
 
 

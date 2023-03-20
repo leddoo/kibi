@@ -411,6 +411,7 @@ struct CodeView {
     info: CodeInfo<'static>,
     layout: TextLayout<u32>,
     source_map:  SourceMap,
+    bc_layout: TextLayout<u32>,
 }
 
 impl CodeView {
@@ -421,6 +422,7 @@ impl CodeView {
             info:   CodeInfo::new(""),
             layout: TextLayout::new(fonts),
             source_map: SourceMap { line_begins: vec![], source_spans: vec![], text_spans: vec![] },
+            bc_layout: TextLayout::new(fonts),
         }
     }
 
@@ -466,13 +468,13 @@ impl CodeView {
 
         self.info = unsafe { core::mem::transmute(info) };
 
+        let font_size = 24.;
+
         // update text layout & mappings.
         self.layout.clear();
         self.source_map.source_spans.clear();
         self.source_map.text_spans.clear();
         {
-            let font_size = 24.;
-
             let mut deco_cursor = 0;
             let mut text_cursor = 0;
             while text_cursor < text.len() {
@@ -567,6 +569,94 @@ impl CodeView {
                     text_cursor = text.len();
                 }
             }
+        }
+
+        self.bc_layout.clear();
+        for func in &self.info.funcs {
+            let kibi::FuncCode::ByteCode(code) = &func.code else { unreachable!() };
+            let code = kibi::bytecode::ByteCodeDecoder::decode(code).unwrap();
+            for instr in &code {
+                let name = instr.name();
+                self.bc_layout.append_ex(&format!("{:03} ", instr.pc), FaceId::DEFAULT, font_size, TokenClass::Comment.color());
+                self.bc_layout.append_ex(&format!("{:11} ", name), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+
+                use kibi::bytecode::InstrData::*;
+                match &instr.data {
+                    Nop => (),
+                    Unreachable => (),
+
+                    LoadNil  { dst } |
+                    LoadEnv  { dst } |
+                    LoadUnit { dst } |
+                    MapNew   { dst } => {
+                        self.bc_layout.append_ex(&format!("r{dst}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    }
+
+                    Copy { dst, src } |
+                    Swap { dst, src } |
+                    Op1  { dst, src } => {
+                        self.bc_layout.append_ex(&format!("r{dst}, r{src}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    }
+
+                    Op2 { dst, src1, src2 } => {
+                        self.bc_layout.append_ex(&format!("r{dst}, r{src1}, r{src2}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    }
+
+
+                    LoadBool { dst, value } => {
+                        self.bc_layout.append_ex(&format!("r{dst}, "), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                        self.bc_layout.append_ex(&format!("{value}"), FaceId::DEFAULT, font_size, TokenClass::from_data(kibi::TokenData::Bool(false)).color());
+                    }
+
+                    LoadInt   { dst, value } |
+                    AddInt    { dst, value } => {
+                        self.bc_layout.append_ex(&format!("r{dst}, "), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                        self.bc_layout.append_ex(&format!("#{value}"), FaceId::DEFAULT, font_size, TokenClass::from_data(kibi::TokenData::Number("")).color());
+                    }
+
+                    LoadConst { dst, index } => {
+                        // @todo: render the const's value.
+                        self.bc_layout.append_ex(&format!("r{dst}, c{index}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    }
+
+                    ListNew  { dst, values } |
+                    TupleNew { dst, values } => {
+                        let _ = (dst, values);
+                        self.bc_layout.append_ex(&format!("..."), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    }
+
+
+                    ReadPath { dst, base, keys } => {
+                        let _ = (dst, base, keys);
+                        self.bc_layout.append_ex(&format!("..."), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    }
+
+                    WritePath { base, keys, value } => {
+                        let _ = (base, keys, value);
+                        self.bc_layout.append_ex(&format!("..."), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    }
+
+
+                    Jump { target } => {
+                        self.bc_layout.append_ex(&format!("{target}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    }
+
+                    JumpC1 { target, src } => {
+                        self.bc_layout.append_ex(&format!("r{src}, {target}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    }
+
+                    Call { dst, func, args } => {
+                        let _ = (dst, func, args);
+                        self.bc_layout.append_ex(&format!("..."), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    }
+
+                    Ret { src } => {
+                        self.bc_layout.append_ex(&format!("r{src}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    }
+                }
+                self.bc_layout.append_ex("\n", FaceId::DEFAULT, font_size, TokenClass::Default.color());
+            }
+            self.bc_layout.append_ex("\n", FaceId::DEFAULT, font_size, TokenClass::Default.color());
         }
     }
 
@@ -703,14 +793,7 @@ impl CodeView {
 
         r.draw_text_layout_abs(view_x0i, view_y0i, &self.layout);
 
-        // @temp: draw bytecode.
-        let mut bc_layout = TextLayout::new(r.fonts());
-        for func in &self.info.funcs {
-            let kibi::FuncCode::ByteCode(code) = &func.code else { unreachable!() };
-            let code = kibi::bytecode::ByteCodeDecoder::decode(code).unwrap();
-            bc_layout.append_ex(&format!("{:#?}\n", code), FaceId::DEFAULT, 24., TokenClass::Default.color());
-        }
-        r.draw_text_layout_abs(view_x0i + self.layout.width() as i32, view_y0i, &bc_layout);
+        r.draw_text_layout_abs(view_x0i + self.layout.width() as i32, view_y0i, &self.bc_layout);
     }
 }
 
