@@ -1,4 +1,5 @@
 use core::num::NonZeroU32;
+use crate::renderer::*;
 
 
 #[allow(dead_code)] // @temp
@@ -15,9 +16,48 @@ impl Default for Key {
 }
 
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Props {
+    pub font_face: FaceId,
+    pub font_size: f32,
+    pub text_color: u32,
     pub text: String,
+
+    pub fill: bool,
+    pub fill_color: u32,
+}
+
+impl Props {
+    #[inline(always)]
+    pub fn new() -> Props { Props::default() }
+
+    #[inline(always)]
+    pub fn with_text(mut self, text: String) -> Self {
+        self.text = text;
+        self
+    }
+
+    #[inline(always)]
+    pub fn with_fill(mut self, color: u32) -> Self {
+        self.fill       = true;
+        self.fill_color = color;
+        self
+    }
+}
+
+impl Default for Props {
+    #[inline(always)]
+    fn default() -> Self {
+        Props {
+            font_face: FaceId::DEFAULT,
+            font_size: 16.0,
+            text_color: 0xFFBFBDB6,
+            text: String::new(),
+
+            fill: false,
+            fill_color: 0,
+        }
+    }
 }
 
 
@@ -32,7 +72,6 @@ enum KeyData {
 type OptNodeId = Option<NonZeroU32>;
 
 
-#[derive(Debug)]
 struct Node {
     // identity.
     key:       KeyData,
@@ -48,6 +87,11 @@ struct Node {
     prev_sibling: OptNodeId,
     first_child:  OptNodeId,
     last_child:   OptNodeId,
+
+    // layout.
+    pos:  [f32; 2],
+    size: [f32; 2],
+    text_layout: TextLayout<u32>,
 }
 
 impl Node {
@@ -66,23 +110,29 @@ impl Node {
     #[inline(always)]
     fn begin(&mut self, props: Props) {
         self.counter = 0;
+
         self.props = props;
+
         self.first_child = None;
         self.last_child  = None;
+
+        self.text_layout.clear();
+        self.text_layout.append_ex(&self.props.text, self.props.font_face, self.props.font_size, self.props.text_color);
     }
 }
 
 
 
-#[derive(Debug)]
 pub struct Gui {
     nodes:   Vec<Node>,
     hash:    Vec<OptNodeId>,
     current_parent: usize,
+
+    fonts: FontCtx,
 }
 
 impl Gui {
-    pub fn new() -> Gui {
+    pub fn new(fonts: &FontCtx) -> Gui {
         let root = Node {
             key:       KeyData::Counter(0),
             counter:   0,
@@ -95,12 +145,17 @@ impl Gui {
             prev_sibling: None,
             first_child:  None,
             last_child:   None,
+
+            pos:  [0.0; 2],
+            size: [0.0; 2],
+            text_layout: TextLayout::new(fonts),
         };
 
         Gui {
             nodes:   vec![root],
             hash:    vec![None; 16],
             current_parent: usize::MAX,
+            fonts: fonts.clone(),
         }
     }
 
@@ -154,15 +209,12 @@ impl Gui {
         let node = match node {
             // found match.
             Some(node) => {
-                println!("found match for {:?}: {}", global_key, node);
                 self.nodes[node.get() as usize].begin(props);
                 node
             }
 
             // was new.
             None => {
-                println!("no match for {:?}", global_key);
-
                 // allocate node.
                 let node = NonZeroU32::new(self.nodes.len() as u32).unwrap();
 
@@ -190,6 +242,10 @@ impl Gui {
                     prev_sibling: None,
                     first_child:  None,
                     last_child:   None,
+
+                    pos:  [0.0; 2],
+                    size: [0.0; 2],
+                    text_layout: TextLayout::new(&self.fonts),
                 });
 
                 node
@@ -218,6 +274,69 @@ impl Gui {
         self.current_parent = node.get() as usize;
         f(self);
         self.current_parent = old_parent;
+    }
+
+
+    pub fn layout(&mut self) {
+        fn rec(this: &mut Gui, node_index: usize) {
+            let node = &this.nodes[node_index];
+
+            let mut width  = node.text_layout.width();
+            let mut height = node.text_layout.height();
+            let mut cursor = 0f32;
+
+            let mut at = node.first_child;
+            while let Some(current) = at {
+                let current = current.get() as usize;
+                rec(this, current);
+
+                let child = &mut this.nodes[current];
+                child.pos = [0., cursor];
+
+                width   = width.max(child.size[0]);
+                cursor += child.size[1];
+
+                at = child.next_sibling;
+            }
+
+            height = height.max(cursor);
+
+            this.nodes[node_index].size = [width, height];
+        }
+
+        rec(self, 0);
+    }
+
+
+    pub fn render(&mut self, r: &mut Renderer) {
+        fn rec(this: &mut Gui, node_index: usize, px: i32, py: i32, r: &mut Renderer) {
+            let node = &this.nodes[node_index];
+
+            let [x0, y0] = node.pos;
+            let x1 = x0 + node.size[0];
+            let y1 = y0 + node.size[1];
+
+            let x0 = px + x0 as i32;
+            let y0 = py + y0 as i32;
+            let x1 = px + x1 as i32;
+            let y1 = py + y1 as i32;
+
+            if node.props.fill {
+                r.fill_rect_abs(x0, y0, x1, y1, node.props.fill_color);
+            }
+
+            r.draw_text_layout_abs(x0, y0, &node.text_layout);
+
+            let mut at = node.first_child;
+            while let Some(current) = at {
+                let current = current.get() as usize;
+                rec(this, current, x0, y0, r);
+
+                at = this.nodes[current].next_sibling;
+            }
+        }
+
+        rec(self, 0,  0, 0,  r);
     }
 }
 

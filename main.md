@@ -34,8 +34,6 @@
 
 - todo: explorer.
     - imgui thing:
-        - temp layout: top to bottom.
-        - render.
         - hit testing.
         - return "events" from node.
         - generation index.

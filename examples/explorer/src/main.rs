@@ -7,6 +7,7 @@ mod renderer;
 use renderer::*;
 
 mod gui;
+use gui::{*, Key};
 
 
 struct ItemInfo {
@@ -958,6 +959,8 @@ struct Explorer {
     offset:     (f32, f32),
     last_mouse: (f32, f32),
     code:     CodeView,
+    gui: Gui,
+    count: u32,
 }
 
 impl Explorer {
@@ -978,6 +981,8 @@ impl Explorer {
             offset:     (0., 0.),
             last_mouse: (0., 0.),
             code:     CodeView::new(&fonts),
+            gui: Gui::new(&fonts),
+            count: 0,
         }
     }
 
@@ -1000,35 +1005,24 @@ impl Explorer {
             r.clear(13, 16, 23);
 
             self.code.update(&self.window, self.offset, r);
+        
+
+            let gui = &mut self.gui;
+            gui.begin();
+            gui.node(Key::Counter, Props::new().with_fill(color_from_unmult_rgba((72, 76, 87, 255))), |gui| {
+                gui.node(Key::Counter, Props::new().with_text(format!("Count: {}", self.count)), |_|{});
+                gui.node(Key::Counter, Props::new().with_text(format!("Increment")), |_|{});
+            });
+            gui.end();
+            gui.layout();
+            gui.render(r);
 
             self.window.update_with_buffer(r.data(), size.0, size.1).unwrap();
         }
     }
 }
 
-fn gui_main() {
-    use gui::*;
-
-    let mut gui = Gui::new();
-
-    let count = 0;
-
-    for _ in 0..3 {
-        gui.begin();
-        gui.node(Key::Counter, Props::default(), |gui| {
-            gui.node(Key::Counter, Props { text: format!("Count: {count}") }, |_|{});
-            gui.node(Key::Counter, Props { text: format!("Increment") }, |_|{});
-        });
-        gui.end();
-        println!("{:#?}", gui);
-    }
-
-    std::process::exit(0);
-}
-
 fn main() {
-    gui_main();
-
     #[cfg(target_os="windows")] {
         // otherwise `Sleep` resolution is 16 ms.
         // at least on my machine.

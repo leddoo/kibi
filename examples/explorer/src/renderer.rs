@@ -84,6 +84,36 @@ impl Renderer {
         }
     }
 
+    #[allow(dead_code)] // @temp
+    pub fn fill_rect_abs(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, color: u32) {
+        if color_unpack(color).3 == 255 {
+            self.fill_rect_abs_opaque(x0, y0, x1, y1, color);
+            return;
+        }
+
+        let tw = self.target.width();
+        let th = self.target.height();
+
+        let x0 = x0.clamp(0, tw) as usize;
+        let y0 = y0.clamp(0, th) as usize;
+        let x1 = x1.clamp(0, tw) as usize;
+        let y1 = y1.clamp(0, th) as usize;
+
+        if x0 == x1 || y0 == y1 { return }
+
+        let buf = self.target.get_data_mut();
+
+        let mut offset = y0 * tw as usize;
+        for _ in y0..y1 {
+            for x in x0..x1 {
+                let dst = &mut buf[offset + x];
+                *dst = over(color, *dst);
+            }
+
+            offset += tw as usize;
+        }
+    }
+
     pub fn clear(&mut self, r: u8, g: u8, b: u8) {
         self.fill_rect_abs_opaque(0, 0, self.width(), self.height(), color_pack_u8(r, g, b, 255));
     }
