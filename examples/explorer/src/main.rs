@@ -999,22 +999,44 @@ impl Explorer {
             }
             self.last_mouse = (mx, my);
 
+            let mdown = self.window.get_mouse_down(minifb::MouseButton::Left);
+
+
+            let gui = &mut self.gui;
+
+            let mut changed = false;
+            for _ in 0..10 {
+                if !gui.mouse_move(mx, my)
+                && !gui.mouse_down(mdown)
+                && !changed {
+                    break;
+                }
+
+                changed = gui.update(|gui| {
+                    let mut new_count = self.count;
+
+                    gui.widget(Key::Counter, Props::new().with_fill(color_from_unmult_rgba((72, 76, 87, 255))), |gui| {
+                        gui.widget(Key::Counter, Props::new().with_text(format!("Count: {}", self.count)), |_|{});
+                        let events = gui.widget(Key::Counter, Props::new().with_text(format!("Increment")).with_pointer_events(), |_|{});
+                        if events.clicked() {
+                            new_count = self.count + 1;
+                        }
+                    });
+
+                    let changed = new_count != self.count;
+                    self.count = new_count;
+                    changed
+                });
+            }
+
+
             let r = &mut self.renderer;
             r.set_size(size.0 as u32, size.1 as u32);
 
             r.clear(13, 16, 23);
 
             self.code.update(&self.window, self.offset, r);
-        
 
-            let gui = &mut self.gui;
-            gui.begin();
-            gui.node(Key::Counter, Props::new().with_fill(color_from_unmult_rgba((72, 76, 87, 255))), |gui| {
-                gui.node(Key::Counter, Props::new().with_text(format!("Count: {}", self.count)), |_|{});
-                gui.node(Key::Counter, Props::new().with_text(format!("Increment")), |_|{});
-            });
-            gui.end();
-            gui.layout();
             gui.render(r);
 
             self.window.update_with_buffer(r.data(), size.0, size.1).unwrap();

@@ -34,8 +34,6 @@
 
 - todo: explorer.
     - imgui thing:
-        - hit testing.
-        - return "events" from node.
         - generation index.
             - ensure visited only once -> in `begin`.
             - free unvisited nodes in `end`.
