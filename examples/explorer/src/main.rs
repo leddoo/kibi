@@ -6,6 +6,8 @@ use kibi::ast::*;
 mod renderer;
 use renderer::*;
 
+mod gui;
+
 
 struct ItemInfo {
     item_id: ItemId,
@@ -1004,8 +1006,29 @@ impl Explorer {
     }
 }
 
+fn gui_main() {
+    use gui::*;
+
+    let mut gui = Gui::new();
+
+    let count = 0;
+
+    for _ in 0..3 {
+        gui.begin();
+        gui.node(Key::Counter, Props::default(), |gui| {
+            gui.node(Key::Counter, Props { text: format!("Count: {count}") }, |_|{});
+            gui.node(Key::Counter, Props { text: format!("Increment") }, |_|{});
+        });
+        gui.end();
+        println!("{:#?}", gui);
+    }
+
+    std::process::exit(0);
+}
 
 fn main() {
+    gui_main();
+
     #[cfg(target_os="windows")] {
         // otherwise `Sleep` resolution is 16 ms.
         // at least on my machine.

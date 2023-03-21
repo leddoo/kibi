@@ -33,7 +33,19 @@
 
 
 - todo: explorer.
-    - h2c: time for some gui utils?
+    - imgui thing:
+        - temp layout: top to bottom.
+        - render.
+        - hit testing.
+        - return "events" from node.
+        - generation index.
+            - ensure visited only once -> in `begin`.
+            - free unvisited nodes in `end`.
+            - remove from hash table.
+            - validate tree.
+        - proper flow layout.
+            - render children.
+            - reverse mapping.
     - control flow info.
         - generate it.
         - use it: align basic blocks with code.
@@ -41,6 +53,12 @@
         - ast child visitors.
         - properly sort decorations.
         - handle conflicting replacements.
+    - ideas:
+        - line based.
+        - ability to split a line's bytecode -> have two lines with same source code, but irrelevant parts are grayed out.
+        - global option for "show bytecode" with per-line overrides.
+            - tri-state logic: show/hide/default.
+            - show if: `not global_hide and ((global_show and not local_hide) or local_show)`
 
 - todo: debug info.
     - node info for pc.
