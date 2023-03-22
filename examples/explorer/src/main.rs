@@ -987,6 +987,8 @@ impl Explorer {
     }
 
     pub fn run(&mut self) {
+        let mut never_updated = true;
+
         while self.window.is_open() {
             let size = self.window.get_size();
 
@@ -1004,7 +1006,7 @@ impl Explorer {
 
             let gui = &mut self.gui;
 
-            let mut changed = false;
+            let mut changed = never_updated;
             for _ in 0..10 {
                 if !gui.mouse_move(mx, my)
                 && !gui.mouse_down(mdown)
@@ -1015,9 +1017,10 @@ impl Explorer {
                 changed = gui.update(|gui| {
                     let mut new_count = self.count;
 
-                    gui.widget(Key::Counter, Props::new().with_fill(color_from_unmult_rgba((72, 76, 87, 255))), |gui| {
-                        gui.widget(Key::Counter, Props::new().with_text(format!("Count: {}", self.count)), |_|{});
-                        let events = gui.widget(Key::Counter, Props::new().with_text(format!("Increment")).with_pointer_events(), |_|{});
+                    gui.widget_box(Key::Counter, Props::new().with_fill(color_from_unmult_rgba((72, 76, 87, 255))), |gui| {
+                        gui.widget_text(Key::Counter, Props::new(), format!("Count: {}", self.count));
+                        gui.widget_box(Key::Counter, Props::new(), |_|{});
+                        let events = gui.widget_text(Key::Counter, Props::new().with_pointer_events(), format!("Increment"));
                         if events.clicked() {
                             new_count = self.count + 1;
                         }
@@ -1027,6 +1030,8 @@ impl Explorer {
                     self.count = new_count;
                     changed
                 });
+
+                never_updated = false;
             }
 
 
@@ -1037,7 +1042,7 @@ impl Explorer {
 
             self.code.update(&self.window, self.offset, r);
 
-            gui.render(r);
+            gui.draw(r);
 
             self.window.update_with_buffer(r.data(), size.0, size.1).unwrap();
         }

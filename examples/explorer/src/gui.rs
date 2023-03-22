@@ -21,7 +21,6 @@ pub struct Props {
     pub font_face: FaceId,
     pub font_size: f32,
     pub text_color: u32,
-    pub text: String,
 
     pub fill: bool,
     pub fill_color: u32,
@@ -32,12 +31,6 @@ pub struct Props {
 impl Props {
     #[inline(always)]
     pub fn new() -> Props { Props::default() }
-
-    #[inline(always)]
-    pub fn with_text(mut self, text: String) -> Self {
-        self.text = text;
-        self
-    }
 
     #[inline(always)]
     pub fn with_fill(mut self, color: u32) -> Self {
@@ -60,7 +53,6 @@ impl Default for Props {
             font_face: FaceId::DEFAULT,
             font_size: 16.0,
             text_color: 0xFFBFBDB6,
-            text: String::new(),
 
             fill: false,
             fill_color: 0,
@@ -77,58 +69,82 @@ enum KeyData {
     Counter (u32),
     U64     (u64),
     String  (String),
+    TextLayout(u32),
 }
 
 
 struct Widget {
     // identity.
     key:       KeyData,
-    counter:   u32,
     hash_next: OptWidgetId,
 
     // content.
     props: Props,
+    data:  WidgetData,
 
     // hierarchy.
-    parent:       u32,
-    next_sibling: OptWidgetId,
-    prev_sibling: OptWidgetId,
-    first_child:  OptWidgetId,
-    last_child:   OptWidgetId,
+    parent:        u32,
+    prev_sibling:  OptWidgetId,
+    next_sibling:  OptWidgetId,
+    prev_render_sibling: OptWidgetId,
+    next_render_sibling: OptWidgetId,
 
     // layout.
     pos:  [f32; 2],
     size: [f32; 2],
-    text_layout: TextLayout<u32>,
 }
 
+enum WidgetData {
+    Box        (BoxData),
+    TextLayout (TextLayoutData),
+    Text       (TextData),
+}
+
+struct BoxData {
+    first_child:        OptWidgetId,
+    last_child:         OptWidgetId,
+    first_render_child: OptWidgetId,
+    last_render_child:  OptWidgetId,
+}
+
+impl BoxData {
+    #[inline(always)]
+    fn default() -> BoxData {
+        BoxData { first_child: None, last_child: None, first_render_child: None, last_render_child: None }
+    }
+}
+
+
+struct TextLayoutData {
+    layout: TextLayout<u32>,
+}
+
+struct TextData {
+    text: String,
+}
+
+// @todo: use an id.
 type OptWidgetId = Option<NonZeroU32>;
 
 
 impl Widget {
-    #[inline(always)]
-    fn next_counter_key(&mut self) -> KeyData {
-        let value = self.counter;
-        self.counter += 1;
-        KeyData::Counter(value)
-    }
-
     #[inline(always)]
     fn global_key(&self) -> (u32, &KeyData) {
         (self.parent, &self.key)
     }
 
     #[inline(always)]
-    fn begin(&mut self, props: Props) {
-        self.counter = 0;
-
+    fn begin(&mut self, props: Props, data: WidgetData) {
         self.props = props;
+        self.data  = data;
+    }
 
-        self.first_child = None;
-        self.last_child  = None;
-
-        self.text_layout.clear();
-        self.text_layout.append_ex(&self.props.text, self.props.font_face, self.props.font_size, self.props.text_color);
+    #[inline(always)]
+    fn box_data(&mut self) -> &mut BoxData {
+        match &mut self.data {
+            WidgetData::Box(boks) => boks,
+            _ => unreachable!()
+        }
     }
 }
 
@@ -157,7 +173,9 @@ impl WidgetEvents {
 pub struct Gui {
     widgets: Vec<Widget>,
     hash:    Vec<OptWidgetId>,
-    current_parent: usize,
+
+    current_parent:  usize,
+    current_counter: u32,
 
     fonts: FontCtx,
 
@@ -174,26 +192,27 @@ impl Gui {
     pub fn new(fonts: &FontCtx) -> Gui {
         let root = Widget {
             key:       KeyData::Counter(0),
-            counter:   0,
             hash_next: None,
 
             props: Default::default(),
+            data:  WidgetData::Box(BoxData::default()),
 
             parent:       0,
-            next_sibling: None,
             prev_sibling: None,
-            first_child:  None,
-            last_child:   None,
+            next_sibling: None,
+            prev_render_sibling: None,
+            next_render_sibling: None,
 
             pos:  [0.0; 2],
             size: [0.0; 2],
-            text_layout: TextLayout::new(fonts),
         };
 
         Gui {
             widgets:   vec![root],
             hash:    vec![None; 16],
-            current_parent: usize::MAX,
+
+            current_parent:  usize::MAX,
+            current_counter: 0,
 
             fonts: fonts.clone(),
 
@@ -220,15 +239,26 @@ impl Gui {
             let xx = x - widget.pos[0];
             let yy = y - widget.pos[0];
 
-            let mut at = widget.first_child;
-            while let Some(current) = at {
-                let current = current.get() as usize;
-                let result = rec(this, current, xx, yy);
-                if result.is_some() {
-                    return result;
+            match &widget.data {
+                WidgetData::Box(data) => {
+                    let mut at = data.first_render_child;
+                    while let Some(current) = at {
+                        let current = current.get() as usize;
+                        let result = rec(this, current, xx, yy);
+                        if result.is_some() {
+                            return result;
+                        }
+
+                        at = this.widgets[current].next_render_sibling;
+                    }
                 }
 
-                at = this.widgets[current].next_sibling;
+                WidgetData::TextLayout(data) => {
+                    // @todo: map spans & return hit widget.
+                    let _ = data;
+                }
+
+                WidgetData::Text(_) => unreachable!()
             }
 
             return Some(WidgetId(widget_index as u32));
@@ -240,12 +270,14 @@ impl Gui {
 
     pub fn begin(&mut self) {
         assert_eq!(self.current_parent, usize::MAX);
-        self.current_parent = 0;
-        self.widgets[0].begin(Props::default());
+        self.current_parent  = 0;
+        self.current_counter = 0;
+        self.widgets[0].begin(Props::default(), WidgetData::Box(BoxData::default()));
     }
 
     pub fn end(&mut self) {
         assert_eq!(self.current_parent, 0);
+        self.render_children();
         self.current_parent = usize::MAX;
 
         self.prev_hovered = self.hovered;
@@ -261,13 +293,7 @@ impl Gui {
         hasher.finish()
     }
 
-    pub fn widget<F: FnOnce(&mut Gui)>(&mut self, key: Key, props: Props, f: F) -> WidgetEvents {
-        let key = match key {
-            Key::Counter       => self.widgets[self.current_parent].next_counter_key(),
-            Key::U64(value)    => KeyData::U64(value),
-            Key::String(value) => KeyData::String(value),
-        };
-
+    fn alloc_widget(&mut self, key: KeyData, props: Props, data: WidgetData) -> NonZeroU32 {
         let global_key = (self.current_parent as u32, &key);
         let hash = Self::hash(global_key);
 
@@ -290,7 +316,7 @@ impl Gui {
         let widget = match widget {
             // found match.
             Some(widget) => {
-                self.widgets[widget.get() as usize].begin(props);
+                self.widgets[widget.get() as usize].begin(props, data);
                 widget
             }
 
@@ -313,29 +339,34 @@ impl Gui {
 
                 self.widgets.push(Widget {
                     key,
-                    counter: 0,
                     hash_next,
 
                     props,
+                    data,
 
                     parent:       self.current_parent as u32,
-                    next_sibling: None,
                     prev_sibling: None,
-                    first_child:  None,
-                    last_child:   None,
+                    next_sibling: None,
+                    prev_render_sibling: None,
+                    next_render_sibling: None,
 
                     pos:  [0.0; 2],
                     size: [0.0; 2],
-                    text_layout: TextLayout::new(&self.fonts),
                 });
 
                 widget
             }
         };
 
+        widget
+    }
+
+    fn new_widget(&mut self, key: KeyData, props: Props, data: WidgetData) -> NonZeroU32 {
+        let widget = self.alloc_widget(key, props, data);
+
         // append to parent's child list.
         self.widgets[widget.get() as usize].prev_sibling = {
-            let parent = &mut self.widgets[self.current_parent];
+            let parent = &mut self.widgets[self.current_parent].box_data();
 
             let prev_last = parent.last_child;
             parent.last_child = Some(widget);
@@ -350,12 +381,28 @@ impl Gui {
             }
         };
 
-        // process children.
-        let old_parent = self.current_parent;
-        self.current_parent = widget.get() as usize;
-        f(self);
-        self.current_parent = old_parent;
+        widget
+    }
 
+    #[inline(always)]
+    fn next_counter_key(&mut self) -> KeyData {
+        let result = KeyData::Counter(self.current_counter);
+        self.current_counter += 1;
+        result
+    }
+
+    #[inline]
+    fn new_widget_from_user_key(&mut self, key: Key, props: Props, data: WidgetData) -> NonZeroU32 {
+        let key = match key {
+            Key::Counter       => self.next_counter_key(),
+            Key::U64(value)    => KeyData::U64(value),
+            Key::String(value) => KeyData::String(value),
+        };
+        self.new_widget(key, props, data)
+    }
+
+    #[inline]
+    fn widget_events(&self, widget: NonZeroU32) -> WidgetEvents {
         let prev_hovered = self.prev_hovered == widget.get();
         let hovered      = self.hovered      == widget.get();
         let prev_active  = self.prev_active  == widget.get();
@@ -366,39 +413,84 @@ impl Gui {
         }
     }
 
+    fn render_children(&mut self) {
+        let mut cr = ChildRenderer::new();
+        let mut at = self.widgets[self.current_parent].box_data().first_child;
+        while let Some(current) = at {
+            at = cr.visit(current, self);
+        }
+        cr.flush(self);
+        let box_data = self.widgets[self.current_parent].box_data();
+        box_data.first_render_child = cr.first;
+        box_data.last_render_child  = cr.last;
+    }
+
+    pub fn widget_text(&mut self, key: Key, props: Props, text: String) -> WidgetEvents {
+        let data = TextData { text };
+        let widget = self.new_widget_from_user_key(key, props, WidgetData::Text(data));
+        self.widget_events(widget)
+    }
+
+    pub fn widget_box<F: FnOnce(&mut Gui)>(&mut self, key: Key, props: Props, f: F) -> WidgetEvents {
+        let widget = self.new_widget_from_user_key(key, props, WidgetData::Box(BoxData::default()));
+
+        // visit children.
+        let old_parent  = self.current_parent;
+        let old_counter = self.current_counter;
+        self.current_parent  = widget.get() as usize;
+        self.current_counter = 0;
+        f(self);
+
+        self.render_children();
+
+        self.current_parent  = old_parent;
+        self.current_counter = old_counter;
+        
+        self.widget_events(widget)
+    }
+
 
     pub fn layout(&mut self) {
         fn rec(this: &mut Gui, widget_index: usize) {
-            let widget = &this.widgets[widget_index];
+            let widget = &mut this.widgets[widget_index];
 
-            let mut width  = widget.text_layout.width();
-            let mut height = widget.text_layout.height();
-            let mut cursor = 0f32;
+            let size = match &mut widget.data {
+                WidgetData::Box(data) => {
+                    let mut width  = 0f32;
+                    let mut height = 0f32;
 
-            let mut at = widget.first_child;
-            while let Some(current) = at {
-                let current = current.get() as usize;
-                rec(this, current);
+                    let mut at = data.first_render_child;
+                    while let Some(current) = at {
+                        let current = current.get() as usize;
+                        rec(this, current);
 
-                let child = &mut this.widgets[current];
-                child.pos = [0., cursor];
+                        let child = &mut this.widgets[current];
+                        child.pos = [0., height];
 
-                width   = width.max(child.size[0]);
-                cursor += child.size[1];
+                        width   = width.max(child.size[0]);
+                        height += child.size[1];
 
-                at = child.next_sibling;
-            }
+                        at = child.next_render_sibling;
+                    }
 
-            height = height.max(cursor);
+                    [width, height]
+                }
 
-            this.widgets[widget_index].size = [width, height];
+                WidgetData::TextLayout(data) => {
+                    data.layout.size()
+                }
+
+                WidgetData::Text(_) => unreachable!()
+            };
+
+            this.widgets[widget_index].size = size;
         }
 
         rec(self, 0);
     }
 
 
-    pub fn render(&mut self, r: &mut Renderer) {
+    pub fn draw(&mut self, r: &mut Renderer) {
         fn rec(this: &mut Gui, widget_index: usize, px: i32, py: i32, r: &mut Renderer) {
             let widget = &this.widgets[widget_index];
 
@@ -411,18 +503,26 @@ impl Gui {
             let x1 = px + x1 as i32;
             let y1 = py + y1 as i32;
 
-            if widget.props.fill {
-                r.fill_rect_abs(x0, y0, x1, y1, widget.props.fill_color);
-            }
+            match &widget.data {
+                WidgetData::Box(data) => {
+                    if widget.props.fill {
+                        r.fill_rect_abs(x0, y0, x1, y1, widget.props.fill_color);
+                    }
 
-            r.draw_text_layout_abs(x0, y0, &widget.text_layout);
+                    let mut at = data.first_render_child;
+                    while let Some(current) = at {
+                        let current = current.get() as usize;
+                        rec(this, current, x0, y0, r);
 
-            let mut at = widget.first_child;
-            while let Some(current) = at {
-                let current = current.get() as usize;
-                rec(this, current, x0, y0, r);
+                        at = this.widgets[current].next_render_sibling;
+                    }
+                }
 
-                at = this.widgets[current].next_sibling;
+                WidgetData::TextLayout(data) => {
+                    r.draw_text_layout_abs(x0, y0, &data.layout);
+                }
+
+                WidgetData::Text(_) => unreachable!()
             }
         }
 
@@ -469,6 +569,81 @@ impl Gui {
             self.active = 0;
         }
         return true;
+    }
+}
+
+
+struct ChildRenderer {
+    first: OptWidgetId,
+    last:  OptWidgetId,
+    counter: u32,
+    text_layout: Option<TextLayout<u32>>,
+}
+
+impl ChildRenderer {
+    fn new() -> ChildRenderer {
+        ChildRenderer { first: None, last: None, counter: 0, text_layout: None }
+    }
+
+    fn current_text_layout(&mut self, fonts: &FontCtx) -> &mut TextLayout<u32> {
+        if self.text_layout.is_none() {
+            self.text_layout = Some(TextLayout::new(fonts));
+        }
+        self.text_layout.as_mut().unwrap()
+    }
+
+    fn append(&mut self, widget: NonZeroU32, gui: &mut Gui) {
+        let prev_render_sibling = self.last;
+        if let Some(last) = prev_render_sibling {
+            let l = &mut gui.widgets[last.get() as usize];
+            l.next_render_sibling = Some(widget);
+        }
+        else {
+            assert!(self.first.is_none());
+            self.first = Some(widget);
+        }
+
+        let w = &mut gui.widgets[widget.get() as usize];
+        w.prev_render_sibling = prev_render_sibling;
+        w.next_render_sibling = None;
+
+        self.last = Some(widget);
+    }
+
+    fn flush(&mut self, gui: &mut Gui) {
+        if let Some(layout) = self.text_layout.take() {
+            let key = KeyData::TextLayout(self.counter);
+            self.counter += 1;
+
+            let data = TextLayoutData { layout };
+
+            let widget = gui.alloc_widget(key, Props::new(), WidgetData::TextLayout(data));
+            self.append(widget, gui);
+        }
+    }
+
+    fn visit(&mut self, child: NonZeroU32, gui: &mut Gui) -> OptWidgetId {
+        let widget = &gui.widgets[child.get() as usize];
+        let next = widget.next_sibling;
+
+        match &widget.data {
+            WidgetData::Box(_) => {
+                self.flush(gui);
+                self.append(child, gui);
+            }
+
+            WidgetData::Text(text) => {
+                self.current_text_layout(&gui.fonts).append_ex(
+                    &text.text,
+                    widget.props.font_face,
+                    widget.props.font_size,
+                    widget.props.text_color);
+            }
+
+            WidgetData::TextLayout(_) => unreachable!()
+        }
+
+        next
     }
 }
 

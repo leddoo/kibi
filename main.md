@@ -34,14 +34,19 @@
 
 - todo: explorer.
     - imgui thing:
+        - text hit testing:
+            - span mapping.
+        - inline widgets.
         - generation index.
             - ensure visited only once -> in `begin`.
             - free unvisited nodes in `end`.
             - remove from hash table.
             - validate tree.
-        - proper flow layout.
-            - render children.
-            - reverse mapping.
+        - port explorer gui.
+        - stuff:
+            - could do anim by messing with the widget props directly.
+                - after update loop, before render.
+                - -> don't need to visit the widget.
     - control flow info.
         - generate it.
         - use it: align basic blocks with code.

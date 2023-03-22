@@ -499,6 +499,10 @@ impl<E> TextLayout<E> {
         }
         height
     }
+
+    pub fn size(&self) -> [f32; 2] {
+        [self.width(), self.height()]
+    }
 }
 
 
