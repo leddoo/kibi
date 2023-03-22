@@ -423,9 +423,9 @@ struct CodeView {
     pos: (f32, f32),
     text: String,
     info: CodeInfo<'static>,
-    layout: TextLayout<u32>,
+    layout: TextLayout,
     source_map:  SourceMap,
-    bc_layout: TextLayout<u32>,
+    bc_layout: TextLayout,
     reg_spans: Vec<RegSpan>,
 }
 
@@ -511,10 +511,10 @@ impl CodeView {
                 if let kibi::bbir::ItemData::Func(func_id) = self.info.items[item.item_id].data {
                     // sync source & bytecode.
                     for _ in src_lines..bc_lines {
-                        self.layout.append_ex("\n", FaceId::DEFAULT, font_size, 0);
+                        self.layout.append("\n", FaceId::DEFAULT, font_size, 0, 0);
                     }
                     for _ in bc_lines..src_lines {
-                        self.bc_layout.append_ex("\n", FaceId::DEFAULT, font_size, 0);
+                        self.bc_layout.append("\n", FaceId::DEFAULT, font_size, 0, 0);
                     }
                     src_lines = src_lines.max(bc_lines);
                     bc_lines  = bc_lines.max(src_lines);
@@ -541,7 +541,7 @@ impl CodeView {
                         let source_end   = deco_begin  as u32;
 
                         let text_begin = self.layout.text().len() as u32;
-                        self.layout.append_ex(&text[source_begin as usize .. source_end as usize], FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                        self.layout.append(&text[source_begin as usize .. source_end as usize], FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
                         let text_end = self.layout.text().len() as u32;
 
                         self.source_map.source_spans.push(SourceSpan {
@@ -562,7 +562,7 @@ impl CodeView {
                             let source_end   = deco_end   as u32;
 
                             let text_begin = self.layout.text().len() as u32;
-                            self.layout.append_ex(&text[source_begin as usize .. source_end as usize], FaceId::DEFAULT, font_size, *color);
+                            self.layout.append(&text[source_begin as usize .. source_end as usize], FaceId::DEFAULT, font_size, *color, 0);
                             let text_end = self.layout.text().len() as u32;
 
                             self.source_map.source_spans.push(SourceSpan {
@@ -582,7 +582,7 @@ impl CodeView {
                             let source_end   = deco_end   as u32;
 
                             let text_begin = self.layout.text().len() as u32;
-                            self.layout.append_ex(text, FaceId::DEFAULT, font_size, *color);
+                            self.layout.append(text, FaceId::DEFAULT, font_size, *color, 0);
                             let text_end = self.layout.text().len() as u32;
 
                             self.source_map.source_spans.push(SourceSpan {
@@ -608,7 +608,7 @@ impl CodeView {
                     let source_end   = line_end    as u32;
 
                     let text_begin = self.layout.text().len() as u32;
-                    self.layout.append_ex(&text[source_begin as usize .. source_end as usize], FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    self.layout.append(&text[source_begin as usize .. source_end as usize], FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
                     let text_end = self.layout.text().len() as u32;
 
                     self.source_map.source_spans.push(SourceSpan {
@@ -634,7 +634,7 @@ impl CodeView {
             while let Some((source_line_end, bc_line_end)) = active_items.last().copied() {
                 if source_line_end <= line_index {
                     for _ in src_lines..bc_line_end {
-                        self.layout.append_ex("\n", FaceId::DEFAULT, font_size, 0);
+                        self.layout.append("\n", FaceId::DEFAULT, font_size, 0, 0);
                     }
                     src_lines = src_lines.max(bc_line_end);
                     active_items.pop();
@@ -644,10 +644,10 @@ impl CodeView {
         }
     }
 
-    fn add_bytecode_fn(func_id: kibi::FunctionId, func: &kibi::FuncDesc, font_size: f32, bc_layout: &mut TextLayout<u32>, reg_spans: &mut Vec<RegSpan>) -> u32 {
-        fn add_reg(func: kibi::FunctionId, pc: u16, reg: u8, font_size: f32, bc_layout: &mut TextLayout<u32>, reg_spans: &mut Vec<RegSpan>) {
+    fn add_bytecode_fn(func_id: kibi::FunctionId, func: &kibi::FuncDesc, font_size: f32, bc_layout: &mut TextLayout, reg_spans: &mut Vec<RegSpan>) -> u32 {
+        fn add_reg(func: kibi::FunctionId, pc: u16, reg: u8, font_size: f32, bc_layout: &mut TextLayout, reg_spans: &mut Vec<RegSpan>) {
             let text_begin = bc_layout.text().len() as u32;
-            bc_layout.append_ex(&format!("r{reg}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+            bc_layout.append(&format!("r{reg}"), FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
             let text_end = bc_layout.text().len() as u32;
 
             reg_spans.push(RegSpan { text_begin, text_end, func, pc, reg });
@@ -657,8 +657,8 @@ impl CodeView {
         let code = kibi::bytecode::ByteCodeDecoder::decode(code).unwrap();
         for instr in &code {
             let name = instr.name();
-            bc_layout.append_ex(&format!("{:03} ", instr.pc), FaceId::DEFAULT, font_size, TokenClass::Comment.color());
-            bc_layout.append_ex(&format!("{:11} ", name), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+            bc_layout.append(&format!("{:03} ", instr.pc), FaceId::DEFAULT, font_size, TokenClass::Comment.color(), 0);
+            bc_layout.append(&format!("{:11} ", name), FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
 
             use kibi::bytecode::InstrData::*;
             match &instr.data {
@@ -674,86 +674,86 @@ impl CodeView {
 
                 Swap { dst, src } => {
                     add_reg(func_id, instr.pc, *dst, font_size, bc_layout, reg_spans);
-                    bc_layout.append_ex(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    bc_layout.append(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
                     add_reg(func_id, instr.pc, *src, font_size, bc_layout, reg_spans);
                 }
 
                 Copy { dst, src } |
                 Op1  { dst, src } => {
                     add_reg(func_id, instr.pc + 1, *dst, font_size, bc_layout, reg_spans);
-                    bc_layout.append_ex(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    bc_layout.append(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
                     add_reg(func_id, instr.pc, *src, font_size, bc_layout, reg_spans);
                 }
 
                 Op2 { dst, src1, src2 } => {
                     add_reg(func_id, instr.pc + 1, *dst, font_size, bc_layout, reg_spans);
-                    bc_layout.append_ex(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    bc_layout.append(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
                     add_reg(func_id, instr.pc, *src1, font_size, bc_layout, reg_spans);
-                    bc_layout.append_ex(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    bc_layout.append(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
                     add_reg(func_id, instr.pc, *src2, font_size, bc_layout, reg_spans);
                 }
 
 
                 LoadBool { dst, value } => {
                     add_reg(func_id, instr.pc + 1, *dst, font_size, bc_layout, reg_spans);
-                    bc_layout.append_ex(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color());
-                    bc_layout.append_ex(&format!("{value}"), FaceId::DEFAULT, font_size, TokenClass::from_data(kibi::TokenData::Bool(false)).color());
+                    bc_layout.append(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
+                    bc_layout.append(&format!("{value}"), FaceId::DEFAULT, font_size, TokenClass::from_data(kibi::TokenData::Bool(false)).color(), 0);
                 }
 
                 LoadInt   { dst, value } |
                 AddInt    { dst, value } => {
                     add_reg(func_id, instr.pc + 1, *dst, font_size, bc_layout, reg_spans);
-                    bc_layout.append_ex(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color());
-                    bc_layout.append_ex(&format!("#{value}"), FaceId::DEFAULT, font_size, TokenClass::from_data(kibi::TokenData::Number("")).color());
+                    bc_layout.append(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
+                    bc_layout.append(&format!("#{value}"), FaceId::DEFAULT, font_size, TokenClass::from_data(kibi::TokenData::Number("")).color(), 0);
                 }
 
                 LoadConst { dst, index } => {
                     add_reg(func_id, instr.pc + 1, *dst, font_size, bc_layout, reg_spans);
-                    bc_layout.append_ex(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    bc_layout.append(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
                     // @todo: render the const's value.
-                    bc_layout.append_ex(&format!("c{index}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    bc_layout.append(&format!("c{index}"), FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
                 }
 
                 ListNew  { dst, values } |
                 TupleNew { dst, values } => {
                     let _ = (dst, values);
-                    bc_layout.append_ex(&format!("..."), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    bc_layout.append(&format!("..."), FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
                 }
 
 
                 ReadPath { dst, base, keys } => {
                     let _ = (dst, base, keys);
-                    bc_layout.append_ex(&format!("..."), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    bc_layout.append(&format!("..."), FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
                 }
 
                 WritePath { base, keys, value } => {
                     let _ = (base, keys, value);
-                    bc_layout.append_ex(&format!("..."), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    bc_layout.append(&format!("..."), FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
                 }
 
 
                 Jump { target } => {
-                    bc_layout.append_ex(&format!("{target}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    bc_layout.append(&format!("{target}"), FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
                 }
 
                 JumpC1 { target, src } => {
                     add_reg(func_id, instr.pc, *src, font_size, bc_layout, reg_spans);
-                    bc_layout.append_ex(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color());
-                    bc_layout.append_ex(&format!("{target}"), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    bc_layout.append(", ", FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
+                    bc_layout.append(&format!("{target}"), FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
                 }
 
                 Call { dst, func, args } => {
                     let _ = (dst, func, args);
-                    bc_layout.append_ex(&format!("..."), FaceId::DEFAULT, font_size, TokenClass::Default.color());
+                    bc_layout.append(&format!("..."), FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
                 }
 
                 Ret { src } => {
                     add_reg(func_id, instr.pc, *src, font_size, bc_layout, reg_spans);
                 }
             }
-            bc_layout.append_ex("\n", FaceId::DEFAULT, font_size, TokenClass::Default.color());
+            bc_layout.append("\n", FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
         }
-        bc_layout.append_ex("\n", FaceId::DEFAULT, font_size, TokenClass::Default.color());
+        bc_layout.append("\n", FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
 
         code.len() as u32 + 1
     }

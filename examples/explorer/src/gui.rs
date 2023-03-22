@@ -116,7 +116,7 @@ impl BoxData {
 
 
 struct TextLayoutData {
-    layout: TextLayout<u32>,
+    layout: TextLayout,
 }
 
 struct TextData {
@@ -251,17 +251,21 @@ impl Gui {
 
                         at = this.widgets[current].next_render_sibling;
                     }
+
+                    Some(WidgetId(widget_index as u32))
                 }
 
                 WidgetData::TextLayout(data) => {
-                    // @todo: map spans & return hit widget.
-                    let _ = data;
+                    let hit = data.layout.hit_test_pos(xx, yy);
+                    if let Some(source) = hit.source {
+                        return Some(WidgetId(source));
+                    }
+
+                    None
                 }
 
                 WidgetData::Text(_) => unreachable!()
             }
-
-            return Some(WidgetId(widget_index as u32));
         }
 
         rec(self, 0, x, y)
@@ -577,7 +581,7 @@ struct ChildRenderer {
     first: OptWidgetId,
     last:  OptWidgetId,
     counter: u32,
-    text_layout: Option<TextLayout<u32>>,
+    text_layout: Option<TextLayout>,
 }
 
 impl ChildRenderer {
@@ -585,7 +589,7 @@ impl ChildRenderer {
         ChildRenderer { first: None, last: None, counter: 0, text_layout: None }
     }
 
-    fn current_text_layout(&mut self, fonts: &FontCtx) -> &mut TextLayout<u32> {
+    fn current_text_layout(&mut self, fonts: &FontCtx) -> &mut TextLayout {
         if self.text_layout.is_none() {
             self.text_layout = Some(TextLayout::new(fonts));
         }
@@ -633,11 +637,12 @@ impl ChildRenderer {
             }
 
             WidgetData::Text(text) => {
-                self.current_text_layout(&gui.fonts).append_ex(
+                self.current_text_layout(&gui.fonts).append(
                     &text.text,
                     widget.props.font_face,
                     widget.props.font_size,
-                    widget.props.text_color);
+                    widget.props.text_color,
+                    child.get());
             }
 
             WidgetData::TextLayout(_) => unreachable!()

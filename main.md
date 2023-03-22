@@ -34,8 +34,6 @@
 
 - todo: explorer.
     - imgui thing:
-        - text hit testing:
-            - span mapping.
         - inline widgets.
         - generation index.
             - ensure visited only once -> in `begin`.

@@ -154,7 +154,7 @@ impl Renderer {
         }
     }
 
-    pub fn draw_text_layout_abs(&mut self, x0: i32, y0: i32, layout: &TextLayout<u32>) {
+    pub fn draw_text_layout_abs(&mut self, x0: i32, y0: i32, layout: &TextLayout) {
         let fonts = self.fonts.clone();
         let mut fonts = fonts.inner.borrow_mut();
 
@@ -170,7 +170,7 @@ impl Renderer {
                         x0 as i32 + glyph.dx as i32,
                         baseline  + glyph.dy as i32,
                         &mask, metrics.width as u32, metrics.height as u32,
-                        span.effect
+                        span.color,
                     );
                     x0 += glyph.advance;
                 }
@@ -300,11 +300,11 @@ impl Family {
 }
 
 
-pub struct TextLayout<E> {
+pub struct TextLayout {
     fonts:  FontCtx,
     text:   String,
     lines:  Vec<Line>,
-    spans:  Vec<Span<E>>,
+    spans:  Vec<Span>,
     glyphs: Vec<Glyph>,
 }
 
@@ -329,7 +329,7 @@ struct Line {
     height:      f32,
 }
 
-struct Span<E> {
+struct Span {
     text_begin:  u32,
     text_end:    u32,
     glyph_begin: u32,
@@ -339,7 +339,8 @@ struct Span<E> {
 
     face_id:   FaceId,
     font_size: NotNan<f32>,
-    effect:    E,
+    color:     u32,
+    source:    u32,
 }
 
 
@@ -363,7 +364,7 @@ impl Line {
     }
 }
 
-impl<E> Span<E> {
+impl Span {
     #[inline(always)]
     fn glyph_range(&self) -> core::ops::Range<usize> {
         self.glyph_begin as usize .. self.glyph_end as usize
@@ -371,7 +372,7 @@ impl<E> Span<E> {
 }
 
 
-impl<E> TextLayout<E> {
+impl TextLayout {
     pub fn new(fonts: &FontCtx) -> Self {
         TextLayout {
             fonts:  fonts.clone(),
@@ -393,7 +394,7 @@ impl<E> TextLayout<E> {
         self.lines.push(Line::new(0, 0));
     }
 
-    pub fn append_ex(&mut self, text: &str, face_id: FaceId, font_size: f32, effect: E) where E: Copy {
+    pub fn append(&mut self, text: &str, face_id: FaceId, font_size: f32, color: u32, source: u32) {
         let font_size = NotNan::new(font_size).unwrap();
 
         let mut current_line = self.lines.last_mut().unwrap();
@@ -446,7 +447,9 @@ impl<E> TextLayout<E> {
                 text_end:   text_cursor + segment_end as u32,
                 glyph_begin, glyph_end,
                 width: pos_cursor - pos_begin,
-                face_id, font_size, effect,
+                face_id, font_size,
+                color,
+                source,
             });
 
 
@@ -514,9 +517,10 @@ pub struct RangeMetrics {
     // @todo: baseline.
     pub line_height: f32,
     pub line_index:  u32,
+    pub source: Option<u32>,
 }
 
-impl<E> TextLayout<E> {
+impl TextLayout {
     #[allow(dead_code)] // @temp
     pub fn hit_test_text_pos(&self, pos: u32) -> RangeMetrics {
         let pos = pos.min(self.text.len() as u32);
@@ -545,6 +549,7 @@ impl<E> TextLayout<E> {
                             x1: x + advance,
                             y,
                             line_height, line_index,
+                            source: Some(span.source),
                         };
                     }
 
@@ -558,6 +563,7 @@ impl<E> TextLayout<E> {
                     x1: x,
                     y,
                     line_height, line_index,
+                    source: None,
                 };
             }
 
@@ -565,12 +571,12 @@ impl<E> TextLayout<E> {
         }
 
         assert_eq!(self.text.len(), 0);
-        return RangeMetrics { x0: 0.0, x1: 0.0, y: 0.0, line_height: 0.0, line_index: 0 };
+        return RangeMetrics { x0: 0.0, x1: 0.0, y: 0.0, line_height: 0.0, line_index: 0, source: None };
     }
 }
 
 
-impl<E> TextLayout<E> {
+impl TextLayout {
     pub fn hit_test_text_ranges<F: FnMut(&RangeMetrics)>(&self, begin: u32, end: u32, mut f: F) {
         let begin = begin.min(self.text.len() as u32);
         let end   = end.min(self.text.len() as u32);
@@ -586,11 +592,12 @@ impl<E> TextLayout<E> {
             let line_height = line.height;
 
             let f = &mut f;
-            let mut f = |x0: f32, x1: f32| {
+            let mut f = |x0: f32, x1: f32, source: Option<u32>| {
                 if x0 < x1 {
                     f(&RangeMetrics {
                         x0, x1, y,
                         line_height, line_index,
+                        source,
                     });
                 }
             };
@@ -611,7 +618,7 @@ impl<E> TextLayout<E> {
                         }
 
                         if in_range {
-                            f(span_x, target_x);
+                            f(span_x, target_x, Some(span.source));
                             return;
                         }
                         else {
@@ -625,16 +632,16 @@ impl<E> TextLayout<E> {
                                     end_x += self.glyphs[glyph_begin + i].advance;
                                 }
 
-                                f(target_x, end_x);
+                                f(target_x, end_x, Some(span.source));
                                 return;
                             }
                             else {
-                                f(target_x, x + span.width);
+                                f(target_x, x + span.width, Some(span.source));
                             }
                         }
                     }
                     else if in_range {
-                        f(x, x + span.width);
+                        f(x, x + span.width, Some(span.source));
                     }
 
                     x += span.width;
@@ -651,7 +658,7 @@ impl<E> TextLayout<E> {
                 }
             }
             else if in_range {
-                f(0., line.width);
+                f(0., line.width, None);
             }
 
             y += line_height;
@@ -669,9 +676,11 @@ pub struct HitMetrics {
 
     pub fraction: f32,
     pub out_of_bounds: [bool; 2],
+
+    pub source: Option<u32>,
 }
 
-impl<E> TextLayout<E> {
+impl TextLayout {
     pub fn hit_test_line(&self, line_index: u32, x: f32) -> HitMetrics {
         let line = &self.lines[line_index as usize];
 
@@ -681,6 +690,7 @@ impl<E> TextLayout<E> {
                 text_pos_right: line.text_begin,
                 fraction: 0.0,
                 out_of_bounds: [true, false],
+                source: None,
             };
         }
 
@@ -698,6 +708,7 @@ impl<E> TextLayout<E> {
                         text_pos_right: span.text_begin + offset + 1,
                         fraction,
                         out_of_bounds: [false, false],
+                        source: Some(span.source),
                     }
                 }
 
@@ -710,6 +721,7 @@ impl<E> TextLayout<E> {
             text_pos_right: line.text_end,
             fraction: 0.0,
             out_of_bounds: [true, false],
+            source: None,
         };
     }
 
@@ -720,6 +732,7 @@ impl<E> TextLayout<E> {
                 text_pos_right: 0,
                 fraction: 0.0,
                 out_of_bounds: [true, true],
+                source: None,
             }
         }
 
