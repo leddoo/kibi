@@ -34,13 +34,35 @@
 
 - todo: explorer.
     - imgui thing:
+        - more advanced layout.
+            - fix render children:
+                - only merge inline widgets for flow layout.
+        - consider inherited props:
+            - `None` as the default value.
+            - a `Some` is propagated to the sub-tree.
+            - sub-tree skipping: recompute actual values.
+            - seems useful for "default styling".
+            - might want push/pop api though:
+                - eg: buttons push the button theme.
+                - but "themed containers" pop their theme before visiting children.
+            - so: theming works by having your (custom) "button" function push the "button theme". similar to how on the web, it would assign the (custom) "button class".
         - inline widgets.
+            - text layout inline objects & layout function (store glyph advances).
+            - text layout widget render children list (layout inline widgets first).
+        - text background fill.
+            - text widgets in text layout's render children list.
+            - hit_test_range in `draw` before drawing text layout.
         - generation index.
             - ensure visited only once -> in `begin`.
             - free unvisited nodes in `end`.
             - remove from hash table.
             - validate tree.
         - port explorer gui.
+        - flex grow.
+        - flex justify gaps.
+        - overflow & scrolling.
+            - cache calls to layout_pass: store given_size on widget (clear in intrinsic pass).
+        - text layout word wrapping.
         - stuff:
             - could do anim by messing with the widget props directly.
                 - after update loop, before render.

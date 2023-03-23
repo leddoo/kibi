@@ -1014,17 +1014,37 @@ impl Explorer {
                     break;
                 }
 
-                changed = gui.update(|gui| {
+                let root_size = [size.0 as f32, size.1 as f32];
+                let mut root_props = Props::new();
+                root_props.layout = Layout::Flex(FlexLayout {
+                    direction: FlexDirection::Column,
+                    justify:   FlexJustify::End,
+                    align:     FlexAlign::Begin,
+                });
+
+                changed = gui.update(root_size, root_props,|gui| {
                     let mut new_count = self.count;
 
-                    gui.widget_box(Key::Counter, Props::new().with_fill(color_from_unmult_rgba((72, 76, 87, 255))), |gui| {
+                    gui.widget_box(Key::Counter, Props { layout: Layout::None, size: [Some(50.0), Some(50.0)], ..Default::default() }.with_fill(0xffff00ff), |_|{});
+
+                    let mut box_props = Props::new().with_fill(color_from_unmult_rgba((72, 76, 87, 255)));
+                    box_props.size[0] = Some(300.0);
+                    box_props.layout = Layout::Flex(FlexLayout {
+                        direction: FlexDirection::Row,
+                        justify:   FlexJustify::Center,
+                        align:     FlexAlign::Center,
+                    });
+
+                    gui.widget_box(Key::Counter, box_props, |gui| {
                         gui.widget_text(Key::Counter, Props::new(), format!("Count: {}", self.count));
                         gui.widget_box(Key::Counter, Props::new(), |_|{});
-                        let events = gui.widget_text(Key::Counter, Props::new().with_pointer_events(), format!("Increment"));
+                        let events = gui.widget_text(Key::Counter, Props::new().with_pointer_events(), format!("Increment\nit!"));
                         if events.clicked() {
                             new_count = self.count + 1;
                         }
                     });
+
+                    gui.widget_box(Key::Counter, Props { size: [Some(50.0), Some(50.0)], ..Default::default() }.with_fill(0xff00ff00), |_|{});
 
                     let changed = new_count != self.count;
                     self.count = new_count;

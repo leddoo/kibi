@@ -17,7 +17,85 @@ impl Default for Key {
 
 
 #[derive(Debug)]
+pub enum Layout {
+    None,
+    Flow,
+    Flex(FlexLayout),
+}
+
+impl Default for Layout { #[inline(always)] fn default() -> Self { Layout::Flow } }
+
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum FlexDirection {
+    Row,
+    Column,
+}
+
+impl Default for FlexDirection { #[inline(always)] fn default() -> Self { FlexDirection::Row } }
+
+impl FlexDirection {
+    #[inline(always)]
+    pub fn main_axis(self) -> usize {
+        match self {
+            FlexDirection::Row    => 0,
+            FlexDirection::Column => 1,
+        }
+    }
+
+    #[inline(always)]
+    pub fn cross_axis(self) -> usize {
+        match self {
+            FlexDirection::Row    => 1,
+            FlexDirection::Column => 0,
+        }
+    }
+}
+
+
+#[allow(dead_code)] // @temp
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FlexJustify {
+    // @todo: "Align(f32)" instead? and constructors for begin/center/end.
+    Begin,
+    Center,
+    End,
+    SpaceBetween,
+    SpaceEvenly,
+}
+
+impl Default for FlexJustify { #[inline(always)] fn default() -> Self { FlexJustify::Begin } }
+
+
+#[allow(dead_code)] // @temp
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FlexAlign {
+    // @todo: "Align(f32)" instead? and constructors for begin/center/end.
+    Begin,
+    Center,
+    End,
+    // @todo: Baseline,
+    Stretch,
+}
+
+impl Default for FlexAlign { #[inline(always)] fn default() -> Self { FlexAlign::Stretch } }
+
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FlexLayout {
+    pub direction: FlexDirection,
+    pub justify:   FlexJustify,
+    pub align:     FlexAlign,
+}
+
+
+#[derive(Debug)]
 pub struct Props {
+    pub layout: Layout,
+
+    pub size: [Option<f32>; 2],
+    pub flex_grow: f32,
+
     pub font_face: FaceId,
     pub font_size: f32,
     pub text_color: u32,
@@ -50,6 +128,11 @@ impl Default for Props {
     #[inline(always)]
     fn default() -> Self {
         Props {
+            layout: Layout::default(),
+
+            size: [None; 2],
+            flex_grow: 0.,
+
             font_face: FaceId::DEFAULT,
             font_size: 16.0,
             text_color: 0xFFBFBDB6,
@@ -92,6 +175,8 @@ struct Widget {
     // layout.
     pos:  [f32; 2],
     size: [f32; 2],
+    content_size:   [f32; 2],
+    intrinsic_size: [f32; 2],
 }
 
 enum WidgetData {
@@ -205,6 +290,8 @@ impl Gui {
 
             pos:  [0.0; 2],
             size: [0.0; 2],
+            content_size:   [0.0; 2],
+            intrinsic_size: [0.0; 2],
         };
 
         Gui {
@@ -237,7 +324,7 @@ impl Gui {
             }
 
             let xx = x - widget.pos[0];
-            let yy = y - widget.pos[0];
+            let yy = y - widget.pos[1];
 
             match &widget.data {
                 WidgetData::Box(data) => {
@@ -272,11 +359,11 @@ impl Gui {
     }
 
 
-    pub fn begin(&mut self) {
+    pub fn begin(&mut self, root_props: Props) {
         assert_eq!(self.current_parent, usize::MAX);
         self.current_parent  = 0;
         self.current_counter = 0;
-        self.widgets[0].begin(Props::default(), WidgetData::Box(BoxData::default()));
+        self.widgets[0].begin(root_props, WidgetData::Box(BoxData::default()));
     }
 
     pub fn end(&mut self) {
@@ -356,6 +443,8 @@ impl Gui {
 
                     pos:  [0.0; 2],
                     size: [0.0; 2],
+                    content_size:   [0.0; 2],
+                    intrinsic_size: [0.0; 2],
                 });
 
                 widget
@@ -454,30 +543,73 @@ impl Gui {
     }
 
 
-    pub fn layout(&mut self) {
-        fn rec(this: &mut Gui, widget_index: usize) {
+    pub fn layout(&mut self, root_size: [f32; 2]) {
+        fn intrinsic_pass(this: &mut Gui, widget_index: usize) {
+            // reset layout.
             let widget = &mut this.widgets[widget_index];
+            widget.pos  = [0.0; 2];
+            widget.size = [0.0; 2];
+            widget.content_size   = [0.0; 2];
+            widget.intrinsic_size = [0.0; 2];
 
-            let size = match &mut widget.data {
+            let content_size = match &widget.data {
                 WidgetData::Box(data) => {
-                    let mut width  = 0f32;
-                    let mut height = 0f32;
+                    match widget.props.layout {
+                        Layout::None => {
+                            let mut at = data.first_render_child;
+                            while let Some(current) = at {
+                                let current = current.get() as usize;
+                                intrinsic_pass(this, current);
 
-                    let mut at = data.first_render_child;
-                    while let Some(current) = at {
-                        let current = current.get() as usize;
-                        rec(this, current);
+                                let child = &mut this.widgets[current];
+                                at = child.next_render_sibling;
+                            }
 
-                        let child = &mut this.widgets[current];
-                        child.pos = [0., height];
+                            [0.0; 2]
+                        }
 
-                        width   = width.max(child.size[0]);
-                        height += child.size[1];
+                        Layout::Flow => {
+                            let mut width  = 0f32;
+                            let mut height = 0f32;
 
-                        at = child.next_render_sibling;
+                            let mut at = data.first_render_child;
+                            while let Some(current) = at {
+                                let current = current.get() as usize;
+                                intrinsic_pass(this, current);
+
+                                let child = &mut this.widgets[current];
+                                width   = width.max(child.intrinsic_size[0]);
+                                height += child.intrinsic_size[1];
+
+                                at = child.next_render_sibling;
+                            }
+
+                            [width, height]
+                        }
+
+                        Layout::Flex(flex) => {
+                            let main_axis  = flex.direction.main_axis();
+                            let cross_axis = flex.direction.cross_axis();
+
+                            let mut main_size  = 0f32;
+                            let mut cross_size = 0f32;
+
+                            let mut at = data.first_render_child;
+                            while let Some(current) = at {
+                                let current = current.get() as usize;
+                                intrinsic_pass(this, current);
+
+                                let child = &mut this.widgets[current];
+                                main_size += child.intrinsic_size[main_axis];
+                                cross_size = cross_size.max(child.intrinsic_size[cross_axis]);
+
+                                at = child.next_render_sibling;
+                            }
+
+                            [[main_size, cross_size][main_axis],
+                             [main_size, cross_size][cross_axis]]
+                        }
                     }
-
-                    [width, height]
                 }
 
                 WidgetData::TextLayout(data) => {
@@ -487,10 +619,138 @@ impl Gui {
                 WidgetData::Text(_) => unreachable!()
             };
 
-            this.widgets[widget_index].size = size;
+            let widget = &mut this.widgets[widget_index];
+            widget.content_size = content_size;
+            widget.intrinsic_size = [
+                widget.props.size[0].unwrap_or(content_size[0]),
+                widget.props.size[1].unwrap_or(content_size[1])];
         }
 
-        rec(self, 0);
+        fn layout_pass(this: &mut Gui, widget_index: usize, given_size: [Option<f32>; 2]) {
+            let widget = &this.widgets[widget_index];
+
+            let size = match &widget.data {
+                WidgetData::Box(data) => {
+                    match widget.props.layout {
+                        Layout::None => {
+                            let size = widget.intrinsic_size;
+
+                            let mut at = data.first_render_child;
+                            while let Some(current) = at {
+                                let current = current.get() as usize;
+                                layout_pass(this, current, [None, None]);
+
+                                let child = &mut this.widgets[current];
+                                at = child.next_render_sibling;
+                            }
+
+                            size
+                        }
+
+                        Layout::Flow => {
+                            let width = given_size[0].unwrap_or(widget.intrinsic_size[0]);
+                            let height = widget.intrinsic_size[1];
+
+                            let mut cursor = 0f32;
+
+                            let mut at = data.first_render_child;
+                            while let Some(current) = at {
+                                let current = current.get() as usize;
+                                layout_pass(this, current, [Some(width), None]);
+
+                                let child = &mut this.widgets[current];
+                                child.pos = [0.0, cursor];
+                                cursor += child.size[1];
+
+                                at = child.next_render_sibling;
+                            }
+
+                            [width, height.max(cursor)]
+                        }
+
+                        Layout::Flex(flex) => {
+                            let main_axis  = flex.direction.main_axis();
+                            let cross_axis = flex.direction.cross_axis();
+
+                            let main_cont  = widget.content_size[main_axis];
+
+                            let main_intr  = widget.intrinsic_size[main_axis];
+                            let cross_intr = widget.intrinsic_size[cross_axis];
+                            let main_size  = given_size[main_axis].unwrap_or(main_intr);
+                            let cross_size = given_size[cross_axis].unwrap_or(cross_intr);
+
+                            let mut cursor = 0.0;
+
+                            let mut at = data.first_render_child;
+                            while let Some(current) = at {
+                                let current = current.get() as usize;
+
+                                let child_main = None;
+                                // @todo: flex_grow.
+                                // let's skip flex grow for now.
+                                // but for that, we'll have to know the sum of the grow factors.
+                                // prob should compute that in intrinsic_pass.
+
+                                let child_cross = match flex.align {
+                                    FlexAlign::Begin |
+                                    FlexAlign::End |
+                                    FlexAlign::Center => None,
+
+                                    FlexAlign::Stretch => Some(cross_size),
+                                };
+
+                                let child_width  = [child_main, child_cross][main_axis];
+                                let child_height = [child_main, child_cross][cross_axis];
+                                layout_pass(this, current, [child_width, child_height]);
+
+                                let child = &mut this.widgets[current];
+
+                                let child_main  = child.size[main_axis];
+                                let child_cross = child.size[cross_axis];
+
+                                let main_pos = match flex.justify {
+                                    FlexJustify::Begin  => cursor,
+                                    FlexJustify::Center => main_size/2.0 - main_cont/2.0 + cursor,
+                                    FlexJustify::End    => main_size - main_cont + cursor,
+                                    FlexJustify::SpaceBetween => unimplemented!(),
+                                    FlexJustify::SpaceEvenly  => unimplemented!(),
+                                };
+
+                                let cross_pos = match flex.align {
+                                    FlexAlign::Begin   => 0.0,
+                                    FlexAlign::Center  => cross_size/2.0 - child_cross / 2.0,
+                                    FlexAlign::End     => cross_size - child_cross,
+                                    FlexAlign::Stretch => 0.0,
+                                };
+                                child.pos[0] = [main_pos, cross_pos][main_axis];
+                                child.pos[1] = [main_pos, cross_pos][cross_axis];
+
+                                cursor += child_main;
+
+                                at = child.next_render_sibling;
+                            }
+
+                            [[main_size, cross_size][main_axis],
+                             [main_size, cross_size][cross_axis]]
+                        }
+                    }
+                }
+
+                WidgetData::TextLayout(data) => {
+                    data.layout.size()
+                }
+
+                WidgetData::Text(_) => unreachable!()
+            };
+
+            let widget = &mut this.widgets[widget_index];
+            widget.size = [
+                given_size[0].unwrap_or(size[0]),
+                given_size[1].unwrap_or(size[1])];
+        }
+
+        intrinsic_pass(self, 0);
+        layout_pass(self, 0, [Some(root_size[0]), Some(root_size[1])]);
     }
 
 
@@ -534,11 +794,11 @@ impl Gui {
     }
 
 
-    pub fn update<F: FnOnce(&mut Gui) -> bool>(&mut self, f: F) -> bool {
-        self.begin();
+    pub fn update<F: FnOnce(&mut Gui) -> bool>(&mut self, root_size: [f32; 2], root_props: Props, f: F) -> bool {
+        self.begin(root_props);
         let result = f(self);
         self.end();
-        self.layout();
+        self.layout(root_size);
         result
     }
 
