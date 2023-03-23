@@ -80,6 +80,11 @@ pub enum TokenData<'a> {
 }
 
 impl<'a> TokenData<'a> {
+    #[inline(always)]
+    pub fn is_semicolon(&self) -> bool {
+        if let TokenData::Semicolon = self { true } else { false }
+    }
+
     pub fn semicolon_after(&self) -> bool {
         use TokenData::*;
         match self {

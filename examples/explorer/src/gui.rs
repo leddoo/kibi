@@ -16,6 +16,7 @@ impl Default for Key {
 }
 
 
+#[allow(dead_code)] // @temp
 #[derive(Clone, Copy, Debug)]
 pub enum Layout {
     None,
@@ -31,6 +32,7 @@ impl Layout {
 }
 
 
+#[allow(dead_code)] // @temp
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum FlexDirection {
     Row,
@@ -115,6 +117,7 @@ impl Props {
     #[inline(always)]
     pub fn new() -> Props { Props::default() }
 
+    #[allow(dead_code)] // @temp
     #[inline(always)]
     pub fn with_fill(mut self, color: u32) -> Self {
         self.fill       = true;
@@ -301,7 +304,7 @@ impl Gui {
 
         Gui {
             widgets:   vec![root],
-            hash:    vec![None; 16],
+            hash:      vec![None; 1024], // @temp
 
             current_parent:  usize::MAX,
             current_counter: 0,
@@ -319,8 +322,8 @@ impl Gui {
     }
 
 
-    pub fn hit_test(&mut self, x: f32, y: f32) -> Option<WidgetId> {
-        fn rec(this: &mut Gui, widget_index: usize, x: f32, y: f32) -> Option<WidgetId> {
+    pub fn hit_test_filtered<F: FnMut(usize) -> bool>(&self, x: f32, y: f32, mut f: F) -> Option<WidgetId> {
+        fn rec<F: FnMut(usize) -> bool>(this: &Gui, widget_index: usize, x: f32, y: f32, f: &mut F) -> Option<WidgetId> {
             let widget = &this.widgets[widget_index];
 
             if x < widget.pos[0] || x >= widget.pos[0] + widget.size[0]
@@ -331,12 +334,12 @@ impl Gui {
             let xx = x - widget.pos[0];
             let yy = y - widget.pos[1];
 
-            match &widget.data {
+            let result = match &widget.data {
                 WidgetData::Box(data) => {
                     let mut at = data.first_render_child;
                     while let Some(current) = at {
                         let current = current.get() as usize;
-                        let result = rec(this, current, xx, yy);
+                        let result = rec(this, current, xx, yy, f);
                         if result.is_some() {
                             return result;
                         }
@@ -349,18 +352,16 @@ impl Gui {
 
                 WidgetData::TextLayout(data) => {
                     let hit = data.layout.hit_test_pos(xx, yy);
-                    if let Some(source) = hit.source {
-                        return Some(WidgetId(source));
-                    }
-
-                    None
+                    hit.source.map(|hit| WidgetId(hit))
                 }
 
                 WidgetData::Text(_) => unreachable!()
-            }
+            };
+
+            result.filter(|widget| f(widget.0 as usize))
         }
 
-        rec(self, 0, x, y)
+        rec(self, 0, x, y, &mut f)
     }
 
 
@@ -817,15 +818,18 @@ impl Gui {
         }
         self.mouse_pos = [mx, my];
 
-        let hit = self.hit_test(mx, my);
-        let hit = hit.filter(|hit| self.widgets[hit.0 as usize].props.pointer_events);
+        let hit = self.hit_test_filtered(mx, my, |hit| self.widgets[hit].props.pointer_events);
+
+        let prev_hovered = self.hovered;
+
         if let Some(hit) = hit {
             self.hovered = hit.0;
         }
         else {
             self.hovered = 0;
         }
-        return true;
+
+        return self.hovered != prev_hovered;
     }
 
     pub fn mouse_down(&mut self, is_down: bool) -> bool {
@@ -834,13 +838,16 @@ impl Gui {
         }
         self.mouse_down = is_down;
 
+        let prev_active = self.active;
+
         if is_down {
             self.active = self.hovered;
         }
         else {
             self.active = 0;
         }
-        return true;
+
+        return self.active != prev_active;
     }
 }
 

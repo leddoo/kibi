@@ -953,6 +953,359 @@ impl CodeView {
 }
 
 
+
+struct NewCodeView {
+    #[allow(dead_code)] // @temp
+    pos: (f32, f32),
+
+    font_size: f32,
+    inserted_semicolons: bool,
+    syntax_highlighting: bool,
+
+    text:  String,
+    lines: Vec<u32>,
+    info:  CodeInfo<'static>,
+
+    decos: Vec<Decoration>,
+}
+
+impl NewCodeView {
+    pub fn new() -> NewCodeView {
+        NewCodeView {
+            pos: (150., 50.),
+
+            font_size: 24.0,
+            inserted_semicolons: false,
+            syntax_highlighting: true,
+
+            text:   "".into(),
+            lines:  vec![],
+            info:   CodeInfo::new(""),
+
+            decos: vec![],
+        }
+    }
+
+    fn source_pos_to_offset(&self, pos: SourcePos) -> u32 {
+        if pos.line < 1 { return 0 }
+
+        self.lines[pos.line as usize - 1] + pos.column - 1
+    }
+
+    pub fn set_text(&mut self, text: &str) {
+        self.text.clear();
+        self.text.push_str(text);
+
+        let info = CodeInfo::new(&self.text);
+        self.info = unsafe { core::mem::transmute(info) };
+
+        // @todo: looks like offset based source positions are more useful (here).
+        self.lines.clear();
+        for line in text.lines() {
+            self.lines.push((line.as_ptr() as usize - text.as_ptr() as usize) as u32);
+        }
+        self.lines.push(text.len() as u32);
+
+        self.update_decos();
+    }
+
+    fn update_decos(&mut self) {
+        self.decos.clear();
+
+        for token in &self.info.tokens {
+            // inserted semicolons.
+            if token.source.begin == token.source.end {
+                assert!(token.data.is_semicolon());
+
+                if self.inserted_semicolons {
+                    let text_begin = self.source_pos_to_offset(token.source.begin);
+                    self.decos.push(Decoration {
+                        text_begin,
+                        text_end: text_begin,
+                        data: DecorationData::Replace {
+                            text: ";".to_string(),
+                            color: TokenClass::Comment.color(),
+                        },
+                    });
+                }
+            }
+            // syntax highlighting.
+            else {
+                if self.syntax_highlighting {
+                    let text_begin = self.source_pos_to_offset(token.source.begin);
+                    let text_end   = self.source_pos_to_offset(token.source.end);
+                    let class = TokenClass::from_data(token.data);
+                    self.decos.push(Decoration { text_begin, text_end,
+                        data: DecorationData::Style { color: class.color() }
+                    });
+                }
+            }
+        }
+        // decos are already sorted.
+    }
+
+    pub fn render(&mut self, gui: &mut Gui) -> bool {
+        let mut changed = false;
+        let mut new_semis  = self.inserted_semicolons;
+        let mut new_syntax = self.syntax_highlighting;
+
+        fn quote_button_endquote(gui: &mut Gui, title: String) -> WidgetEvents {
+            gui.widget_box(Key::Counter, Props::new().with_pointer_events(), |gui| {
+                gui.widget_text(Key::Counter, Props::new(), title);
+            })
+        }
+
+        if quote_button_endquote(gui, format!("inserted semicolons: {}", self.inserted_semicolons)).clicked() {
+            new_semis = !self.inserted_semicolons;
+            changed = true;
+        }
+
+        if quote_button_endquote(gui, format!("syntax highlighting: {}", self.syntax_highlighting)).clicked() {
+            new_syntax = !self.syntax_highlighting;
+            changed = true;
+        }
+
+        let mut deco_cursor = 0;
+        let mut line_begin = 0;
+        for line_end in self.lines[1..].iter() {
+            let line_end = *line_end as usize;
+
+            let mut line_props = Props::new();
+            line_props.layout = Layout::Flex(FlexLayout::default());
+
+            // we'll need a recursive function for nested items now.
+            // so have like a `Renderer` or something for the line state.
+
+            gui.widget_box(Key::U64(line_begin as u64), line_props, |gui|{
+                let mut text_cursor = line_begin;
+                while text_cursor < line_end {
+                    let next_deco =
+                        self.decos.get(deco_cursor)
+                        .filter(|deco| deco.text_begin as usize <= line_end);
+
+                    if let Some(next_deco) = next_deco {
+                        let deco_begin = (next_deco.text_begin as usize).max(line_begin);
+                        let deco_end   = (next_deco.text_end   as usize).min(line_end);
+                        debug_assert!(deco_begin <= deco_end);
+
+                        if text_cursor < deco_begin {
+                            let source_begin = text_cursor as u32;
+                            let source_end   = deco_begin  as u32;
+                            gui.widget_text(Key::Counter,
+                                Props { 
+                                    font_face: FaceId::DEFAULT, 
+                                    font_size: self.font_size, 
+                                    text_color: TokenClass::Default.color(), 
+                                    ..Default::default()
+                                },
+                                self.text[source_begin as usize .. source_end as usize].to_string());
+                        }
+
+                        match &next_deco.data {
+                            DecorationData::Style { color } => {
+                                let source_begin = deco_begin as u32;
+                                let source_end   = deco_end   as u32;
+                                gui.widget_text(Key::Counter,
+                                    Props { 
+                                        font_face: FaceId::DEFAULT, 
+                                        font_size: self.font_size, 
+                                        text_color: *color,
+                                        ..Default::default()
+                                    },
+                                    self.text[source_begin as usize .. source_end as usize].to_string());
+                            }
+
+                            DecorationData::Replace { text, color } => {
+                                gui.widget_text(Key::Counter,
+                                    Props { 
+                                        font_face: FaceId::DEFAULT, 
+                                        font_size: self.font_size, 
+                                        text_color: *color,
+                                        ..Default::default()
+                                    },
+                                    text.to_string());
+                            }
+                        }
+
+                        if next_deco.text_end as usize <= line_end {
+                            deco_cursor += 1;
+                        }
+                        text_cursor = deco_end;
+                    }
+                    else {
+                        let source_begin = text_cursor as u32;
+                        let source_end   = line_end    as u32;
+                        gui.widget_text(Key::Counter,
+                            Props { 
+                                font_face: FaceId::DEFAULT, 
+                                font_size: self.font_size, 
+                                text_color: TokenClass::Default.color(),
+                                ..Default::default()
+                            },
+                            self.text[source_begin as usize .. source_end as usize].to_string());
+
+                        text_cursor = line_end;
+                    }
+                }
+            });
+
+            line_begin = line_end;
+
+            /*
+            // new item starts?
+            if let Some(item) = 
+                self.info.ast_info.items.iter()
+                .find(|item| item.source_range.begin.line == line_index + 1)
+            {
+                if let kibi::bbir::ItemData::Func(func_id) = self.info.items[item.item_id].data {
+                    // sync source & bytecode.
+                    for _ in src_lines..bc_lines {
+                        self.layout.append("\n", FaceId::DEFAULT, font_size, 0, 0);
+                    }
+                    for _ in bc_lines..src_lines {
+                        self.bc_layout.append("\n", FaceId::DEFAULT, font_size, 0, 0);
+                    }
+                    src_lines = src_lines.max(bc_lines);
+                    bc_lines  = bc_lines.max(src_lines);
+
+                    let func = &self.info.funcs[func_id];
+                    bc_lines += Self::add_bytecode_fn(func_id, func, font_size, &mut self.bc_layout, &mut self.reg_spans);
+                    active_items.push((item.source_range.end.line, bc_lines));
+                }
+            }
+            */
+
+            /*
+            let mut text_cursor = line_begin;
+            while text_cursor < line_end {
+                let next_deco =
+                    decos.get(deco_cursor)
+                    .filter(|deco| deco.text_begin as usize <= line_end);
+
+                if let Some(next_deco) = next_deco {
+                    let deco_begin = (next_deco.text_begin as usize).max(line_begin);
+                    let deco_end   = (next_deco.text_end   as usize).min(line_end);
+                    debug_assert!(deco_begin <= deco_end);
+
+                    if text_cursor < deco_begin {
+                        let source_begin = text_cursor as u32;
+                        let source_end   = deco_begin  as u32;
+
+                        let text_begin = self.layout.text().len() as u32;
+                        self.layout.append(&text[source_begin as usize .. source_end as usize], FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
+                        let text_end = self.layout.text().len() as u32;
+
+                        self.source_map.source_spans.push(SourceSpan {
+                            source_begin,
+                            source_end,
+                            data: SourceSpanData::TextRange { text_begin },
+                        });
+                        self.source_map.text_spans.push(TextSpan {
+                            text_begin,
+                            text_end,
+                            data: TextSpanData::SourceRange { source_begin },
+                        });
+                    }
+
+                    match &next_deco.data {
+                        DecorationData::Style { color } => {
+                            let source_begin = deco_begin as u32;
+                            let source_end   = deco_end   as u32;
+
+                            let text_begin = self.layout.text().len() as u32;
+                            self.layout.append(&text[source_begin as usize .. source_end as usize], FaceId::DEFAULT, font_size, *color, 0);
+                            let text_end = self.layout.text().len() as u32;
+
+                            self.source_map.source_spans.push(SourceSpan {
+                                source_begin,
+                                source_end,
+                                data: SourceSpanData::TextRange { text_begin },
+                            });
+                            self.source_map.text_spans.push(TextSpan {
+                                text_begin,
+                                text_end,
+                                data: TextSpanData::SourceRange { source_begin },
+                            });
+                        }
+
+                        DecorationData::Replace { text, color } => {
+                            let source_begin = deco_begin as u32;
+                            let source_end   = deco_end   as u32;
+
+                            let text_begin = self.layout.text().len() as u32;
+                            self.layout.append(text, FaceId::DEFAULT, font_size, *color, 0);
+                            let text_end = self.layout.text().len() as u32;
+
+                            self.source_map.source_spans.push(SourceSpan {
+                                source_begin,
+                                source_end,
+                                data: SourceSpanData::None,
+                            });
+                            self.source_map.text_spans.push(TextSpan {
+                                text_begin,
+                                text_end,
+                                data: TextSpanData::None,
+                            });
+                        }
+                    }
+
+                    if next_deco.text_end as usize <= line_end {
+                        deco_cursor += 1;
+                    }
+                    text_cursor = deco_end;
+                }
+                else {
+                    let source_begin = text_cursor as u32;
+                    let source_end   = line_end    as u32;
+
+                    let text_begin = self.layout.text().len() as u32;
+                    self.layout.append(&text[source_begin as usize .. source_end as usize], FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
+                    let text_end = self.layout.text().len() as u32;
+
+                    self.source_map.source_spans.push(SourceSpan {
+                        source_begin,
+                        source_end,
+                        data: SourceSpanData::TextRange { text_begin },
+                    });
+                    self.source_map.text_spans.push(TextSpan {
+                        text_begin,
+                        text_end,
+                        data: TextSpanData::SourceRange { source_begin },
+                    });
+
+                    text_cursor = line_end;
+                }
+            }
+
+            line_index += 1;
+            line_begin = line_end;
+            src_lines += 1;
+
+            // old item expired? -> pad source.
+            while let Some((source_line_end, bc_line_end)) = active_items.last().copied() {
+                if source_line_end <= line_index {
+                    for _ in src_lines..bc_line_end {
+                        self.layout.append("\n", FaceId::DEFAULT, font_size, 0, 0);
+                    }
+                    src_lines = src_lines.max(bc_line_end);
+                    active_items.pop();
+                }
+                else { break }
+            }
+            */
+        }
+
+        self.inserted_semicolons = new_semis;
+        self.syntax_highlighting = new_syntax;
+        if changed {
+            self.update_decos();
+        }
+
+        changed
+    }
+}
+
+
 struct Explorer {
     window:   Window,
     renderer: Renderer,
@@ -960,7 +1313,7 @@ struct Explorer {
     last_mouse: (f32, f32),
     code:     CodeView,
     gui: Gui,
-    count: u32,
+    new_code: NewCodeView,
 }
 
 impl Explorer {
@@ -982,7 +1335,7 @@ impl Explorer {
             last_mouse: (0., 0.),
             code:     CodeView::new(&fonts),
             gui: Gui::new(&fonts),
-            count: 0,
+            new_code: NewCodeView::new(),
         }
     }
 
@@ -1015,39 +1368,10 @@ impl Explorer {
                 }
 
                 let root_size = [size.0 as f32, size.1 as f32];
-                let mut root_props = Props::new();
-                root_props.layout = Layout::Flex(FlexLayout {
-                    direction: FlexDirection::Column,
-                    justify:   FlexJustify::End,
-                    align:     FlexAlign::Begin,
-                });
+                let root_props = Props::new();
 
-                changed = gui.update(root_size, root_props,|gui| {
-                    let mut new_count = self.count;
-
-                    gui.widget_box(Key::Counter, Props { layout: Layout::None, size: [Some(50.0), Some(50.0)], ..Default::default() }.with_fill(0xffff00ff), |_|{});
-
-                    let mut box_props = Props::new().with_fill(color_from_unmult_rgba((72, 76, 87, 255)));
-                    box_props.size[0] = Some(300.0);
-                    box_props.layout = Layout::Flex(FlexLayout {
-                        direction: FlexDirection::Row,
-                        justify:   FlexJustify::Center,
-                        align:     FlexAlign::Center,
-                    });
-
-                    gui.widget_box(Key::Counter, box_props, |gui| {
-                        gui.widget_text(Key::Counter, Props::new(), format!("Count: {}", self.count));
-                        let events = gui.widget_text(Key::Counter, Props::new().with_pointer_events(), format!("Increment\nit!"));
-                        if events.clicked() {
-                            new_count = self.count + 1;
-                        }
-                    });
-
-                    gui.widget_box(Key::Counter, Props { size: [Some(50.0), Some(50.0)], ..Default::default() }.with_fill(0xff00ff00), |_|{});
-
-                    let changed = new_count != self.count;
-                    self.count = new_count;
-                    changed
+                changed = gui.update(root_size, root_props, |gui| {
+                    self.new_code.render(gui)
                 });
 
                 never_updated = false;
@@ -1086,9 +1410,12 @@ fn main() {
         let path = &args[1];
         let source = std::fs::read_to_string(path).unwrap();
         e.code.set_text(&source);
+        e.new_code.set_text(&source);
     }
     else {
-        e.code.set_text(include_str!("../../fib.kb"));
+        let source = include_str!("../../fib.kb");
+        e.code.set_text(source);
+        e.new_code.set_text(source);
     }
 
     e.run();

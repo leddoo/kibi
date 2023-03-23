@@ -34,27 +34,29 @@
 
 - todo: explorer.
     - imgui thing:
-        - port explorer gui.
-            - do the side-by-side thing.
-            - store highlights & stuff on app state.
-                - we'll kinda mirror the widgets' `hover` state.
-                    - so do a state change command, if widget hover & state hover differ.
-                - which works w/ sub-tree skipping, cause gui will prevent skip for sub-trees with events.
-                - we don't have to worry about widgets being removed from the tree, cause app state -> widgets.
-            - canvas:
-                - we'll need absolute positions (inside a `None` layout).
-                - maybe add scaling?
-            - text background fill.
-                - text widgets in text layout's render children list.
-                - hit_test_range in `draw` before drawing text layout.
-        - inline widgets.
-            - text layout inline objects & layout function (store glyph advances).
-            - text layout widget render children list (layout inline widgets first).
         - generation index.
             - ensure visited only once -> in `begin`.
             - free unvisited nodes in `end`.
             - remove from hash table.
             - validate tree.
+        - port explorer gui.
+            - what to do about those newlines?
+            - render bytecode.
+            - interaction.
+            - canvas positioning:
+                - we'll need absolute positions (inside a `None` layout).
+                - maybe add scaling?
+            - text background fill.
+                - text widgets in text layout's render children list.
+                - hit_test_range in `draw` before drawing text layout.
+        - sub-tree skipping:
+            - pass `skip: bool` to widget_box.
+            - also sub-tree `no_skip` override -> can set on root node for full update, ignores local caches. useful for stuff like theme, so you don't need fine grained dependency tracking.
+            - gui skips child fn if there are no events in the sub-tree.
+        - mouse capture.
+        - inline widgets.
+            - text layout inline objects & layout function (store glyph advances).
+            - text layout widget render children list (layout inline widgets first).
         - flex grow.
         - flex justify gaps.
         - overflow & scrolling.
