@@ -166,7 +166,9 @@ enum KeyData {
 
 struct Widget {
     // identity.
+    gen:       u64,
     key:       KeyData,
+    hash_prev: OptWidgetId,
     hash_next: OptWidgetId,
 
     // content.
@@ -191,8 +193,16 @@ enum WidgetData {
     Box        (BoxData),
     TextLayout (TextLayoutData),
     Text       (TextData),
+    Free       (OptWidgetId),
 }
 
+impl WidgetData {
+    #[inline(always)]
+    fn is_free(&self) -> bool { if let WidgetData::Free(_) = self { true } else { false } }
+}
+
+
+#[derive(Clone, Copy)]
 struct BoxData {
     first_child:        OptWidgetId,
     last_child:         OptWidgetId,
@@ -227,9 +237,14 @@ impl Widget {
     }
 
     #[inline(always)]
-    fn begin(&mut self, props: Props, data: WidgetData) {
+    fn begin(&mut self, gen: u64, props: Props, data: WidgetData) {
+        self.gen   = gen;
         self.props = props;
         self.data  = data;
+        self.prev_sibling = None;
+        self.next_sibling = None;
+        self.prev_render_sibling = None;
+        self.next_render_sibling = None;
     }
 
     #[inline(always)]
@@ -264,8 +279,10 @@ impl WidgetEvents {
 
 
 pub struct Gui {
-    widgets: Vec<Widget>,
-    hash:    Vec<OptWidgetId>,
+    gen:        u64,
+    widgets:    Vec<Widget>,
+    first_free: OptWidgetId,
+    hash:       Vec<OptWidgetId>,
 
     current_parent:  usize,
     current_counter: u32,
@@ -284,7 +301,9 @@ pub struct Gui {
 impl Gui {
     pub fn new(fonts: &FontCtx) -> Gui {
         let root = Widget {
+            gen:       1,
             key:       KeyData::Counter(0),
+            hash_prev: None,
             hash_next: None,
 
             props: Default::default(),
@@ -303,8 +322,10 @@ impl Gui {
         };
 
         Gui {
-            widgets:   vec![root],
-            hash:      vec![None; 1024], // @temp
+            gen:        1,
+            widgets:    vec![root],
+            first_free: None,
+            hash:       vec![None; 1024], // @temp
 
             current_parent:  usize::MAX,
             current_counter: 0,
@@ -355,7 +376,7 @@ impl Gui {
                     hit.source.map(|hit| WidgetId(hit))
                 }
 
-                WidgetData::Text(_) => unreachable!()
+                WidgetData::Text(_) | WidgetData::Free(_) => unreachable!()
             };
 
             result.filter(|widget| f(widget.0 as usize))
@@ -366,10 +387,13 @@ impl Gui {
 
 
     pub fn begin(&mut self, root_props: Props) {
+        self.gen += 1;
+
         assert_eq!(self.current_parent, usize::MAX);
         self.current_parent  = 0;
         self.current_counter = 0;
-        self.widgets[0].begin(root_props, WidgetData::Box(BoxData::default()));
+
+        self.widgets[0].begin(self.gen, root_props, WidgetData::Box(BoxData::default()));
     }
 
     pub fn end(&mut self) {
@@ -379,6 +403,127 @@ impl Gui {
 
         self.prev_hovered = self.hovered;
         self.prev_active  = self.active;
+
+        let mut first_free = None;
+        for index in (0..self.widgets.len()).rev() {
+            let widget = &mut self.widgets[index];
+            if widget.gen == self.gen { continue }
+            debug_assert!(widget.gen < self.gen);
+
+            let id = NonZeroU32::new(index as u32).unwrap();
+            let was_free = widget.data.is_free();
+
+            // insert into free list.
+            widget.data = WidgetData::Free(first_free);
+            first_free = Some(id);
+
+            // remove from hash table.
+            if !was_free {
+                let hash_prev = widget.hash_prev;
+                let hash_next = widget.hash_next;
+                widget.hash_prev = None;
+                widget.hash_next = None;
+
+                if let Some(prev) = hash_prev {
+                    let prev = &mut self.widgets[prev.get() as usize];
+                    debug_assert_eq!(prev.hash_next, Some(id));
+                    prev.hash_next = hash_next;
+                }
+                else {
+                    let hash = Self::hash((widget.parent, &widget.key));
+                    let slot = hash as usize & (self.hash.len() - 1);
+                    debug_assert_eq!(self.hash[slot], Some(id));
+                    self.hash[slot] = hash_next;
+                }
+
+                if let Some(next) = hash_next {
+                    let next = &mut self.widgets[next.get() as usize];
+                    debug_assert_eq!(next.hash_prev, Some(id));
+                    next.hash_prev = hash_prev;
+                }
+            }
+        }
+        self.first_free = first_free;
+
+        #[cfg(debug_assertions)]
+        self.validate();
+    }
+
+
+    fn validate(&self) {
+        fn validate_list
+            <Prev: Fn(&Widget) -> OptWidgetId, Next: Fn(&Widget) -> OptWidgetId>
+            (gui: &Gui, first: OptWidgetId, expected_last: Option<OptWidgetId>, prev: Prev, next: Next)
+        {
+            let mut previous = None;
+            let mut at = first;
+            while let Some(current) = at {
+                let widget = &gui.widgets[current.get() as usize];
+                if prev(widget) != previous {
+                    assert!(false);
+                }
+                assert_eq!(prev(widget), previous);
+                previous = at;
+                at = next(widget);
+            }
+            if let Some(last) = expected_last {
+                assert_eq!(previous, last);
+            }
+        }
+
+        fn validate_tree(gui: &Gui, index: usize) {
+            let widget = &gui.widgets[index];
+            match &widget.data {
+                WidgetData::Box(data) => {
+                    let data = *data;
+                    validate_list(gui, data.first_child, Some(data.last_child),
+                        |w| w.prev_sibling, |w| w.next_sibling);
+                    validate_list(gui, data.first_render_child, Some(data.last_render_child),
+                        |w| w.prev_render_sibling, |w| w.next_render_sibling);
+                }
+
+                WidgetData::TextLayout(_) => {}
+
+                WidgetData::Text(_) => {
+                    // @temp
+                    assert_eq!(widget.prev_render_sibling, None);
+                    assert_eq!(widget.next_render_sibling, None);
+                }
+
+                WidgetData::Free(_) => {
+                    assert_eq!(widget.hash_prev, None);
+                    assert_eq!(widget.hash_next, None);
+                    assert_eq!(widget.next_sibling, None);
+                    assert_eq!(widget.prev_sibling, None);
+                    assert_eq!(widget.next_sibling, None);
+                    assert_eq!(widget.prev_render_sibling, None);
+                    assert_eq!(widget.next_render_sibling, None);
+                }
+            }
+        }
+
+        validate_tree(self, 0);
+
+        // validate free list.
+        {
+            let mut at = self.first_free;
+            while let Some(current) = at {
+                let WidgetData::Free(next) = self.widgets[current.get() as usize].data else { unreachable!() };
+                at = next;
+            }
+        }
+
+        // validate hash map.
+        for i in 0..self.hash.len() {
+            validate_list(self, self.hash[i], None,
+                |w| w.hash_prev,
+                |w| {
+                    let hash = Self::hash((w.parent, &w.key));
+                    let slot = hash as usize & (self.hash.len() - 1);
+                    assert_eq!(slot, i);
+                    w.hash_next
+                });
+        }
     }
 
 
@@ -413,30 +558,17 @@ impl Gui {
         let widget = match widget {
             // found match.
             Some(widget) => {
-                self.widgets[widget.get() as usize].begin(props, data);
+                self.widgets[widget.get() as usize].begin(self.gen, props, data);
                 widget
             }
 
             // was new.
             None => {
-                // allocate widget.
-                let widget = NonZeroU32::new(self.widgets.len() as u32).unwrap();
-
-                // grow hash table.
-                if self.widgets.len() + 1 > self.hash.len() {
-                    //let mut new_hash = vec![None; 2*self.hash.len()];
-                    //self.hash = new_hash;
-                    unimplemented!();
-                }
-
-                // insert into hash table.
-                let slot = hash as usize & (self.hash.len() - 1);
-                let hash_next = self.hash[slot];
-                self.hash[slot] = Some(widget);
-
-                self.widgets.push(Widget {
+                let w = Widget {
+                    gen: self.gen,
                     key,
-                    hash_next,
+                    hash_prev: None,
+                    hash_next: None,
 
                     props,
                     data,
@@ -451,7 +583,46 @@ impl Gui {
                     size: [0.0; 2],
                     content_size:   [0.0; 2],
                     intrinsic_size: [0.0; 2],
-                });
+                };
+
+                let widget = match self.first_free {
+                    Some(free) => {
+                        // reuse free widget.
+                        let slot = &mut self.widgets[free.get() as usize];
+
+                        let WidgetData::Free(next_free) = slot.data else { unreachable!() };
+                        self.first_free = next_free;
+
+                        *slot = w;
+
+                        free
+                    }
+
+                    None => {
+                        // allocate widget.
+                        let widget = NonZeroU32::new(self.widgets.len() as u32).unwrap();
+                        self.widgets.push(w);
+                        widget
+                    }
+                };
+
+                // grow hash table.
+                if self.widgets.len() + 1 > self.hash.len() {
+                    //let mut new_hash = vec![None; 2*self.hash.len()];
+                    //self.hash = new_hash;
+                    unimplemented!();
+                }
+
+                // insert into hash table.
+                let slot = hash as usize & (self.hash.len() - 1);
+                let hash_next = self.hash[slot];
+                self.hash[slot] = Some(widget);
+                if let Some(next) = hash_next {
+                    let next = &mut self.widgets[next.get() as usize];
+                    debug_assert!(next.hash_prev.is_none());
+                    next.hash_prev = Some(widget);
+                }
+                self.widgets[widget.get() as usize].hash_next = hash_next;
 
                 widget
             }
@@ -547,7 +718,7 @@ impl Gui {
 
         self.current_parent  = old_parent;
         self.current_counter = old_counter;
-        
+
         self.widget_events(widget)
     }
 
@@ -625,7 +796,7 @@ impl Gui {
                     data.layout.size()
                 }
 
-                WidgetData::Text(_) => unreachable!()
+                WidgetData::Text(_) | WidgetData::Free(_) => unreachable!()
             };
 
             let widget = &mut this.widgets[widget_index];
@@ -749,7 +920,7 @@ impl Gui {
                     data.layout.size()
                 }
 
-                WidgetData::Text(_) => unreachable!()
+                WidgetData::Text(_) | WidgetData::Free(_) => unreachable!()
             };
 
             let widget = &mut this.widgets[widget_index];
@@ -795,7 +966,7 @@ impl Gui {
                     r.draw_text_layout_abs(x0, y0, &data.layout);
                 }
 
-                WidgetData::Text(_) => unreachable!()
+                WidgetData::Text(_) | WidgetData::Free(_) => unreachable!()
             }
         }
 
@@ -927,7 +1098,7 @@ impl ChildRenderer {
                 }
             }
 
-            WidgetData::TextLayout(_) => unreachable!()
+            WidgetData::TextLayout(_) | WidgetData::Free(_) => unreachable!()
         }
 
         next

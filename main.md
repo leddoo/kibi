@@ -34,11 +34,6 @@
 
 - todo: explorer.
     - imgui thing:
-        - generation index.
-            - ensure visited only once -> in `begin`.
-            - free unvisited nodes in `end`.
-            - remove from hash table.
-            - validate tree.
         - port explorer gui.
             - what to do about those newlines?
             - render bytecode.
