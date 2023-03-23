@@ -1037,7 +1037,6 @@ impl Explorer {
 
                     gui.widget_box(Key::Counter, box_props, |gui| {
                         gui.widget_text(Key::Counter, Props::new(), format!("Count: {}", self.count));
-                        gui.widget_box(Key::Counter, Props::new(), |_|{});
                         let events = gui.widget_text(Key::Counter, Props::new().with_pointer_events(), format!("Increment\nit!"));
                         if events.clicked() {
                             new_count = self.count + 1;

@@ -16,7 +16,7 @@ impl Default for Key {
 }
 
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum Layout {
     None,
     Flow,
@@ -24,6 +24,11 @@ pub enum Layout {
 }
 
 impl Default for Layout { #[inline(always)] fn default() -> Self { Layout::Flow } }
+
+impl Layout {
+    #[inline(always)]
+    fn is_flow(&self) -> bool { if let Layout::Flow = self { true } else { false } }
+}
 
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -89,7 +94,7 @@ pub struct FlexLayout {
 }
 
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Props {
     pub layout: Layout,
 
@@ -507,12 +512,15 @@ impl Gui {
     }
 
     fn render_children(&mut self) {
-        let mut cr = ChildRenderer::new();
-        let mut at = self.widgets[self.current_parent].box_data().first_child;
+        let parent = &mut self.widgets[self.current_parent];
+        let mut cr = ChildRenderer::new(parent.props.layout.is_flow());
+
+        let mut at = parent.box_data().first_child;
         while let Some(current) = at {
             at = cr.visit(current, self);
         }
         cr.flush(self);
+
         let box_data = self.widgets[self.current_parent].box_data();
         box_data.first_render_child = cr.first;
         box_data.last_render_child  = cr.last;
@@ -838,6 +846,7 @@ impl Gui {
 
 
 struct ChildRenderer {
+    merge_text: bool,
     first: OptWidgetId,
     last:  OptWidgetId,
     counter: u32,
@@ -845,15 +854,8 @@ struct ChildRenderer {
 }
 
 impl ChildRenderer {
-    fn new() -> ChildRenderer {
-        ChildRenderer { first: None, last: None, counter: 0, text_layout: None }
-    }
-
-    fn current_text_layout(&mut self, fonts: &FontCtx) -> &mut TextLayout {
-        if self.text_layout.is_none() {
-            self.text_layout = Some(TextLayout::new(fonts));
-        }
-        self.text_layout.as_mut().unwrap()
+    fn new(merge_text: bool) -> ChildRenderer {
+        ChildRenderer { merge_text, first: None, last: None, counter: 0, text_layout: None }
     }
 
     fn append(&mut self, widget: NonZeroU32, gui: &mut Gui) {
@@ -897,12 +899,25 @@ impl ChildRenderer {
             }
 
             WidgetData::Text(text) => {
-                self.current_text_layout(&gui.fonts).append(
+                // kinda wanna flush here,
+                // but can't borrow gui as mutable.
+                // oh well, just don't break it, ok?
+                if self.text_layout.is_none() {
+                    self.text_layout = Some(TextLayout::new(&gui.fonts));
+                }
+                else { debug_assert!(self.merge_text) }
+
+                let layout = self.text_layout.as_mut().unwrap();
+                layout.append(
                     &text.text,
                     widget.props.font_face,
                     widget.props.font_size,
                     widget.props.text_color,
                     child.get());
+
+                if !self.merge_text {
+                    self.flush(gui);
+                }
             }
 
             WidgetData::TextLayout(_) => unreachable!()
