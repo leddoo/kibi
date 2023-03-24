@@ -270,11 +270,13 @@ pub enum MouseButton {
 
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct WidgetId(u32);
+struct WidgetId(u32);
 
 
 #[derive(Clone, Copy, Debug)]
 pub struct WidgetEvents {
+    widget: u32,
+
     pub prev_mouse_pos:  [f32; 2],
     pub mouse_pos:       [f32; 2],
     pub prev_mouse_down: [bool; 3],
@@ -287,25 +289,48 @@ pub struct WidgetEvents {
 }
 
 impl WidgetEvents {
+    #[allow(dead_code)] // @temp
+    #[inline(always)]
+    pub fn hover_begin(&self) -> bool {
+        self.hovered && !self.prev_hovered
+    }
+    #[inline(always)]
+    pub fn active_begin(&self) -> bool {
+        self.active && !self.prev_active
+    }
+
     #[inline(always)]
     pub fn clicked(&self) -> bool {
         self.prev_active && !self.active && self.hovered
     }
 
-    #[inline]
-    pub fn mouse_move(&self) -> Option<(f32, f32)> {
+    #[inline(always)]
+    pub fn mouse_moved(&self) -> bool {
         let [x0, y0] = self.prev_mouse_pos;
         let [x1, y1] = self.mouse_pos;
-        (x1 != x0 || y1 != y0).then(|| (x1 - x0, y1 - y0))
+        x1 != x0 || y1 != y0
     }
 
     #[inline(always)]
-    pub fn mouse_down(&self, button: MouseButton) -> bool {
+    pub fn mouse_delta(&self) -> Option<(f32, f32)> {
+        let [x0, y0] = self.prev_mouse_pos;
+        let [x1, y1] = self.mouse_pos;
+        (x1 != x0 || y1 != y0).then_some((x1 - x0, y1 - y0))
+    }
+
+    #[allow(dead_code)] // @temp
+    #[inline(always)]
+    pub fn mouse_is_down(&self, button: MouseButton) -> bool {
+        self.mouse_down[button as usize]
+    }
+
+    #[inline(always)]
+    pub fn mouse_went_down(&self, button: MouseButton) -> bool {
         self.mouse_down[button as usize] && !self.prev_mouse_down[button as usize]
     }
 
     #[inline(always)]
-    pub fn mouse_up(&self, button: MouseButton) -> bool {
+    pub fn mouse_went_up(&self, button: MouseButton) -> bool {
         !self.mouse_down[button as usize] && self.prev_mouse_down[button as usize]
     }
 }
@@ -328,12 +353,14 @@ pub struct Gui {
 
     hovered: u32,
     active:  u32,
+    mouse_capture: bool,
 
     // stuff for events.
     prev_mouse_pos:  [f32; 2],
     prev_mouse_down: [bool; 3],
     prev_hovered: u32,
     prev_active:  u32,
+    prev_mouse_capture: bool,
 }
 
 impl Gui {
@@ -376,16 +403,18 @@ impl Gui {
 
             hovered: 0,
             active:  0,
+            mouse_capture: false,
 
             prev_mouse_pos:  [0.0; 2],
             prev_mouse_down: [false; 3],
             prev_hovered: 0,
             prev_active:  0,
+            prev_mouse_capture: false,
         }
     }
 
 
-    pub fn hit_test_filtered<F: FnMut(usize) -> bool>(&self, x: f32, y: f32, mut f: F) -> Option<WidgetId> {
+    fn hit_test_filtered<F: FnMut(usize) -> bool>(&self, x: f32, y: f32, mut f: F) -> Option<WidgetId> {
         fn rec<F: FnMut(usize) -> bool>(this: &Gui, widget_index: usize, x: f32, y: f32, f: &mut F) -> Option<WidgetId> {
             let widget = &this.widgets[widget_index];
 
@@ -447,6 +476,7 @@ impl Gui {
         self.prev_mouse_down = self.mouse_down;
         self.prev_hovered = self.hovered;
         self.prev_active  = self.active;
+        self.prev_mouse_capture = self.mouse_capture;
 
         let mut first_free = None;
         for index in (0..self.widgets.len()).rev() {
@@ -722,11 +752,16 @@ impl Gui {
         let prev_active  = self.prev_active  == widget.get();
         let active       = self.active       == widget.get();
 
+        let mouse_events =
+            if self.prev_mouse_capture { prev_active }
+            else { hovered && prev_hovered };
+
         let (prev_mouse_pos, prev_mouse_down) =
-            if hovered && prev_hovered { (self.prev_mouse_pos, self.prev_mouse_down) }
-            else                       { (self.mouse_pos,      self.mouse_down)      };
+            if mouse_events { (self.prev_mouse_pos, self.prev_mouse_down) }
+            else            { (self.mouse_pos,      self.mouse_down)      };
 
         WidgetEvents {
+            widget: widget.get(),
             prev_mouse_pos,  mouse_pos:  self.mouse_pos,
             prev_mouse_down, mouse_down: self.mouse_down,
             prev_hovered, hovered,
@@ -1038,14 +1073,19 @@ impl Gui {
 
 
     pub fn root_size(&mut self, root_size: [f32; 2]) -> bool {
+        assert_eq!(self.current_parent, usize::MAX);
+
         if self.root_size == root_size {
             return false;
         }
         self.root_size = root_size;
+
         return true;
     }
 
     pub fn mouse_move(&mut self, mx: f32, my: f32) -> bool {
+        assert_eq!(self.current_parent, usize::MAX);
+
         if mx == self.mouse_pos[0] && my == self.mouse_pos[1] {
             return false;
         }
@@ -1066,6 +1106,8 @@ impl Gui {
     }
 
     pub fn mouse_down(&mut self, is_down: bool, button: MouseButton) -> bool {
+        assert_eq!(self.current_parent, usize::MAX);
+
         if is_down == self.mouse_down[button as usize] {
             return false;
         }
@@ -1087,10 +1129,25 @@ impl Gui {
                 self.active = 0;
             }
 
+            self.mouse_capture = false;
+
             update |= self.active != prev_active;
         }
 
         return update;
+    }
+
+    pub fn capture_mouse(&mut self, events: &WidgetEvents) {
+        if self.active == events.widget {
+            self.mouse_capture = true;
+        }
+    }
+
+    #[allow(dead_code)] // @temp
+    pub fn release_mouse(&mut self, events: &WidgetEvents) {
+        if self.active == events.widget {
+            self.mouse_capture = false;
+        }
     }
 }
 

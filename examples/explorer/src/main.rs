@@ -1,3 +1,4 @@
+use core::cell::Cell;
 use minifb::{Window, WindowOptions};
 use kibi::index_vec::*;
 use kibi::ast::*;
@@ -362,6 +363,8 @@ struct CodeView {
     info:  CodeInfo<'static>,
 
     decos: Vec<Decoration>,
+
+    font_size_slider: Slider,
 }
 
 impl CodeView {
@@ -378,6 +381,8 @@ impl CodeView {
             info:   CodeInfo::new(""),
 
             decos: vec![],
+
+            font_size_slider: Slider::new(),
         }
     }
 
@@ -443,6 +448,7 @@ impl CodeView {
         let mut changed = false;
         let mut new_semis  = self.inserted_semicolons;
         let mut new_syntax = self.syntax_highlighting;
+        let mut new_font_size = self.font_size;
 
         fn quote_button_endquote(gui: &mut Gui, title: String) -> WidgetEvents {
             gui.widget_box(Key::Counter, Props::new().with_pointer_events(), |gui| {
@@ -451,6 +457,11 @@ impl CodeView {
         }
 
         let mut window_props = Props::new();
+        window_props.layout = Layout::Flex(FlexLayout {
+            direction: FlexDirection::Column,
+            justify:   FlexJustify::Begin,
+            align:     FlexAlign::Begin,
+        });
         window_props.pos = [Some(self.pos.0), Some(self.pos.1)];
 
         gui.widget_box(Key::U64(69), window_props, |gui| {
@@ -464,6 +475,11 @@ impl CodeView {
                 changed = true;
             }
 
+            if let Some(value) = self.font_size_slider.render(gui, self.font_size, 12.0, 32.0) {
+                new_font_size = value;
+                changed = true;
+            }
+
             let mut r = CodeViewRenderer {
                 deco_index: 0,
                 line_begin: 0,
@@ -474,6 +490,7 @@ impl CodeView {
 
         self.inserted_semicolons = new_semis;
         self.syntax_highlighting = new_syntax;
+        self.font_size = new_font_size;
         if changed {
             self.update_decos();
         }
@@ -481,6 +498,60 @@ impl CodeView {
         changed
     }
 }
+
+
+struct Slider {
+    down_pos: Cell<f32>,
+    // @temp: compute from local origin instead.
+    down_value: Cell<f32>,
+}
+
+impl Slider {
+    pub fn new() -> Slider {
+        Slider { down_pos: Cell::new(0.0), down_value: Cell::new(0.0) }
+    }
+
+    pub fn render(&self, gui: &mut Gui, value: f32, min: f32, max: f32) -> Option<f32> {
+        let mut new_value = value;
+
+        let width  = 100.0;
+        let height =  24.0;
+
+        let mut slider_props = Props::new().with_pointer_events().with_fill(0xff2A2E37);
+        slider_props.size = [Some(width), Some(height)];
+        slider_props.layout = Layout::None;
+
+        gui.widget_box(Key::Counter, slider_props, |gui| {
+            let t = (value - min) / (max - min);
+            let head_size = 20.0;
+
+            let mut head_props = Props::new().with_pointer_events().with_fill(0xffffffff);
+            head_props.pos  = [Some(t * (width - head_size)), Some((height - head_size)/2.0)];
+            head_props.size = [Some(head_size), Some(head_size)];
+
+            let events = gui.widget_box(Key::Counter, head_props, |_| {});
+            if events.active_begin() {
+                self.down_pos.set(events.mouse_pos[0]);
+                self.down_value.set(value);
+                gui.capture_mouse(&events);
+            }
+            if events.active && events.mouse_moved() {
+                let x = events.mouse_pos[0] - self.down_pos.get();
+                let v = self.down_value.get() + x / (width - head_size) * (max - min);
+                new_value = v.clamp(min, max);
+            }
+            if events.mouse_went_down(MouseButton::Left) {
+                println!("slider mouse left down");
+            }
+            if events.mouse_went_up(MouseButton::Left) {
+                println!("slider mouse left up");
+            }
+        });
+
+        (new_value != value).then_some(new_value)
+    }
+}
+
 
 struct CodeViewRenderer {
     deco_index: usize,
@@ -505,10 +576,10 @@ impl CodeViewRenderer {
                     let source_begin = text_cursor as u32;
                     let source_end   = deco_begin  as u32;
                     gui.widget_text(Key::Counter,
-                        Props { 
-                            font_face: FaceId::DEFAULT, 
-                            font_size: view.font_size, 
-                            text_color: TokenClass::Default.color(), 
+                        Props {
+                            font_face: FaceId::DEFAULT,
+                            font_size: view.font_size,
+                            text_color: TokenClass::Default.color(),
                             ..Default::default()
                         },
                         view.text[source_begin as usize .. source_end as usize].to_string());
@@ -519,9 +590,9 @@ impl CodeViewRenderer {
                         let source_begin = deco_begin as u32;
                         let source_end   = deco_end   as u32;
                         gui.widget_text(Key::Counter,
-                            Props { 
-                                font_face: FaceId::DEFAULT, 
-                                font_size: view.font_size, 
+                            Props {
+                                font_face: FaceId::DEFAULT,
+                                font_size: view.font_size,
                                 text_color: *color,
                                 ..Default::default()
                             },
@@ -530,9 +601,9 @@ impl CodeViewRenderer {
 
                     DecorationData::Replace { text, color } => {
                         gui.widget_text(Key::Counter,
-                            Props { 
-                                font_face: FaceId::DEFAULT, 
-                                font_size: view.font_size, 
+                            Props {
+                                font_face: FaceId::DEFAULT,
+                                font_size: view.font_size,
                                 text_color: *color,
                                 ..Default::default()
                             },
@@ -549,9 +620,9 @@ impl CodeViewRenderer {
                 let source_begin = text_cursor as u32;
                 let source_end   = line_end    as u32;
                 gui.widget_text(Key::Counter,
-                    Props { 
-                        font_face: FaceId::DEFAULT, 
-                        font_size: view.font_size, 
+                    Props {
+                        font_face: FaceId::DEFAULT,
+                        font_size: view.font_size,
                         text_color: TokenClass::Default.color(),
                         ..Default::default()
                     },
@@ -572,18 +643,18 @@ impl CodeViewRenderer {
         let _ = (func, pc);
 
         let events = gui.widget_text(Key::Counter,
-            Props { 
-                font_face: FaceId::DEFAULT, 
-                font_size: view.font_size, 
+            Props {
+                font_face: FaceId::DEFAULT,
+                font_size: view.font_size,
                 text_color: TokenClass::Default.color(),
                 pointer_events: true,
                 ..Default::default()
             },
             format!("r{reg}"));
 
-        if let Some((dx, dy)) = events.mouse_move() { println!("{func}.{pc}.{reg} mouse moved by {dx} {dy}") }
-        if events.mouse_down(MouseButton::Middle)   { println!("{func}.{pc}.{reg} middle down") }
-        if events.mouse_up(MouseButton::Middle)     { println!("{func}.{pc}.{reg} middle up") }
+        if let Some((dx, dy)) = events.mouse_delta() { println!("{func}.{pc}.{reg} mouse moved by {dx} {dy}") }
+        if events.mouse_went_down(MouseButton::Left)   { println!("{func}.{pc}.{reg} left down") }
+        if events.mouse_went_up(MouseButton::Left)     { println!("{func}.{pc}.{reg} left up") }
     }
 
     fn render_func(&mut self, func_id: kibi::FunctionId, view: &CodeView, gui: &mut Gui) {
@@ -591,9 +662,9 @@ impl CodeViewRenderer {
 
         fn text(text: String, color: u32, view: &CodeView, gui: &mut Gui) {
             gui.widget_text(Key::Counter,
-                Props { 
-                    font_face: FaceId::DEFAULT, 
-                    font_size: view.font_size, 
+                Props {
+                    font_face: FaceId::DEFAULT,
+                    font_size: view.font_size,
                     text_color: color,
                     ..Default::default()
                 },
@@ -606,18 +677,18 @@ impl CodeViewRenderer {
             let name = instr.name();
 
             gui.widget_text(Key::Counter,
-                Props { 
-                    font_face: FaceId::DEFAULT, 
-                    font_size: view.font_size, 
+                Props {
+                    font_face: FaceId::DEFAULT,
+                    font_size: view.font_size,
                     text_color: TokenClass::Comment.color(),
                     ..Default::default()
                 },
                 format!("{:03} ", instr.pc));
 
             gui.widget_text(Key::Counter,
-                Props { 
-                    font_face: FaceId::DEFAULT, 
-                    font_size: view.font_size, 
+                Props {
+                    font_face: FaceId::DEFAULT,
+                    font_size: view.font_size,
                     text_color: TokenClass::Default.color(),
                     ..Default::default()
                 },

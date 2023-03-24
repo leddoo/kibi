@@ -19,7 +19,8 @@
 
 
 - todo: explorer.
-    - mouse capture.
+    - draggy things:
+        - reset event stuff when freeing widgets.
         - local offset.
         - proper canvas panning.
             - store down pos. (instead of using mouse deltas)
