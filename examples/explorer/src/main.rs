@@ -571,14 +571,19 @@ impl CodeViewRenderer {
     fn render_reg(&mut self, func: kibi::FunctionId, pc: u16, reg: u8, view: &CodeView, gui: &mut Gui) {
         let _ = (func, pc);
 
-        gui.widget_text(Key::Counter,
+        let events = gui.widget_text(Key::Counter,
             Props { 
                 font_face: FaceId::DEFAULT, 
                 font_size: view.font_size, 
                 text_color: TokenClass::Default.color(),
+                pointer_events: true,
                 ..Default::default()
             },
             format!("r{reg}"));
+
+        if let Some((dx, dy)) = events.mouse_move() { println!("{func}.{pc}.{reg} mouse moved by {dx} {dy}") }
+        if events.mouse_down(MouseButton::Middle)   { println!("{func}.{pc}.{reg} middle down") }
+        if events.mouse_up(MouseButton::Middle)     { println!("{func}.{pc}.{reg} middle up") }
     }
 
     fn render_func(&mut self, func_id: kibi::FunctionId, view: &CodeView, gui: &mut Gui) {
@@ -797,7 +802,9 @@ impl Explorer {
             }
             self.last_mouse = (mx, my);
 
-            let mdown = self.window.get_mouse_down(minifb::MouseButton::Left);
+            let mdown_left   = self.window.get_mouse_down(minifb::MouseButton::Left);
+            let mdown_middle = self.window.get_mouse_down(minifb::MouseButton::Middle);
+            let mdown_right  = self.window.get_mouse_down(minifb::MouseButton::Right);
 
 
             let gui = &mut self.gui;
@@ -812,7 +819,9 @@ impl Explorer {
 
                 if !size_changed
                 && !gui.mouse_move(mx, my)
-                && !gui.mouse_down(mdown)
+                && !gui.mouse_down(mdown_left,   gui::MouseButton::Left)
+                && !gui.mouse_down(mdown_middle, gui::MouseButton::Middle)
+                && !gui.mouse_down(mdown_right,  gui::MouseButton::Right)
                 && !changed {
                     break;
                 }

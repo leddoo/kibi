@@ -260,12 +260,26 @@ impl Widget {
 
 
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MouseButton {
+    Left,
+    Middle,
+    Right,
+}
+
+
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WidgetId(u32);
 
 
 #[derive(Clone, Copy, Debug)]
 pub struct WidgetEvents {
+    pub prev_mouse_pos:  [f32; 2],
+    pub mouse_pos:       [f32; 2],
+    pub prev_mouse_down: [bool; 3],
+    pub mouse_down:      [bool; 3],
+
     pub prev_hovered:   bool,
     pub hovered:        bool,
     pub prev_active:    bool,
@@ -276,6 +290,23 @@ impl WidgetEvents {
     #[inline(always)]
     pub fn clicked(&self) -> bool {
         self.prev_active && !self.active && self.hovered
+    }
+
+    #[inline]
+    pub fn mouse_move(&self) -> Option<(f32, f32)> {
+        let [x0, y0] = self.prev_mouse_pos;
+        let [x1, y1] = self.mouse_pos;
+        (x1 != x0 || y1 != y0).then(|| (x1 - x0, y1 - y0))
+    }
+
+    #[inline(always)]
+    pub fn mouse_down(&self, button: MouseButton) -> bool {
+        self.mouse_down[button as usize] && !self.prev_mouse_down[button as usize]
+    }
+
+    #[inline(always)]
+    pub fn mouse_up(&self, button: MouseButton) -> bool {
+        !self.mouse_down[button as usize] && self.prev_mouse_down[button as usize]
     }
 }
 
@@ -293,12 +324,16 @@ pub struct Gui {
 
     root_size:  [f32; 2],
     mouse_pos:  [f32; 2],
-    mouse_down: bool,
+    mouse_down: [bool; 3],
 
+    hovered: u32,
+    active:  u32,
+
+    // stuff for events.
+    prev_mouse_pos:  [f32; 2],
+    prev_mouse_down: [bool; 3],
     prev_hovered: u32,
-    hovered:      u32,
     prev_active:  u32,
-    active:       u32,
 }
 
 impl Gui {
@@ -337,12 +372,15 @@ impl Gui {
 
             root_size:  [0.0; 2],
             mouse_pos:  [0.0; 2],
-            mouse_down: false,
+            mouse_down: [false; 3],
 
+            hovered: 0,
+            active:  0,
+
+            prev_mouse_pos:  [0.0; 2],
+            prev_mouse_down: [false; 3],
             prev_hovered: 0,
-            hovered:      0,
             prev_active:  0,
-            active:       0,
         }
     }
 
@@ -405,6 +443,8 @@ impl Gui {
         self.render_children();
         self.current_parent = usize::MAX;
 
+        self.prev_mouse_pos  = self.mouse_pos;
+        self.prev_mouse_down = self.mouse_down;
         self.prev_hovered = self.hovered;
         self.prev_active  = self.active;
 
@@ -681,7 +721,14 @@ impl Gui {
         let hovered      = self.hovered      == widget.get();
         let prev_active  = self.prev_active  == widget.get();
         let active       = self.active       == widget.get();
+
+        let (prev_mouse_pos, prev_mouse_down) =
+            if hovered && prev_hovered { (self.prev_mouse_pos, self.prev_mouse_down) }
+            else                       { (self.mouse_pos,      self.mouse_down)      };
+
         WidgetEvents {
+            prev_mouse_pos,  mouse_pos:  self.mouse_pos,
+            prev_mouse_down, mouse_down: self.mouse_down,
             prev_hovered, hovered,
             prev_active,  active,
         }
@@ -1018,22 +1065,32 @@ impl Gui {
         return self.hovered != prev_hovered;
     }
 
-    pub fn mouse_down(&mut self, is_down: bool) -> bool {
-        if is_down == self.mouse_down {
+    pub fn mouse_down(&mut self, is_down: bool, button: MouseButton) -> bool {
+        if is_down == self.mouse_down[button as usize] {
             return false;
         }
-        self.mouse_down = is_down;
+        self.mouse_down[button as usize] = is_down;
 
-        let prev_active = self.active;
+        // @todo: check whether this event should be dispatched to any elements.
+        //  - the capturing element.
+        //  - the hovered element.
+        //  - bubbling: any of their ancestors.
+        let mut update = true;
 
-        if is_down {
-            self.active = self.hovered;
+        if button == MouseButton::Left {
+            let prev_active = self.active;
+
+            if is_down {
+                self.active = self.hovered;
+            }
+            else {
+                self.active = 0;
+            }
+
+            update |= self.active != prev_active;
         }
-        else {
-            self.active = 0;
-        }
 
-        return self.active != prev_active;
+        return update;
     }
 }
 

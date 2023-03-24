@@ -20,10 +20,12 @@
 
 - todo: explorer.
     - mouse capture.
+        - local offset.
         - proper canvas panning.
+            - store down pos. (instead of using mouse deltas)
         - treat `offset` as part of "canvas state".
     - event bubbling.
-        - unless "stop propagation".
+        - buttons stop propagation, but rest of code view doesn't.
         - right click drag moves canvas.
     - overflow.
         - don't skip child hit testing if widget has overflow.
@@ -41,6 +43,7 @@
         - scrolling.
         - code view as window with scrolling (optional, otherwise grow).
     - sub-tree skipping:
+        - event mask.
         - pass `skip: bool` to widget_box.
         - also sub-tree `no_skip` override -> can set on root node for full update, ignores local caches. useful for stuff like theme, so you don't need fine grained dependency tracking.
         - gui skips child fn if there are no events in the sub-tree.
