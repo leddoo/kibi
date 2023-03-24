@@ -326,7 +326,7 @@ impl Gui {
             gen:        1,
             widgets:    vec![root],
             first_free: None,
-            hash:       vec![None; 1024], // @temp
+            hash:       vec![None; 16*1024], // @temp
 
             current_parent:  usize::MAX,
             current_counter: 0,

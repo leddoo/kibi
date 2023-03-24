@@ -1065,237 +1065,12 @@ impl NewCodeView {
             changed = true;
         }
 
-        let mut deco_cursor = 0;
-        let mut line_begin = 0;
-        for line_end in self.lines[1..].iter() {
-            let line_end = *line_end as usize;
-
-            let mut line_props = Props::new();
-            line_props.layout = Layout::Flex(FlexLayout::default());
-
-            // we'll need a recursive function for nested items now.
-            // so have like a `Renderer` or something for the line state.
-
-            gui.widget_box(Key::U64(line_begin as u64), line_props, |gui| {
-            gui.widget_box(Key::Counter, Props::new(), |gui| {
-                let mut text_cursor = line_begin;
-                while text_cursor < line_end {
-                    let next_deco =
-                        self.decos.get(deco_cursor)
-                        .filter(|deco| deco.text_begin as usize <= line_end);
-
-                    if let Some(next_deco) = next_deco {
-                        let deco_begin = (next_deco.text_begin as usize).max(line_begin);
-                        let deco_end   = (next_deco.text_end   as usize).min(line_end);
-                        debug_assert!(deco_begin <= deco_end);
-
-                        if text_cursor < deco_begin {
-                            let source_begin = text_cursor as u32;
-                            let source_end   = deco_begin  as u32;
-                            gui.widget_text(Key::Counter,
-                                Props { 
-                                    font_face: FaceId::DEFAULT, 
-                                    font_size: self.font_size, 
-                                    text_color: TokenClass::Default.color(), 
-                                    ..Default::default()
-                                },
-                                self.text[source_begin as usize .. source_end as usize].to_string());
-                        }
-
-                        match &next_deco.data {
-                            DecorationData::Style { color } => {
-                                let source_begin = deco_begin as u32;
-                                let source_end   = deco_end   as u32;
-                                gui.widget_text(Key::Counter,
-                                    Props { 
-                                        font_face: FaceId::DEFAULT, 
-                                        font_size: self.font_size, 
-                                        text_color: *color,
-                                        ..Default::default()
-                                    },
-                                    self.text[source_begin as usize .. source_end as usize].to_string());
-                            }
-
-                            DecorationData::Replace { text, color } => {
-                                gui.widget_text(Key::Counter,
-                                    Props { 
-                                        font_face: FaceId::DEFAULT, 
-                                        font_size: self.font_size, 
-                                        text_color: *color,
-                                        ..Default::default()
-                                    },
-                                    text.to_string());
-                            }
-                        }
-
-                        if next_deco.text_end as usize <= line_end {
-                            deco_cursor += 1;
-                        }
-                        text_cursor = deco_end;
-                    }
-                    else {
-                        let source_begin = text_cursor as u32;
-                        let source_end   = line_end    as u32;
-                        gui.widget_text(Key::Counter,
-                            Props { 
-                                font_face: FaceId::DEFAULT, 
-                                font_size: self.font_size, 
-                                text_color: TokenClass::Default.color(),
-                                ..Default::default()
-                            },
-                            self.text[source_begin as usize .. source_end as usize].to_string());
-
-                        text_cursor = line_end;
-                    }
-                }
-            });
-            });
-
-            line_begin = line_end;
-
-            /*
-            // new item starts?
-            if let Some(item) = 
-                self.info.ast_info.items.iter()
-                .find(|item| item.source_range.begin.line == line_index + 1)
-            {
-                if let kibi::bbir::ItemData::Func(func_id) = self.info.items[item.item_id].data {
-                    // sync source & bytecode.
-                    for _ in src_lines..bc_lines {
-                        self.layout.append("\n", FaceId::DEFAULT, font_size, 0, 0);
-                    }
-                    for _ in bc_lines..src_lines {
-                        self.bc_layout.append("\n", FaceId::DEFAULT, font_size, 0, 0);
-                    }
-                    src_lines = src_lines.max(bc_lines);
-                    bc_lines  = bc_lines.max(src_lines);
-
-                    let func = &self.info.funcs[func_id];
-                    bc_lines += Self::add_bytecode_fn(func_id, func, font_size, &mut self.bc_layout, &mut self.reg_spans);
-                    active_items.push((item.source_range.end.line, bc_lines));
-                }
-            }
-            */
-
-            /*
-            let mut text_cursor = line_begin;
-            while text_cursor < line_end {
-                let next_deco =
-                    decos.get(deco_cursor)
-                    .filter(|deco| deco.text_begin as usize <= line_end);
-
-                if let Some(next_deco) = next_deco {
-                    let deco_begin = (next_deco.text_begin as usize).max(line_begin);
-                    let deco_end   = (next_deco.text_end   as usize).min(line_end);
-                    debug_assert!(deco_begin <= deco_end);
-
-                    if text_cursor < deco_begin {
-                        let source_begin = text_cursor as u32;
-                        let source_end   = deco_begin  as u32;
-
-                        let text_begin = self.layout.text().len() as u32;
-                        self.layout.append(&text[source_begin as usize .. source_end as usize], FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
-                        let text_end = self.layout.text().len() as u32;
-
-                        self.source_map.source_spans.push(SourceSpan {
-                            source_begin,
-                            source_end,
-                            data: SourceSpanData::TextRange { text_begin },
-                        });
-                        self.source_map.text_spans.push(TextSpan {
-                            text_begin,
-                            text_end,
-                            data: TextSpanData::SourceRange { source_begin },
-                        });
-                    }
-
-                    match &next_deco.data {
-                        DecorationData::Style { color } => {
-                            let source_begin = deco_begin as u32;
-                            let source_end   = deco_end   as u32;
-
-                            let text_begin = self.layout.text().len() as u32;
-                            self.layout.append(&text[source_begin as usize .. source_end as usize], FaceId::DEFAULT, font_size, *color, 0);
-                            let text_end = self.layout.text().len() as u32;
-
-                            self.source_map.source_spans.push(SourceSpan {
-                                source_begin,
-                                source_end,
-                                data: SourceSpanData::TextRange { text_begin },
-                            });
-                            self.source_map.text_spans.push(TextSpan {
-                                text_begin,
-                                text_end,
-                                data: TextSpanData::SourceRange { source_begin },
-                            });
-                        }
-
-                        DecorationData::Replace { text, color } => {
-                            let source_begin = deco_begin as u32;
-                            let source_end   = deco_end   as u32;
-
-                            let text_begin = self.layout.text().len() as u32;
-                            self.layout.append(text, FaceId::DEFAULT, font_size, *color, 0);
-                            let text_end = self.layout.text().len() as u32;
-
-                            self.source_map.source_spans.push(SourceSpan {
-                                source_begin,
-                                source_end,
-                                data: SourceSpanData::None,
-                            });
-                            self.source_map.text_spans.push(TextSpan {
-                                text_begin,
-                                text_end,
-                                data: TextSpanData::None,
-                            });
-                        }
-                    }
-
-                    if next_deco.text_end as usize <= line_end {
-                        deco_cursor += 1;
-                    }
-                    text_cursor = deco_end;
-                }
-                else {
-                    let source_begin = text_cursor as u32;
-                    let source_end   = line_end    as u32;
-
-                    let text_begin = self.layout.text().len() as u32;
-                    self.layout.append(&text[source_begin as usize .. source_end as usize], FaceId::DEFAULT, font_size, TokenClass::Default.color(), 0);
-                    let text_end = self.layout.text().len() as u32;
-
-                    self.source_map.source_spans.push(SourceSpan {
-                        source_begin,
-                        source_end,
-                        data: SourceSpanData::TextRange { text_begin },
-                    });
-                    self.source_map.text_spans.push(TextSpan {
-                        text_begin,
-                        text_end,
-                        data: TextSpanData::SourceRange { source_begin },
-                    });
-
-                    text_cursor = line_end;
-                }
-            }
-
-            line_index += 1;
-            line_begin = line_end;
-            src_lines += 1;
-
-            // old item expired? -> pad source.
-            while let Some((source_line_end, bc_line_end)) = active_items.last().copied() {
-                if source_line_end <= line_index {
-                    for _ in src_lines..bc_line_end {
-                        self.layout.append("\n", FaceId::DEFAULT, font_size, 0, 0);
-                    }
-                    src_lines = src_lines.max(bc_line_end);
-                    active_items.pop();
-                }
-                else { break }
-            }
-            */
-        }
+        let mut r = CodeViewRenderer {
+            deco_index: 0,
+            line_begin: 0,
+            line_index: 1,
+        };
+        r.render(self, gui);
 
         self.inserted_semicolons = new_semis;
         self.syntax_highlighting = new_syntax;
@@ -1304,6 +1079,274 @@ impl NewCodeView {
         }
 
         changed
+    }
+}
+
+struct CodeViewRenderer {
+    deco_index: usize,
+    line_begin: usize,
+    line_index: usize,
+}
+
+impl CodeViewRenderer {
+    fn render_line(&mut self, line_begin: usize, line_end: usize, view: &NewCodeView, gui: &mut Gui) {
+        let mut text_cursor = line_begin;
+        while text_cursor < line_end {
+            let next_deco =
+                view.decos.get(self.deco_index)
+                .filter(|deco| deco.text_begin as usize <= line_end);
+
+            if let Some(next_deco) = next_deco {
+                let deco_begin = (next_deco.text_begin as usize).max(line_begin);
+                let deco_end   = (next_deco.text_end   as usize).min(line_end);
+                debug_assert!(deco_begin <= deco_end);
+
+                if text_cursor < deco_begin {
+                    let source_begin = text_cursor as u32;
+                    let source_end   = deco_begin  as u32;
+                    gui.widget_text(Key::Counter,
+                        Props { 
+                            font_face: FaceId::DEFAULT, 
+                            font_size: view.font_size, 
+                            text_color: TokenClass::Default.color(), 
+                            ..Default::default()
+                        },
+                        view.text[source_begin as usize .. source_end as usize].to_string());
+                }
+
+                match &next_deco.data {
+                    DecorationData::Style { color } => {
+                        let source_begin = deco_begin as u32;
+                        let source_end   = deco_end   as u32;
+                        gui.widget_text(Key::Counter,
+                            Props { 
+                                font_face: FaceId::DEFAULT, 
+                                font_size: view.font_size, 
+                                text_color: *color,
+                                ..Default::default()
+                            },
+                            view.text[source_begin as usize .. source_end as usize].to_string());
+                    }
+
+                    DecorationData::Replace { text, color } => {
+                        gui.widget_text(Key::Counter,
+                            Props { 
+                                font_face: FaceId::DEFAULT, 
+                                font_size: view.font_size, 
+                                text_color: *color,
+                                ..Default::default()
+                            },
+                            text.to_string());
+                    }
+                }
+
+                if next_deco.text_end as usize <= line_end {
+                    self.deco_index += 1;
+                }
+                text_cursor = deco_end;
+            }
+            else {
+                let source_begin = text_cursor as u32;
+                let source_end   = line_end    as u32;
+                gui.widget_text(Key::Counter,
+                    Props { 
+                        font_face: FaceId::DEFAULT, 
+                        font_size: view.font_size, 
+                        text_color: TokenClass::Default.color(),
+                        ..Default::default()
+                    },
+                    view.text[source_begin as usize .. source_end as usize].to_string());
+
+                text_cursor = line_end;
+            }
+        }
+    }
+
+    fn render_item(&mut self, item: &ItemInfo, view: &NewCodeView, gui: &mut Gui) {
+        if let kibi::bbir::ItemData::Func(func_id) = view.info.items[item.item_id].data {
+            self.render_func(func_id, view, gui)
+        }
+    }
+
+    fn render_reg(&mut self, func: kibi::FunctionId, pc: u16, reg: u8, view: &NewCodeView, gui: &mut Gui) {
+        let _ = (func, pc);
+
+        gui.widget_text(Key::Counter,
+            Props { 
+                font_face: FaceId::DEFAULT, 
+                font_size: view.font_size, 
+                text_color: TokenClass::Default.color(),
+                ..Default::default()
+            },
+            format!("r{reg}"));
+    }
+
+    fn render_func(&mut self, func_id: kibi::FunctionId, view: &NewCodeView, gui: &mut Gui) {
+        let func = &view.info.funcs[func_id];
+
+        fn text(text: String, color: u32, view: &NewCodeView, gui: &mut Gui) {
+            gui.widget_text(Key::Counter,
+                Props { 
+                    font_face: FaceId::DEFAULT, 
+                    font_size: view.font_size, 
+                    text_color: color,
+                    ..Default::default()
+                },
+                text);
+        }
+
+        let kibi::FuncCode::ByteCode(code) = &func.code else { unreachable!() };
+        let code = kibi::bytecode::ByteCodeDecoder::decode(code).unwrap();
+        for instr in &code {
+            let name = instr.name();
+
+            gui.widget_text(Key::Counter,
+                Props { 
+                    font_face: FaceId::DEFAULT, 
+                    font_size: view.font_size, 
+                    text_color: TokenClass::Comment.color(),
+                    ..Default::default()
+                },
+                format!("{:03} ", instr.pc));
+
+            gui.widget_text(Key::Counter,
+                Props { 
+                    font_face: FaceId::DEFAULT, 
+                    font_size: view.font_size, 
+                    text_color: TokenClass::Default.color(),
+                    ..Default::default()
+                },
+                format!("{:11} ", name));
+
+            use kibi::bytecode::InstrData::*;
+            match &instr.data {
+                Nop => (),
+                Unreachable => (),
+
+                LoadNil  { dst } |
+                LoadEnv  { dst } |
+                LoadUnit { dst } |
+                MapNew   { dst } => {
+                    self.render_reg(func_id, instr.pc + 1, *dst, view, gui);
+                }
+
+                Swap { dst, src } => {
+                    self.render_reg(func_id, instr.pc, *dst, view, gui);
+                    text(format!(", "), TokenClass::Default.color(), view, gui);
+                    self.render_reg(func_id, instr.pc, *src, view, gui);
+                }
+
+                Copy { dst, src } |
+                Op1  { dst, src } => {
+                    self.render_reg(func_id, instr.pc + 1, *dst, view, gui);
+                    text(format!(", "), TokenClass::Default.color(), view, gui);
+                    self.render_reg(func_id, instr.pc, *src, view, gui);
+                }
+
+                Op2 { dst, src1, src2 } => {
+                    self.render_reg(func_id, instr.pc + 1, *dst, view, gui);
+                    text(format!(", "), TokenClass::Default.color(), view, gui);
+                    self.render_reg(func_id, instr.pc, *src1, view, gui);
+                    text(format!(", "), TokenClass::Default.color(), view, gui);
+                    self.render_reg(func_id, instr.pc, *src2, view, gui);
+                }
+
+
+                LoadBool { dst, value } => {
+                    self.render_reg(func_id, instr.pc + 1, *dst, view, gui);
+                    text(format!(", "), TokenClass::Default.color(), view, gui);
+                    text(format!("{value}"), TokenClass::from_data(kibi::TokenData::Bool(false)).color(), view, gui);
+                }
+
+                LoadInt   { dst, value } |
+                AddInt    { dst, value } => {
+                    self.render_reg(func_id, instr.pc + 1, *dst, view, gui);
+                    text(format!(", "), TokenClass::Default.color(), view, gui);
+                    text(format!("{value}"), TokenClass::from_data(kibi::TokenData::Number("")).color(), view, gui);
+                }
+
+                LoadConst { dst, index } => {
+                    self.render_reg(func_id, instr.pc + 1, *dst, view, gui);
+                    text(format!(", "), TokenClass::Default.color(), view, gui);
+                    // @todo: render the const's value.
+                    text(format!("c{index}"), TokenClass::Default.color(), view, gui);
+                }
+
+                ListNew  { dst, values } |
+                TupleNew { dst, values } => {
+                    let _ = (dst, values);
+                    text(format!("..."), TokenClass::Comment.color(), view, gui);
+                }
+
+
+                ReadPath { dst, base, keys } => {
+                    let _ = (dst, base, keys);
+                    text(format!("..."), TokenClass::Comment.color(), view, gui);
+                }
+
+                WritePath { base, keys, value } => {
+                    let _ = (base, keys, value);
+                    text(format!("..."), TokenClass::Comment.color(), view, gui);
+                }
+
+
+                Jump { target } => {
+                    text(format!("{target}"), TokenClass::Default.color(), view, gui);
+                }
+
+                JumpC1 { target, src } => {
+                    self.render_reg(func_id, instr.pc, *src, view, gui);
+                    text(format!(", {target}"), TokenClass::Default.color(), view, gui);
+                }
+
+                Call { dst, func, args } => {
+                    let _ = (dst, func, args);
+                    text(format!("..."), TokenClass::Comment.color(), view, gui);
+                }
+
+                Ret { src } => {
+                    self.render_reg(func_id, instr.pc, *src, view, gui);
+                }
+            }
+            text(format!("\n"), TokenClass::Default.color(), view, gui);
+        }
+    }
+
+    fn render(&mut self, view: &NewCodeView, gui: &mut Gui) {
+        while self.line_index < view.lines.len() {
+            let mut row_props = Props::new();
+            row_props.layout = Layout::Flex(FlexLayout::default());
+
+            let next_item =
+                view.info.ast_info.items.iter()
+                .filter(|item| item.source_range.begin.line as usize >= self.line_index)
+                .min_by(|i1, i2| i1.source_range.begin.line.cmp(&i2.source_range.begin.line));
+
+            let mut row_line_end = view.lines.len();
+            if let Some(next_item) = next_item {
+                row_line_end = next_item.source_range.end.line as usize + 1;
+            }
+
+            gui.widget_box(Key::Counter, row_props, |gui| {
+                gui.widget_box(Key::Counter, Props::new(), |gui| {
+                    while self.line_index < row_line_end {
+                        let line_begin = self.line_begin;
+                        let line_end = view.lines[self.line_index] as usize;
+
+                        self.render_line(line_begin, line_end, view, gui);
+
+                        self.line_begin = line_end;
+                        self.line_index += 1;
+                    }
+                });
+
+                gui.widget_box(Key::Counter, Props::new(), |gui| {
+                    if let Some(item) = next_item {
+                        self.render_item(item, view, gui);
+                    }
+                });
+            });
+        }
     }
 }
 

@@ -35,7 +35,10 @@
 - todo: explorer.
     - imgui thing:
         - port explorer gui.
-            - render bytecode.
+            - fix item end thing.
+                - compute first item before loop.
+                - then find next item in loop, use that or lines.len() as the row_line_end.
+            - grid layout.
             - interaction.
             - canvas positioning:
                 - we'll need absolute positions (inside a `None` layout).
