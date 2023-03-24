@@ -100,6 +100,7 @@ pub struct FlexLayout {
 pub struct Props {
     pub layout: Layout,
 
+    pub pos:  [Option<f32>; 2],
     pub size: [Option<f32>; 2],
     pub flex_grow: f32,
 
@@ -138,6 +139,7 @@ impl Default for Props {
         Props {
             layout: Layout::default(),
 
+            pos:  [None; 2],
             size: [None; 2],
             flex_grow: 0.,
 
@@ -823,6 +825,9 @@ impl Gui {
                                 layout_pass(this, current, [None, None]);
 
                                 let child = &mut this.widgets[current];
+                                child.pos = [
+                                    child.props.pos[0].unwrap_or(0.0),
+                                    child.props.pos[1].unwrap_or(0.0)];
                                 at = child.next_render_sibling;
                             }
 

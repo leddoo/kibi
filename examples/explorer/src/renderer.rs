@@ -431,6 +431,11 @@ impl TextLayout {
                 let glyph_index = face.font.lookup_glyph_index(c);
                 let metrics     = face.font.metrics_indexed(glyph_index, *font_size);
 
+                // @todo-speed: we don't actually need to compute dx/dy here.
+                //  (cause we're not doing advanced shaping.)
+                //  the renderer also has access to the glyph's `Metrics`.
+                //  so we only need the advance here. sadly we can only get that from
+                //  the glyph's metrics (which are somewhat expensive to compute).
                 self.glyphs.push(Glyph {
                     index: glyph_index,
                     advance: metrics.advance_width,

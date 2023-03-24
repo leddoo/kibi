@@ -1,15 +1,12 @@
 
 - next steps:
-    - debug info.
-        - better source info (eg: `ast::Block::source`, `ast::Op1::op_source`).
-        - variable mapping.
+    - explorer:
+        - code view.
+        - step debugger.
+    - wasm.
+        - nominal structs, enums & traits, typeid.
         - better runtime errors.
-    - proper maps.
-    - nominal structs, enums & traits.
-        - typeid.
     - macros, modules, multithreading.
-        - yeah, kinda unnecessary atm.
-        - but getting these 3 to work together later sounds like a nightmare.
     - error handling:
         - try operator.
         - pcall.
@@ -19,45 +16,50 @@
         - so `&*` to inout boxed value?
         - compiler could do implicit stuff if has types.
         - fix gc.
-    - vm optimization.
-        - state in locals.
-        - typed operations. checked before execution, impl unsafe (in release).
-        - generic ops -> slower "trait call".
-        - unboxed stack values.
-    - debugging.
-        - mapping all source values to registers/instr_indices.
-            - should be possible since we're not eliminating dead code (yet).
-            - still, need an optimization log for the dead copy elim.
-            - that can coalesce variables.
-    - ui.
 
 
 - todo: explorer.
-    - imgui thing:
-        - port explorer gui.
-            - fix item end thing.
-                - compute first item before loop.
-                - then find next item in loop, use that or lines.len() as the row_line_end.
-            - grid layout.
-            - interaction.
-            - canvas positioning:
-                - we'll need absolute positions (inside a `None` layout).
-                - maybe add scaling?
-            - text background fill.
-                - text widgets in text layout's render children list.
-                - hit_test_range in `draw` before drawing text layout.
-        - sub-tree skipping:
-            - pass `skip: bool` to widget_box.
-            - also sub-tree `no_skip` override -> can set on root node for full update, ignores local caches. useful for stuff like theme, so you don't need fine grained dependency tracking.
-            - gui skips child fn if there are no events in the sub-tree.
-        - mouse capture.
+    - mouse capture.
+        - proper canvas panning.
+        - treat `offset` as part of "canvas state".
+    - event bubbling.
+        - unless "stop propagation".
+        - right click drag moves canvas.
+    - overflow.
+        - don't skip child hit testing if widget has overflow.
+    - control flow info.
+        - generate it.
+        - use it: align basic blocks with code.
+    - inline bytecode.
+        - line based.
+        - global option for "show bytecode" with per-line overrides.
+            - tri-state logic: show/hide/default.
+            - show if: `not global_hide and ((global_show and not local_hide) or local_show)`
+        - later: ability to split a line's bytecode -> have two lines with same source code, but irrelevant parts are grayed out.
+    - windows:
+        - clipping.
+        - scrolling.
+        - code view as window with scrolling (optional, otherwise grow).
+    - sub-tree skipping:
+        - pass `skip: bool` to widget_box.
+        - also sub-tree `no_skip` override -> can set on root node for full update, ignores local caches. useful for stuff like theme, so you don't need fine grained dependency tracking.
+        - gui skips child fn if there are no events in the sub-tree.
+        - key must not be counter.
+    - stuff:
+        - ast child visitors.
+        - properly sort decorations.
+        - handle conflicting replacements.
+    - ui stuff:
+        - text background fill.
+            - text widgets in text layout's render children list.
+            - hit_test_range in `draw` before drawing text layout.
         - inline widgets.
             - text layout inline objects & layout function (store glyph advances).
             - text layout widget render children list (layout inline widgets first).
         - flex grow.
         - flex justify gaps.
-        - overflow & scrolling.
-            - cache calls to layout_pass: store given_size on widget (clear in intrinsic pass).
+        - cache calls to layout_pass: store given_size on widget (clear in intrinsic pass).
+        - grid layout.
         - overlays?
             - for drop downs, tool tips, etc.
             - are like regular children (in some parent down the tree).
@@ -65,23 +67,6 @@
             - positioned relative to some other widget,
             - drawn on top of all other widgets.
         - text layout word wrapping.
-        - stuff:
-            - could do anim by messing with the widget props directly.
-                - after update loop, before render.
-                - -> don't need to visit the widget.
-    - control flow info.
-        - generate it.
-        - use it: align basic blocks with code.
-    - stuff:
-        - ast child visitors.
-        - properly sort decorations.
-        - handle conflicting replacements.
-    - ideas:
-        - line based.
-        - ability to split a line's bytecode -> have two lines with same source code, but irrelevant parts are grayed out.
-        - global option for "show bytecode" with per-line overrides.
-            - tri-state logic: show/hide/default.
-            - show if: `not global_hide and ((global_show and not local_hide) or local_show)`
 
 - todo: debug info.
     - node info for pc.
