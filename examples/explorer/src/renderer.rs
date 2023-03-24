@@ -408,16 +408,18 @@ impl TextLayout {
         let face  = &fonts.faces[face_id.usize()];
 
         let font_metrics = face.font.horizontal_line_metrics(*font_size).unwrap();
-        current_line.max_ascent  = current_line.max_ascent.max(font_metrics.ascent);
-        current_line.max_descent = current_line.max_descent.max(-font_metrics.descent);
-        current_line.max_gap     = current_line.max_gap.max(font_metrics.line_gap);
-        current_line.height = current_line.max_ascent + current_line.max_descent + current_line.max_gap;
 
         let mut text = text;
         while text.len() > 0 {
             let (segment_end, is_line) =
                 text.find('\n').map(|index| (index, true))
                 .unwrap_or((text.len(), false));
+
+            // update line metrics.
+            current_line.max_ascent  = current_line.max_ascent.max(font_metrics.ascent);
+            current_line.max_descent = current_line.max_descent.max(-font_metrics.descent);
+            current_line.max_gap     = current_line.max_gap.max(font_metrics.line_gap);
+            current_line.height = current_line.max_ascent + current_line.max_descent + current_line.max_gap;
 
             let pos_begin = pos_cursor;
 
@@ -465,16 +467,14 @@ impl TextLayout {
                 let text_begin = line_end + 1;
                 let span_begin = self.spans.len()  as u32;
 
-                let max_ascent  = font_metrics.ascent;
-                let max_descent = -font_metrics.descent;
-                let max_gap     = font_metrics.line_gap;
-
                 self.lines.push(Line {
                     text_begin, text_end: text_begin,
                     span_begin, span_end: span_begin,
                     width: 0.0,
-                    max_ascent, max_descent, max_gap,
-                    height: max_ascent+ max_descent + max_gap,
+                    max_ascent:  0.0,
+                    max_descent: 0.0,
+                    max_gap:     0.0,
+                    height:      0.0,
                 });
 
                 current_line = self.lines.last_mut().unwrap();

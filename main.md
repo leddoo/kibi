@@ -35,7 +35,6 @@
 - todo: explorer.
     - imgui thing:
         - port explorer gui.
-            - what to do about those newlines?
             - render bytecode.
             - interaction.
             - canvas positioning:
@@ -56,6 +55,12 @@
         - flex justify gaps.
         - overflow & scrolling.
             - cache calls to layout_pass: store given_size on widget (clear in intrinsic pass).
+        - overlays?
+            - for drop downs, tool tips, etc.
+            - are like regular children (in some parent down the tree).
+            - but are don't affect layout,
+            - positioned relative to some other widget,
+            - drawn on top of all other widgets.
         - text layout word wrapping.
         - stuff:
             - could do anim by messing with the widget props directly.

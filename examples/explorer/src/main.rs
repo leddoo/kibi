@@ -1076,7 +1076,8 @@ impl NewCodeView {
             // we'll need a recursive function for nested items now.
             // so have like a `Renderer` or something for the line state.
 
-            gui.widget_box(Key::U64(line_begin as u64), line_props, |gui|{
+            gui.widget_box(Key::U64(line_begin as u64), line_props, |gui| {
+            gui.widget_box(Key::Counter, Props::new(), |gui| {
                 let mut text_cursor = line_begin;
                 while text_cursor < line_end {
                     let next_deco =
@@ -1147,6 +1148,7 @@ impl NewCodeView {
                         text_cursor = line_end;
                     }
                 }
+            });
             });
 
             line_begin = line_end;
@@ -1359,18 +1361,20 @@ impl Explorer {
 
             let gui = &mut self.gui;
 
+            let root_size = [size.0 as f32, size.1 as f32];
+
             let mut changed = never_updated;
             for _ in 0..10 {
-                if !gui.mouse_move(mx, my)
+                if !gui.root_size(root_size)
+                && !gui.mouse_move(mx, my)
                 && !gui.mouse_down(mdown)
                 && !changed {
                     break;
                 }
 
-                let root_size = [size.0 as f32, size.1 as f32];
                 let root_props = Props::new();
 
-                changed = gui.update(root_size, root_props, |gui| {
+                changed = gui.update(root_props, |gui| {
                     self.new_code.render(gui)
                 });
 

@@ -289,6 +289,7 @@ pub struct Gui {
 
     fonts: FontCtx,
 
+    root_size:  [f32; 2],
     mouse_pos:  [f32; 2],
     mouse_down: bool,
 
@@ -332,7 +333,8 @@ impl Gui {
 
             fonts: fonts.clone(),
 
-            mouse_pos:  [0.; 2],
+            root_size:  [0.0; 2],
+            mouse_pos:  [0.0; 2],
             mouse_down: false,
 
             prev_hovered: 0,
@@ -723,7 +725,7 @@ impl Gui {
     }
 
 
-    pub fn layout(&mut self, root_size: [f32; 2]) {
+    pub fn layout(&mut self) {
         fn intrinsic_pass(this: &mut Gui, widget_index: usize) {
             // reset layout.
             let widget = &mut this.widgets[widget_index];
@@ -930,7 +932,7 @@ impl Gui {
         }
 
         intrinsic_pass(self, 0);
-        layout_pass(self, 0, [Some(root_size[0]), Some(root_size[1])]);
+        layout_pass(self, 0, [Some(self.root_size[0]), Some(self.root_size[1])]);
     }
 
 
@@ -974,14 +976,22 @@ impl Gui {
     }
 
 
-    pub fn update<F: FnOnce(&mut Gui) -> bool>(&mut self, root_size: [f32; 2], root_props: Props, f: F) -> bool {
+    pub fn update<F: FnOnce(&mut Gui) -> bool>(&mut self, root_props: Props, f: F) -> bool {
         self.begin(root_props);
         let result = f(self);
         self.end();
-        self.layout(root_size);
+        self.layout();
         result
     }
 
+
+    pub fn root_size(&mut self, root_size: [f32; 2]) -> bool {
+        if self.root_size == root_size {
+            return false;
+        }
+        self.root_size = root_size;
+        return true;
+    }
 
     pub fn mouse_move(&mut self, mx: f32, my: f32) -> bool {
         if mx == self.mouse_pos[0] && my == self.mouse_pos[1] {
