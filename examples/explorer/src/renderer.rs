@@ -52,14 +52,13 @@ impl Renderer {
 
         if x0 == x1 || y0 == y1 { return }
 
-        let buf  = self.target.get_data_mut();
-        let base = buf.as_mut_ptr();
+        let buf = self.target.get_data_mut();
 
         let mut offset = y0 * tw as usize;
         for _ in y0..y1 {
             let mut x = x0;
 
-            let offset_ptr = unsafe { base.add(offset) };
+            let offset_ptr = unsafe { buf.as_mut_ptr().add(offset) };
 
             let x1_8 = x0 + ((x1 - x0) & !(8 - 1));
             while x < x1_8 { unsafe {

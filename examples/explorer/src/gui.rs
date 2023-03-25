@@ -276,6 +276,7 @@ struct WidgetId(u32);
 #[derive(Clone, Copy, Debug)]
 pub struct WidgetEvents {
     widget: u32,
+    pub local_offset:    [f32; 2],
 
     pub prev_mouse_pos:  [f32; 2],
     pub mouse_pos:       [f32; 2],
@@ -333,6 +334,12 @@ impl WidgetEvents {
     pub fn mouse_went_up(&self, button: MouseButton) -> bool {
         !self.mouse_down[button as usize] && self.prev_mouse_down[button as usize]
     }
+
+    #[inline(always)]
+    pub fn local_mouse_pos(&self) -> [f32; 2] {
+        [self.mouse_pos[0] - self.local_offset[0],
+         self.mouse_pos[1] - self.local_offset[1]]
+    }
 }
 
 
@@ -344,6 +351,7 @@ pub struct Gui {
 
     current_parent:  usize,
     current_counter: u32,
+    current_offset:  [f32; 2],
 
     fonts: FontCtx,
 
@@ -353,7 +361,8 @@ pub struct Gui {
 
     hovered: u32,
     active:  u32,
-    mouse_capture: bool,
+    mouse_capture:     bool,
+    mouse_capture_pos: [f32; 2], // widget local position
 
     // stuff for events.
     prev_mouse_pos:  [f32; 2],
@@ -394,6 +403,7 @@ impl Gui {
 
             current_parent:  usize::MAX,
             current_counter: 0,
+            current_offset:  [0.0; 2],
 
             fonts: fonts.clone(),
 
@@ -403,7 +413,8 @@ impl Gui {
 
             hovered: 0,
             active:  0,
-            mouse_capture: false,
+            mouse_capture:     false,
+            mouse_capture_pos: [0.0; 2],
 
             prev_mouse_pos:  [0.0; 2],
             prev_mouse_down: [false; 3],
@@ -463,6 +474,7 @@ impl Gui {
         assert_eq!(self.current_parent, usize::MAX);
         self.current_parent  = 0;
         self.current_counter = 0;
+        self.current_offset  = [0.0; 2];
 
         self.widgets[0].begin(self.gen, root_props, WidgetData::Box(BoxData::default()));
     }
@@ -760,8 +772,15 @@ impl Gui {
             if mouse_events { (self.prev_mouse_pos, self.prev_mouse_down) }
             else            { (self.mouse_pos,      self.mouse_down)      };
 
+        let w = &self.widgets[widget.get() as usize];
+        let local_offset = [
+            self.current_offset[0] + w.pos[0],
+            self.current_offset[1] + w.pos[1],
+        ];
+
         WidgetEvents {
             widget: widget.get(),
+            local_offset,
             prev_mouse_pos,  mouse_pos:  self.mouse_pos,
             prev_mouse_down, mouse_down: self.mouse_down,
             prev_hovered, hovered,
@@ -793,17 +812,23 @@ impl Gui {
     pub fn widget_box<F: FnOnce(&mut Gui)>(&mut self, key: Key, props: Props, f: F) -> WidgetEvents {
         let widget = self.new_widget_from_user_key(key, props, WidgetData::Box(BoxData::default()));
 
+        let pos = self.widgets[widget.get() as usize].pos;
+
         // visit children.
         let old_parent  = self.current_parent;
         let old_counter = self.current_counter;
+        let old_offset  = self.current_offset;
         self.current_parent  = widget.get() as usize;
         self.current_counter = 0;
+        self.current_offset[0] += pos[0];
+        self.current_offset[1] += pos[1];
         f(self);
 
         self.render_children();
 
         self.current_parent  = old_parent;
         self.current_counter = old_counter;
+        self.current_offset  = old_offset;
 
         self.widget_events(widget)
     }
@@ -1138,9 +1163,14 @@ impl Gui {
     }
 
     pub fn capture_mouse(&mut self, events: &WidgetEvents) {
-        if self.active == events.widget {
+        if self.active == events.widget && !self.mouse_capture {
+            self.mouse_capture_pos = events.local_mouse_pos();
             self.mouse_capture = true;
         }
+    }
+
+    pub fn capture_pos(&self) -> [f32; 2] {
+        self.mouse_capture_pos
     }
 
     #[allow(dead_code)] // @temp

@@ -20,8 +20,8 @@
 
 - todo: explorer.
     - draggy things:
+        - any button capture, ends when relevant button is released.
         - reset event stuff when freeing widgets.
-        - local offset.
         - proper canvas panning.
             - store down pos. (instead of using mouse deltas)
         - treat `offset` as part of "canvas state".
@@ -30,6 +30,7 @@
         - right click drag moves canvas.
     - overflow.
         - don't skip child hit testing if widget has overflow.
+
     - control flow info.
         - generate it.
         - use it: align basic blocks with code.
@@ -54,6 +55,7 @@
         - properly sort decorations.
         - handle conflicting replacements.
     - ui stuff:
+        - change style props after widget creation (active highlight).
         - text background fill.
             - text widgets in text layout's render children list.
             - hit_test_range in `draw` before drawing text layout.

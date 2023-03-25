@@ -1,4 +1,3 @@
-use core::cell::Cell;
 use minifb::{Window, WindowOptions};
 use kibi::index_vec::*;
 use kibi::ast::*;
@@ -363,8 +362,6 @@ struct CodeView {
     info:  CodeInfo<'static>,
 
     decos: Vec<Decoration>,
-
-    font_size_slider: Slider,
 }
 
 impl CodeView {
@@ -381,8 +378,6 @@ impl CodeView {
             info:   CodeInfo::new(""),
 
             decos: vec![],
-
-            font_size_slider: Slider::new(),
         }
     }
 
@@ -475,7 +470,7 @@ impl CodeView {
                 changed = true;
             }
 
-            if let Some(value) = self.font_size_slider.render(gui, self.font_size, 12.0, 32.0) {
+            if let Some(value) = Slider::render(gui, self.font_size, 12.0, 32.0) {
                 new_font_size = value;
                 changed = true;
             }
@@ -500,18 +495,12 @@ impl CodeView {
 }
 
 
+// @temp: put on theme gui context whatever thing.
 struct Slider {
-    down_pos: Cell<f32>,
-    // @temp: compute from local origin instead.
-    down_value: Cell<f32>,
 }
 
 impl Slider {
-    pub fn new() -> Slider {
-        Slider { down_pos: Cell::new(0.0), down_value: Cell::new(0.0) }
-    }
-
-    pub fn render(&self, gui: &mut Gui, value: f32, min: f32, max: f32) -> Option<f32> {
+    pub fn render(gui: &mut Gui, value: f32, min: f32, max: f32) -> Option<f32> {
         let mut new_value = value;
 
         let width  = 100.0;
@@ -531,20 +520,16 @@ impl Slider {
 
             let events = gui.widget_box(Key::Counter, head_props, |_| {});
             if events.active_begin() {
-                self.down_pos.set(events.mouse_pos[0]);
-                self.down_value.set(value);
                 gui.capture_mouse(&events);
             }
             if events.active && events.mouse_moved() {
-                let x = events.mouse_pos[0] - self.down_pos.get();
-                let v = self.down_value.get() + x / (width - head_size) * (max - min);
-                new_value = v.clamp(min, max);
-            }
-            if events.mouse_went_down(MouseButton::Left) {
-                println!("slider mouse left down");
-            }
-            if events.mouse_went_up(MouseButton::Left) {
-                println!("slider mouse left up");
+                let offset_target = gui.capture_pos()[0];
+                let offset = events.local_mouse_pos()[0];
+
+                let dx = offset - offset_target;
+                let dv = dx / (width - head_size) * (max - min);
+
+                new_value = (value + dv).clamp(min, max);
             }
         });
 
