@@ -361,7 +361,7 @@ pub struct Gui {
 
     hovered: u32,
     active:  u32,
-    mouse_capture:     bool,
+    mouse_capture:     Option<(MouseButton, u32)>,
     mouse_capture_pos: [f32; 2], // widget local position
 
     // stuff for events.
@@ -369,7 +369,7 @@ pub struct Gui {
     prev_mouse_down: [bool; 3],
     prev_hovered: u32,
     prev_active:  u32,
-    prev_mouse_capture: bool,
+    prev_mouse_capture: Option<(MouseButton, u32)>,
 }
 
 impl Gui {
@@ -413,14 +413,14 @@ impl Gui {
 
             hovered: 0,
             active:  0,
-            mouse_capture:     false,
+            mouse_capture:     None,
             mouse_capture_pos: [0.0; 2],
 
             prev_mouse_pos:  [0.0; 2],
             prev_mouse_down: [false; 3],
             prev_hovered: 0,
             prev_active:  0,
-            prev_mouse_capture: false,
+            prev_mouse_capture: None,
         }
     }
 
@@ -765,7 +765,9 @@ impl Gui {
         let active       = self.active       == widget.get();
 
         let mouse_events =
-            if self.prev_mouse_capture { prev_active }
+            if let Some((_, capture_widget)) = self.prev_mouse_capture {
+                widget.get() == capture_widget
+            }
             else { hovered && prev_hovered };
 
         let (prev_mouse_pos, prev_mouse_down) =
@@ -1118,8 +1120,6 @@ impl Gui {
 
         let hit = self.hit_test_filtered(mx, my, |hit| self.widgets[hit].props.pointer_events);
 
-        let prev_hovered = self.hovered;
-
         if let Some(hit) = hit {
             self.hovered = hit.0;
         }
@@ -1127,7 +1127,7 @@ impl Gui {
             self.hovered = 0;
         }
 
-        return self.hovered != prev_hovered;
+        return true;
     }
 
     pub fn mouse_down(&mut self, is_down: bool, button: MouseButton) -> bool {
@@ -1144,6 +1144,14 @@ impl Gui {
         //  - bubbling: any of their ancestors.
         let mut update = true;
 
+        if is_down == false {
+            if let Some((capture_button, _)) = self.mouse_capture {
+                if capture_button == button {
+                    self.mouse_capture = None;
+                }
+            }
+        }
+
         if button == MouseButton::Left {
             let prev_active = self.active;
 
@@ -1154,30 +1162,35 @@ impl Gui {
                 self.active = 0;
             }
 
-            self.mouse_capture = false;
-
             update |= self.active != prev_active;
         }
 
         return update;
     }
 
-    pub fn capture_mouse(&mut self, events: &WidgetEvents) {
-        if self.active == events.widget && !self.mouse_capture {
+    pub fn capture_mouse(&mut self, events: &WidgetEvents) -> bool {
+        let button =
+            if      events.mouse_went_down(MouseButton::Left)   { MouseButton::Left }
+            else if events.mouse_went_down(MouseButton::Middle) { MouseButton::Middle }
+            else if events.mouse_went_down(MouseButton::Right)  { MouseButton::Right }
+            else { return false };
+
+        if self.mouse_capture.is_none() {
             self.mouse_capture_pos = events.local_mouse_pos();
-            self.mouse_capture = true;
+            self.mouse_capture = Some((button, events.widget));
+            return true;
         }
+
+        false
     }
 
-    pub fn capture_pos(&self) -> [f32; 2] {
+    #[inline(always)]
+    pub fn mouse_capture_pos(&self) -> [f32; 2] {
         self.mouse_capture_pos
     }
 
-    #[allow(dead_code)] // @temp
-    pub fn release_mouse(&mut self, events: &WidgetEvents) {
-        if self.active == events.widget {
-            self.mouse_capture = false;
-        }
+    pub fn has_mouse_capture(&self, events: &WidgetEvents) -> bool {
+        matches!(self.prev_mouse_capture, Some((_, widget)) if widget == events.widget)
     }
 }
 

@@ -20,11 +20,7 @@
 
 - todo: explorer.
     - draggy things:
-        - any button capture, ends when relevant button is released.
         - reset event stuff when freeing widgets.
-        - proper canvas panning.
-            - store down pos. (instead of using mouse deltas)
-        - treat `offset` as part of "canvas state".
     - event bubbling.
         - buttons stop propagation, but rest of code view doesn't.
         - right click drag moves canvas.

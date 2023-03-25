@@ -522,8 +522,8 @@ impl Slider {
             if events.active_begin() {
                 gui.capture_mouse(&events);
             }
-            if events.active && events.mouse_moved() {
-                let offset_target = gui.capture_pos()[0];
+            if gui.has_mouse_capture(&events) && events.mouse_moved() {
+                let offset_target = gui.mouse_capture_pos()[0];
                 let offset = events.local_mouse_pos()[0];
 
                 let dx = offset - offset_target;
@@ -638,8 +638,8 @@ impl CodeViewRenderer {
             format!("r{reg}"));
 
         if let Some((dx, dy)) = events.mouse_delta() { println!("{func}.{pc}.{reg} mouse moved by {dx} {dy}") }
-        if events.mouse_went_down(MouseButton::Left)   { println!("{func}.{pc}.{reg} left down") }
-        if events.mouse_went_up(MouseButton::Left)     { println!("{func}.{pc}.{reg} left up") }
+        if events.mouse_went_down(MouseButton::Left) { println!("{func}.{pc}.{reg} left down") }
+        if events.mouse_went_up(MouseButton::Left)   { println!("{func}.{pc}.{reg} left up") }
     }
 
     fn render_func(&mut self, func_id: kibi::FunctionId, view: &CodeView, gui: &mut Gui) {
@@ -815,10 +815,9 @@ impl CodeViewRenderer {
 struct Explorer {
     window:   Window,
     renderer: Renderer,
-    offset:     (f32, f32),
-    last_mouse: (f32, f32),
     gui: Gui,
     code: CodeView,
+    offset: [f32; 2],
 }
 
 impl Explorer {
@@ -836,10 +835,9 @@ impl Explorer {
         Explorer {
             window,
             renderer: Renderer::new(&fonts),
-            offset:     (0., 0.),
-            last_mouse: (0., 0.),
             gui: Gui::new(&fonts),
             code: CodeView::new(),
+            offset: [0.0; 2],
         }
     }
 
@@ -850,13 +848,6 @@ impl Explorer {
             let size = self.window.get_size();
 
             let (mx, my) = self.window.get_mouse_pos(minifb::MouseMode::Pass).unwrap();
-            let mdx = mx - self.last_mouse.0;
-            let mdy = my - self.last_mouse.1;
-            if self.window.get_mouse_down(minifb::MouseButton::Right) {
-                self.offset.0 -= mdx;
-                self.offset.1 -= mdy;
-            }
-            self.last_mouse = (mx, my);
 
             let mdown_left   = self.window.get_mouse_down(minifb::MouseButton::Left);
             let mdown_middle = self.window.get_mouse_down(minifb::MouseButton::Middle);
@@ -867,7 +858,7 @@ impl Explorer {
 
             let root_size = [size.0 as f32, size.1 as f32];
 
-            let mut changed = never_updated || mdx != 0.0 || mdy != 0.0; // @temp
+            let mut changed = never_updated;
             let mut render  = changed;
             for _ in 0..10 {
                 let size_changed = gui.root_size(root_size);
@@ -892,14 +883,25 @@ impl Explorer {
                     canvas_props.size = [Some(root_size[0]),  Some(root_size[1])];
 
                     gui.widget_box(Key::Counter, canvas_props, |gui| {
-                        let mut body_props = Props::new();
+                        let mut body_props = Props::new().with_pointer_events();
                         body_props.layout = Layout::None;
-                        body_props.pos  = [Some(-self.offset.0), Some(-self.offset.1)];
+                        body_props.pos  = [Some(-self.offset[0]), Some(-self.offset[1])];
                         body_props.size = [Some(root_size[0]),  Some(root_size[1])];
 
-                        gui.widget_box(Key::Counter, body_props, |gui| {
+                        let events = gui.widget_box(Key::Counter, body_props, |gui| {
                             changed = self.code.render(gui);
                         });
+
+                        if events.mouse_went_down(MouseButton::Right) {
+                            gui.capture_mouse(&events);
+                        }
+                        if gui.has_mouse_capture(&events) && events.mouse_moved() {
+                            let offset_target = gui.mouse_capture_pos();
+                            let offset = events.local_mouse_pos();
+                            self.offset[0] -= offset[0] - offset_target[0];
+                            self.offset[1] -= offset[1] - offset_target[1];
+                            changed = true;
+                        }
                     });
 
                     changed
