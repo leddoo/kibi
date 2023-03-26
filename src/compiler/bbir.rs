@@ -2,18 +2,18 @@ use core::cell::{RefCell, Ref, RefMut};
 use derive_more::{Deref, DerefMut, Display};
 use crate::index_vec::*;
 use crate::macros::define_id;
-use super::{SourceRange, ItemId, NodeId, OptNodeId, Op1, Op2};
+use super::{ItemId, NodeId, OptNodeId, Op1, Op2};
 use super::{opt, transform};
 
 
 
 // ### Source Info ###
 
-pub type SourceInfoIn = (SourceRange, OptNodeId);
+pub type SourceInfoIn = (OptNodeId, OptNodeId);
 
 #[derive(Clone, Debug)]
 pub struct SourceInfo {
-    pub range:  SourceRange,
+    pub node:   OptNodeId,
     pub values: Vec<NodeId>,
 }
 
@@ -155,7 +155,7 @@ define_id!(LocalId, OptLocalId, "l{}");
 struct Local {
     id:     LocalId,
     name:   String,
-    source: SourceRange,
+    source: NodeId,
 }
 
 
@@ -753,7 +753,7 @@ impl Function {
 
     pub fn new_instr(&mut self, source: SourceInfoIn, data: InstrData) -> InstrId {
         let source = SourceInfo {
-            range: source.0,
+            node:   source.0,
             values: source.1.to_option().map_or(vec![], |node| vec![node]),
         };
         self.new_instr_ex(source, data)
@@ -1023,14 +1023,14 @@ impl Function {
 
 // locals
 impl Function {
-    pub fn new_param(&mut self, name: &str, source: SourceRange) -> LocalId {
+    pub fn new_param(&mut self, name: &str, source: NodeId) -> LocalId {
         let id = LocalId(self.locals.len() as u32);
         self.locals.push(Local { id, name: name.into(), source });
 
         let old_param_cursor = self.param_cursor;
 
         // "hoist params".
-        let param = self.new_instr((source, None.into()), InstrData::Param { id });
+        let param = self.new_instr((source.some(), None.into()), InstrData::Param { id });
         self.insert_after(BlockId::ENTRY, self.param_cursor, param);
         self.param_cursor = param.some();
         self.num_params  += 1;
@@ -1042,12 +1042,12 @@ impl Function {
         id
     }
 
-    pub fn new_local(&mut self, name: &str, source: SourceRange) -> LocalId {
+    pub fn new_local(&mut self, name: &str, source: NodeId) -> LocalId {
         let id = LocalId(self.locals.len() as u32);
         self.locals.push(Local { id, name: name.into(), source });
 
         // "hoist locals".
-        let local = self.new_instr((source, None.into()), InstrData::Local { id });
+        let local = self.new_instr((source.some(), None.into()), InstrData::Local { id });
         self.insert_after(BlockId::ENTRY, self.local_cursor, local);
         self.local_cursor = local.some();
 
@@ -1099,7 +1099,7 @@ impl Function {
         }
 
         let source = SourceInfo {
-            range: source.0,
+            node:   source.0,
             values: source.1.to_option().map_or(vec![], |node| vec![node]),
         };
 
@@ -1222,22 +1222,22 @@ impl Function {
     }
 
     #[inline]
-    pub fn instr_jump(&mut self, source: SourceRange, target: BlockId) -> InstrId {
+    pub fn instr_jump(&mut self, source: OptNodeId, target: BlockId) -> InstrId {
         self.add_instr((source, None.into()), InstrData::Jump { target })
     }
 
     #[inline]
-    pub fn instr_switch_bool(&mut self, source: SourceRange, src: InstrId, on_true: BlockId, on_false: BlockId) -> InstrId {
+    pub fn instr_switch_bool(&mut self, source: OptNodeId, src: InstrId, on_true: BlockId, on_false: BlockId) -> InstrId {
         self.add_instr((source, None.into()), InstrData::SwitchBool { src, on_true, on_false })
     }
 
     #[inline]
-    pub fn instr_switch_nil(&mut self, source: SourceRange, src: InstrId, on_nil: BlockId, on_non_nil: BlockId) -> InstrId {
+    pub fn instr_switch_nil(&mut self, source: OptNodeId, src: InstrId, on_nil: BlockId, on_non_nil: BlockId) -> InstrId {
         self.add_instr((source, None.into()), InstrData::SwitchNil { src, on_nil, on_non_nil })
     }
 
     #[inline]
-    pub fn instr_return(&mut self, source: SourceRange, src: InstrId) -> InstrId {
+    pub fn instr_return(&mut self, source: OptNodeId, src: InstrId) -> InstrId {
         self.add_instr((source, None.into()), InstrData::Return { src })
     }
 }
@@ -1530,7 +1530,7 @@ impl Function {
     pub fn big_dump(&self) {
         for bb in self.block_ids() {
             println!("{}:", bb);
-            self.block_instrs(bb, |instr| println!("  {} | {} {:?}", instr.fmt(self), instr.source.range, instr.source.values));
+            self.block_instrs(bb, |instr| println!("  {} | {:?} {:?}", instr.fmt(self), instr.source.node, instr.source.values));
         }
     }
 }
@@ -1581,8 +1581,15 @@ impl Crate {
     pub fn write_function(&self, id: FunctionId) -> RefMut<'static, Function> {
         self.functions[id].borrow_mut()
     }
+}
 
-    pub fn build(self) -> (IndexVec<FunctionId, crate::FuncDesc>, IndexVec<ItemId, Item>, IndexVec<FunctionId, Vec<Vec<super::codegen::ValueMapping>>>) {
+pub struct FunctionDebugInfo {
+    pub reg_mapping: Vec<Vec<super::codegen::ValueMapping>>,
+    pub pc_to_node:  Vec<OptNodeId>,
+}
+
+impl Crate {
+    pub fn build(self) -> (IndexVec<FunctionId, crate::FuncDesc>, IndexVec<ItemId, Item>, IndexVec<FunctionId, FunctionDebugInfo>) {
         let mut funcs = IndexVec::with_capacity(self.functions.len());
 
         let mut debug_infos = IndexVec::with_capacity(self.functions.len());
@@ -1638,7 +1645,10 @@ impl Crate {
                 num_params: fun.num_params,
                 stack_size: result.stack_size,
             });
-            debug_infos.push(result.value_mapping.into_inner());
+            debug_infos.push(FunctionDebugInfo { 
+                reg_mapping: result.reg_mapping.into_inner(), 
+                pc_to_node:  result.pc_to_node,
+            });
         }
 
         (funcs, self.items, debug_infos)

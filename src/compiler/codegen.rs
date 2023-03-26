@@ -1,4 +1,4 @@
-use crate::bytecode::InstrWord;
+use crate::bytecode::{InstrWord, ByteCodeBuilder};
 use crate::Constant;
 use crate::index_vec::*;
 use super::*;
@@ -8,7 +8,8 @@ pub struct CompileResult {
     pub code:       Vec<InstrWord>,
     pub constants:  Vec<Constant>,
     pub stack_size: u32,
-    pub value_mapping: IndexVec<Reg, Vec<ValueMapping>>,
+    pub reg_mapping: IndexVec<Reg, Vec<ValueMapping>>,
+    pub pc_to_node:  Vec<OptNodeId>,
 }
 
 #[derive(Clone, Debug)]
@@ -42,9 +43,10 @@ impl Function {
 
         let regs = alloc_regs_linear_scan(self, &live_intervals, &instr_indices);
 
-        let (code, constants, stack_size, instr_index_to_pc) = generate_bytecode(self, &block_order, &regs);
+        let GenBytecodeResult { code, constants, stack_size, instr_index_to_pc, pc_to_node }
+            = generate_bytecode(self, &block_order, &regs);
 
-        let value_mapping = {
+        let reg_mapping = {
             let mut mapping = index_vec![vec![]; stack_size as usize];
 
             for bb in self.block_ids() {
@@ -64,7 +66,7 @@ impl Function {
             mapping
         };
 
-        CompileResult { code, constants, stack_size, value_mapping }
+        CompileResult { code, constants, stack_size, reg_mapping, pc_to_node }
     }
 }
 
@@ -522,7 +524,15 @@ pub fn alloc_regs_linear_scan(fun: &Function, intervals: &LiveIntervals, instr_i
 }
 
 
-pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &RegisterAllocation) -> (Vec<InstrWord>, Vec<Constant>, u32, IndexVec<InstrIndex, u32>) {
+pub struct GenBytecodeResult {
+    pub code:              Vec<InstrWord>,
+    pub constants:         Vec<Constant>,
+    pub stack_size:        u32,
+    pub instr_index_to_pc: IndexVec<InstrIndex, u32>,
+    pub pc_to_node:        Vec<OptNodeId>,
+}
+
+pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &RegisterAllocation) -> GenBytecodeResult {
     assert_eq!(block_order[0], BlockId::ENTRY);
 
     // for instr in fun.instr_ids() {
@@ -546,7 +556,7 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
 
     let mut block_offsets = vec![u16::MAX; fun.num_blocks()];
 
-    let mut bcb = crate::bytecode::ByteCodeBuilder::new();
+    let mut bcb = ByteCodeBuilder::new();
 
     // @temp: constants builder (dedup).
     // @temp: @strings-first.
@@ -556,6 +566,17 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
     }
 
     let mut instr_index_to_pc = index_vec![];
+    let mut pc_to_node = vec![];
+
+    #[inline(always)]
+    fn map_pcs_to_node<F: FnOnce(&mut ByteCodeBuilder)>(node: OptNodeId, bcb: &mut ByteCodeBuilder, pc_to_node: &mut Vec<OptNodeId>, f: F) {
+        let old_offset = bcb.current_offset();
+        f(bcb);
+        let new_offset = bcb.current_offset();
+        for _ in old_offset..new_offset {
+            pc_to_node.push(node);
+        }
+    }
 
     for (block_index, bb) in block_order.iter().enumerate() {
         block_offsets[bb.usize()] = bcb.current_offset() as u16;
@@ -584,8 +605,9 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
                     instr_cursor = copy_instr.next();
                 }
 
-                impl_parallel_copy(regs.num_regs, &copied_to, &mut bcb);
-                
+                map_pcs_to_node(None.into(), &mut bcb, &mut pc_to_node, |bcb| {
+                    impl_parallel_copy(regs.num_regs, &copied_to, bcb);
+                });
 
                 continue;
             }
@@ -600,176 +622,180 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
                 continue;
             }
 
-            use InstrData::*;
-            match instr.data {
-                Copy { src } => {
-                    let src = reg(src);
-                    if dst != src { bcb.copy(dst, src) }
-                }
-
-                Phi { map_id: _ } => (),
-
-                ParallelCopy { src: _, copy_id: _ } => unreachable!(),
-
-                Param { id: _ } |
-                Local { id: _ } => (),
-
-                GetLocal { src: _ } |
-                SetLocal { dst: _, src: _ } => unimplemented!(),
-
-                LoadEnv => bcb.load_env(dst),
-
-                LoadNil             => bcb.load_nil(dst),
-                LoadBool  { value } => bcb.load_bool(dst, value),
-
-                LoadInt { value } => {
-                    if let Ok(v) = value.try_into() {
-                        bcb.load_int(dst, v);
+            map_pcs_to_node(instr.source.node, &mut bcb, &mut pc_to_node, |bcb| {
+                use InstrData::*;
+                match instr.data {
+                    Copy { src } => {
+                        let src = reg(src);
+                        if dst != src { bcb.copy(dst, src) }
                     }
-                    else {
-                        // @temp: integers.
+
+                    Phi { map_id: _ } => (),
+
+                    ParallelCopy { src: _, copy_id: _ } => unreachable!(),
+
+                    Param { id: _ } |
+                    Local { id: _ } => (),
+
+                    GetLocal { src: _ } |
+                    SetLocal { dst: _, src: _ } => unimplemented!(),
+
+                    LoadEnv => bcb.load_env(dst),
+
+                    LoadNil             => bcb.load_nil(dst),
+                    LoadBool  { value } => bcb.load_bool(dst, value),
+
+                    LoadInt { value } => {
+                        if let Ok(v) = value.try_into() {
+                            bcb.load_int(dst, v);
+                        }
+                        else {
+                            // @temp: integers.
+                            let c = constants.len();
+                            constants.push(Constant::Number { value: value as f64 });
+                            bcb.load_const(dst, c as u16);
+                        }
+                    }
+
+                    LoadFloat { value } => {
                         let c = constants.len();
-                        constants.push(Constant::Number { value: value as f64 });
+                        constants.push(Constant::Number { value });
                         bcb.load_const(dst, c as u16);
                     }
-                }
 
-                LoadFloat { value } => {
-                    let c = constants.len();
-                    constants.push(Constant::Number { value });
-                    bcb.load_const(dst, c as u16);
-                }
-
-                LoadString { id } => {
-                    // @strings-first.
-                    bcb.load_const(dst, id.usize() as u16);
-                }
-
-                ListNew { values } => {
-                    let values: Vec<u8> = values.get(fun).iter().map(|arg| reg(*arg)).collect();
-                    bcb.list_new(dst, &values);
-                }
-
-                TupleNew { values } => {
-                    let values: Vec<u8> = values.get(fun).iter().map(|arg| reg(*arg)).collect();
-                    bcb.tuple_new(dst, &values);
-                }
-
-                TupleNew0 => {
-                    bcb.load_unit(dst);
-                }
-
-                ReadPath { path_id } => {
-                    let path = path_id.get(fun);
-
-                    let base = match path.base {
-                        PathBase::Items        => crate::bytecode::PathBase::ITEMS,
-                        PathBase::Env          => crate::bytecode::PathBase::ENV,
-                        PathBase::Instr(instr) => crate::bytecode::PathBase::reg(reg(instr)),
-                    };
-
-                    let keys = path.keys.iter().map(|key| match key {
+                    LoadString { id } => {
                         // @strings-first.
-                        PathKey::Field(field) => crate::bytecode::PathKey::Field { string: field.usize() as u16 },
-                        PathKey::Index(index) => crate::bytecode::PathKey::Index { reg: reg(*index) },
-                    }).collect::<Vec<_>>();
+                        bcb.load_const(dst, id.usize() as u16);
+                    }
 
-                    bcb.read_path(dst, base, &keys);
-                }
+                    ListNew { values } => {
+                        let values: Vec<u8> = values.get(fun).iter().map(|arg| reg(*arg)).collect();
+                        bcb.list_new(dst, &values);
+                    }
 
-                WritePath { path_id, value, is_def } => {
-                    let path = path_id.get(fun);
+                    TupleNew { values } => {
+                        let values: Vec<u8> = values.get(fun).iter().map(|arg| reg(*arg)).collect();
+                        bcb.tuple_new(dst, &values);
+                    }
 
-                    let base = match path.base {
-                        PathBase::Items => crate::bytecode::PathBase::ITEMS,
-                        PathBase::Env   => crate::bytecode::PathBase::ENV,
-                        PathBase::Instr(instr) => {
-                            let base = reg(instr);
-                            assert_eq!(dst, base);
-                            crate::bytecode::PathBase::reg(base)
+                    TupleNew0 => {
+                        bcb.load_unit(dst);
+                    }
+
+                    ReadPath { path_id } => {
+                        let path = path_id.get(fun);
+
+                        let base = match path.base {
+                            PathBase::Items        => crate::bytecode::PathBase::ITEMS,
+                            PathBase::Env          => crate::bytecode::PathBase::ENV,
+                            PathBase::Instr(instr) => crate::bytecode::PathBase::reg(reg(instr)),
+                        };
+
+                        let keys = path.keys.iter().map(|key| match key {
+                            // @strings-first.
+                            PathKey::Field(field) => crate::bytecode::PathKey::Field { string: field.usize() as u16 },
+                            PathKey::Index(index) => crate::bytecode::PathKey::Index { reg: reg(*index) },
+                        }).collect::<Vec<_>>();
+
+                        bcb.read_path(dst, base, &keys);
+                    }
+
+                    WritePath { path_id, value, is_def } => {
+                        let path = path_id.get(fun);
+
+                        let base = match path.base {
+                            PathBase::Items => crate::bytecode::PathBase::ITEMS,
+                            PathBase::Env   => crate::bytecode::PathBase::ENV,
+                            PathBase::Instr(instr) => {
+                                let base = reg(instr);
+                                assert_eq!(dst, base);
+                                crate::bytecode::PathBase::reg(base)
+                            }
+                        };
+
+                        let keys = path.keys.iter().map(|key| match key {
+                            // @strings-first.
+                            PathKey::Field(field) => crate::bytecode::PathKey::Field { string: field.usize() as u16 },
+                            PathKey::Index(index) => crate::bytecode::PathKey::Index { reg: reg(*index) },
+                        }).collect::<Vec<_>>();
+
+                        bcb.write_path(base, &keys, reg(value), is_def);
+                    }
+
+                    Call { func, args_id } => {
+                        let args: Vec<u8> = args_id.get(fun).iter().map(|arg| reg(*arg)).collect();
+                        bcb.call(dst, reg(func), &args);
+                    }
+
+                    Op1 { op, src } => {
+                        let src = reg(src);
+                        use self::Op1::*;
+                        match op {
+                            Not    => bcb.not(dst, src),
+                            Negate => bcb.negate(dst, src),
                         }
-                    };
+                    }
 
-                    let keys = path.keys.iter().map(|key| match key {
-                        // @strings-first.
-                        PathKey::Field(field) => crate::bytecode::PathKey::Field { string: field.usize() as u16 },
-                        PathKey::Index(index) => crate::bytecode::PathKey::Index { reg: reg(*index) },
-                    }).collect::<Vec<_>>();
+                    Op2 { op, src1, src2 } => {
+                        let src1 = reg(src1);
+                        let src2 = reg(src2);
+                        use self::Op2::*;
+                        match op {
+                            Add         => bcb.add(dst, src1, src2),
+                            Sub         => bcb.sub(dst, src1, src2),
+                            Mul         => bcb.mul(dst, src1, src2),
+                            Div         => bcb.div(dst, src1, src2),
+                            FloorDiv    => bcb.floor_div(dst, src1, src2),
+                            Rem         => bcb.rem(dst, src1, src2),
+                            And         => unimplemented!(),
+                            Or          => unimplemented!(),
+                            CmpEq       => bcb.cmp_eq(dst, src1, src2),
+                            CmpNe       => bcb.cmp_ne(dst, src1, src2),
+                            CmpLe       => bcb.cmp_le(dst, src1, src2),
+                            CmpLt       => bcb.cmp_lt(dst, src1, src2),
+                            CmpGe       => bcb.cmp_ge(dst, src1, src2),
+                            CmpGt       => bcb.cmp_gt(dst, src1, src2),
+                            OrElse      => unimplemented!(),
+                        }
+                    }
 
-                    bcb.write_path(base, &keys, reg(value), is_def);
-                }
+                    Jump { target } => {
+                        if Some(target) != next_bb {
+                            bcb.jump(target.usize() as u16);
+                        }
+                    }
 
-                Call { func, args_id } => {
-                    let args: Vec<u8> = args_id.get(fun).iter().map(|arg| reg(*arg)).collect();
-                    bcb.call(dst, reg(func), &args);
-                }
+                    // @todo-opt: special case if neither branch is next_bb.
+                    SwitchBool { src, on_true, on_false } => {
+                        if Some(on_true) != next_bb {
+                            bcb.jump_true(reg(src), on_true.usize() as u16);
+                        }
+                        if Some(on_false) != next_bb {
+                            bcb.jump_false(reg(src), on_false.usize() as u16);
+                        }
+                    }
 
-                Op1 { op, src } => {
-                    let src = reg(src);
-                    use self::Op1::*;
-                    match op {
-                        Not    => bcb.not(dst, src),
-                        Negate => bcb.negate(dst, src),
+                    // @todo-opt: special case if neither branch is next_bb.
+                    SwitchNil { src, on_nil, on_non_nil } => {
+                        if Some(on_nil) != next_bb {
+                            bcb.jump_nil(reg(src), on_nil.usize() as u16);
+                        }
+                        if Some(on_non_nil) != next_bb {
+                            bcb.jump_non_nil(reg(src), on_non_nil.usize() as u16);
+                        }
+                    }
+
+                    Return { src } => {
+                        bcb.ret(reg(src));
                     }
                 }
-
-                Op2 { op, src1, src2 } => {
-                    let src1 = reg(src1);
-                    let src2 = reg(src2);
-                    use self::Op2::*;
-                    match op {
-                        Add         => bcb.add(dst, src1, src2),
-                        Sub         => bcb.sub(dst, src1, src2),
-                        Mul         => bcb.mul(dst, src1, src2),
-                        Div         => bcb.div(dst, src1, src2),
-                        FloorDiv    => bcb.floor_div(dst, src1, src2),
-                        Rem         => bcb.rem(dst, src1, src2),
-                        And         => unimplemented!(),
-                        Or          => unimplemented!(),
-                        CmpEq       => bcb.cmp_eq(dst, src1, src2),
-                        CmpNe       => bcb.cmp_ne(dst, src1, src2),
-                        CmpLe       => bcb.cmp_le(dst, src1, src2),
-                        CmpLt       => bcb.cmp_lt(dst, src1, src2),
-                        CmpGe       => bcb.cmp_ge(dst, src1, src2),
-                        CmpGt       => bcb.cmp_gt(dst, src1, src2),
-                        OrElse      => unimplemented!(),
-                    }
-                }
-
-                Jump { target } => {
-                    if Some(target) != next_bb {
-                        bcb.jump(target.usize() as u16)
-                    }
-                }
-
-                // @todo-opt: special case if neither branch is next_bb.
-                SwitchBool { src, on_true, on_false } => {
-                    if Some(on_true) != next_bb {
-                        bcb.jump_true(reg(src), on_true.usize() as u16);
-                    }
-                    if Some(on_false) != next_bb {
-                        bcb.jump_false(reg(src), on_false.usize() as u16);
-                    }
-                }
-
-                // @todo-opt: special case if neither branch is next_bb.
-                SwitchNil { src, on_nil, on_non_nil } => {
-                    if Some(on_nil) != next_bb {
-                        bcb.jump_nil(reg(src), on_nil.usize() as u16);
-                    }
-                    if Some(on_non_nil) != next_bb {
-                        bcb.jump_non_nil(reg(src), on_non_nil.usize() as u16);
-                    }
-                }
-
-                Return { src } => {
-                    bcb.ret(reg(src));
-                }
-            }
+            });
         }
     }
 
     let mut code = bcb.build();
+
+    assert_eq!(pc_to_node.len(), code.len());
 
     let mut i = 0;
     while i < code.len() {
@@ -802,10 +828,10 @@ pub fn generate_bytecode(fun: &Function, block_order: &BlockOrder, regs: &Regist
         }
     }
 
-    (code, constants, num_regs, instr_index_to_pc)
+    GenBytecodeResult { code, constants, stack_size: num_regs, instr_index_to_pc, pc_to_node }
 }
 
-fn impl_parallel_copy(num_regs: usize, copied_to: &[Vec<u8>], bcb: &mut crate::ByteCodeBuilder) {
+fn impl_parallel_copy(num_regs: usize, copied_to: &[Vec<u8>], bcb: &mut ByteCodeBuilder) {
     #[derive(Clone, Copy, Debug, PartialEq)]
     enum Status {
         None,
@@ -819,7 +845,7 @@ fn impl_parallel_copy(num_regs: usize, copied_to: &[Vec<u8>], bcb: &mut crate::B
 
 
     // returns whether `src` is in a cycle starting at `src0`.
-    fn copy_paths(src0: usize, src: usize, copied_to: &[Vec<u8>], status: &mut [Status], bcb: &mut crate::ByteCodeBuilder) -> bool {
+    fn copy_paths(src0: usize, src: usize, copied_to: &[Vec<u8>], status: &mut [Status], bcb: &mut ByteCodeBuilder) -> bool {
         debug_assert_eq!(status[src], Status::None);
         status[src] = Status::Visited;
 

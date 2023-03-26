@@ -36,7 +36,7 @@ pub fn local2reg_ex(fun: &mut Function, preds: &Predecessors, dom_tree: &DomTree
 
                     // init phi.
                     let map = preds.iter().map(|p| (*p, None.into())).collect();
-                    let instr = fun.new_phi((SourceRange::null(), None.into()), &[]);
+                    let instr = fun.new_phi((None.into(), None.into()), &[]);
                     to_phis.push((lid, map, instr));
 
                     // to_bb now defines the local.

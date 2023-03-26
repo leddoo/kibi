@@ -19,15 +19,13 @@
 
 
 - todo: explorer.
-    - control flow info.
-        - generate it.
-        - use it: align basic blocks with code.
     - inline bytecode.
         - line based.
         - global option for "show bytecode" with per-line overrides.
             - tri-state logic: show/hide/default.
             - show if: `not global_hide and ((global_show and not local_hide) or local_show)`
         - later: ability to split a line's bytecode -> have two lines with same source code, but irrelevant parts are grayed out.
+        - make clear when instructions aren't associated with current line?
     - windows:
         - clipping.
         - scrolling.
@@ -44,6 +42,7 @@
         - properly sort decorations.
         - handle conflicting replacements.
     - ui stuff:
+        - clip mouse, unless captured.
         - hit test on mouse up (cause capture may have prevented hover).
         - clip.
         - event bubbling.

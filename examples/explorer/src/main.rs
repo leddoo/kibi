@@ -216,7 +216,7 @@ struct CodeInfo<'a> {
     funcs: IndexVec<kibi::FunctionId, kibi::FuncDesc>,
     items: IndexVec<ItemId, kibi::bbir::Item>,
     #[allow(dead_code)] // @temp.
-    value_maps: IndexVec<kibi::FunctionId, Vec<Vec<kibi::codegen::ValueMapping>>>,
+    debug_info: IndexVec<kibi::FunctionId, kibi::FunctionDebugInfo>,
 }
 
 impl<'a> CodeInfo<'a> {
@@ -237,7 +237,7 @@ impl<'a> CodeInfo<'a> {
 
         let mut builder = kibi::bbir_builder::Builder::new();
         builder.build(&ast);
-        let (funcs, items, value_maps) = builder.krate.build();
+        let (funcs, items, debug_info) = builder.krate.build();
 
         return CodeInfo {
             tokens,
@@ -245,7 +245,7 @@ impl<'a> CodeInfo<'a> {
             ast_info,
             funcs,
             items,
-            value_maps,
+            debug_info,
         };
     }
 }
