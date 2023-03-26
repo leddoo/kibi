@@ -189,6 +189,8 @@ struct Widget {
     size: [f32; 2],
     content_size:   [f32; 2],
     intrinsic_size: [f32; 2],
+    content_min: [f32; 2],
+    content_max: [f32; 2],
 }
 
 enum WidgetData {
@@ -393,6 +395,8 @@ impl Gui {
             size: [0.0; 2],
             content_size:   [0.0; 2],
             intrinsic_size: [0.0; 2],
+            content_min: [0.0; 2],
+            content_max: [0.0; 2],
         };
 
         Gui {
@@ -429,20 +433,31 @@ impl Gui {
         fn rec<F: FnMut(usize) -> bool>(this: &Gui, widget_index: usize, x: f32, y: f32, f: &mut F) -> Option<WidgetId> {
             let widget = &this.widgets[widget_index];
 
-            if x < widget.pos[0] || x >= widget.pos[0] + widget.size[0]
-            || y < widget.pos[1] || y >= widget.pos[1] + widget.size[1] {
+            let x = x - widget.pos[0];
+            let y = y - widget.pos[1];
+
+            let hit_self = 
+                   x >= 0.0
+                && y >= 0.0
+                && x <  widget.size[0]
+                && y <  widget.size[1];
+
+            let hit_content =
+                   x >= widget.content_min[0]
+                && y >= widget.content_min[1]
+                && x <  widget.content_max[0]
+                && y <  widget.content_max[1];
+
+            if !hit_self && !hit_content {
                 return None;
             }
-
-            let xx = x - widget.pos[0];
-            let yy = y - widget.pos[1];
 
             let result = match &widget.data {
                 WidgetData::Box(data) => {
                     let mut at = data.first_render_child;
                     while let Some(current) = at {
                         let current = current.get() as usize;
-                        let result = rec(this, current, xx, yy, f);
+                        let result = rec(this, current, x, y, f);
                         if result.is_some() {
                             return result;
                         }
@@ -450,11 +465,11 @@ impl Gui {
                         at = this.widgets[current].next_render_sibling;
                     }
 
-                    Some(WidgetId(widget_index as u32))
+                    hit_self.then_some(WidgetId(widget_index as u32))
                 }
 
                 WidgetData::TextLayout(data) => {
-                    let hit = data.layout.hit_test_pos(xx, yy);
+                    let hit = data.layout.hit_test_pos(x, y);
                     hit.source.map(|hit| WidgetId(hit))
                 }
 
@@ -669,6 +684,8 @@ impl Gui {
                     size: [0.0; 2],
                     content_size:   [0.0; 2],
                     intrinsic_size: [0.0; 2],
+                    content_min: [0.0; 2],
+                    content_max: [0.0; 2],
                 };
 
                 let widget = match self.first_free {
@@ -922,6 +939,16 @@ impl Gui {
         fn layout_pass(this: &mut Gui, widget_index: usize, given_size: [Option<f32>; 2]) {
             let widget = &this.widgets[widget_index];
 
+            let mut cmin = [0f32; 2];
+            let mut cmax = [0f32; 2];
+
+            let mut add_child = |child: &Widget| {
+                cmin[0] = cmin[0].min(child.pos[0] + child.content_min[0]);
+                cmin[1] = cmin[1].min(child.pos[1] + child.content_min[1]);
+                cmax[0] = cmax[0].max(child.pos[0] + child.content_max[0]);
+                cmax[1] = cmax[1].max(child.pos[1] + child.content_max[1]);
+            };
+
             let size = match &widget.data {
                 WidgetData::Box(data) => {
                     match widget.props.layout {
@@ -937,6 +964,9 @@ impl Gui {
                                 child.pos = [
                                     child.props.pos[0].unwrap_or(0.0),
                                     child.props.pos[1].unwrap_or(0.0)];
+
+                                add_child(child);
+
                                 at = child.next_render_sibling;
                             }
 
@@ -957,6 +987,8 @@ impl Gui {
                                 let child = &mut this.widgets[current];
                                 child.pos = [0.0, cursor];
                                 cursor += child.size[1];
+
+                                add_child(child);
 
                                 at = child.next_render_sibling;
                             }
@@ -1023,6 +1055,8 @@ impl Gui {
 
                                 cursor += child_main;
 
+                                add_child(child);
+
                                 at = child.next_render_sibling;
                             }
 
@@ -1033,16 +1067,35 @@ impl Gui {
                 }
 
                 WidgetData::TextLayout(data) => {
-                    data.layout.size()
+                    let size = data.layout.size();
+                    cmax = size;
+                    size
                 }
 
                 WidgetData::Text(_) | WidgetData::Free(_) => unreachable!()
             };
 
+            let size =
+                [given_size[0].unwrap_or(size[0]),
+                 given_size[1].unwrap_or(size[1])];
+
+            // make sure content includes self.
+            // otherwise hit testing doesn't work
+            // for empty box widgets (eg: blank button).
+            cmax[0] = cmax[0].max(size[0]);
+            cmax[1] = cmax[1].max(size[1]);
+
+            debug_assert!(size[0] >= 0.0);
+            debug_assert!(size[1] >= 0.0);
+            debug_assert!(cmin[0] <= 0.0);
+            debug_assert!(cmin[1] <= 0.0);
+            debug_assert!(cmax[0] >= 0.0);
+            debug_assert!(cmax[1] >= 0.0);
+
             let widget = &mut this.widgets[widget_index];
-            widget.size = [
-                given_size[0].unwrap_or(size[0]),
-                given_size[1].unwrap_or(size[1])];
+            widget.size        = size;
+            widget.content_min = cmin;
+            widget.content_max = cmax;
         }
 
         intrinsic_pass(self, 0);

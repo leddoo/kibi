@@ -19,13 +19,10 @@
 
 
 - todo: explorer.
-    - draggy things:
-        - reset event stuff when freeing widgets.
-    - event bubbling.
-        - buttons stop propagation, but rest of code view doesn't.
-        - right click drag moves canvas.
-    - overflow.
-        - don't skip child hit testing if widget has overflow.
+    - change widget props.
+        - compute render children in intrinsic pass.
+        - make slider a bit more responsive.
+    - reset event stuff when freeing widgets.
 
     - control flow info.
         - generate it.
@@ -51,6 +48,8 @@
         - properly sort decorations.
         - handle conflicting replacements.
     - ui stuff:
+        - clip.
+        - event bubbling.
         - change style props after widget creation (active highlight).
         - text background fill.
             - text widgets in text layout's render children list.

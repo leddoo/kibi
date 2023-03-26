@@ -818,6 +818,7 @@ struct Explorer {
     gui: Gui,
     code: CodeView,
     offset: [f32; 2],
+    down_offset: [f32; 2],
 }
 
 impl Explorer {
@@ -838,6 +839,7 @@ impl Explorer {
             gui: Gui::new(&fonts),
             code: CodeView::new(),
             offset: [0.0; 2],
+            down_offset: [0.0; 2],
         }
     }
 
@@ -878,31 +880,31 @@ impl Explorer {
                 changed = gui.update(root_props, |gui| {
                     let mut changed = false;
 
-                    let mut canvas_props = Props::new();
+                    let mut canvas_props = Props::new().with_pointer_events();
                     canvas_props.layout = Layout::None;
                     canvas_props.size = [Some(root_size[0]),  Some(root_size[1])];
 
-                    gui.widget_box(Key::Counter, canvas_props, |gui| {
-                        let mut body_props = Props::new().with_pointer_events();
+                    let events = gui.widget_box(Key::Counter, canvas_props, |gui| {
+                        let mut body_props = Props::new();
                         body_props.layout = Layout::None;
-                        body_props.pos  = [Some(-self.offset[0]), Some(-self.offset[1])];
-                        body_props.size = [Some(root_size[0]),  Some(root_size[1])];
+                        body_props.pos    = [Some(-self.offset[0]), Some(-self.offset[1])];
 
-                        let events = gui.widget_box(Key::Counter, body_props, |gui| {
+                        gui.widget_box(Key::Counter, body_props, |gui| {
                             changed = self.code.render(gui);
                         });
-
-                        if events.mouse_went_down(MouseButton::Right) {
-                            gui.capture_mouse(&events);
-                        }
-                        if gui.has_mouse_capture(&events) && events.mouse_moved() {
-                            let offset_target = gui.mouse_capture_pos();
-                            let offset = events.local_mouse_pos();
-                            self.offset[0] -= offset[0] - offset_target[0];
-                            self.offset[1] -= offset[1] - offset_target[1];
-                            changed = true;
-                        }
                     });
+
+                    if events.mouse_went_down(MouseButton::Right) {
+                        gui.capture_mouse(&events);
+                        self.down_offset = self.offset;
+                    }
+                    if gui.has_mouse_capture(&events) && events.mouse_moved() {
+                        let pos_target = gui.mouse_capture_pos();
+                        let pos = events.local_mouse_pos();
+                        self.offset[0] = self.down_offset[0] + (pos_target[0] - pos[0]);
+                        self.offset[1] = self.down_offset[1] + (pos_target[1] - pos[1]);
+                        changed = true;
+                    }
 
                     changed
                 });
