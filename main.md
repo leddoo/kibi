@@ -19,8 +19,6 @@
 
 
 - todo: explorer.
-    - reset event stuff when freeing widgets.
-
     - control flow info.
         - generate it.
         - use it: align basic blocks with code.

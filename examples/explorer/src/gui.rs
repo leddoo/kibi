@@ -368,23 +368,23 @@ pub struct Gui {
 
     fonts: FontCtx,
 
-    root_size:  [f32; 2],
-    mouse_pos:  [f32; 2],
-    mouse_down: [bool; 3],
-
-    hovered: u32,
-    active:  u32,
-    mouse_capture:     Option<(MouseButton, u32)>,
-    mouse_capture_pos: [f32; 2], // widget local position
-
     needs_render: bool,
 
-    // stuff for events.
+    root_size:  [f32; 2],
+
     prev_mouse_pos:  [f32; 2],
+    mouse_pos:       [f32; 2],
     prev_mouse_down: [bool; 3],
+    mouse_down:      [bool; 3],
+
     prev_hovered: u32,
+    hovered:      u32,
     prev_active:  u32,
+    active:       u32,
+
     prev_mouse_capture: Option<(MouseButton, u32)>,
+    mouse_capture:      Option<(MouseButton, u32)>,
+    mouse_capture_pos:  [f32; 2], // widget local position
 }
 
 impl Gui {
@@ -424,22 +424,23 @@ impl Gui {
 
             fonts: fonts.clone(),
 
-            root_size:  [0.0; 2],
-            mouse_pos:  [0.0; 2],
-            mouse_down: [false; 3],
-
-            hovered: 0,
-            active:  0,
-            mouse_capture:     None,
-            mouse_capture_pos: [0.0; 2],
-
             needs_render: false,
 
+            root_size:  [0.0; 2],
+
             prev_mouse_pos:  [0.0; 2],
+            mouse_pos:       [0.0; 2],
             prev_mouse_down: [false; 3],
+            mouse_down:      [false; 3],
+
             prev_hovered: 0,
+            hovered:      0,
             prev_active:  0,
+            active:       0,
+
             prev_mouse_capture: None,
+            mouse_capture:      None,
+            mouse_capture_pos:  [0.0; 2],
         }
     }
 
@@ -562,6 +563,25 @@ impl Gui {
             }
         }
         self.first_free = first_free;
+
+        // remove freed widgets from event data.
+        {
+            if self.widgets[self.prev_hovered as usize].data.is_free() { self.prev_hovered = 0 }
+            if self.widgets[self.hovered      as usize].data.is_free() { self.hovered      = 0 }
+            if self.widgets[self.prev_active  as usize].data.is_free() { self.prev_active  = 0 }
+            if self.widgets[self.active       as usize].data.is_free() { self.active       = 0 }
+
+            if let Some((_, widget)) = self.prev_mouse_capture {
+                if self.widgets[widget as usize].data.is_free() {
+                    self.prev_mouse_capture = None;
+                }
+            }
+            if let Some((_, widget)) = self.mouse_capture {
+                if self.widgets[widget as usize].data.is_free() {
+                    self.mouse_capture = None;
+                }
+            }
+        }
 
         #[cfg(debug_assertions)]
         self.validate();
