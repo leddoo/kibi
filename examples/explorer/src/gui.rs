@@ -297,9 +297,20 @@ impl WidgetEvents {
     pub fn hover_begin(&self) -> bool {
         self.hovered && !self.prev_hovered
     }
+
+    #[inline(always)]
+    pub fn hover_changed(&self) -> bool {
+        self.hovered != self.prev_hovered
+    }
+
     #[inline(always)]
     pub fn active_begin(&self) -> bool {
         self.active && !self.prev_active
+    }
+
+    #[inline(always)]
+    pub fn active_changed(&self) -> bool {
+        self.active != self.prev_active
     }
 
     #[inline(always)]
@@ -366,6 +377,8 @@ pub struct Gui {
     mouse_capture:     Option<(MouseButton, u32)>,
     mouse_capture_pos: [f32; 2], // widget local position
 
+    needs_render: bool,
+
     // stuff for events.
     prev_mouse_pos:  [f32; 2],
     prev_mouse_down: [bool; 3],
@@ -419,6 +432,8 @@ impl Gui {
             active:  0,
             mouse_capture:     None,
             mouse_capture_pos: [0.0; 2],
+
+            needs_render: false,
 
             prev_mouse_pos:  [0.0; 2],
             prev_mouse_down: [false; 3],
@@ -490,6 +505,8 @@ impl Gui {
         self.current_parent  = 0;
         self.current_counter = 0;
         self.current_offset  = [0.0; 2];
+
+        self.needs_render = false;
 
         self.widgets[0].begin(self.gen, root_props, WidgetData::Box(BoxData::default()));
     }
@@ -1244,6 +1261,23 @@ impl Gui {
 
     pub fn has_mouse_capture(&self, events: &WidgetEvents) -> bool {
         matches!(self.prev_mouse_capture, Some((_, widget)) if widget == events.widget)
+    }
+
+
+    #[inline(always)]
+    pub fn edit_props_no_render(&mut self, events: &WidgetEvents) -> &mut Props {
+        &mut self.widgets[events.widget as usize].props
+    }
+
+    #[inline(always)]
+    pub fn mark_for_render(&mut self, events: &WidgetEvents) {
+        _ = events;
+        self.needs_render = true;
+    }
+
+    #[inline(always)]
+    pub fn needs_render(&self) -> bool {
+        self.needs_render
     }
 }
 

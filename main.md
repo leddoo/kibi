@@ -19,9 +19,6 @@
 
 
 - todo: explorer.
-    - change widget props.
-        - compute render children in intrinsic pass.
-        - make slider a bit more responsive.
     - reset event stuff when freeing widgets.
 
     - control flow info.
@@ -43,11 +40,13 @@
         - also sub-tree `no_skip` override -> can set on root node for full update, ignores local caches. useful for stuff like theme, so you don't need fine grained dependency tracking.
         - gui skips child fn if there are no events in the sub-tree.
         - key must not be counter.
+        - compute render children in intrinsic pass.
     - stuff:
         - ast child visitors.
         - properly sort decorations.
         - handle conflicting replacements.
     - ui stuff:
+        - hit test on mouse up (cause capture may have prevented hover).
         - clip.
         - event bubbling.
         - change style props after widget creation (active highlight).

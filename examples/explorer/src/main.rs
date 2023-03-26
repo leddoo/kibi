@@ -514,7 +514,7 @@ impl Slider {
             let t = (value - min) / (max - min);
             let head_size = 20.0;
 
-            let mut head_props = Props::new().with_pointer_events().with_fill(0xffffffff);
+            let mut head_props = Props::new().with_pointer_events().with_fill(0xffd0d0d0);
             head_props.pos  = [Some(t * (width - head_size)), Some((height - head_size)/2.0)];
             head_props.size = [Some(head_size), Some(head_size)];
 
@@ -530,6 +530,17 @@ impl Slider {
                 let dv = dx / (width - head_size) * (max - min);
 
                 new_value = (value + dv).clamp(min, max);
+            }
+
+            let props = gui.edit_props_no_render(&events);
+            if events.active {
+                props.fill_color = 0xffa0a0a0;
+            }
+            else if events.hovered {
+                props.fill_color = 0xffffffff;
+            }
+            if events.hover_changed() || events.active_changed() {
+                gui.mark_for_render(&events);
             }
         });
 
@@ -909,7 +920,7 @@ impl Explorer {
                     changed
                 });
 
-                render = render | changed;
+                render = render | changed | gui.needs_render();
                 never_updated = false;
             }
 
