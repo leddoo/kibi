@@ -21,12 +21,14 @@ struct ItemInfo {
     source_range: SourceRange,
 }
 
+#[derive(Debug)]
 enum NodeRef<'a> {
     None,
     Stmt(&'a Stmt<'a>),
     Expr(&'a Expr<'a>),
 }
 
+#[derive(Debug)]
 struct NodeInfo<'a> {
     #[allow(dead_code)] // @temp.
     parent:  OptNodeId,
@@ -629,12 +631,6 @@ impl CodeViewRenderer {
         }
     }
 
-    fn render_item(&mut self, item: &ItemInfo, view: &CodeView, gui: &mut Gui) {
-        if let kibi::bbir::ItemData::Func(func_id) = view.info.items[item.item_id].data {
-            self.render_func(func_id, view, gui)
-        }
-    }
-
     fn render_reg(&mut self, func: kibi::FunctionId, pc: u16, reg: u8, view: &CodeView, gui: &mut Gui) {
         let _ = (func, pc);
 
@@ -653,9 +649,7 @@ impl CodeViewRenderer {
         if events.mouse_went_up(MouseButton::Left)   { println!("{func}.{pc}.{reg} left up") }
     }
 
-    fn render_func(&mut self, func_id: kibi::FunctionId, view: &CodeView, gui: &mut Gui) {
-        let func = &view.info.funcs[func_id];
-
+    fn render_instr(&mut self, instr: &kibi::bytecode::Instr, func_id: kibi::FunctionId, view: &CodeView, gui: &mut Gui) {
         fn text(text: String, color: u32, view: &CodeView, gui: &mut Gui) {
             gui.widget_text(Key::Counter,
                 Props {
@@ -667,11 +661,9 @@ impl CodeViewRenderer {
                 text);
         }
 
-        let kibi::FuncCode::ByteCode(code) = &func.code else { unreachable!() };
-        let code = kibi::bytecode::ByteCodeDecoder::decode(code).unwrap();
-        for instr in &code {
-            let name = instr.name();
+        let name = instr.name();
 
+        gui.widget_box(Key::Counter, Props::new(), |gui| {
             gui.widget_text(Key::Counter,
                 Props {
                     font_face: FaceId::DEFAULT,
@@ -781,44 +773,99 @@ impl CodeViewRenderer {
                 }
             }
             text(format!("\n"), TokenClass::Default.color(), view, gui);
-        }
+        });
     }
 
     fn render(&mut self, view: &CodeView, gui: &mut Gui) {
+        let mut codes = vec![];
+        // module code.
+        codes.push(kibi::bytecode::ByteCodeDecoder::decode({
+            let code = &view.info.funcs.inner()[0].code;
+            let kibi::FuncCode::ByteCode(code) = code else { unreachable!() };
+            code
+        }).unwrap());
+
+        let mut func_queue_rev = {
+            let items = &view.info.ast_info.items;
+
+            // functions sorted by line begin.
+            let mut queue = Vec::with_capacity(items.len());
+            for item in items {
+                let info = &view.info.items[item.item_id].data;
+                if let kibi::bbir::ItemData::Func(func) = *info {
+                    let code = &view.info.funcs[func].code;
+                    let kibi::FuncCode::ByteCode(code) = code else { unreachable!() };
+
+                    let code_index = codes.len();
+                    codes.push(kibi::bytecode::ByteCodeDecoder::decode(code).unwrap());
+
+                    queue.push((func, code_index, item.source_range.begin.line, item.source_range.end.line));
+                }
+            }
+            queue.sort_by(|(_, _, l1, _), (_, _, l2, _)| l2.cmp(l1));
+
+            // add module function.
+            queue.push((kibi::FunctionId::new_unck(0), 0, 0, view.lines.len() as u32));
+
+            queue
+        };
+
+        let mut func_stack = vec![];
+
         while self.line_index < view.lines.len() {
-            let mut row_props = Props::new();
-            row_props.layout = Layout::Flex(FlexLayout::default());
-
-            let next_item =
-                view.info.ast_info.items.iter()
-                .filter(|item| item.source_range.begin.line as usize >= self.line_index)
-                .min_by(|i1, i2| i1.source_range.begin.line.cmp(&i2.source_range.begin.line));
-
-            let mut row_line_end = view.lines.len();
-            if let Some(next_item) = next_item {
-                row_line_end = next_item.source_range.end.line as usize + 1;
+            // add beginning funcs.
+            while let Some((func, code, line_begin, line_end)) = func_queue_rev.last().copied() {
+                if line_begin as usize <= self.line_index {
+                    func_stack.push((func, code, 0, line_end));
+                    func_queue_rev.pop();
+                }
+                else { break }
             }
 
-            gui.widget_box(Key::Counter, row_props, |gui| {
-                gui.widget_box(Key::Counter, Props::new(), |gui| {
-                    while self.line_index < row_line_end {
-                        let line_begin = self.line_begin;
-                        let line_end = view.lines[self.line_index] as usize;
 
-                        self.render_line(line_begin, line_end, view, gui);
-
-                        self.line_begin = line_end;
-                        self.line_index += 1;
-                    }
-                });
-
-                gui.widget_box(Key::Counter, Props::new(), |gui| {
-                    if let Some(item) = next_item {
-                        self.render_item(item, view, gui);
-                    }
-                });
+            // code line.
+            let line_begin = self.line_begin;
+            let line_end = view.lines[self.line_index] as usize;
+            gui.widget_box(Key::Counter, Props::new(), |gui| {
+                self.render_line(line_begin, line_end, view, gui);
             });
+            self.line_begin = line_end;
+            self.line_index += 1;
+
+            // bytecode instructions.
+            if let Some((func_id, code, ic, _)) = func_stack.last_mut() {
+                let pc_to_node = &view.info.debug_info[*func_id].pc_to_node;
+
+                let code = &codes[*code];
+
+                while *ic < code.len() {
+                    let instr = &code[*ic];
+                    let node_id = pc_to_node[instr.pc as usize];
+
+                    // stop if instr is associated with next line.
+                    if let Some(node_id) = node_id.to_option() {
+                        let range = view.info.ast_info.nodes[node_id].source_range;
+                        if range.begin.line as usize >= self.line_index {
+                            break;
+                        }
+                    }
+
+                    self.render_instr(instr, *func_id, view, gui);
+                    *ic += 1;
+                }
+            }
+
+            // remove ending funcs.
+            while let Some((_, code, ic, line_end)) = func_stack.last().copied() {
+                if line_end as usize <= self.line_index {
+                    assert_eq!(ic, codes[code].len());
+                    func_stack.pop();
+                }
+                else { break }
+            }
         }
+
+        assert_eq!(func_stack.len(), 0);
     }
 }
 

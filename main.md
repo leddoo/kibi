@@ -20,12 +20,15 @@
 
 - todo: explorer.
     - inline bytecode.
-        - line based.
+        - pwetty:
+            - gray box.
+            - smaller font size.
         - global option for "show bytecode" with per-line overrides.
             - tri-state logic: show/hide/default.
             - show if: `not global_hide and ((global_show and not local_hide) or local_show)`
+        - hover instr -> highlight source range.
+        - make clear when instructions aren't associated with current line.
         - later: ability to split a line's bytecode -> have two lines with same source code, but irrelevant parts are grayed out.
-        - make clear when instructions aren't associated with current line?
     - windows:
         - clipping.
         - scrolling.
