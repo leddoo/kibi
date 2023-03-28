@@ -20,11 +20,12 @@
 
 - todo: explorer.
     - inline bytecode.
+        - compute line layout ahead of time.
+            - recompute whenever decorations change.
+        - hover instr -> highlight source range.
         - global option for "show bytecode" with per-line overrides.
             - tri-state logic: show/hide/default.
             - show if: `not global_hide and ((global_show and not local_hide) or local_show)`
-        - hover instr -> highlight source range.
-        - make clear when instructions aren't associated with current line.
         - later: ability to split a line's bytecode -> have two lines with same source code, but irrelevant parts are grayed out.
     - windows:
         - clipping.

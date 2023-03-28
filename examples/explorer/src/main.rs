@@ -850,16 +850,34 @@ impl CodeViewRenderer {
 
                     let code = &codes[*code];
 
+                    // between instrs associated with current/other lines.
+                    let mut has_gap = false;
+
                     while *ic < code.len() {
                         let instr = &code[*ic];
                         let node_id = pc_to_node[instr.pc as usize];
 
                         // stop if instr is associated with next line.
+                        let mut is_for_current_line = false;
                         if let Some(node_id) = node_id.to_option() {
                             let range = view.info.ast_info.nodes[node_id].source_range;
+                            if range.begin.line as usize == self.line_index - 1 {
+                                is_for_current_line = true;
+                            }
                             if range.begin.line as usize >= self.line_index {
                                 break;
                             }
+                        }
+
+                        if !is_for_current_line && has_instrs && !has_gap {
+                            let size = space_size[1]/4.0;
+                            let mut gap_props = Props::new();
+                            gap_props.size[1] = Some(size);
+                            gap_props.margin[1] = [(size/2.0 - 0.5).max(0.0); 2];
+                            gap_props.fill = true;
+                            gap_props.fill_color = 0xFF41454F;
+                            gui.widget_box(Key::Counter, gap_props, |_|{});
+                            has_gap = true;
                         }
 
                         self.render_instr(instr, *func_id, view, gui);
