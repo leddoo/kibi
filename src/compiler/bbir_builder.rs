@@ -270,7 +270,7 @@ impl Builder {
                 let value_true = self.build_if_block(ctx, expr.id, &iff.on_true, need_value);
                 let on_true_src = None.into(); // @todo-dbg-info
                 ctx.fun.instr_jump(on_true_src, after_if);
-                let bb_true = ctx.fun.get_current_block();
+                let bb_true_last = ctx.fun.get_current_block();
 
 
                 // on_false
@@ -285,14 +285,14 @@ impl Builder {
                         (v, expr.id.some())
                     };
                 ctx.fun.instr_jump(on_false_src, after_if);
-                let bb_false = ctx.fun.get_current_block();
+                let bb_false_last = ctx.fun.get_current_block();
 
 
                 ctx.fun.set_current_block(after_if);
                 need_value.then(||
                     ctx.fun.instr_phi((expr.id.some(), expr.id.some()), &[
-                        (bb_true,  value_true.unwrap()),
-                        (bb_false, value_false.unwrap()),
+                        (bb_true_last,  value_true.unwrap()),
+                        (bb_false_last, value_false.unwrap()),
                     ]))
             }
 
@@ -308,7 +308,6 @@ impl Builder {
                 ctx.fun.set_current_block(bb_head);
                 let cond = self.build_expr(ctx, &whilee.condition, true).unwrap();
                 ctx.fun.instr_switch_bool(expr.id.some(), cond, bb_body, bb_after);
-                let bb_head = ctx.fun.get_current_block();
 
 
                 let bs = ctx.begin_break_scope(expr.id, bb_after, bb_head.some(), false);
