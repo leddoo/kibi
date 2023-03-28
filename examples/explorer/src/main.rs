@@ -355,7 +355,8 @@ struct CodeView {
     #[allow(dead_code)] // @temp
     pos: (f32, f32),
 
-    font_size: f32,
+    font_size:    f32,
+    font_size_bc: f32,
     inserted_semicolons: bool,
     syntax_highlighting: bool,
 
@@ -372,6 +373,7 @@ impl CodeView {
             pos: (150., 50.),
 
             font_size: 24.0,
+            font_size_bc: 0.0,
             inserted_semicolons: false,
             syntax_highlighting: true,
 
@@ -446,6 +448,8 @@ impl CodeView {
         let mut new_semis  = self.inserted_semicolons;
         let mut new_syntax = self.syntax_highlighting;
         let mut new_font_size = self.font_size;
+
+        self.font_size_bc = 0.75 * self.font_size;
 
         fn quote_button_endquote(gui: &mut Gui, title: String) -> WidgetEvents {
             gui.widget_box(Key::Counter, Props::new().with_pointer_events(), |gui| {
@@ -637,7 +641,7 @@ impl CodeViewRenderer {
         let events = gui.widget_text(Key::Counter,
             Props {
                 font_face: FaceId::DEFAULT,
-                font_size: view.font_size,
+                font_size: view.font_size_bc,
                 text_color: TokenClass::Default.color(),
                 pointer_events: true,
                 ..Default::default()
@@ -654,7 +658,7 @@ impl CodeViewRenderer {
             gui.widget_text(Key::Counter,
                 Props {
                     font_face: FaceId::DEFAULT,
-                    font_size: view.font_size,
+                    font_size: view.font_size_bc,
                     text_color: color,
                     ..Default::default()
                 },
@@ -667,7 +671,7 @@ impl CodeViewRenderer {
             gui.widget_text(Key::Counter,
                 Props {
                     font_face: FaceId::DEFAULT,
-                    font_size: view.font_size,
+                    font_size: view.font_size_bc,
                     text_color: TokenClass::Comment.color(),
                     ..Default::default()
                 },
@@ -676,7 +680,7 @@ impl CodeViewRenderer {
             gui.widget_text(Key::Counter,
                 Props {
                     font_face: FaceId::DEFAULT,
-                    font_size: view.font_size,
+                    font_size: view.font_size_bc,
                     text_color: TokenClass::Default.color(),
                     ..Default::default()
                 },
@@ -833,27 +837,53 @@ impl CodeViewRenderer {
             self.line_index += 1;
 
             // bytecode instructions.
-            if let Some((func_id, code, ic, _)) = func_stack.last_mut() {
-                let pc_to_node = &view.info.debug_info[*func_id].pc_to_node;
+            let mut bc_line_props = Props::new();
+            bc_line_props.layout = Layout::Flex(FlexLayout { align: FlexAlign::Center, ..Default::default() });
+            gui.widget_box(Key::Counter, bc_line_props, |gui| {
+                // indent
+                let indent = {
+                    let line = &view.text[line_begin..line_end];
+                    let indent =
+                        line.char_indices()
+                        .find(|(_, ch)| !ch.is_ascii_whitespace())
+                        .map(|(indent, _)| indent)
+                        .unwrap_or(0);
+                    format!("{:indent$}", "", indent=indent+1)
+                };
 
-                let code = &codes[*code];
+                let mut indent_props = Props::new();
+                indent_props.font_face = FaceId::DEFAULT;
+                indent_props.font_size = view.font_size;
+                gui.widget_text(Key::Counter, indent_props, indent);
 
-                while *ic < code.len() {
-                    let instr = &code[*ic];
-                    let node_id = pc_to_node[instr.pc as usize];
 
-                    // stop if instr is associated with next line.
-                    if let Some(node_id) = node_id.to_option() {
-                        let range = view.info.ast_info.nodes[node_id].source_range;
-                        if range.begin.line as usize >= self.line_index {
-                            break;
+                let mut box_props = Props::new();
+                box_props.fill = true;
+                box_props.fill_color = 0xff2A2E37;
+                gui.widget_box(Key::Counter, box_props, |gui| {
+                    if let Some((func_id, code, ic, _)) = func_stack.last_mut() {
+                        let pc_to_node = &view.info.debug_info[*func_id].pc_to_node;
+
+                        let code = &codes[*code];
+
+                        while *ic < code.len() {
+                            let instr = &code[*ic];
+                            let node_id = pc_to_node[instr.pc as usize];
+
+                            // stop if instr is associated with next line.
+                            if let Some(node_id) = node_id.to_option() {
+                                let range = view.info.ast_info.nodes[node_id].source_range;
+                                if range.begin.line as usize >= self.line_index {
+                                    break;
+                                }
+                            }
+
+                            self.render_instr(instr, *func_id, view, gui);
+                            *ic += 1;
                         }
                     }
-
-                    self.render_instr(instr, *func_id, view, gui);
-                    *ic += 1;
-                }
-            }
+                });
+            });
 
             // remove ending funcs.
             while let Some((_, code, ic, line_end)) = func_stack.last().copied() {

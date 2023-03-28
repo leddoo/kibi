@@ -20,9 +20,9 @@
 
 - todo: explorer.
     - inline bytecode.
-        - pwetty:
-            - gray box.
-            - smaller font size.
+        - spacing:
+            - indentation & gaps using "margin".
+            - "padding".
         - global option for "show bytecode" with per-line overrides.
             - tri-state logic: show/hide/default.
             - show if: `not global_hide and ((global_show and not local_hide) or local_show)`
