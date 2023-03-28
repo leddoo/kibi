@@ -469,7 +469,7 @@ impl CodeView {
 
                 while let Some(line) = line_begin {
                     if let Some(((func, begin), rest)) = funcs.split_first() {
-                        if *begin <= line {
+                        if *begin < line {
                             *funcs = rest;
                             collect_instrs(*func, funcs, info, instrs);
                             continue;
@@ -484,7 +484,11 @@ impl CodeView {
 
         let mut funcs = funcs.as_slice();
         collect_instrs(kibi::FunctionId::new_unck(0), &mut funcs, &self.info, &mut self.instrs);
-        assert_eq!(funcs.len(), 0);
+
+        while let Some(((func, _), rest)) = funcs.split_first() {
+            funcs = rest;
+            collect_instrs(*func, &mut funcs, &self.info, &mut self.instrs);
+        }
     }
 
     fn update_decos(&mut self) {

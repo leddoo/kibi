@@ -550,7 +550,7 @@ impl Builder {
         let mut inner_ctx = Ctx::new(&mut inner_fun, node, &func.params);
 
         let value = self.build_value_block(&mut inner_ctx, node, &func.body, true).unwrap();
-        inner_ctx.fun.instr_return(None.into(), value);
+        inner_ctx.fun.instr_return(node.some(), value);
 
         inner_ctx.fun.id()
     }
