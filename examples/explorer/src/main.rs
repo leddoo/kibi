@@ -781,6 +781,8 @@ impl CodeViewRenderer {
     }
 
     fn render(&mut self, view: &CodeView, gui: &mut Gui) {
+        let space_size = gui.measure_string(" ", FaceId::DEFAULT, view.font_size);
+
         let mut codes = vec![];
         // module code.
         codes.push(kibi::bytecode::ByteCodeDecoder::decode({
@@ -837,53 +839,55 @@ impl CodeViewRenderer {
             self.line_index += 1;
 
             // bytecode instructions.
-            let mut bc_line_props = Props::new();
-            bc_line_props.layout = Layout::Flex(FlexLayout { align: FlexAlign::Center, ..Default::default() });
-            gui.widget_box(Key::Counter, bc_line_props, |gui| {
-                // indent
-                let indent = {
-                    let line = &view.text[line_begin..line_end];
-                    let indent =
-                        line.char_indices()
-                        .find(|(_, ch)| !ch.is_ascii_whitespace())
-                        .map(|(indent, _)| indent)
-                        .unwrap_or(0);
-                    format!("{:indent$}", "", indent=indent+1)
-                };
+            let mut bc_props = Props::new();
+            bc_props.fill = true;
+            bc_props.fill_color = 0xff2A2E37;
 
-                let mut indent_props = Props::new();
-                indent_props.font_face = FaceId::DEFAULT;
-                indent_props.font_size = view.font_size;
-                gui.widget_text(Key::Counter, indent_props, indent);
+            let mut has_instrs = false;
+            let bc_line = gui.widget_box(Key::Counter, bc_props, |gui| {
+                if let Some((func_id, code, ic, _)) = func_stack.last_mut() {
+                    let pc_to_node = &view.info.debug_info[*func_id].pc_to_node;
 
+                    let code = &codes[*code];
 
-                let mut box_props = Props::new();
-                box_props.fill = true;
-                box_props.fill_color = 0xff2A2E37;
-                gui.widget_box(Key::Counter, box_props, |gui| {
-                    if let Some((func_id, code, ic, _)) = func_stack.last_mut() {
-                        let pc_to_node = &view.info.debug_info[*func_id].pc_to_node;
+                    while *ic < code.len() {
+                        let instr = &code[*ic];
+                        let node_id = pc_to_node[instr.pc as usize];
 
-                        let code = &codes[*code];
-
-                        while *ic < code.len() {
-                            let instr = &code[*ic];
-                            let node_id = pc_to_node[instr.pc as usize];
-
-                            // stop if instr is associated with next line.
-                            if let Some(node_id) = node_id.to_option() {
-                                let range = view.info.ast_info.nodes[node_id].source_range;
-                                if range.begin.line as usize >= self.line_index {
-                                    break;
-                                }
+                        // stop if instr is associated with next line.
+                        if let Some(node_id) = node_id.to_option() {
+                            let range = view.info.ast_info.nodes[node_id].source_range;
+                            if range.begin.line as usize >= self.line_index {
+                                break;
                             }
-
-                            self.render_instr(instr, *func_id, view, gui);
-                            *ic += 1;
                         }
+
+                        self.render_instr(instr, *func_id, view, gui);
+                        has_instrs = true;
+                        *ic += 1;
                     }
-                });
+                }
             });
+
+            if has_instrs {
+                let indent =
+                    view.text[line_begin..line_end].char_indices()
+                    .find(|(_, ch)| !ch.is_ascii_whitespace())
+                    .map(|(indent, _)| indent)
+                    .unwrap_or(0);
+
+                let bc_props = gui.edit_props_no_render(&bc_line);
+
+                bc_props.padding = [
+                    [space_size[1]/4.0; 2],
+                    [space_size[1]/8.0; 2],
+                ];
+
+                bc_props.margin = [
+                    [ (indent + 1) as f32 * space_size[0], 0.0 ],
+                    [space_size[1]/4.0; 2],
+                ];
+            }
 
             // remove ending funcs.
             while let Some((_, code, ic, line_end)) = func_stack.last().copied() {

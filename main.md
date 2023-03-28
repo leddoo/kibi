@@ -20,9 +20,6 @@
 
 - todo: explorer.
     - inline bytecode.
-        - spacing:
-            - indentation & gaps using "margin".
-            - "padding".
         - global option for "show bytecode" with per-line overrides.
             - tri-state logic: show/hide/default.
             - show if: `not global_hide and ((global_show and not local_hide) or local_show)`
@@ -45,6 +42,7 @@
         - properly sort decorations.
         - handle conflicting replacements.
     - ui stuff:
+        - box-sizing.
         - clip mouse, unless captured.
         - hit test on mouse up (cause capture may have prevented hover).
         - clip.

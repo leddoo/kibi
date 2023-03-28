@@ -98,11 +98,15 @@ pub struct FlexLayout {
 
 #[derive(Clone, Debug)]
 pub struct Props {
-    pub layout: Layout,
-
     pub pos:  [Option<f32>; 2],
     pub size: [Option<f32>; 2],
+
+    pub layout: Layout,
     pub flex_grow: f32,
+
+    // left/right, top/bottom.
+    pub margin:  [[f32; 2]; 2],
+    pub padding: [[f32; 2]; 2],
 
     pub font_face: FaceId,
     pub font_size: f32,
@@ -137,11 +141,13 @@ impl Default for Props {
     #[inline(always)]
     fn default() -> Self {
         Props {
-            layout: Layout::default(),
-
             pos:  [None; 2],
             size: [None; 2],
+
+            layout: Layout::default(),
             flex_grow: 0.,
+            margin:  [[0.0; 2]; 2],
+            padding: [[0.0; 2]; 2],
 
             font_face: FaceId::DEFAULT,
             font_size: 16.0,
@@ -442,6 +448,13 @@ impl Gui {
             mouse_capture:      None,
             mouse_capture_pos:  [0.0; 2],
         }
+    }
+
+
+    pub fn measure_string(&self, string: &str, face: FaceId, size: f32) -> [f32; 2] {
+        let mut layout = TextLayout::new(&self.fonts);
+        layout.append(string, face, size, 0, 0);
+        layout.size()
     }
 
 
@@ -967,10 +980,18 @@ impl Gui {
             };
 
             let widget = &mut this.widgets[widget_index];
+
+            let mgn = widget.props.margin;
+            let pad = widget.props.padding;
+            let intr_size = [
+                content_size[0] + mgn[0][0]+mgn[0][1] + pad[0][0]+pad[0][1],
+                content_size[1] + mgn[1][0]+mgn[1][1] + pad[1][0]+pad[1][1],
+            ];
+
             widget.content_size = content_size;
             widget.intrinsic_size = [
-                widget.props.size[0].unwrap_or(content_size[0]),
-                widget.props.size[1].unwrap_or(content_size[1])];
+                widget.props.size[0].unwrap_or(intr_size[0]),
+                widget.props.size[1].unwrap_or(intr_size[1])];
         }
 
         fn layout_pass(this: &mut Gui, widget_index: usize, given_size: [Option<f32>; 2]) {
@@ -986,6 +1007,16 @@ impl Gui {
                 cmax[1] = cmax[1].max(child.pos[1] + child.content_max[1]);
             };
 
+            let mgn = widget.props.margin;
+            let pad = widget.props.padding;
+
+            let space_x0 = mgn[0][0] + pad[0][0];
+            let space_y0 = mgn[1][0] + pad[1][0];
+            let space_x1 = mgn[0][1] + pad[0][1];
+            let space_y1 = mgn[1][1] + pad[1][1];
+            let space_x  = space_x0 + space_x1;
+            let space_y  = space_y0 + space_y1;
+
             let size = match &widget.data {
                 WidgetData::Box(data) => {
                     match widget.props.layout {
@@ -999,8 +1030,8 @@ impl Gui {
 
                                 let child = &mut this.widgets[current];
                                 child.pos = [
-                                    child.props.pos[0].unwrap_or(0.0),
-                                    child.props.pos[1].unwrap_or(0.0)];
+                                    space_x0 + child.props.pos[0].unwrap_or(0.0),
+                                    space_y0 + child.props.pos[1].unwrap_or(0.0)];
 
                                 add_child(child);
 
@@ -1014,21 +1045,22 @@ impl Gui {
                             let width = given_size[0].unwrap_or(widget.intrinsic_size[0]);
                             let height = widget.intrinsic_size[1];
 
-                            let mut cursor = 0f32;
+                            let mut cursor = space_y0;
 
                             let mut at = data.first_render_child;
                             while let Some(current) = at {
                                 let current = current.get() as usize;
-                                layout_pass(this, current, [Some(width), None]);
+                                layout_pass(this, current, [Some(width - space_x), None]);
 
                                 let child = &mut this.widgets[current];
-                                child.pos = [0.0, cursor];
+                                child.pos = [space_x0, cursor];
                                 cursor += child.size[1];
 
                                 add_child(child);
 
                                 at = child.next_render_sibling;
                             }
+                            cursor += space_y1;
 
                             [width, height.max(cursor)]
                         }
@@ -1039,12 +1071,22 @@ impl Gui {
 
                             let main_cont  = widget.content_size[main_axis];
 
-                            let main_intr  = widget.intrinsic_size[main_axis];
-                            let cross_intr = widget.intrinsic_size[cross_axis];
-                            let main_size  = given_size[main_axis].unwrap_or(main_intr);
-                            let cross_size = given_size[cross_axis].unwrap_or(cross_intr);
+                            let main_space  = [space_x, space_y][main_axis];
+                            let cross_space = [space_x, space_y][cross_axis];
 
-                            let mut cursor = 0.0;
+                            let main_space_0  = [space_x0, space_y0][main_axis];
+                            let cross_space_0 = [space_x1, space_y1][main_axis];
+
+                            let own_main_intr  = widget.intrinsic_size[main_axis];
+                            let own_cross_intr = widget.intrinsic_size[cross_axis];
+                            let own_main_size  = given_size[main_axis].unwrap_or(own_main_intr);
+                            let own_cross_size = given_size[cross_axis].unwrap_or(own_cross_intr);
+
+                            let main_size  = own_main_size  - main_space;
+                            let cross_size = own_cross_size - cross_space;
+
+
+                            let mut cursor = main_space_0;
 
                             let mut at = data.first_render_child;
                             while let Some(current) = at {
@@ -1081,7 +1123,7 @@ impl Gui {
                                     FlexJustify::SpaceEvenly  => unimplemented!(),
                                 };
 
-                                let cross_pos = match flex.align {
+                                let cross_pos = cross_space_0 + match flex.align {
                                     FlexAlign::Begin   => 0.0,
                                     FlexAlign::Center  => cross_size/2.0 - child_cross / 2.0,
                                     FlexAlign::End     => cross_size - child_cross,
@@ -1097,8 +1139,8 @@ impl Gui {
                                 at = child.next_render_sibling;
                             }
 
-                            [[main_size, cross_size][main_axis],
-                             [main_size, cross_size][cross_axis]]
+                            [[own_main_size, own_cross_size][main_axis],
+                             [own_main_size, own_cross_size][cross_axis]]
                         }
                     }
                 }
@@ -1148,28 +1190,32 @@ impl Gui {
             let x1 = x0 + widget.size[0];
             let y1 = y0 + widget.size[1];
 
-            let x0 = px + x0 as i32;
-            let y0 = py + y0 as i32;
-            let x1 = px + x1 as i32;
-            let y1 = py + y1 as i32;
+            let global_x0 = px + x0 as i32;
+            let global_y0 = py + y0 as i32;
 
             match &widget.data {
                 WidgetData::Box(data) => {
                     if widget.props.fill {
-                        r.fill_rect_abs(x0, y0, x1, y1, widget.props.fill_color);
+                        let mgn = widget.props.margin;
+                        r.fill_rect_abs(
+                            px + (x0 + mgn[0][0]) as i32,
+                            py + (y0 + mgn[1][0]) as i32,
+                            px + (x1 - mgn[0][1]) as i32,
+                            py + (y1 - mgn[1][1]) as i32,
+                            widget.props.fill_color);
                     }
 
                     let mut at = data.first_render_child;
                     while let Some(current) = at {
                         let current = current.get() as usize;
-                        rec(this, current, x0, y0, r);
+                        rec(this, current, global_x0, global_y0, r);
 
                         at = this.widgets[current].next_render_sibling;
                     }
                 }
 
                 WidgetData::TextLayout(data) => {
-                    r.draw_text_layout_abs(x0, y0, &data.layout);
+                    r.draw_text_layout_abs(global_x0, global_y0, &data.layout);
                 }
 
                 WidgetData::Text(_) | WidgetData::Free(_) => unreachable!()
