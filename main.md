@@ -20,8 +20,6 @@
 
 - todo: explorer.
     - inline bytecode.
-        - compute line layout ahead of time.
-            - recompute whenever decorations change.
         - hover instr -> highlight source range.
         - global option for "show bytecode" with per-line overrides.
             - tri-state logic: show/hide/default.
@@ -38,6 +36,9 @@
         - gui skips child fn if there are no events in the sub-tree.
         - key must not be counter.
         - compute render children in intrinsic pass.
+        - not sure this is actually all that useful.
+            - things like decorations change pretty often, and they're somewhat expensive to cache (cause you'd need to diff the decos for each line).
+            - so virtualization would be much more effective.
     - stuff:
         - ast child visitors.
         - properly sort decorations.

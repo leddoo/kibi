@@ -351,6 +351,29 @@ impl TokenClass {
 }
 
 
+struct VisualLine {
+    spans: Vec<VisualSpan>,
+
+    indent: u32,
+
+    instrs_begin: u32,
+    instrs_end:   u32,
+    instrs_gap:   Option<u32>,
+}
+
+struct VisualSpan {
+    text: String,
+    face: FaceId,
+    color: u32,
+}
+
+struct VisualInstr {
+    func: kibi::FunctionId,
+    line_begin: Option<u32>,
+    data: kibi::bytecode::Instr,
+}
+
+
 struct CodeView {
     #[allow(dead_code)] // @temp
     pos: (f32, f32),
@@ -360,11 +383,13 @@ struct CodeView {
     inserted_semicolons: bool,
     syntax_highlighting: bool,
 
-    text:  String,
-    lines: Vec<u32>,
-    info:  CodeInfo<'static>,
+    text: String,
+    line_ends: Vec<u32>,
+    info: CodeInfo<'static>,
+    instrs: Vec<VisualInstr>,
 
     decos: Vec<Decoration>,
+    vlines: Vec<VisualLine>,
 }
 
 impl CodeView {
@@ -378,17 +403,19 @@ impl CodeView {
             syntax_highlighting: true,
 
             text:   "".into(),
-            lines:  vec![],
+            line_ends:  vec![],
             info:   CodeInfo::new(""),
 
             decos: vec![],
+            instrs: vec![],
+            vlines: vec![],
         }
     }
 
     fn source_pos_to_offset(&self, pos: SourcePos) -> u32 {
         if pos.line < 1 { return 0 }
 
-        self.lines[pos.line as usize - 1] + pos.column - 1
+        self.line_ends[pos.line as usize - 1] + pos.column - 1
     }
 
     pub fn set_text(&mut self, text: &str) {
@@ -398,14 +425,66 @@ impl CodeView {
         let info = CodeInfo::new(&self.text);
         self.info = unsafe { core::mem::transmute(info) };
 
+        self.update_instrs();
+
         // @todo: looks like offset based source positions are more useful (here).
-        self.lines.clear();
+        self.line_ends.clear();
         for line in text.lines() {
-            self.lines.push((line.as_ptr() as usize - text.as_ptr() as usize) as u32);
+            self.line_ends.push((line.as_ptr() as usize - text.as_ptr() as usize) as u32);
         }
-        self.lines.push(text.len() as u32);
+        self.line_ends.push(text.len() as u32);
 
         self.update_decos();
+        self.update_vlines();
+    }
+
+    fn update_instrs(&mut self) {
+        let items = &self.info.ast_info.items;
+
+        // functions sorted by line begin.
+        let mut funcs = Vec::with_capacity(items.len());
+        for item in items {
+            let info = &self.info.items[item.item_id].data;
+            if let kibi::bbir::ItemData::Func(func) = *info {
+                let source = item.source_range;
+                funcs.push((func, source.begin.line));
+            }
+        }
+        // add module function.
+        funcs.sort_by(|(_, l1), (_, l2)| l1.cmp(l2));
+
+        self.instrs.clear();
+
+        fn collect_instrs(func: kibi::FunctionId, funcs: &mut &[(kibi::FunctionId, u32)], info: &CodeInfo, instrs: &mut Vec<VisualInstr>) {
+            let code = &info.funcs[func].code;
+            let kibi::FuncCode::ByteCode(code) = code else { unreachable!() };
+            let code = kibi::bytecode::ByteCodeDecoder::decode(code).unwrap();
+
+            let pc_to_node = &info.debug_info[func].pc_to_node;
+
+            for instr in code {
+                let line_begin =
+                    pc_to_node[instr.pc as usize].to_option()
+                    .map(|node_id| info.ast_info.nodes[node_id].source_range.begin.line);
+
+                while let Some(line) = line_begin {
+                    if let Some(((func, begin), rest)) = funcs.split_first() {
+                        if *begin <= line {
+                            *funcs = rest;
+                            collect_instrs(*func, funcs, info, instrs);
+                            continue;
+                        }
+                    }
+                    break;
+                }
+
+                instrs.push(VisualInstr { func, line_begin, data: instr });
+            }
+        }
+
+        let mut funcs = funcs.as_slice();
+        collect_instrs(kibi::FunctionId::new_unck(0), &mut funcs, &self.info, &mut self.instrs);
+        assert_eq!(funcs.len(), 0);
     }
 
     fn update_decos(&mut self) {
@@ -441,6 +520,122 @@ impl CodeView {
             }
         }
         // decos are already sorted.
+    }
+
+    pub fn update_vlines(&mut self) {
+        let mut prev_line_end = 0;
+        let mut deco_cursor   = 0;
+        let mut instr_cursor  = 0;
+
+        self.vlines.clear();
+        for line_index in 1..self.line_ends.len() {
+            let line_begin = prev_line_end;
+            let line_end   = self.line_ends[line_index] as usize;
+            prev_line_end = line_end;
+
+            // build spans.
+            let spans = {
+                let mut spans = vec![];
+
+                let mut text_cursor = line_begin;
+                while text_cursor < line_end {
+                    let next_deco =
+                        self.decos.get(deco_cursor)
+                        .filter(|deco| deco.text_begin as usize <= line_end);
+
+                    if let Some(next_deco) = next_deco {
+                        let deco_begin = (next_deco.text_begin as usize).max(line_begin);
+                        let deco_end   = (next_deco.text_end   as usize).min(line_end);
+                        debug_assert!(deco_begin <= deco_end);
+
+                        if text_cursor < deco_begin {
+                            let source_begin = text_cursor as u32;
+                            let source_end   = deco_begin  as u32;
+                            spans.push(VisualSpan {
+                                text:  self.text[source_begin as usize .. source_end as usize].to_string(),
+                                face:  FaceId::DEFAULT,
+                                color: TokenClass::Default.color(),
+                            });
+                        }
+
+                        match &next_deco.data {
+                            DecorationData::Style { color } => {
+                                let source_begin = deco_begin as u32;
+                                let source_end   = deco_end   as u32;
+                                spans.push(VisualSpan {
+                                    text:  self.text[source_begin as usize .. source_end as usize].to_string(),
+                                    face:  FaceId::DEFAULT,
+                                    color: *color,
+                                });
+                            }
+
+                            DecorationData::Replace { text, color } => {
+                                spans.push(VisualSpan {
+                                    text:  text.to_string(),
+                                    face:  FaceId::DEFAULT,
+                                    color: *color,
+                                });
+                            }
+                        }
+
+                        if next_deco.text_end as usize <= line_end {
+                            deco_cursor += 1;
+                        }
+                        text_cursor = deco_end;
+                    }
+                    else {
+                        let source_begin = text_cursor as u32;
+                        let source_end   = line_end    as u32;
+                        spans.push(VisualSpan {
+                            text:  self.text[source_begin as usize .. source_end as usize].to_string(),
+                            face:  FaceId::DEFAULT,
+                            color: TokenClass::Default.color(),
+                        });
+
+                        text_cursor = line_end;
+                    }
+                }
+
+                spans
+            };
+
+            // bytecode instructions.
+            let instrs_begin   = instr_cursor;
+            let mut instrs_gap = None;
+            while instr_cursor < self.instrs.len() {
+                let instr = &self.instrs[instr_cursor];
+
+                let mut is_for_current_line = false;
+                if let Some(line) = instr.line_begin {
+                    let line = line as usize;
+
+                    is_for_current_line = line == line_index;
+                    if line > line_index {
+                        break;
+                    }
+                }
+
+                if !is_for_current_line && instr_cursor > instrs_begin && instrs_gap.is_none() {
+                    instrs_gap = Some(instr_cursor as u32);
+                }
+
+                instr_cursor += 1;
+            }
+
+            let indent =
+                self.text[line_begin..line_end].char_indices()
+                .find(|(_, ch)| !ch.is_ascii_whitespace())
+                .map(|(indent, _)| indent)
+                .unwrap_or(0) as u32;
+
+            self.vlines.push(VisualLine {
+                spans,
+                indent,
+                instrs_begin: instrs_begin as u32,
+                instrs_end:   instr_cursor as u32,
+                instrs_gap,
+            });
+        }
     }
 
     pub fn render(&mut self, gui: &mut Gui) -> bool {
@@ -481,12 +676,7 @@ impl CodeView {
                 changed = true;
             }
 
-            let mut r = CodeViewRenderer {
-                deco_index: 0,
-                line_begin: 0,
-                line_index: 1,
-            };
-            r.render(self, gui);
+            self.render_impl(gui);
         });
 
         self.inserted_semicolons = new_semis;
@@ -494,6 +684,7 @@ impl CodeView {
         self.font_size = new_font_size;
         if changed {
             self.update_decos();
+            self.update_vlines();
         }
 
         changed
@@ -555,93 +746,14 @@ impl Slider {
 }
 
 
-struct CodeViewRenderer {
-    deco_index: usize,
-    line_begin: usize,
-    line_index: usize,
-}
-
-impl CodeViewRenderer {
-    fn render_line(&mut self, line_begin: usize, line_end: usize, view: &CodeView, gui: &mut Gui) {
-        let mut text_cursor = line_begin;
-        while text_cursor < line_end {
-            let next_deco =
-                view.decos.get(self.deco_index)
-                .filter(|deco| deco.text_begin as usize <= line_end);
-
-            if let Some(next_deco) = next_deco {
-                let deco_begin = (next_deco.text_begin as usize).max(line_begin);
-                let deco_end   = (next_deco.text_end   as usize).min(line_end);
-                debug_assert!(deco_begin <= deco_end);
-
-                if text_cursor < deco_begin {
-                    let source_begin = text_cursor as u32;
-                    let source_end   = deco_begin  as u32;
-                    gui.widget_text(Key::Counter,
-                        Props {
-                            font_face: FaceId::DEFAULT,
-                            font_size: view.font_size,
-                            text_color: TokenClass::Default.color(),
-                            ..Default::default()
-                        },
-                        view.text[source_begin as usize .. source_end as usize].to_string());
-                }
-
-                match &next_deco.data {
-                    DecorationData::Style { color } => {
-                        let source_begin = deco_begin as u32;
-                        let source_end   = deco_end   as u32;
-                        gui.widget_text(Key::Counter,
-                            Props {
-                                font_face: FaceId::DEFAULT,
-                                font_size: view.font_size,
-                                text_color: *color,
-                                ..Default::default()
-                            },
-                            view.text[source_begin as usize .. source_end as usize].to_string());
-                    }
-
-                    DecorationData::Replace { text, color } => {
-                        gui.widget_text(Key::Counter,
-                            Props {
-                                font_face: FaceId::DEFAULT,
-                                font_size: view.font_size,
-                                text_color: *color,
-                                ..Default::default()
-                            },
-                            text.to_string());
-                    }
-                }
-
-                if next_deco.text_end as usize <= line_end {
-                    self.deco_index += 1;
-                }
-                text_cursor = deco_end;
-            }
-            else {
-                let source_begin = text_cursor as u32;
-                let source_end   = line_end    as u32;
-                gui.widget_text(Key::Counter,
-                    Props {
-                        font_face: FaceId::DEFAULT,
-                        font_size: view.font_size,
-                        text_color: TokenClass::Default.color(),
-                        ..Default::default()
-                    },
-                    view.text[source_begin as usize .. source_end as usize].to_string());
-
-                text_cursor = line_end;
-            }
-        }
-    }
-
-    fn render_reg(&mut self, func: kibi::FunctionId, pc: u16, reg: u8, view: &CodeView, gui: &mut Gui) {
+impl CodeView {
+    fn render_reg(&self, func: kibi::FunctionId, pc: u16, reg: u8, gui: &mut Gui) {
         let _ = (func, pc);
 
         let events = gui.widget_text(Key::Counter,
             Props {
                 font_face: FaceId::DEFAULT,
-                font_size: view.font_size_bc,
+                font_size: self.font_size_bc,
                 text_color: TokenClass::Default.color(),
                 pointer_events: true,
                 ..Default::default()
@@ -653,7 +765,7 @@ impl CodeViewRenderer {
         if events.mouse_went_up(MouseButton::Left)   { println!("{func}.{pc}.{reg} left up") }
     }
 
-    fn render_instr(&mut self, instr: &kibi::bytecode::Instr, func_id: kibi::FunctionId, view: &CodeView, gui: &mut Gui) {
+    fn render_instr(&self, instr: &VisualInstr, gui: &mut Gui) {
         fn text(text: String, color: u32, view: &CodeView, gui: &mut Gui) {
             gui.widget_text(Key::Counter,
                 Props {
@@ -665,29 +777,32 @@ impl CodeViewRenderer {
                 text);
         }
 
-        let name = instr.name();
+        let name = instr.data.name();
 
         gui.widget_box(Key::Counter, Props::new(), |gui| {
             gui.widget_text(Key::Counter,
                 Props {
                     font_face: FaceId::DEFAULT,
-                    font_size: view.font_size_bc,
+                    font_size: self.font_size_bc,
                     text_color: TokenClass::Comment.color(),
                     ..Default::default()
                 },
-                format!("{:03} ", instr.pc));
+                format!("{:03} ", instr.data.pc));
 
             gui.widget_text(Key::Counter,
                 Props {
                     font_face: FaceId::DEFAULT,
-                    font_size: view.font_size_bc,
+                    font_size: self.font_size_bc,
                     text_color: TokenClass::Default.color(),
                     ..Default::default()
                 },
                 format!("{:11} ", name));
 
+            let func_id = instr.func;
+            let pc      = instr.data.pc;
+
             use kibi::bytecode::InstrData::*;
-            match &instr.data {
+            match &instr.data.data {
                 Nop => (),
                 Unreachable => (),
 
@@ -695,181 +810,126 @@ impl CodeViewRenderer {
                 LoadEnv  { dst } |
                 LoadUnit { dst } |
                 MapNew   { dst } => {
-                    self.render_reg(func_id, instr.pc + 1, *dst, view, gui);
+                    self.render_reg(func_id, pc + 1, *dst, gui);
                 }
 
                 Swap { dst, src } => {
-                    self.render_reg(func_id, instr.pc, *dst, view, gui);
-                    text(format!(", "), TokenClass::Default.color(), view, gui);
-                    self.render_reg(func_id, instr.pc, *src, view, gui);
+                    self.render_reg(func_id, pc, *dst, gui);
+                    text(format!(", "), TokenClass::Default.color(), self, gui);
+                    self.render_reg(func_id, pc, *src, gui);
                 }
 
                 Copy { dst, src } |
                 Op1  { dst, src } => {
-                    self.render_reg(func_id, instr.pc + 1, *dst, view, gui);
-                    text(format!(", "), TokenClass::Default.color(), view, gui);
-                    self.render_reg(func_id, instr.pc, *src, view, gui);
+                    self.render_reg(func_id, pc + 1, *dst, gui);
+                    text(format!(", "), TokenClass::Default.color(), self, gui);
+                    self.render_reg(func_id, pc, *src, gui);
                 }
 
                 Op2 { dst, src1, src2 } => {
-                    self.render_reg(func_id, instr.pc + 1, *dst, view, gui);
-                    text(format!(", "), TokenClass::Default.color(), view, gui);
-                    self.render_reg(func_id, instr.pc, *src1, view, gui);
-                    text(format!(", "), TokenClass::Default.color(), view, gui);
-                    self.render_reg(func_id, instr.pc, *src2, view, gui);
+                    self.render_reg(func_id, pc + 1, *dst, gui);
+                    text(format!(", "), TokenClass::Default.color(), self, gui);
+                    self.render_reg(func_id, pc, *src1, gui);
+                    text(format!(", "), TokenClass::Default.color(), self, gui);
+                    self.render_reg(func_id, pc, *src2, gui);
                 }
 
 
                 LoadBool { dst, value } => {
-                    self.render_reg(func_id, instr.pc + 1, *dst, view, gui);
-                    text(format!(", "), TokenClass::Default.color(), view, gui);
-                    text(format!("{value}"), TokenClass::from_data(kibi::TokenData::Bool(false)).color(), view, gui);
+                    self.render_reg(func_id, pc + 1, *dst, gui);
+                    text(format!(", "), TokenClass::Default.color(), self, gui);
+                    text(format!("{value}"), TokenClass::from_data(kibi::TokenData::Bool(false)).color(), self, gui);
                 }
 
                 LoadInt   { dst, value } |
                 AddInt    { dst, value } => {
-                    self.render_reg(func_id, instr.pc + 1, *dst, view, gui);
-                    text(format!(", "), TokenClass::Default.color(), view, gui);
-                    text(format!("#{value}"), TokenClass::from_data(kibi::TokenData::Number("")).color(), view, gui);
+                    self.render_reg(func_id, pc + 1, *dst, gui);
+                    text(format!(", "), TokenClass::Default.color(), self, gui);
+                    text(format!("#{value}"), TokenClass::from_data(kibi::TokenData::Number("")).color(), self, gui);
                 }
 
                 LoadConst { dst, index } => {
-                    self.render_reg(func_id, instr.pc + 1, *dst, view, gui);
-                    text(format!(", "), TokenClass::Default.color(), view, gui);
+                    self.render_reg(func_id, pc + 1, *dst, gui);
+                    text(format!(", "), TokenClass::Default.color(), self, gui);
                     // @todo: render the const's value.
-                    text(format!("c{index}"), TokenClass::Default.color(), view, gui);
+                    text(format!("c{index}"), TokenClass::Default.color(), self, gui);
                 }
 
                 ListNew  { dst, values } |
                 TupleNew { dst, values } => {
                     let _ = (dst, values);
-                    text(format!("..."), TokenClass::Comment.color(), view, gui);
+                    text(format!("..."), TokenClass::Comment.color(), self, gui);
                 }
 
 
                 ReadPath { dst, base, keys } => {
                     let _ = (dst, base, keys);
-                    text(format!("..."), TokenClass::Comment.color(), view, gui);
+                    text(format!("..."), TokenClass::Comment.color(), self, gui);
                 }
 
                 WritePath { base, keys, value } => {
                     let _ = (base, keys, value);
-                    text(format!("..."), TokenClass::Comment.color(), view, gui);
+                    text(format!("..."), TokenClass::Comment.color(), self, gui);
                 }
 
 
                 Jump { target } => {
-                    text(format!("{target}"), TokenClass::Default.color(), view, gui);
+                    text(format!("{target}"), TokenClass::Default.color(), self, gui);
                 }
 
                 JumpC1 { target, src } => {
-                    self.render_reg(func_id, instr.pc, *src, view, gui);
-                    text(format!(", {target}"), TokenClass::Default.color(), view, gui);
+                    self.render_reg(func_id, pc, *src, gui);
+                    text(format!(", {target}"), TokenClass::Default.color(), self, gui);
                 }
 
                 Call { dst, func, args } => {
                     let _ = (dst, func, args);
-                    text(format!("..."), TokenClass::Comment.color(), view, gui);
+                    text(format!("..."), TokenClass::Comment.color(), self, gui);
                 }
 
                 Ret { src } => {
-                    self.render_reg(func_id, instr.pc, *src, view, gui);
+                    self.render_reg(func_id, pc, *src, gui);
                 }
             }
-            text(format!("\n"), TokenClass::Default.color(), view, gui);
+            text(format!("\n"), TokenClass::Default.color(), self, gui);
         });
     }
 
-    fn render(&mut self, view: &CodeView, gui: &mut Gui) {
-        let space_size = gui.measure_string(" ", FaceId::DEFAULT, view.font_size);
+    fn render_impl(&self, gui: &mut Gui) {
+        let space_size = gui.measure_string(" ", FaceId::DEFAULT, self.font_size);
 
-        let mut codes = vec![];
-        // module code.
-        codes.push(kibi::bytecode::ByteCodeDecoder::decode({
-            let code = &view.info.funcs.inner()[0].code;
-            let kibi::FuncCode::ByteCode(code) = code else { unreachable!() };
-            code
-        }).unwrap());
-
-        let mut func_queue_rev = {
-            let items = &view.info.ast_info.items;
-
-            // functions sorted by line begin.
-            let mut queue = Vec::with_capacity(items.len());
-            for item in items {
-                let info = &view.info.items[item.item_id].data;
-                if let kibi::bbir::ItemData::Func(func) = *info {
-                    let code = &view.info.funcs[func].code;
-                    let kibi::FuncCode::ByteCode(code) = code else { unreachable!() };
-
-                    let code_index = codes.len();
-                    codes.push(kibi::bytecode::ByteCodeDecoder::decode(code).unwrap());
-
-                    queue.push((func, code_index, item.source_range.begin.line, item.source_range.end.line));
-                }
-            }
-            queue.sort_by(|(_, _, l1, _), (_, _, l2, _)| l2.cmp(l1));
-
-            // add module function.
-            queue.push((kibi::FunctionId::new_unck(0), 0, 0, view.lines.len() as u32));
-
-            queue
-        };
-
-        let mut func_stack = vec![];
-
-        while self.line_index < view.lines.len() {
-            // add beginning funcs.
-            while let Some((func, code, line_begin, line_end)) = func_queue_rev.last().copied() {
-                if line_begin as usize <= self.line_index {
-                    func_stack.push((func, code, 0, line_end));
-                    func_queue_rev.pop();
-                }
-                else { break }
-            }
-
-
-            // code line.
-            let line_begin = self.line_begin;
-            let line_end = view.lines[self.line_index] as usize;
+        for line in &self.vlines {
             gui.widget_box(Key::Counter, Props::new(), |gui| {
-                self.render_line(line_begin, line_end, view, gui);
+                for span in &line.spans {
+                    let mut props = Props::new();
+                    props.font_face  = span.face;
+                    props.font_size  = self.font_size;
+                    props.text_color = span.color;
+                    gui.widget_text(Key::Counter, props, span.text.clone());
+                }
             });
-            self.line_begin = line_end;
-            self.line_index += 1;
 
             // bytecode instructions.
             let mut bc_props = Props::new();
             bc_props.fill = true;
             bc_props.fill_color = 0xff2A2E37;
 
-            let mut has_instrs = false;
-            let bc_line = gui.widget_box(Key::Counter, bc_props, |gui| {
-                if let Some((func_id, code, ic, _)) = func_stack.last_mut() {
-                    let pc_to_node = &view.info.debug_info[*func_id].pc_to_node;
+            if line.instrs_begin < line.instrs_end {
+                bc_props.padding = [
+                    [space_size[1]/4.0; 2],
+                    [space_size[1]/8.0; 2],
+                ];
 
-                    let code = &codes[*code];
+                bc_props.margin = [
+                    [ (line.indent + 1) as f32 * space_size[0], 0.0 ],
+                    [space_size[1]/4.0; 2],
+                ];
+            }
 
-                    // between instrs associated with current/other lines.
-                    let mut has_gap = false;
-
-                    while *ic < code.len() {
-                        let instr = &code[*ic];
-                        let node_id = pc_to_node[instr.pc as usize];
-
-                        // stop if instr is associated with next line.
-                        let mut is_for_current_line = false;
-                        if let Some(node_id) = node_id.to_option() {
-                            let range = view.info.ast_info.nodes[node_id].source_range;
-                            if range.begin.line as usize == self.line_index - 1 {
-                                is_for_current_line = true;
-                            }
-                            if range.begin.line as usize >= self.line_index {
-                                break;
-                            }
-                        }
-
-                        if !is_for_current_line && has_instrs && !has_gap {
+            gui.widget_box(Key::Counter, bc_props, |gui| {
+                for instr_index in line.instrs_begin .. line.instrs_end {
+                    if let Some(gap) = line.instrs_gap {
+                        if gap == instr_index {
                             let size = space_size[1]/4.0;
                             let mut gap_props = Props::new();
                             gap_props.size[1] = Some(size);
@@ -877,47 +937,14 @@ impl CodeViewRenderer {
                             gap_props.fill = true;
                             gap_props.fill_color = 0xFF41454F;
                             gui.widget_box(Key::Counter, gap_props, |_|{});
-                            has_gap = true;
                         }
-
-                        self.render_instr(instr, *func_id, view, gui);
-                        has_instrs = true;
-                        *ic += 1;
                     }
+
+                    let instr = &self.instrs[instr_index as usize];
+                    self.render_instr(instr, gui);
                 }
             });
-
-            if has_instrs {
-                let indent =
-                    view.text[line_begin..line_end].char_indices()
-                    .find(|(_, ch)| !ch.is_ascii_whitespace())
-                    .map(|(indent, _)| indent)
-                    .unwrap_or(0);
-
-                let bc_props = gui.edit_props_no_render(&bc_line);
-
-                bc_props.padding = [
-                    [space_size[1]/4.0; 2],
-                    [space_size[1]/8.0; 2],
-                ];
-
-                bc_props.margin = [
-                    [ (indent + 1) as f32 * space_size[0], 0.0 ],
-                    [space_size[1]/4.0; 2],
-                ];
-            }
-
-            // remove ending funcs.
-            while let Some((_, code, ic, line_end)) = func_stack.last().copied() {
-                if line_end as usize <= self.line_index {
-                    assert_eq!(ic, codes[code].len());
-                    func_stack.pop();
-                }
-                else { break }
-            }
         }
-
-        assert_eq!(func_stack.len(), 0);
     }
 }
 
