@@ -1,3 +1,4 @@
+use core::cell::Cell;
 use minifb::{Window, WindowOptions};
 use kibi::index_vec::*;
 use kibi::ast::*;
@@ -260,8 +261,9 @@ struct Decoration {
 }
 
 enum DecorationData {
-    Style   { color: u32 },
-    Replace { text: String, color: u32 },
+    TextColor { color: u32 },
+    FillColor { color: u32 },
+    Insert    { text: String, color: u32 },
 }
 
 
@@ -365,10 +367,12 @@ struct VisualSpan {
     text: String,
     face: FaceId,
     color: u32,
+    fill:  Option<u32>,
 }
 
 struct VisualInstr {
     func: kibi::FunctionId,
+    node: OptNodeId,
     line_begin: Option<u32>,
     data: kibi::bytecode::Instr,
 }
@@ -382,6 +386,9 @@ struct CodeView {
     font_size_bc: f32,
     inserted_semicolons: bool,
     syntax_highlighting: bool,
+
+    // source range highlighting.
+    hl_instr_node: Cell<OptNodeId>,
 
     text: String,
     line_ends: Vec<u32>,
@@ -401,6 +408,8 @@ impl CodeView {
             font_size_bc: 0.0,
             inserted_semicolons: false,
             syntax_highlighting: true,
+
+            hl_instr_node: Cell::new(None.into()),
 
             text:   "".into(),
             line_ends:  vec![],
@@ -443,7 +452,7 @@ impl CodeView {
 
         // functions sorted by line begin.
         let mut funcs = Vec::with_capacity(items.len());
-        for item in items {
+        for item in &items.inner()[1..] {
             let info = &self.info.items[item.item_id].data;
             if let kibi::bbir::ItemData::Func(func) = *info {
                 let source = item.source_range;
@@ -463,9 +472,10 @@ impl CodeView {
             let pc_to_node = &info.debug_info[func].pc_to_node;
 
             for instr in code {
-                let line_begin =
-                    pc_to_node[instr.pc as usize].to_option()
-                    .map(|node_id| info.ast_info.nodes[node_id].source_range.begin.line);
+                let node = pc_to_node[instr.pc as usize];
+
+                let line_begin = node.to_option().map(|node_id|
+                    info.ast_info.nodes[node_id].source_range.begin.line);
 
                 while let Some(line) = line_begin {
                     if let Some(((func, begin), rest)) = funcs.split_first() {
@@ -478,7 +488,7 @@ impl CodeView {
                     break;
                 }
 
-                instrs.push(VisualInstr { func, line_begin, data: instr });
+                instrs.push(VisualInstr { func, node, line_begin, data: instr });
             }
         }
 
@@ -494,8 +504,8 @@ impl CodeView {
     fn update_decos(&mut self) {
         self.decos.clear();
 
+        // syntax highlighting & inserted semicolons.
         for token in &self.info.tokens {
-            // inserted semicolons.
             if token.source.begin == token.source.end {
                 assert!(token.data.is_semicolon());
 
@@ -504,37 +514,51 @@ impl CodeView {
                     self.decos.push(Decoration {
                         text_begin,
                         text_end: text_begin,
-                        data: DecorationData::Replace {
+                        data: DecorationData::Insert {
                             text: ";".to_string(),
                             color: TokenClass::Comment.color(),
                         },
                     });
                 }
             }
-            // syntax highlighting.
             else {
                 if self.syntax_highlighting {
                     let text_begin = self.source_pos_to_offset(token.source.begin);
                     let text_end   = self.source_pos_to_offset(token.source.end);
                     let class = TokenClass::from_data(token.data);
                     self.decos.push(Decoration { text_begin, text_end,
-                        data: DecorationData::Style { color: class.color() }
+                        data: DecorationData::TextColor { color: class.color() }
                     });
                 }
             }
         }
-        // decos are already sorted.
+
+        // highlights.
+        if let Some(node) = self.hl_instr_node.get().to_option() {
+            let source = self.info.ast_info.nodes[node].source_range;
+            let text_begin = self.source_pos_to_offset(source.begin);
+            let text_end   = self.source_pos_to_offset(source.end);
+            self.decos.push(Decoration {
+                text_begin,
+                text_end,
+                data: DecorationData::FillColor { color: 0xff414752 },
+            });
+        }
+
+        self.decos.sort_by(|d1, d2| d1.text_begin.cmp(&d2.text_begin));
     }
 
-    pub fn update_vlines(&mut self) {
+    fn update_vlines(&mut self) {
         let mut prev_line_end = 0;
         let mut deco_cursor   = 0;
         let mut instr_cursor  = 0;
 
+        let mut active_decos: Vec<(usize, u32)> = vec![];
+
         self.vlines.clear();
         for line_index in 1..self.line_ends.len() {
             let line_begin = prev_line_end;
-            let line_end   = self.line_ends[line_index] as usize;
+            let line_end   = self.line_ends[line_index];
             prev_line_end = line_end;
 
             // build spans.
@@ -543,61 +567,62 @@ impl CodeView {
 
                 let mut text_cursor = line_begin;
                 while text_cursor < line_end {
-                    let next_deco =
-                        self.decos.get(deco_cursor)
-                        .filter(|deco| deco.text_begin as usize <= line_end);
-
-                    if let Some(next_deco) = next_deco {
-                        let deco_begin = (next_deco.text_begin as usize).max(line_begin);
-                        let deco_end   = (next_deco.text_end   as usize).min(line_end);
-                        debug_assert!(deco_begin <= deco_end);
-
-                        if text_cursor < deco_begin {
-                            let source_begin = text_cursor as u32;
-                            let source_end   = deco_begin  as u32;
-                            spans.push(VisualSpan {
-                                text:  self.text[source_begin as usize .. source_end as usize].to_string(),
-                                face:  FaceId::DEFAULT,
-                                color: TokenClass::Default.color(),
-                            });
+                    let next_begin =
+                        if deco_cursor < self.decos.len() {
+                            let begin = self.decos[deco_cursor].text_begin;
+                            begin.min(line_end)
                         }
+                        else { line_end };
 
-                        match &next_deco.data {
-                            DecorationData::Style { color } => {
-                                let source_begin = deco_begin as u32;
-                                let source_end   = deco_end   as u32;
-                                spans.push(VisualSpan {
-                                    text:  self.text[source_begin as usize .. source_end as usize].to_string(),
-                                    face:  FaceId::DEFAULT,
-                                    color: *color,
-                                });
-                            }
-
-                            DecorationData::Replace { text, color } => {
-                                spans.push(VisualSpan {
-                                    text:  text.to_string(),
-                                    face:  FaceId::DEFAULT,
-                                    color: *color,
-                                });
-                            }
+                    let next_end = {
+                        let mut min_end = next_begin + 1;
+                        for (_, end) in active_decos.iter().copied() {
+                            min_end = min_end.min(end);
                         }
+                        min_end
+                    };
 
-                        if next_deco.text_end as usize <= line_end {
-                            deco_cursor += 1;
-                        }
-                        text_cursor = deco_end;
-                    }
-                    else {
-                        let source_begin = text_cursor as u32;
-                        let source_end   = line_end    as u32;
-                        spans.push(VisualSpan {
+                    let source_begin = text_cursor;
+                    let source_end   = next_end.min(next_begin);
+                    if source_begin != source_end {
+                        let mut span = VisualSpan {
                             text:  self.text[source_begin as usize .. source_end as usize].to_string(),
                             face:  FaceId::DEFAULT,
                             color: TokenClass::Default.color(),
-                        });
+                            fill:  None,
+                        };
 
-                        text_cursor = line_end;
+                        for (deco, _) in active_decos.iter().copied() {
+                            match self.decos[deco].data {
+                                DecorationData::TextColor { color } => span.color = color,
+                                DecorationData::FillColor { color } => span.fill  = Some(color),
+                                DecorationData::Insert { text: _, color: _ } => unreachable!(),
+                            }
+                        }
+
+                        spans.push(span);
                     }
+
+                    if next_end <= source_end {
+                        active_decos.retain(|(_, end)| *end > source_end);
+                    }
+                    else if next_begin < line_end {
+                        let deco = &self.decos[deco_cursor];
+                        if let DecorationData::Insert { text, color } = &deco.data {
+                            spans.push(VisualSpan {
+                                text:  text.to_string(),
+                                face:  FaceId::DEFAULT,
+                                color: *color,
+                                fill:  None,
+                            });
+                        }
+                        else {
+                            active_decos.push((deco_cursor, deco.text_end));
+                        }
+                        deco_cursor += 1;
+                    }
+
+                    text_cursor = source_end;
                 }
 
                 spans
@@ -627,7 +652,7 @@ impl CodeView {
             }
 
             let indent =
-                self.text[line_begin..line_end].char_indices()
+                self.text[line_begin as usize .. line_end as usize].char_indices()
                 .find(|(_, ch)| !ch.is_ascii_whitespace())
                 .map(|(indent, _)| indent)
                 .unwrap_or(0) as u32;
@@ -647,6 +672,9 @@ impl CodeView {
         let mut new_semis  = self.inserted_semicolons;
         let mut new_syntax = self.syntax_highlighting;
         let mut new_font_size = self.font_size;
+
+        let prev_hl_instr_node = self.hl_instr_node.get();
+        self.hl_instr_node.set(None.into());
 
         self.font_size_bc = 0.75 * self.font_size;
 
@@ -682,6 +710,8 @@ impl CodeView {
 
             self.render_impl(gui);
         });
+
+        changed |= self.hl_instr_node.get() != prev_hl_instr_node;
 
         self.inserted_semicolons = new_semis;
         self.syntax_highlighting = new_syntax;
@@ -793,14 +823,19 @@ impl CodeView {
                 },
                 format!("{:03} ", instr.data.pc));
 
-            gui.widget_text(Key::Counter,
+            let events = gui.widget_text(Key::Counter,
                 Props {
                     font_face: FaceId::DEFAULT,
                     font_size: self.font_size_bc,
                     text_color: TokenClass::Default.color(),
+                    pointer_events: true,
                     ..Default::default()
                 },
                 format!("{:11} ", name));
+
+            if events.hovered {
+                self.hl_instr_node.set(instr.node);
+            }
 
             let func_id = instr.func;
             let pc      = instr.data.pc;
@@ -909,6 +944,10 @@ impl CodeView {
                     props.font_face  = span.face;
                     props.font_size  = self.font_size;
                     props.text_color = span.color;
+                    if let Some(fill) = span.fill {
+                        props.fill = true;
+                        props.fill_color = fill;
+                    }
                     gui.widget_text(Key::Counter, props, span.text.clone());
                 }
             });

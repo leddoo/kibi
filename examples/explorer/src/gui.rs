@@ -230,10 +230,14 @@ impl BoxData {
 
 struct TextLayoutData {
     layout: TextLayout,
+    first_render_child: OptWidgetId,
+    last_render_child:  OptWidgetId,
 }
 
 struct TextData {
     text: String,
+    layout_begin: u32,
+    layout_end:   u32,
 }
 
 // @todo: use an id.
@@ -873,7 +877,7 @@ impl Gui {
     }
 
     pub fn widget_text(&mut self, key: Key, props: Props, text: String) -> WidgetEvents {
-        let data = TextData { text };
+        let data = TextData { text, layout_begin: u32::MAX, layout_end: u32::MAX };
         let widget = self.new_widget_from_user_key(key, props, WidgetData::Text(data));
         self.widget_events(widget)
     }
@@ -1215,6 +1219,26 @@ impl Gui {
                 }
 
                 WidgetData::TextLayout(data) => {
+                    // text fill.
+                    let mut at = data.first_render_child;
+                    while let Some(current) = at {
+                        let widget = &this.widgets[current.get() as usize];
+
+                        if let WidgetData::Text(text) = &widget.data {
+                            if widget.props.fill {
+                                data.layout.hit_test_text_ranges(text.layout_begin, text.layout_end, |range| {
+                                    let x0 = global_x0 + range.x0 as i32;
+                                    let y0 = global_y0 + range.y  as i32;
+                                    let x1 = global_x0 + range.x1 as i32;
+                                    let y1 = global_y0 + (range.y + range.line_height) as i32;
+                                    r.fill_rect_abs(x0, y0, x1, y1, widget.props.fill_color);
+                                });
+                            }
+                        }
+
+                        at = widget.next_render_sibling;
+                    }
+
                     r.draw_text_layout_abs(global_x0, global_y0, &data.layout);
                 }
 
@@ -1353,7 +1377,7 @@ struct ChildRenderer {
     first: OptWidgetId,
     last:  OptWidgetId,
     counter: u32,
-    text_layout: Option<TextLayout>,
+    text_layout: Option<(TextLayout, OptWidgetId, OptWidgetId)>,
 }
 
 impl ChildRenderer {
@@ -1380,11 +1404,11 @@ impl ChildRenderer {
     }
 
     fn flush(&mut self, gui: &mut Gui) {
-        if let Some(layout) = self.text_layout.take() {
+        if let Some((layout, first_render_child, last_render_child)) = self.text_layout.take() {
             let key = KeyData::TextLayout(self.counter);
             self.counter += 1;
 
-            let data = TextLayoutData { layout };
+            let data = TextLayoutData { layout, first_render_child, last_render_child };
 
             let widget = gui.alloc_widget(key, Props::new(), WidgetData::TextLayout(data));
             self.append(widget, gui);
@@ -1392,10 +1416,10 @@ impl ChildRenderer {
     }
 
     fn visit(&mut self, child: NonZeroU32, gui: &mut Gui) -> OptWidgetId {
-        let widget = &gui.widgets[child.get() as usize];
+        let widget = &mut gui.widgets[child.get() as usize];
         let next = widget.next_sibling;
 
-        match &widget.data {
+        match &mut widget.data {
             WidgetData::Box(_) => {
                 self.flush(gui);
                 self.append(child, gui);
@@ -1406,17 +1430,38 @@ impl ChildRenderer {
                 // but can't borrow gui as mutable.
                 // oh well, just don't break it, ok?
                 if self.text_layout.is_none() {
-                    self.text_layout = Some(TextLayout::new(&gui.fonts));
+                    self.text_layout = Some((
+                        TextLayout::new(&gui.fonts),
+                        None.into(), None.into()
+                    ));
                 }
                 else { debug_assert!(self.merge_text) }
 
-                let layout = self.text_layout.as_mut().unwrap();
+                let (layout, first_ren, last_ren) = self.text_layout.as_mut().unwrap();
+
+                // add text.
+                text.layout_begin = layout.text().len() as u32;
                 layout.append(
                     &text.text,
                     widget.props.font_face,
                     widget.props.font_size,
                     widget.props.text_color,
                     child.get());
+                text.layout_end = layout.text().len() as u32;
+
+                // update render child list.
+                widget.prev_render_sibling = None;
+                widget.next_render_sibling = None;
+                if let Some(last) = last_ren {
+                    widget.prev_render_sibling = Some(*last);
+                    gui.widgets[last.get() as usize].next_render_sibling = Some(child);
+                }
+
+                if first_ren.is_none() {
+                    *first_ren = Some(child);
+                }
+                *last_ren = Some(child);
+
 
                 if !self.merge_text {
                     self.flush(gui);

@@ -20,11 +20,14 @@
 
 - todo: explorer.
     - inline bytecode.
-        - hover instr -> highlight source range.
+        - proper list validation:
+            - separate passes for tree/render children.
+            - visited set.
+        - highlight the instruction too.
+        - hover on entire instr, not just name.
         - global option for "show bytecode" with per-line overrides.
             - tri-state logic: show/hide/default.
             - show if: `not global_hide and ((global_show and not local_hide) or local_show)`
-        - later: ability to split a line's bytecode -> have two lines with same source code, but irrelevant parts are grayed out.
     - windows:
         - clipping.
         - scrolling.
