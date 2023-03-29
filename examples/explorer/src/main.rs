@@ -813,7 +813,10 @@ impl CodeView {
 
         let name = instr.data.name();
 
-        gui.widget_box(Key::Counter, Props::new(), |gui| {
+        let mut instr_props = Props::new().with_pointer_events();
+        instr_props.padding[0] = [self.font_size_bc/10.0; 2];
+
+        let events = gui.widget_box(Key::Counter, instr_props, |gui| {
             gui.widget_text(Key::Counter,
                 Props {
                     font_face: FaceId::DEFAULT,
@@ -823,19 +826,14 @@ impl CodeView {
                 },
                 format!("{:03} ", instr.data.pc));
 
-            let events = gui.widget_text(Key::Counter,
+            gui.widget_text(Key::Counter,
                 Props {
                     font_face: FaceId::DEFAULT,
                     font_size: self.font_size_bc,
                     text_color: TokenClass::Default.color(),
-                    pointer_events: true,
                     ..Default::default()
                 },
                 format!("{:11} ", name));
-
-            if events.hovered {
-                self.hl_instr_node.set(instr.node);
-            }
 
             let func_id = instr.func;
             let pc      = instr.data.pc;
@@ -932,6 +930,16 @@ impl CodeView {
             }
             text(format!("\n"), TokenClass::Default.color(), self, gui);
         });
+
+        let instr_props = gui.edit_props_no_render(&events);
+        if events.hovered {
+            self.hl_instr_node.set(instr.node);
+            instr_props.fill = true;
+            instr_props.fill_color = 0xff414752;
+        }
+        if events.hover_changed() {
+            gui.mark_for_render(&events);
+        }
     }
 
     fn render_impl(&self, gui: &mut Gui) {

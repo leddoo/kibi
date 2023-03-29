@@ -20,8 +20,6 @@
 
 - todo: explorer.
     - inline bytecode.
-        - highlight the instruction too.
-        - hover on entire instr, not just name.
         - global option for "show bytecode" with per-line overrides.
             - tri-state logic: show/hide/default.
             - show if: `not global_hide and ((global_show and not local_hide) or local_show)`
