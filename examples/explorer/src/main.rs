@@ -353,6 +353,14 @@ impl TokenClass {
 }
 
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TriState {
+    Default,
+    False,
+    True,
+}
+
+
 struct VisualLine {
     spans: Vec<VisualSpan>,
 
@@ -361,6 +369,9 @@ struct VisualLine {
     instrs_begin: u32,
     instrs_end:   u32,
     instrs_gap:   Option<u32>,
+
+    show_instrs: Cell<TriState>,
+    instrs_visible: bool,
 }
 
 struct VisualSpan {
@@ -387,6 +398,9 @@ struct CodeView {
     inserted_semicolons: bool,
     syntax_highlighting: bool,
 
+    show_instrs: TriState,
+    show_instrs_dirty: Cell<bool>,
+
     // source range highlighting.
     hl_instr_node: Cell<OptNodeId>,
 
@@ -408,6 +422,9 @@ impl CodeView {
             font_size_bc: 0.0,
             inserted_semicolons: false,
             syntax_highlighting: true,
+
+            show_instrs: TriState::Default,
+            show_instrs_dirty: Cell::new(false),
 
             hl_instr_node: Cell::new(None.into()),
 
@@ -445,6 +462,7 @@ impl CodeView {
 
         self.update_decos();
         self.update_vlines();
+        self.update_show_instrs();
     }
 
     fn update_instrs(&mut self) {
@@ -555,6 +573,8 @@ impl CodeView {
 
         let mut active_decos: Vec<(usize, u32)> = vec![];
 
+        let prev_show_instrs: Vec<_> = self.vlines.iter().map(|line| line.show_instrs.get()).collect();
+
         self.vlines.clear();
         for line_index in 1..self.line_ends.len() {
             let line_begin = prev_line_end;
@@ -657,13 +677,28 @@ impl CodeView {
                 .map(|(indent, _)| indent)
                 .unwrap_or(0) as u32;
 
+            let show_instrs = prev_show_instrs.get(self.vlines.len()).copied().unwrap_or(TriState::Default);
+
             self.vlines.push(VisualLine {
                 spans,
                 indent,
                 instrs_begin: instrs_begin as u32,
                 instrs_end:   instr_cursor as u32,
                 instrs_gap,
+                show_instrs: Cell::new(show_instrs),
+                instrs_visible: false,
             });
+        }
+    }
+
+    fn update_show_instrs(&mut self) {
+        let global_hide = self.show_instrs == TriState::False;
+        let global_show = self.show_instrs == TriState::True;
+
+        for line in &mut self.vlines {
+            let hide = line.show_instrs.get() == TriState::False;
+            let show = line.show_instrs.get() == TriState::True;
+            line.instrs_visible = global_show && !hide || show && !global_hide;
         }
     }
 
@@ -703,6 +738,21 @@ impl CodeView {
                 changed = true;
             }
 
+            let show_instrs = match self.show_instrs {
+                TriState::Default => "per line",
+                TriState::False   => "hide",
+                TriState::True    => "show",
+            };
+            if quote_button_endquote(gui, format!("show bytecode: {show_instrs}")).clicked() {
+                self.show_instrs = match self.show_instrs {
+                    TriState::Default => TriState::False,
+                    TriState::False   => TriState::True,
+                    TriState::True    => TriState::Default,
+                };
+                self.show_instrs_dirty.set(true);
+                changed = true;
+            }
+
             if let Some(value) = Slider::render(gui, self.font_size, 12.0, 32.0) {
                 new_font_size = value;
                 changed = true;
@@ -713,12 +763,16 @@ impl CodeView {
 
         changed |= self.hl_instr_node.get() != prev_hl_instr_node;
 
+        changed |= self.show_instrs_dirty.get();
+        self.show_instrs_dirty.set(false);
+
         self.inserted_semicolons = new_semis;
         self.syntax_highlighting = new_syntax;
         self.font_size = new_font_size;
         if changed {
             self.update_decos();
             self.update_vlines();
+            self.update_show_instrs();
         }
 
         changed
@@ -946,7 +1000,7 @@ impl CodeView {
         let space_size = gui.measure_string(" ", FaceId::DEFAULT, self.font_size);
 
         for line in &self.vlines {
-            gui.widget_box(Key::Counter, Props::new(), |gui| {
+            let events = gui.widget_box(Key::Counter, Props::new().with_pointer_events(), |gui| {
                 for span in &line.spans {
                     let mut props = Props::new();
                     props.font_face  = span.face;
@@ -960,12 +1014,24 @@ impl CodeView {
                 }
             });
 
+            if events.clicked() {
+                line.show_instrs.set(match line.show_instrs.get() {
+                    TriState::Default => TriState::False,
+                    TriState::False   => TriState::True,
+                    TriState::True    => TriState::Default,
+                });
+                self.show_instrs_dirty.set(true);
+            }
+
             // bytecode instructions.
             let mut bc_props = Props::new();
             bc_props.fill = true;
             bc_props.fill_color = 0xff2A2E37;
 
-            if line.instrs_begin < line.instrs_end {
+            let instrs_begin = line.instrs_begin;
+            let instrs_end   = if line.instrs_visible { line.instrs_end } else { instrs_begin };
+
+            if instrs_begin < instrs_end {
                 bc_props.padding = [
                     [space_size[1]/4.0; 2],
                     [space_size[1]/8.0; 2],
@@ -978,7 +1044,7 @@ impl CodeView {
             }
 
             gui.widget_box(Key::Counter, bc_props, |gui| {
-                for instr_index in line.instrs_begin .. line.instrs_end {
+                for instr_index in instrs_begin..instrs_end {
                     if let Some(gap) = line.instrs_gap {
                         if gap == instr_index {
                             let size = space_size[1]/4.0;

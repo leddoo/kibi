@@ -559,6 +559,10 @@ impl Gui {
                 let hash_next = widget.hash_next;
                 widget.hash_prev = None;
                 widget.hash_next = None;
+                widget.prev_sibling = None;
+                widget.next_sibling = None;
+                widget.prev_render_sibling = None;
+                widget.next_render_sibling = None;
 
                 if let Some(prev) = hash_prev {
                     let prev = &mut self.widgets[prev.get() as usize];
@@ -661,7 +665,6 @@ impl Gui {
                         assert!(visited[index] == false);
                         assert_eq!(widget.hash_prev, None);
                         assert_eq!(widget.hash_next, None);
-                        assert_eq!(widget.next_sibling, None);
                         assert_eq!(widget.prev_sibling, None);
                         assert_eq!(widget.next_sibling, None);
                         assert_eq!(widget.prev_render_sibling, None);
