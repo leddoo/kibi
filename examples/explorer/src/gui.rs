@@ -605,59 +605,123 @@ impl Gui {
     }
 
 
+    #[allow(dead_code)]
     fn validate(&self) {
-        fn validate_list
-            <Prev: Fn(&Widget) -> OptWidgetId, Next: Fn(&Widget) -> OptWidgetId>
-            (gui: &Gui, first: OptWidgetId, expected_last: Option<OptWidgetId>, prev: Prev, next: Next)
-        {
-            let mut previous = None;
-            let mut at = first;
-            while let Some(current) = at {
-                let widget = &gui.widgets[current.get() as usize];
-                if prev(widget) != previous {
-                    assert!(false);
-                }
-                assert_eq!(prev(widget), previous);
-                previous = at;
-                at = next(widget);
-            }
-            if let Some(last) = expected_last {
-                assert_eq!(previous, last);
-            }
-        }
+        fn validate_children(gui: &Gui, index: usize, visited: &mut [bool]) {
+            assert!(visited[index] == false);
+            visited[index] = true;
 
-        fn validate_tree(gui: &Gui, index: usize) {
             let widget = &gui.widgets[index];
             match &widget.data {
                 WidgetData::Box(data) => {
-                    let data = *data;
-                    validate_list(gui, data.first_child, Some(data.last_child),
-                        |w| w.prev_sibling, |w| w.next_sibling);
-                    validate_list(gui, data.first_render_child, Some(data.last_render_child),
-                        |w| w.prev_render_sibling, |w| w.next_render_sibling);
+                    let mut previous = None;
+                    let mut at = data.first_child;
+                    while let Some(current) = at {
+                        let child = current.get() as usize;
+                        let widget = &gui.widgets[child];
+                        assert_eq!(widget.prev_sibling, previous);
+                        assert_eq!(widget.parent as usize, index);
+
+                        validate_children(gui, child, visited);
+
+                        previous = at;
+                        at = widget.next_sibling;
+                    }
+
+                    if let Some(last) = data.last_child {
+                        assert_eq!(previous, Some(last));
+                    }
+                    else {
+                        assert_eq!(data.first_child, None);
+                    }
                 }
 
                 WidgetData::TextLayout(_) => {}
 
-                WidgetData::Text(_) => {
-                    // @temp
-                    assert_eq!(widget.prev_render_sibling, None);
-                    assert_eq!(widget.next_render_sibling, None);
-                }
+                WidgetData::Text(_) => {}
 
-                WidgetData::Free(_) => {
-                    assert_eq!(widget.hash_prev, None);
-                    assert_eq!(widget.hash_next, None);
-                    assert_eq!(widget.next_sibling, None);
-                    assert_eq!(widget.prev_sibling, None);
-                    assert_eq!(widget.next_sibling, None);
-                    assert_eq!(widget.prev_render_sibling, None);
-                    assert_eq!(widget.next_render_sibling, None);
+                WidgetData::Free(_) => unreachable!(),
+            }
+        }
+
+        // validate children.
+        {
+            let mut visited = vec![false; self.widgets.len()];
+            validate_children(self, 0, &mut visited);
+
+            for (index, widget) in self.widgets.iter().enumerate() {
+                match &widget.data {
+                    WidgetData::Box(_) => assert!(visited[index]),
+
+                    WidgetData::TextLayout(_) => assert!(visited[index] == false),
+
+                    WidgetData::Text(_) => assert!(visited[index]),
+
+                    WidgetData::Free(_) => {
+                        assert!(visited[index] == false);
+                        assert_eq!(widget.hash_prev, None);
+                        assert_eq!(widget.hash_next, None);
+                        assert_eq!(widget.next_sibling, None);
+                        assert_eq!(widget.prev_sibling, None);
+                        assert_eq!(widget.next_sibling, None);
+                        assert_eq!(widget.prev_render_sibling, None);
+                        assert_eq!(widget.next_render_sibling, None);
+                    }
                 }
             }
         }
 
-        validate_tree(self, 0);
+
+        fn validate_render_children(gui: &Gui, index: usize, visited: &mut [bool]) {
+            assert!(visited[index] == false);
+            visited[index] = true;
+
+            let widget = &gui.widgets[index];
+            match widget.data {
+                WidgetData::Box(BoxData { first_child: _, last_child: _, first_render_child, last_render_child }) |
+                WidgetData::TextLayout(TextLayoutData { layout: _, first_render_child, last_render_child }) => {
+                    let mut previous = None;
+                    let mut at = first_render_child;
+                    while let Some(current) = at {
+                        let child = current.get() as usize;
+                        let widget = &gui.widgets[child];
+                        assert_eq!(widget.prev_render_sibling, previous);
+
+                        validate_render_children(gui, child, visited);
+
+                        previous = at;
+                        at = widget.next_render_sibling;
+                    }
+
+                    if let Some(last) = last_render_child {
+                        assert_eq!(previous, Some(last));
+                    }
+                    else {
+                        assert_eq!(first_render_child, None);
+                    }
+                }
+
+                WidgetData::Text(_) => (),
+
+                WidgetData::Free(_) => unreachable!(),
+            }
+        }
+
+        // validate render children.
+        {
+            let mut visited = vec![false; self.widgets.len()];
+            validate_render_children(self, 0, &mut visited);
+
+            for (index, widget) in self.widgets.iter().enumerate() {
+                match &widget.data {
+                    WidgetData::Box(_) |
+                    WidgetData::TextLayout(_) |
+                    WidgetData::Text(_) => assert!(visited[index]),
+
+                    WidgetData::Free(_) => assert!(visited[index] == false),
+                }
+            }
+        }
 
         // validate free list.
         {
@@ -669,15 +733,39 @@ impl Gui {
         }
 
         // validate hash map.
-        for i in 0..self.hash.len() {
-            validate_list(self, self.hash[i], None,
-                |w| w.hash_prev,
-                |w| {
-                    let hash = Self::hash((w.parent, &w.key));
+        {
+            let mut visited = vec![false; self.widgets.len()];
+            visited[0] = true;
+
+            for i in 0..self.hash.len() {
+                let mut previous = None;
+                let mut at = self.hash[i];
+                while let Some(current) = at {
+                    let index = current.get() as usize;
+                    assert!(visited[index] == false);
+                    visited[index] = true;
+
+                    let widget = &self.widgets[index];
+                    assert_eq!(widget.hash_prev, previous);
+
+                    let hash = Self::hash((widget.parent, &widget.key));
                     let slot = hash as usize & (self.hash.len() - 1);
                     assert_eq!(slot, i);
-                    w.hash_next
-                });
+
+                    previous = at;
+                    at = widget.hash_next;
+                }
+            }
+
+            for (index, widget) in self.widgets.iter().enumerate() {
+                match &widget.data {
+                    WidgetData::Box(_) |
+                    WidgetData::TextLayout(_) |
+                    WidgetData::Text(_) => assert!(visited[index]),
+
+                    WidgetData::Free(_) => assert!(visited[index] == false),
+                }
+            }
         }
     }
 

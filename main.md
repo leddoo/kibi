@@ -20,9 +20,6 @@
 
 - todo: explorer.
     - inline bytecode.
-        - proper list validation:
-            - separate passes for tree/render children.
-            - visited set.
         - highlight the instruction too.
         - hover on entire instr, not just name.
         - global option for "show bytecode" with per-line overrides.
