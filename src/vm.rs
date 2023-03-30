@@ -42,6 +42,7 @@ impl Vm {
 
         self.inner.add_func(name, FuncProto {
             krate: None.into(),
+            func_idx: 0,
             code: desc.code,
             constants,
             num_params: desc.num_params,
@@ -53,7 +54,7 @@ impl Vm {
         let krate = CrateId::from_usize(self.inner.krates.len());
 
         let func_base = self.inner.func_protos.len();
-        for desc in funcs {
+        for (index, desc) in funcs.iter().enumerate() {
             let constants = desc.constants.iter().map(|c| { match c {
                 Constant::Nil              => Value::Nil,
                 Constant::Bool   { value } => (*value).into(),
@@ -62,7 +63,8 @@ impl Vm {
             }}).collect();
 
             self.inner.func_protos.push(FuncProto {
-                krate: krate.some(),
+                krate:    krate.some(),
+                func_idx: index as u32,
                 code: desc.code.clone(),
                 constants,
                 num_params: desc.num_params,
@@ -105,6 +107,11 @@ impl Vm {
         }
 
         Ok(())
+    }
+
+    #[inline]
+    pub fn run(&mut self) -> VmResult<bool> {
+        self.inner.run().0
     }
 
 
@@ -153,22 +160,44 @@ impl Vm {
     pub fn can_pause(&self) -> bool {
         self.inner.can_pause()
     }
+}
 
-    pub fn call_stack<F: FnMut(u32)>(&self, mut f: F) {
+#[derive(Clone, Copy, Debug)]
+pub struct DebugFrame {
+    pub krate:    OptCrateId,
+    pub func_idx: u32,
+
+    pub pc:   u16,
+    pub base: u32,
+    pub top:  u32,
+}
+
+impl DebugFrame {
+    fn from_stack_frame(vm: &VmImpl, frame: &StackFrame, pc: u16) -> DebugFrame {
+        let proto = &vm.func_protos[frame.func_proto];
+        DebugFrame {
+            krate: proto.krate,
+            func_idx: proto.func_idx,
+            pc,
+            base: frame.base,
+            top:  frame.top,
+        }
+    }
+}
+
+impl Vm {
+    pub fn call_stack<F: FnMut(DebugFrame)>(&self, mut f: F) {
         let this = &self.inner;
         for i in 1 .. this.frames.len() - 1 {
             let frame = &this.frames[i];
-            f(frame.pc);
+            f(DebugFrame::from_stack_frame(this, frame, frame.pc as u16));
         }
         if this.frames.len() > 1 {
-            f(this.pc as u32);
+            let frame = this.frames.last().unwrap();
+            f(DebugFrame::from_stack_frame(this, frame, this.pc as u16));
         }
     }
 
-    #[inline]
-    pub fn run(&mut self) -> VmResult<bool> {
-        self.inner.run().0
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -263,13 +292,15 @@ const DEFAULT_INSTR_LIMIT: u32 = 10_000;
 
 impl VmImpl {
     fn new() -> Self {
+        let root_stack_size = 16;
+
         let mut vm = VmImpl {
             func_protos: vec![],
             krates:      vec![],
 
             pc:     usize::MAX,
             frames: vec![StackFrame::ROOT],
-            stack:  vec![],
+            stack:  vec![Value::Nil; root_stack_size],
             heap:   vec![],
 
             env: Value::Nil,
@@ -285,9 +316,7 @@ impl VmImpl {
             debug_hook: DebugHookWrapper::None,
         };
 
-        for _ in 0..16 {
-            vm.push(Value::Unit);
-        }
+        vm.frames.last_mut().unwrap().top = root_stack_size as u32;
 
         vm.env = Self::map_new();
 
@@ -1430,12 +1459,6 @@ impl VmImpl {
                 }
             }
         }
-    }
-
-
-    fn push(&mut self, value: Value) {
-        self.stack.push(value);
-        self.frames.last_mut().unwrap().top += 1;
     }
 
 

@@ -17,11 +17,10 @@
 
 
 - todo: step debugger.
-    - visualize call stack:
-        - proper Vm::call_stack.
-        - vm on codeview (temp).
-        - draw pcs (active/paused).
-        - single step.
+    - render pcs.
+        - arrows.
+        - highlighting lines.
+        - including dormant ones. (show "inverse depth")
     - scrollable codeview.
     - partial code view.
         - probably through replacements.

@@ -14,6 +14,38 @@ mod gui;
 use gui::{*, Key};
 
 
+// @temp
+
+mod builtin {
+    use kibi::*;
+
+    pub(crate) fn print(vm: &mut Vm) -> VmResult<NativeFuncReturn> {
+        vm.generic_print(0);
+        return Ok(NativeFuncReturn::Unit);
+    }
+    pub(crate) const PRINT: FuncDesc = FuncDesc {
+        code: FuncCode::Native(NativeFuncPtrEx(print)),
+        constants: vec![],
+        num_params: 1,
+        stack_size: 1,
+    };
+
+    pub(crate) fn println(vm: &mut Vm) -> VmResult<NativeFuncReturn> {
+        vm.generic_print(0);
+        println!();
+        return Ok(NativeFuncReturn::Unit);
+    }
+    pub(crate) const PRINTLN: FuncDesc = FuncDesc {
+        code: FuncCode::Native(NativeFuncPtrEx(println)),
+        constants: vec![],
+        num_params: 1,
+        stack_size: 1,
+    };
+
+}
+
+
+
 struct ItemInfo {
     item_id: ItemId,
     #[allow(dead_code)] // @temp.
@@ -412,6 +444,8 @@ struct CodeView {
 
     decos: Vec<Decoration>,
     vlines: Vec<VisualLine>,
+
+    vm: kibi::Vm,
 }
 
 impl CodeView {
@@ -436,6 +470,8 @@ impl CodeView {
             decos: vec![],
             instrs: vec![],
             vlines: vec![],
+
+            vm: kibi::Vm::new(),
         }
     }
 
@@ -451,6 +487,13 @@ impl CodeView {
 
         let info = CodeInfo::new(&self.text);
         self.info = unsafe { core::mem::transmute(info) };
+
+        self.vm = kibi::Vm::new();
+        self.vm.add_func("print", builtin::PRINT);
+        self.vm.add_func("println", builtin::PRINTLN);
+        self.vm.load_crate(0, &self.info.funcs.inner(), &self.info.items.inner());
+        self.vm.set_instr_limit(0);
+        self.vm.call(0, 0, &[]).unwrap();
 
         self.update_instrs();
 
@@ -761,6 +804,28 @@ impl CodeView {
                 new_font_size = value;
                 changed = true;
             }
+
+            gui.widget_box(Key::Counter, Props::new(), |gui| {
+                let mut stack = String::new();
+                self.vm.call_stack(|frame| {
+                    use core::fmt::Write;
+                    write!(&mut stack, "{:?}\n", frame).unwrap();
+                });
+                if stack.len() == 0 {
+                    stack.push_str("<empty>");
+                }
+
+                gui.widget_text(Key::Counter, Props::new(), stack);
+
+                if quote_button_endquote(gui, format!("step")).clicked() {
+                    self.vm.set_instr_limit(1);
+                    self.vm.set_debug_hook(|_: &mut kibi::Vm| Ok(kibi::DebugHookResult::Pause));
+                    self.vm.run().unwrap();
+                    self.vm.set_instr_limit(0);
+                    self.vm.clear_debug_hook();
+                    changed = true;
+                }
+            });
 
             self.render_impl(gui);
         });

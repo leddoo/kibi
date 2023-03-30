@@ -60,6 +60,7 @@ crate::macros::define_id!(CrateId, OptCrateId);
 #[derive(Debug)]
 pub(crate) struct FuncProto {
     pub krate:      OptCrateId,
+    pub func_idx:   u32,
     pub code:       FuncCode,
     pub constants:  Vec<Value>,
     pub num_params: u32,
