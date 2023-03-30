@@ -17,7 +17,6 @@
 
 
 - todo: step debugger.
-    - atomic for interrupt, just so that's out of the way.
     - visualize call stack:
         - program initially paused.
         - draw pcs (active/paused).

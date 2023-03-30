@@ -1,8 +1,8 @@
 use std::rc::Rc;
+use core::sync::atomic::{AtomicBool, Ordering as MemOrder};
+
 use crate::bytecode::*;
 use crate::value::*;
-
-use core::cell::UnsafeCell;
 
 
 // @safety-#vm-transparent
@@ -101,9 +101,9 @@ impl Vm {
     }
 
 
-    #[inline]
-    pub fn interrupt_ptr(&self) -> *mut bool {
-        self.inner.interrupt.get()
+    #[inline(always)]
+    pub fn interrupt_ptr(&self) -> &AtomicBool {
+        &self.inner.interrupt
     }
 
     #[inline(always)]
@@ -172,7 +172,7 @@ pub(crate) struct VmImpl {
     counter_target: u32,
     instruction_counter: u64,
 
-    interrupt: UnsafeCell<bool>,
+    interrupt: AtomicBool,
 }
 
 impl VmImpl {
@@ -195,7 +195,7 @@ impl VmImpl {
             counter_target: 10_000,
             instruction_counter: 0,
 
-            interrupt: UnsafeCell::new(false),
+            interrupt: AtomicBool::new(false),
         };
 
         vm.env = Self::map_new();
@@ -747,9 +747,9 @@ impl VmImpl {
 
     #[inline(always)]
     fn check_interrupt(&mut self) -> VmResult<()> {
-        let interrupt = unsafe { self.interrupt.get().read_volatile() };
+        let interrupt = self.interrupt.load(MemOrder::SeqCst);
         if interrupt {
-            unsafe { self.interrupt.get().write_volatile(false) };
+            self.interrupt.store(false, MemOrder::SeqCst);
             return Err(VmError::Interrupt);
         }
         Ok(())

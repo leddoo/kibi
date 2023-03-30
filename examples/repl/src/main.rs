@@ -1,3 +1,5 @@
+use core::sync::atomic::{AtomicBool, Ordering as MemOrder};
+
 use kibi::*;
 
 
@@ -78,13 +80,12 @@ fn main() {
     }
 
 
-    let running = &*Box::leak(Box::new(core::sync::atomic::AtomicBool::new(false)));
+    let running = &*Box::leak(Box::new(AtomicBool::new(false)));
 
-    let interrupt_ptr = vm.interrupt_ptr() as usize;
+    let interrupt_ptr = unsafe { &*(vm.interrupt_ptr() as *const AtomicBool) };
     ctrlc::set_handler(move || {
-        if running.load(core::sync::atomic::Ordering::SeqCst) {
-            let ptr = interrupt_ptr as *mut bool;
-            unsafe { ptr.write_volatile(true) };
+        if running.load(MemOrder::SeqCst) {
+            interrupt_ptr.store(true, MemOrder::SeqCst);
         }
         else {
             std::process::exit(0);
