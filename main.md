@@ -18,7 +18,10 @@
 
 - todo: step debugger.
     - visualize call stack:
-        - program initially paused.
+        - debug hook.
+            - try_pause.
+            - Vm::resume.
+        - call stack query.
         - draw pcs (active/paused).
         - single step.
     - scrollable codeview.

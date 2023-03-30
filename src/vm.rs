@@ -34,7 +34,7 @@ impl Vm {
         });
     }
 
-    pub fn load_crate(&mut self, funcs: &[FuncDesc], items: &[crate::bbir::Item]) -> VmResult<()> {
+    pub fn load_crate(&mut self, dst: u32, funcs: &[FuncDesc], items: &[crate::bbir::Item]) {
         let krate = CrateId::from_usize(self.inner.krates.len());
 
         let func_base = self.inner.func_protos.len();
@@ -72,16 +72,22 @@ impl Vm {
         }).collect();
         self.inner.krates.push(Crate { items: crate_items });
 
-        self.inner.push(Value::Func { proto: func_base });
+        *self.inner.reg_mut(dst) = Value::Func { proto: func_base };
+    }
 
-        let i = self.inner.stack.len() as u32 - 1;
-        if self.inner.pre_call(i, i, 0, |_, _|{})? {
-            self.inner.run().0?;
+    pub fn call(&mut self, dst: u32, func: u32, args: &[u32]) -> VmResult<()> {
+        let this = &mut self.inner;
+
+        let run = this.pre_call(dst, func, args.len() as u32, |vm, dst_base| {
+            let src_base = vm.frames.last().unwrap().base as usize;
+            for (i, arg) in args.iter().copied().enumerate() {
+                vm.stack[dst_base + i] = vm.stack[src_base + arg as usize].clone();
+            }
+        })?;
+
+        if run {
+            this.run().0?;
         }
-
-        let result = self.inner.pop();
-        self.inner.generic_print(&result);
-        println!();
 
         Ok(())
     }
@@ -94,10 +100,19 @@ impl Vm {
     }
 
 
+    #[inline(always)]
+    pub fn set_instr_limit(&mut self, limit: u32) {
+        self.inner.set_instr_limit(limit);
+    }
+
+    #[inline(always)]
+    pub fn reset_instr_limit(&mut self) {
+        self.inner.set_instr_limit(DEFAULT_INSTR_LIMIT);
+    }
+
     #[inline]
     pub fn instruction_counter(&self) -> u64 {
-        let extra = self.inner.counter_target - self.inner.counter;
-        self.inner.instruction_counter + extra as u64
+        self.inner.instruction_counter()
     }
 
 
@@ -175,6 +190,8 @@ pub(crate) struct VmImpl {
     interrupt: AtomicBool,
 }
 
+const DEFAULT_INSTR_LIMIT: u32 = 10_000;
+
 impl VmImpl {
     fn new() -> Self {
         let mut vm = VmImpl {
@@ -191,17 +208,34 @@ impl VmImpl {
             first_free: None,
             gc_timer:   0,
 
-            counter: 0,
-            counter_target: 10_000,
+            counter:        DEFAULT_INSTR_LIMIT,
+            counter_target: DEFAULT_INSTR_LIMIT,
             instruction_counter: 0,
 
             interrupt: AtomicBool::new(false),
         };
 
+        for _ in 0..16 {
+            vm.push(Value::Unit);
+        }
+
         vm.env = Self::map_new();
 
         vm
     }
+
+    fn set_instr_limit(&mut self, limit: u32) {
+        assert!(limit > 0);
+        self.instruction_counter = self.instruction_counter();
+        self.counter        = limit;
+        self.counter_target = limit;
+    }
+
+    #[inline(always)]
+    fn instruction_counter(&self) -> u64 {
+        self.instruction_counter + (self.counter_target - self.counter) as u64
+    }
+
 
     fn add_func(&mut self, name: &str, proto: FuncProto) {
         let proto_index = self.func_protos.len();
@@ -868,12 +902,7 @@ impl VmImpl {
                 };
             }
 
-            if self.counter != 0 { loop {
-                self.counter = self.counter.wrapping_sub(1);
-                if self.counter == 0 {
-                    break;
-                }
-
+            if self.counter > 0 { loop {
                 let instr  = self.next_instr();
                 let opcode = instr.opcode() as u8;
 
@@ -1257,6 +1286,7 @@ impl VmImpl {
                         self.stack[dst_abs as usize] = value;
 
                         if vm_try!(self.post_call()) {
+                            self.counter = self.counter.wrapping_sub(1);
                             result = Ok(());
                             break;
                         }
@@ -1265,6 +1295,11 @@ impl VmImpl {
                     // @todo-speed: this inserts a check to reduce dispatch table size.
                     //  may want an unreachable_unchecked() in release.
                     0 | END ..= 255 => unreachable!()
+                }
+
+                self.counter = self.counter.wrapping_sub(1);
+                if self.counter == 0 {
+                    break;
                 }
             }}
 
@@ -1296,13 +1331,6 @@ impl VmImpl {
     fn push(&mut self, value: Value) {
         self.stack.push(value);
         self.frames.last_mut().unwrap().top += 1;
-    }
-
-    fn pop(&mut self) -> Value {
-        let frame = self.frames.last_mut().unwrap();
-        assert!(frame.top > frame.base);
-        frame.top -= 1;
-        self.stack.pop().unwrap()
     }
 
 
