@@ -19,7 +19,31 @@
 
 
 - todo: explorer.
-    - line numbers & tri state buttons.
+    - note clean up.
+    - next step: step debugger.
+
+    - revise mouse events.
+        - bubbling.
+        - multiple hovered widgets, one hot widget.
+        - oh, events are propagated to ancestors only!
+            - and if you have a child overlapping a sibling, the sibling doesn't get the event.
+            - that's how overlays prevent `:hover` on the content beneath them.
+        - so let's do dom style hovering.
+            - parent is hovered, when child is hovered.
+            - children are tested in reverse, stop on first hit.
+            - last widget in hover list is the "hot" widget.
+            - pointer events on by default.
+            - events bubble to parents, unless propagation is stopped.
+            - events have flag, whether current widget was target of event.
+            - things like click are also propagated, even for buttons, but event handlers can of course stop propagation for specific buttons. common case util: `clicked_directly: clicked and is_target`.
+            - consider making event (data) an enum.
+                - be more official about "one event at a time".
+                - otherwise stop_propagation could stop multiple events.
+                - and it's just generally more intuitive.
+        - how to make buttons show, when line is hovered?
+            - could duplicate state.
+            - could have `hidden` prop and set once have line events.
+            - could have `widget_box_ex`, which passes a `None` event to the closure (with the hover state).
     - windows:
         - clipping.
         - scrolling.

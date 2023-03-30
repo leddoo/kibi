@@ -365,6 +365,7 @@ struct VisualLine {
     spans: Vec<VisualSpan>,
 
     indent: u32,
+    number: u32,
 
     instrs_begin: u32,
     instrs_end:   u32,
@@ -581,6 +582,8 @@ impl CodeView {
             let line_end   = self.line_ends[line_index];
             prev_line_end = line_end;
 
+            let line_number = line_index as u32;
+
             // build spans.
             let spans = {
                 let mut spans = vec![];
@@ -682,6 +685,7 @@ impl CodeView {
             self.vlines.push(VisualLine {
                 spans,
                 indent,
+                number: line_number,
                 instrs_begin: instrs_begin as u32,
                 instrs_end:   instr_cursor as u32,
                 instrs_gap,
@@ -997,69 +1001,127 @@ impl CodeView {
     }
 
     fn render_impl(&self, gui: &mut Gui) {
-        let space_size = gui.measure_string(" ", FaceId::DEFAULT, self.font_size);
+        let space_size    = gui.measure_string(" ", FaceId::DEFAULT, self.font_size);
+        let space_size_bc = gui.measure_string(" ", FaceId::DEFAULT, self.font_size_bc);
 
         for line in &self.vlines {
-            let events = gui.widget_box(Key::Counter, Props::new().with_pointer_events(), |gui| {
-                for span in &line.spans {
-                    let mut props = Props::new();
-                    props.font_face  = span.face;
-                    props.font_size  = self.font_size;
-                    props.text_color = span.color;
-                    if let Some(fill) = span.fill {
-                        props.fill = true;
-                        props.fill_color = fill;
-                    }
-                    gui.widget_text(Key::Counter, props, span.text.clone());
-                }
-            });
+            let mut line_props = Props::new();
+            line_props.layout = Layout::Flex(FlexLayout::default());
+            gui.widget_box(Key::Counter, line_props, |gui| {
+                // buttons for "show_instrs".
+                let mut show_instrs_props = Props::new();
+                show_instrs_props.layout = Layout::Flex(FlexLayout { align: FlexAlign::Begin, ..Default::default()});
+                show_instrs_props.size[0] = Some(space_size_bc[0] * 3.0);
+                gui.widget_box(Key::Counter, show_instrs_props, |gui| {
+                    if line.instrs_begin < line.instrs_end {
+                        let show_instrs = line.show_instrs.get();
 
-            if events.clicked() {
-                line.show_instrs.set(match line.show_instrs.get() {
-                    TriState::Default => TriState::False,
-                    TriState::False   => TriState::True,
-                    TriState::True    => TriState::Default,
-                });
-                self.show_instrs_dirty.set(true);
-            }
+                        let mut props = Props::new().with_pointer_events().with_fill(0xff2A2E37);
+                        props.padding = [[self.font_size_bc/16.0; 2]; 2];
+                        if show_instrs == TriState::True { props.fill_color = 0xff4A5160 }
+                        let events = gui.widget_box(Key::Counter, props, |gui| {
+                            let mut props = Props::new();
+                            props.text_color = TokenClass::Default.color();
+                            props.font_size  = self.font_size_bc;
+                            gui.widget_text(Key::Counter, Props::new(), "y".to_string());
+                        });
+                        if events.clicked() {
+                            line.show_instrs.set(TriState::True);
+                            self.show_instrs_dirty.set(true);
+                        }
 
-            // bytecode instructions.
-            let mut bc_props = Props::new();
-            bc_props.fill = true;
-            bc_props.fill_color = 0xff2A2E37;
+                        let mut props = Props::new().with_pointer_events().with_fill(0xff2A2E37);
+                        props.padding = [[self.font_size_bc/16.0; 2]; 2];
+                        if show_instrs == TriState::Default { props.fill_color = 0xff4A5160 }
+                        let events = gui.widget_box(Key::Counter, props, |gui| {
+                            let mut props = Props::new();
+                            props.text_color = TokenClass::Default.color();
+                            props.font_size  = self.font_size_bc;
+                            gui.widget_text(Key::Counter, Props::new(), "-".to_string());
+                        });
+                        if events.clicked() {
+                            line.show_instrs.set(TriState::Default);
+                            self.show_instrs_dirty.set(true);
+                        }
 
-            let instrs_begin = line.instrs_begin;
-            let instrs_end   = if line.instrs_visible { line.instrs_end } else { instrs_begin };
-
-            if instrs_begin < instrs_end {
-                bc_props.padding = [
-                    [space_size[1]/4.0; 2],
-                    [space_size[1]/8.0; 2],
-                ];
-
-                bc_props.margin = [
-                    [ (line.indent + 1) as f32 * space_size[0], 0.0 ],
-                    [space_size[1]/4.0; 2],
-                ];
-            }
-
-            gui.widget_box(Key::Counter, bc_props, |gui| {
-                for instr_index in instrs_begin..instrs_end {
-                    if let Some(gap) = line.instrs_gap {
-                        if gap == instr_index {
-                            let size = space_size[1]/4.0;
-                            let mut gap_props = Props::new();
-                            gap_props.size[1] = Some(size);
-                            gap_props.margin[1] = [(size/2.0 - 0.5).max(0.0); 2];
-                            gap_props.fill = true;
-                            gap_props.fill_color = 0xFF41454F;
-                            gui.widget_box(Key::Counter, gap_props, |_|{});
+                        let mut props = Props::new().with_pointer_events().with_fill(0xff2A2E37);
+                        props.padding = [[self.font_size_bc/16.0; 2]; 2];
+                        if show_instrs == TriState::False { props.fill_color = 0xff4A5160 }
+                        let events = gui.widget_box(Key::Counter, props, |gui| {
+                            let mut props = Props::new();
+                            props.text_color = TokenClass::Default.color();
+                            props.font_size  = self.font_size_bc;
+                            gui.widget_text(Key::Counter, Props::new(), "n".to_string());
+                        });
+                        if events.clicked() {
+                            line.show_instrs.set(TriState::False);
+                            self.show_instrs_dirty.set(true);
                         }
                     }
+                });
 
-                    let instr = &self.instrs[instr_index as usize];
-                    self.render_instr(instr, gui);
-                }
+                // line number.
+                let mut number_props = Props::new();
+                number_props.font_size  = self.font_size;
+                number_props.text_color = TokenClass::Comment.color();
+                gui.widget_text(Key::Counter, number_props,
+                    format!("  {:3}  ", line.number));
+
+                // spans & bytecode.
+                gui.widget_box(Key::Counter, Props::new(), |gui| {
+                    gui.widget_box(Key::Counter, Props::new().with_pointer_events(), |gui| {
+                        for span in &line.spans {
+                            let mut props = Props::new();
+                            props.font_face  = span.face;
+                            props.font_size  = self.font_size;
+                            props.text_color = span.color;
+                            if let Some(fill) = span.fill {
+                                props.fill = true;
+                                props.fill_color = fill;
+                            }
+                            gui.widget_text(Key::Counter, props, span.text.clone());
+                        }
+                    });
+
+                    // bytecode instructions.
+                    let mut bc_props = Props::new();
+                    bc_props.fill = true;
+                    bc_props.fill_color = 0xff2A2E37;
+
+                    let instrs_begin = line.instrs_begin;
+                    let instrs_end   = if line.instrs_visible { line.instrs_end } else { instrs_begin };
+
+                    if instrs_begin < instrs_end {
+                        bc_props.padding = [
+                            [space_size[1]/4.0; 2],
+                            [space_size[1]/8.0; 2],
+                        ];
+
+                        bc_props.margin = [
+                            [ (line.indent + 1) as f32 * space_size[0], 0.0 ],
+                            [space_size[1]/4.0; 2],
+                        ];
+                    }
+
+                    gui.widget_box(Key::Counter, bc_props, |gui| {
+                        for instr_index in instrs_begin..instrs_end {
+                            if let Some(gap) = line.instrs_gap {
+                                if gap == instr_index {
+                                    let size = space_size[1]/4.0;
+                                    let mut gap_props = Props::new();
+                                    gap_props.size[1] = Some(size);
+                                    gap_props.margin[1] = [(size/2.0 - 0.5).max(0.0); 2];
+                                    gap_props.fill = true;
+                                    gap_props.fill_color = 0xFF41454F;
+                                    gui.widget_box(Key::Counter, gap_props, |_|{});
+                                }
+                            }
+
+                            let instr = &self.instrs[instr_index as usize];
+                            self.render_instr(instr, gui);
+                        }
+                    });
+                });
             });
         }
     }

@@ -423,7 +423,7 @@ impl TextLayout {
             let pos_begin = pos_cursor;
 
             // add glyphs.
-            // assume one glyph per char.
+            // assume one glyph per byte.
             let glyph_begin = self.glyphs.len() as u32;
             for c in text[..segment_end].chars() {
                 // @todo: kern.
