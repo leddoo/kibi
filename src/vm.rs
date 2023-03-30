@@ -5,6 +5,21 @@ use crate::bytecode::*;
 use crate::value::*;
 
 
+pub trait DebugHook: 'static {
+    fn on_instruction_limit(&mut self, vm: &mut Vm) -> VmResult<DebugHookResult>;
+}
+
+pub enum DebugHookResult {
+    Continue,
+    Pause,
+}
+
+impl<T> DebugHook for T where T: 'static + FnMut(&mut Vm) -> VmResult<DebugHookResult> {
+    #[inline(always)]
+    fn on_instruction_limit(&mut self, vm: &mut Vm) -> VmResult<DebugHookResult> { (self)(vm) }
+}
+
+
 // @safety-#vm-transparent
 #[repr(transparent)]
 pub struct Vm {
@@ -125,6 +140,35 @@ impl Vm {
     pub fn check_interrupt(&mut self) -> VmResult<()> {
         self.inner.check_interrupt()
     }
+
+
+    pub fn set_debug_hook<Hook: DebugHook>(&mut self, hook: Hook) {
+        self.inner.debug_hook = DebugHookWrapper::Some(Box::new(hook));
+    }
+
+    pub fn clear_debug_hook(&mut self) {
+        self.inner.debug_hook = DebugHookWrapper::None;
+    }
+
+    pub fn can_pause(&self) -> bool {
+        self.inner.can_pause()
+    }
+
+    pub fn call_stack<F: FnMut(u32)>(&self, mut f: F) {
+        let this = &self.inner;
+        for i in 1 .. this.frames.len() - 1 {
+            let frame = &this.frames[i];
+            f(frame.pc);
+        }
+        if this.frames.len() > 1 {
+            f(this.pc as u32);
+        }
+    }
+
+    #[inline]
+    pub fn run(&mut self) -> VmResult<bool> {
+        self.inner.run().0
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -188,7 +232,32 @@ pub(crate) struct VmImpl {
     instruction_counter: u64,
 
     interrupt: AtomicBool,
+
+    debug_hook: DebugHookWrapper,
 }
+
+enum DebugHookWrapper {
+    None,
+    Taken,
+    Some(Box<dyn DebugHook>),
+}
+
+impl DebugHookWrapper {
+    #[inline(always)]
+    fn take(&mut self) -> Option<Box<dyn DebugHook>> {
+        if let DebugHookWrapper::None = self {
+            return None;
+        }
+
+        let this = core::mem::replace(self, DebugHookWrapper::Taken);
+        match this {
+            DebugHookWrapper::None  => unreachable!(),
+            DebugHookWrapper::Taken => unreachable!(),
+            DebugHookWrapper::Some(hook) => Some(hook)
+        }
+    }
+}
+
 
 const DEFAULT_INSTR_LIMIT: u32 = 10_000;
 
@@ -213,6 +282,7 @@ impl VmImpl {
             instruction_counter: 0,
 
             interrupt: AtomicBool::new(false),
+            debug_hook: DebugHookWrapper::None,
         };
 
         for _ in 0..16 {
@@ -225,7 +295,6 @@ impl VmImpl {
     }
 
     fn set_instr_limit(&mut self, limit: u32) {
-        assert!(limit > 0);
         self.instruction_counter = self.instruction_counter();
         self.counter        = limit;
         self.counter_target = limit;
@@ -234,6 +303,12 @@ impl VmImpl {
     #[inline(always)]
     fn instruction_counter(&self) -> u64 {
         self.instruction_counter + (self.counter_target - self.counter) as u64
+    }
+
+
+    #[inline]
+    fn can_pause(&self) -> bool {
+        self.frames[1..].iter().all(|frame| frame.is_native == false)
     }
 
 
@@ -868,10 +943,14 @@ impl VmImpl {
     }
 
     #[inline(never)]
-    fn run(&mut self) -> (VmResult<()>,) { // wrap in tuple to prevent accidental usage of the `?` operator. (that would mess up the counter)
+    fn run(&mut self) -> (VmResult<bool>,) { // wrap in tuple to prevent accidental usage of the `?` operator. (that would mess up the counter)
         if self.frames.len() == 1 {
-            // @todo-decide: should this be an error?
-            return (Ok(()),);
+            return (Ok(false),);
+        }
+
+        if self.counter_target == 0 {
+            debug_assert_eq!(self.counter, 0);
+            return (Ok(true),);
         }
 
         loop {
@@ -901,6 +980,8 @@ impl VmImpl {
                     self.pc = $target as usize;
                 };
             }
+
+            debug_assert!(self.counter <= self.counter_target);
 
             if self.counter > 0 { loop {
                 let instr  = self.next_instr();
@@ -1304,14 +1385,38 @@ impl VmImpl {
             }}
 
             match result {
-                Ok(v) => {
-                    return (Ok(v),);
+                Ok(_v) => {
+                    debug_assert_eq!(_v, ());
+                    return (Ok(true),);
                 }
 
                 Err(VmError::Counter) => {
                     debug_assert_eq!(self.counter, 0);
                     self.instruction_counter += self.counter_target as u64;
                     self.counter = self.counter_target;
+
+                    if let Some(mut hook) = self.debug_hook.take() {
+                        // @safety-#vm-transparent
+                        let result = hook.on_instruction_limit(unsafe { core::mem::transmute_copy(&self) });
+
+                        if let DebugHookWrapper::Taken = self.debug_hook {
+                            self.debug_hook = DebugHookWrapper::Some(hook);
+                        }
+
+                        let Ok(result) = result else {
+                            self.unwind_until_native();
+                            return (result.map(|_| true),);
+                        };
+
+                        match result {
+                            DebugHookResult::Continue => (),
+
+                            DebugHookResult::Pause => {
+                                assert!(self.can_pause());
+                                return (Ok(true),);
+                            }
+                        }
+                    }
 
                     if self.check_interrupt().is_err() {
                         self.unwind_until_native();
