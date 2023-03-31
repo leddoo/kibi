@@ -101,6 +101,8 @@ pub struct Props {
     pub pos:  [Option<f32>; 2],
     pub size: [Option<f32>; 2],
 
+    pub clip: [bool; 2],
+
     pub layout: Layout,
     pub flex_grow: f32,
 
@@ -157,6 +159,8 @@ impl Default for Props {
             fill_color: 0,
 
             pointer_events: false,
+
+            clip: [false; 2],
         }
     }
 }
@@ -469,25 +473,23 @@ impl Gui {
             let x = x - widget.pos[0];
             let y = y - widget.pos[1];
 
-            let hit_self = 
-                   x >= 0.0
-                && y >= 0.0
-                && x <  widget.size[0]
-                && y <  widget.size[1];
+            let hit_self_x = x >= 0.0 && x < widget.size[0];
+            let hit_self_y = y >= 0.0 && y < widget.size[1];
+            let hit_self = hit_self_x && hit_self_y;
 
-            let hit_content =
-                   x >= widget.content_min[0]
-                && y >= widget.content_min[1]
-                && x <  widget.content_max[0]
-                && y <  widget.content_max[1];
+            let hit_content_x = x >= widget.content_min[0] && x < widget.content_max[0];
+            let hit_content_y = y >= widget.content_min[1] && y < widget.content_max[1];
 
-            if !hit_self && !hit_content {
+            let hit_x = hit_self_x || !widget.props.clip[0] && hit_content_x;
+            let hit_y = hit_self_y || !widget.props.clip[1] && hit_content_y;
+
+            if !(hit_x && hit_y) {
                 return None;
             }
 
             let result = match &widget.data {
                 WidgetData::Box(data) => {
-                    let mut at = data.first_render_child;
+                    let mut at = data.last_render_child;
                     while let Some(current) = at {
                         let current = current.get() as usize;
                         let result = rec(this, current, x, y, f);
@@ -495,7 +497,7 @@ impl Gui {
                             return result;
                         }
 
-                        at = this.widgets[current].next_render_sibling;
+                        at = this.widgets[current].prev_render_sibling;
                     }
 
                     hit_self.then_some(WidgetId(widget_index as u32))
@@ -1300,12 +1302,30 @@ impl Gui {
                             widget.props.fill_color);
                     }
 
+                    let has_clip = widget.props.clip[0] || widget.props.clip[1];
+                    if has_clip {
+                        let global_x1 = px + x1 as i32;
+                        let global_y1 = py + y1 as i32;
+
+                        let cx = widget.props.clip[0];
+                        let cy = widget.props.clip[1];
+                        r.push_clip_rect(
+                            if cx { global_x0 } else { i32::MIN },
+                            if cy { global_y0 } else { i32::MIN },
+                            if cx { global_x1 } else { i32::MAX },
+                            if cy { global_y1 } else { i32::MAX });
+                    }
+
                     let mut at = data.first_render_child;
                     while let Some(current) = at {
                         let current = current.get() as usize;
                         rec(this, current, global_x0, global_y0, r);
 
                         at = this.widgets[current].next_render_sibling;
+                    }
+
+                    if has_clip {
+                        r.pop_clip_rect();
                     }
                 }
 

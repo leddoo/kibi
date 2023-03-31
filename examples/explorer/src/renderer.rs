@@ -6,9 +6,26 @@ use lru::LruCache;
 use ordered_float::NotNan;
 
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ClipRect {
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+}
+
+impl ClipRect {
+    #[inline(always)]
+    fn new(x0: i32, y0: i32, x1: i32, y1: i32) -> ClipRect { ClipRect { x0, y0, x1, y1 } }
+}
+
+
 pub struct Renderer {
     target: DrawTarget,
     fonts:  FontCtx,
+
+    clip: ClipRect,
+    clip_stack: Vec<ClipRect>,
 }
 
 impl Renderer {
@@ -16,6 +33,8 @@ impl Renderer {
         Renderer {
             target: DrawTarget::new(1, 1),
             fonts:  fonts.clone(),
+            clip:       ClipRect { x0: 0, y0: 0, x1: 1, y1: 1 },
+            clip_stack: vec![],
         }
     }
 
@@ -34,21 +53,43 @@ impl Renderer {
     pub fn height(&self) -> i32 { self.target.height() }
 
 
+    pub fn has_clip(&self) -> bool {
+           !self.clip_stack.is_empty()
+        || self.clip != ClipRect::new(0, 0, self.width(), self.height())
+    }
+
     pub fn set_size(&mut self, w: u32, h: u32) {
-        if w as i32 != self.target.width() || h as i32 != self.target.height() {
-            self.target = DrawTarget::new(w as i32, h as i32);
+        let w = w as i32;
+        let h = h as i32;
+        if w != self.target.width() || h != self.target.height() {
+            assert!(self.has_clip() == false);
+            self.target = DrawTarget::new(w, h);
+            self.clip = ClipRect::new(0, 0, w, h);
         }
+    }
+
+
+    pub fn push_clip_rect(&mut self, x0: i32, y0: i32, x1: i32, y1: i32) {
+        self.clip_stack.push(self.clip);
+        self.clip = ClipRect::new(
+            x0.clamp(self.clip.x0, self.clip.x1),
+            y0.clamp(self.clip.y0, self.clip.y1),
+            x1.clamp(self.clip.x0, self.clip.x1),
+            y1.clamp(self.clip.y0, self.clip.y1));
+    }
+
+    pub fn pop_clip_rect(&mut self) {
+        self.clip = self.clip_stack.pop().unwrap();
     }
 
 
     pub fn fill_rect_abs_opaque(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, color: u32) {
         let tw = self.target.width();
-        let th = self.target.height();
 
-        let x0 = x0.clamp(0, tw) as usize;
-        let y0 = y0.clamp(0, th) as usize;
-        let x1 = x1.clamp(0, tw) as usize;
-        let y1 = y1.clamp(0, th) as usize;
+        let x0 = x0.clamp(self.clip.x0, self.clip.x1) as usize;
+        let y0 = y0.clamp(self.clip.y0, self.clip.y1) as usize;
+        let x1 = x1.clamp(self.clip.x0, self.clip.x1) as usize;
+        let y1 = y1.clamp(self.clip.y0, self.clip.y1) as usize;
 
         if x0 == x1 || y0 == y1 { return }
 
@@ -91,12 +132,11 @@ impl Renderer {
         }
 
         let tw = self.target.width();
-        let th = self.target.height();
 
-        let x0 = x0.clamp(0, tw) as usize;
-        let y0 = y0.clamp(0, th) as usize;
-        let x1 = x1.clamp(0, tw) as usize;
-        let y1 = y1.clamp(0, th) as usize;
+        let x0 = x0.clamp(self.clip.x0, self.clip.x1) as usize;
+        let y0 = y0.clamp(self.clip.y0, self.clip.y1) as usize;
+        let x1 = x1.clamp(self.clip.x0, self.clip.x1) as usize;
+        let y1 = y1.clamp(self.clip.y0, self.clip.y1) as usize;
 
         if x0 == x1 || y0 == y1 { return }
 
@@ -125,13 +165,12 @@ impl Renderer {
         let y1 = y0 + mask_h as i32;
 
         let tw = self.target.width();
-        let th = self.target.height();
         let buf = self.target.get_data_mut();
 
-        let x0c = x0.clamp(0, tw);
-        let y0c = y0.clamp(0, th);
-        let x1c = x1.clamp(0, tw);
-        let y1c = y1.clamp(0, th);
+        let x0c = x0.clamp(self.clip.x0, self.clip.x1);
+        let y0c = y0.clamp(self.clip.y0, self.clip.y1);
+        let x1c = x1.clamp(self.clip.x0, self.clip.x1);
+        let y1c = y1.clamp(self.clip.y0, self.clip.y1);
 
         let (r, g, b, a) = color_unpack(color);
 

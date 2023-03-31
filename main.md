@@ -17,11 +17,24 @@
 
 
 - todo: step debugger.
+    - scrollable codeview.
+        - thinking we just do fixed point iteration again.
+        - give read access to the sizes, positions & scroll offsets.
+        - ig you can change the scroll offset without triggering another update, but you do need to mark the widget for rendering.
+        - scrollbars should perhaps remain in the library.
+        - though maybe if you have access to the content size, you'd only need one re-render when the need for a scrollbar changes.
+        - todo:
+            - scroll offset widget state.
+                - use for hit testing / drawing.
+                - read write access.
+                - temp scroll buttons.
+            - window scroll bar.
+                - uses layout prop. -> re-render when sizes change.
     - render pcs.
         - arrows.
         - highlighting lines.
         - including dormant ones. (show "inverse depth")
-    - scrollable codeview.
+        - F10.
     - partial code view.
         - probably through replacements.
     - multiple code views.

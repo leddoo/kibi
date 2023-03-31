@@ -773,6 +773,13 @@ impl CodeView {
             align:     FlexAlign::Begin,
         });
         window_props.pos = [Some(self.pos.0), Some(self.pos.1)];
+        // @temp.
+        window_props.size[0] = Some(200.0);
+        window_props.size[1] = Some(400.0);
+        window_props.clip[1] = true;
+        window_props.fill = true;
+        window_props.fill_color = 0xff20242C;
+        window_props.padding = [[24.0; 2]; 2];
 
         gui.widget_box(Key::U64(69), window_props, |gui| {
             if quote_button_endquote(gui, format!("inserted semicolons: {}", self.inserted_semicolons)).clicked() {
@@ -1298,9 +1305,11 @@ impl Explorer {
             if render {
                 r.set_size(size.0 as u32, size.1 as u32);
 
-                r.clear(13, 16, 23);
+                r.clear(11, 14, 20);
 
+                assert!(r.has_clip() == false);
                 gui.draw(r);
+                assert!(r.has_clip() == false);
             }
             // we love to burn cpu cycles, don't we.
             self.window.update_with_buffer(r.data(), size.0, size.1).unwrap();
