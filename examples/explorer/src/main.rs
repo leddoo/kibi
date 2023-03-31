@@ -780,8 +780,9 @@ impl CodeView {
         window_props.fill = true;
         window_props.fill_color = 0xff20242C;
         window_props.padding = [[24.0; 2]; 2];
+        window_props.pointer_events = true;
 
-        gui.widget_box(Key::U64(69), window_props, |gui| {
+        let events = gui.widget_box(Key::U64(69), window_props, |gui| {
             if quote_button_endquote(gui, format!("inserted semicolons: {}", self.inserted_semicolons)).clicked() {
                 new_semis = !self.inserted_semicolons;
                 changed = true;
@@ -836,6 +837,15 @@ impl CodeView {
 
             self.render_impl(gui);
         });
+
+        if events.mouse_went_down(MouseButton::Left) {
+            gui.set_scroll_offset(&events, [0.0, events.scroll_offset[1] + 10.0]);
+            gui.mark_for_render(&events);
+        }
+        if events.mouse_went_down(MouseButton::Right) {
+            gui.set_scroll_offset(&events, [0.0, events.scroll_offset[1] - 10.0]);
+            gui.mark_for_render(&events);
+        }
 
         changed |= self.hl_instr_node.get() != prev_hl_instr_node;
 

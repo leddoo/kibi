@@ -201,6 +201,7 @@ struct Widget {
     intrinsic_size: [f32; 2],
     content_min: [f32; 2],
     content_max: [f32; 2],
+    scroll_offset: [f32; 2],
 }
 
 enum WidgetData {
@@ -293,6 +294,8 @@ struct WidgetId(u32);
 pub struct WidgetEvents {
     widget: u32,
     pub local_offset:    [f32; 2],
+
+    pub scroll_offset: [f32; 2],
 
     pub prev_mouse_pos:  [f32; 2],
     pub mouse_pos:       [f32; 2],
@@ -424,6 +427,7 @@ impl Gui {
             intrinsic_size: [0.0; 2],
             content_min: [0.0; 2],
             content_max: [0.0; 2],
+            scroll_offset: [0.0; 2],
         };
 
         Gui {
@@ -477,8 +481,11 @@ impl Gui {
             let hit_self_y = y >= 0.0 && y < widget.size[1];
             let hit_self = hit_self_x && hit_self_y;
 
-            let hit_content_x = x >= widget.content_min[0] && x < widget.content_max[0];
-            let hit_content_y = y >= widget.content_min[1] && y < widget.content_max[1];
+            let cx = x - widget.scroll_offset[0];
+            let cy = y - widget.scroll_offset[1];
+
+            let hit_content_x = cx >= widget.content_min[0] && cx < widget.content_max[0];
+            let hit_content_y = cy >= widget.content_min[1] && cy < widget.content_max[1];
 
             let hit_x = hit_self_x || !widget.props.clip[0] && hit_content_x;
             let hit_y = hit_self_y || !widget.props.clip[1] && hit_content_y;
@@ -492,7 +499,7 @@ impl Gui {
                     let mut at = data.last_render_child;
                     while let Some(current) = at {
                         let current = current.get() as usize;
-                        let result = rec(this, current, x, y, f);
+                        let result = rec(this, current, cx, cy, f);
                         if result.is_some() {
                             return result;
                         }
@@ -833,6 +840,7 @@ impl Gui {
                     intrinsic_size: [0.0; 2],
                     content_min: [0.0; 2],
                     content_max: [0.0; 2],
+                    scroll_offset: [0.0; 2],
                 };
 
                 let widget = match self.first_free {
@@ -947,6 +955,7 @@ impl Gui {
         WidgetEvents {
             widget: widget.get(),
             local_offset,
+            scroll_offset: w.scroll_offset,
             prev_mouse_pos,  mouse_pos:  self.mouse_pos,
             prev_mouse_down, mouse_down: self.mouse_down,
             prev_hovered, hovered,
@@ -1316,10 +1325,13 @@ impl Gui {
                             if cy { global_y1 } else { i32::MAX });
                     }
 
+                    let content_x0 = global_x0 + widget.scroll_offset[0] as i32;
+                    let content_y0 = global_y0 + widget.scroll_offset[1] as i32;
+
                     let mut at = data.first_render_child;
                     while let Some(current) = at {
                         let current = current.get() as usize;
-                        rec(this, current, global_x0, global_y0, r);
+                        rec(this, current, content_x0, content_y0, r);
 
                         at = this.widgets[current].next_render_sibling;
                     }
@@ -1465,12 +1477,17 @@ impl Gui {
     }
 
 
-    #[inline(always)]
+    #[inline]
     pub fn edit_props_no_render(&mut self, events: &WidgetEvents) -> &mut Props {
         &mut self.widgets[events.widget as usize].props
     }
 
-    #[inline(always)]
+    #[inline]
+    pub fn set_scroll_offset(&mut self, events: &WidgetEvents, offset: [f32; 2]) {
+        self.widgets[events.widget as usize].scroll_offset = offset;
+    }
+
+    #[inline]
     pub fn mark_for_render(&mut self, events: &WidgetEvents) {
         _ = events;
         self.needs_render = true;
