@@ -774,15 +774,16 @@ impl CodeView {
         });
         window_props.pos = [Some(self.pos.0), Some(self.pos.1)];
         // @temp.
-        window_props.size[0] = Some(200.0);
-        window_props.size[1] = Some(400.0);
-        window_props.clip[1] = true;
+        window_props.size[0] = Some(800.0);
+        window_props.size[1] = Some(500.0);
+        window_props.overflow[0] = Overflow::AutoScroll;
+        window_props.overflow[1] = Overflow::AutoScroll;
         window_props.fill = true;
         window_props.fill_color = 0xff20242C;
         window_props.padding = [[24.0; 2]; 2];
         window_props.pointer_events = true;
 
-        let events = gui.widget_box(Key::U64(69), window_props, |gui| {
+        gui.widget_box(Key::U64(69), window_props, |gui| {
             if quote_button_endquote(gui, format!("inserted semicolons: {}", self.inserted_semicolons)).clicked() {
                 new_semis = !self.inserted_semicolons;
                 changed = true;
@@ -836,16 +837,18 @@ impl CodeView {
             });
 
             self.render_impl(gui);
-        });
 
-        if events.mouse_went_down(MouseButton::Left) {
-            gui.set_scroll_offset(&events, [0.0, events.scroll_offset[1] + 10.0]);
-            gui.mark_for_render(&events);
-        }
-        if events.mouse_went_down(MouseButton::Right) {
-            gui.set_scroll_offset(&events, [0.0, events.scroll_offset[1] - 10.0]);
-            gui.mark_for_render(&events);
-        }
+            let mut props = Props::new().with_fill(0xffffffff).with_pointer_events();
+            props.size[1] = Some(17.0);
+            gui.widget_scrollbar_part(ScrollbarPart::X, props, |_|{});
+
+            let mut props = Props::new().with_fill(0xff808080).with_pointer_events();
+            props.size[0] = Some(2.0*17.0);
+            gui.widget_scrollbar_part(ScrollbarPart::Y, props, |_|{});
+
+            let props = Props::new().with_fill(0x80800000).with_pointer_events();
+            gui.widget_scrollbar_part(ScrollbarPart::Corner, props, |_|{});
+        });
 
         changed |= self.hl_instr_node.get() != prev_hl_instr_node;
 
@@ -1281,11 +1284,12 @@ impl Explorer {
                     let mut canvas_props = Props::new().with_pointer_events();
                     canvas_props.layout = Layout::None;
                     canvas_props.size = [Some(root_size[0]),  Some(root_size[1])];
+                    canvas_props.overflow = [Overflow::Clip; 2];
 
                     let events = gui.widget_box(Key::Counter, canvas_props, |gui| {
                         let mut body_props = Props::new();
                         body_props.layout = Layout::None;
-                        body_props.pos    = [Some(-self.offset[0]), Some(-self.offset[1])];
+                        body_props.pos    = [Some(self.offset[0]), Some(self.offset[1])];
 
                         gui.widget_box(Key::Counter, body_props, |gui| {
                             changed = self.code.render(gui);
@@ -1299,8 +1303,8 @@ impl Explorer {
                     if gui.has_mouse_capture(&events) && events.mouse_moved() {
                         let pos_target = gui.mouse_capture_pos();
                         let pos = events.local_mouse_pos();
-                        self.offset[0] = self.down_offset[0] + (pos_target[0] - pos[0]);
-                        self.offset[1] = self.down_offset[1] + (pos_target[1] - pos[1]);
+                        self.offset[0] = self.down_offset[0] + (pos[0] - pos_target[0]);
+                        self.offset[1] = self.down_offset[1] + (pos[1] - pos_target[1]);
                         changed = true;
                     }
 
