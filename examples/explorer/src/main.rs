@@ -809,7 +809,7 @@ impl CodeView {
                 changed = true;
             }
 
-            if let Some(value) = Slider::render(gui, self.font_size, 12.0, 32.0) {
+            if let Some(value) = Slider::render(gui, self.font_size, 12.0, 36.0) {
                 new_font_size = value;
                 changed = true;
             }
@@ -839,15 +839,73 @@ impl CodeView {
             self.render_impl(gui);
 
             let mut props = Props::new().with_fill(0xffffffff).with_pointer_events();
+            props.layout = Layout::None;
             props.size[1] = Some(17.0);
-            gui.widget_scrollbar_part(ScrollbarPart::X, props, |_|{});
+            gui.widget_scrollbar_part(ScrollbarPart::X, props, |gui, info| {
+                let parent  = info.parent_size[0] - info.scrollbar_sizes[1];
+                let content = info.content_max[0];
+                let scroll  = info.scroll_pos[0];
+
+                let size = (parent/content * parent).max(17.0).min(parent);
+                let pos  = (scroll/(content - parent)).clamp(0.0, 1.0) * (parent - size);
+
+                let mut head_props = Props::new().with_pointer_events();
+                head_props.pos  = [Some(pos.round()), Some(0.0)];
+                head_props.size = [Some(size.ceil()), Some(info.scrollbar_sizes[0])];
+                head_props.fill = true;
+                head_props.fill_color = 0xff00ff00;
+
+                let events = gui.widget_box(Key::Counter, head_props, |_|{});
+
+                if events.active_begin() {
+                    gui.capture_mouse(&events);
+                }
+                if gui.has_mouse_capture(&events) && events.mouse_moved() {
+                    let offset_target = gui.mouse_capture_pos()[0];
+                    let offset = events.local_mouse_pos()[0];
+
+                    let dx = offset - offset_target;
+                    let ds = dx / (parent - size) * (content - parent);
+                    let scroll = info.scroll_pos[0] + ds;
+                    gui.set_scroll_pos(&info, [ scroll, info.scroll_pos[1] ]);
+                }
+            });
 
             let mut props = Props::new().with_fill(0xff808080).with_pointer_events();
+            props.layout = Layout::None;
             props.size[0] = Some(2.0*17.0);
-            gui.widget_scrollbar_part(ScrollbarPart::Y, props, |_|{});
+            gui.widget_scrollbar_part(ScrollbarPart::Y, props, |gui, info| {
+                let parent  = info.parent_size[1] - info.scrollbar_sizes[0];
+                let content = info.content_max[1];
+                let scroll  = info.scroll_pos[1];
+
+                let size = (parent/content * parent).max(17.0).min(parent);
+                let pos  = (scroll/(content - parent)).clamp(0.0, 1.0) * (parent - size);
+
+                let mut head_props = Props::new().with_pointer_events();
+                head_props.pos  = [Some(0.0), Some(pos.round())];
+                head_props.size = [Some(info.scrollbar_sizes[1]), Some(size.ceil())];
+                head_props.fill = true;
+                head_props.fill_color = 0xff00ff00;
+
+                let events = gui.widget_box(Key::Counter, head_props, |_|{});
+
+                if events.active_begin() {
+                    gui.capture_mouse(&events);
+                }
+                if gui.has_mouse_capture(&events) && events.mouse_moved() {
+                    let offset_target = gui.mouse_capture_pos()[1];
+                    let offset = events.local_mouse_pos()[1];
+
+                    let dx = offset - offset_target;
+                    let ds = dx / (parent - size) * (content - parent);
+                    let scroll = info.scroll_pos[1] + ds;
+                    gui.set_scroll_pos(&info, [ info.scroll_pos[0], scroll ]);
+                }
+            });
 
             let props = Props::new().with_fill(0x80800000).with_pointer_events();
-            gui.widget_scrollbar_part(ScrollbarPart::Corner, props, |_|{});
+            gui.widget_scrollbar_part(ScrollbarPart::Corner, props, |_, _| {});
         });
 
         changed |= self.hl_instr_node.get() != prev_hl_instr_node;
@@ -927,7 +985,7 @@ impl CodeView {
     fn render_reg(&self, func: kibi::FunctionId, pc: u16, reg: u8, gui: &mut Gui) {
         let _ = (func, pc);
 
-        let events = gui.widget_text(Key::Counter,
+        gui.widget_text(Key::Counter,
             Props {
                 font_face: FaceId::DEFAULT,
                 font_size: self.font_size_bc,
@@ -936,10 +994,6 @@ impl CodeView {
                 ..Default::default()
             },
             format!("r{reg}"));
-
-        if let Some((dx, dy)) = events.mouse_delta() { println!("{func}.{pc}.{reg} mouse moved by {dx} {dy}") }
-        if events.mouse_went_down(MouseButton::Left) { println!("{func}.{pc}.{reg} left down") }
-        if events.mouse_went_up(MouseButton::Left)   { println!("{func}.{pc}.{reg} left up") }
     }
 
     fn render_instr(&self, instr: &VisualInstr, gui: &mut Gui) {

@@ -194,6 +194,16 @@ pub enum ScrollbarPart {
 }
 
 
+#[derive(Clone, Copy, Debug)]
+pub struct ScrollbarInfo {
+    parent: u32,
+    pub parent_size: [f32; 2],
+    pub content_max: [f32; 2],
+    pub scroll_pos:  [f32; 2],
+    pub scrollbar_sizes: [f32; 2],
+}
+
+
 
 struct Widget {
     // identity.
@@ -220,6 +230,8 @@ struct Widget {
     intrinsic_size: [f32; 2],
     content_min: [f32; 2],
     content_max: [f32; 2],
+    hit_min: [f32; 2],
+    hit_max: [f32; 2],
 
     // scroll stuff.
     clip:            [bool; 2],
@@ -374,6 +386,7 @@ impl WidgetEvents {
         x1 != x0 || y1 != y0
     }
 
+    #[allow(dead_code)] // @temp
     #[inline(always)]
     pub fn mouse_delta(&self) -> Option<(f32, f32)> {
         let [x0, y0] = self.prev_mouse_pos;
@@ -392,6 +405,7 @@ impl WidgetEvents {
         self.mouse_down[button as usize] && !self.prev_mouse_down[button as usize]
     }
 
+    #[allow(dead_code)] // @temp
     #[inline(always)]
     pub fn mouse_went_up(&self, button: MouseButton) -> bool {
         !self.mouse_down[button as usize] && self.prev_mouse_down[button as usize]
@@ -460,6 +474,8 @@ impl Gui {
             intrinsic_size: [0.0; 2],
             content_min: [0.0; 2],
             content_max: [0.0; 2],
+            hit_min: [0.0; 2],
+            hit_max: [0.0; 2],
 
             clip:            [false; 2],
             scroll_pos:      [0.0; 2],
@@ -519,15 +535,15 @@ impl Gui {
             let hit_self_y = y >= 0.0 && y < widget.size[1];
             let hit_self = hit_self_x && hit_self_y;
 
-            let cx = x - widget.scroll_pos[0];
-            let cy = y - widget.scroll_pos[1];
+            let cx = x + widget.scroll_pos[0];
+            let cy = y + widget.scroll_pos[1];
 
             let hit_clip_x = !widget.clip[0] || hit_self_x;
             let hit_clip_y = !widget.clip[1] || hit_self_y;
             let hit_clip = hit_clip_x && hit_clip_y;
 
-            let hit_content_x = hit_clip && cx >= widget.content_min[0] && cx < widget.content_max[0];
-            let hit_content_y = hit_clip && cy >= widget.content_min[1] && cy < widget.content_max[1];
+            let hit_content_x = hit_clip && cx >= widget.hit_min[0] && cx < widget.hit_max[0];
+            let hit_content_y = hit_clip && cy >= widget.hit_min[1] && cy < widget.hit_max[1];
             let hit_content = hit_content_x && hit_content_y;
 
             if !hit_content {
@@ -888,6 +904,8 @@ impl Gui {
                     intrinsic_size: [0.0; 2],
                     content_min: [0.0; 2],
                     content_max: [0.0; 2],
+                    hit_min: [0.0; 2],
+                    hit_max: [0.0; 2],
 
                     clip:            [false; 2],
                     scroll_pos:      [0.0; 2],
@@ -1050,7 +1068,9 @@ impl Gui {
     }
 
     fn widget_box_children<F: FnOnce(&mut Gui)>(&mut self, widget: NonZeroU32, f: F) -> WidgetEvents {
-        let pos = self.widgets[widget.get() as usize].pos;
+        let w = &self.widgets[widget.get() as usize];
+        let pos    = w.pos;
+        let scroll = w.scroll_pos;
 
         // visit children.
         let old_parent  = self.current_parent;
@@ -1058,8 +1078,8 @@ impl Gui {
         let old_offset  = self.current_offset;
         self.current_parent  = widget.get() as usize;
         self.current_counter = 0;
-        self.current_offset[0] += pos[0];
-        self.current_offset[1] += pos[1];
+        self.current_offset[0] += pos[0] - scroll[0];
+        self.current_offset[1] += pos[1] - scroll[1];
 
         f(self);
 
@@ -1077,7 +1097,7 @@ impl Gui {
         self.widget_box_children(widget, f)
     }
 
-    pub fn widget_scrollbar_part<F: FnOnce(&mut Gui)>(&mut self, part: ScrollbarPart, props: Props, f: F) -> WidgetEvents {
+    pub fn widget_scrollbar_part<F: FnOnce(&mut Gui, ScrollbarInfo)>(&mut self, part: ScrollbarPart, props: Props, f: F) -> WidgetEvents {
         let widget = self.alloc_widget(KeyData::Scrollbar(part), props, WidgetData::Box(BoxData::default()));
 
         let parent = &mut self.widgets[self.current_parent];
@@ -1085,7 +1105,18 @@ impl Gui {
 
         data.scrollbar_parts[part as usize] = Some(widget);
 
-        self.widget_box_children(widget, f)
+        let info = ScrollbarInfo { 
+            parent: self.current_parent as u32,
+            parent_size: parent.size,
+            content_max: parent.content_max, 
+            scroll_pos:  parent.scroll_pos,
+            scrollbar_sizes: [
+                if parent.has_scrollbars[0] { parent.scrollbar_sizes[0] } else { 0.0 },
+                if parent.has_scrollbars[1] { parent.scrollbar_sizes[1] } else { 0.0 },
+            ],
+        };
+
+        self.widget_box_children(widget, |gui| f(gui, info))
     }
 
 
@@ -1210,10 +1241,14 @@ impl Gui {
 
         fn layout_pass(this: &mut Gui, widget_index: usize, given_size: [Option<f32>; 2], allow_scrollbar: bool) {
             let widget = &mut this.widgets[widget_index];
+            let old_size = widget.size;
+            let old_cmax = widget.content_max;
             widget.pos  = [0.0; 2];
             widget.size = [0.0; 2];
             widget.content_min = [0.0; 2];
             widget.content_max = [0.0; 2];
+            widget.hit_min = [0.0; 2];
+            widget.hit_max = [0.0; 2];
 
             if !allow_scrollbar && matches!(widget.key, KeyData::Scrollbar(_)) {
                 return;
@@ -1239,12 +1274,13 @@ impl Gui {
                 let mut cmin = [0f32; 2];
                 let mut cmax = [0f32; 2];
 
-                let mut add_child = |child: &Widget| {
+                #[inline]
+                fn add_child(child: &Widget, cmin: &mut [f32; 2], cmax: &mut [f32; 2]) {
                     cmin[0] = cmin[0].min(child.pos[0] + child.content_min[0]);
                     cmin[1] = cmin[1].min(child.pos[1] + child.content_min[1]);
-                    cmax[0] = cmax[0].max(child.pos[0] + child.content_max[0]);
-                    cmax[1] = cmax[1].max(child.pos[1] + child.content_max[1]);
-                };
+                    cmax[0] = cmax[0].max(child.pos[0] + child.content_max[0]).max(child.pos[0] + child.size[0]);
+                    cmax[1] = cmax[1].max(child.pos[1] + child.content_max[1]).max(child.pos[1] + child.size[1]);
+                }
 
                 let mgn = widget.props.margin;
                 let pad = widget.props.padding;
@@ -1284,7 +1320,7 @@ impl Gui {
                                         space_x0 + child.props.pos[0].unwrap_or(0.0),
                                         space_y0 + child.props.pos[1].unwrap_or(0.0)];
 
-                                    add_child(child);
+                                    add_child(child, &mut cmin, &mut cmax);
 
                                     at = child.next_render_sibling;
                                 }
@@ -1307,7 +1343,7 @@ impl Gui {
                                     child.pos = [space_x0, cursor];
                                     cursor += child.size[1];
 
-                                    add_child(child);
+                                    add_child(child, &mut cmin, &mut cmax);
 
                                     at = child.next_render_sibling;
                                 }
@@ -1385,7 +1421,7 @@ impl Gui {
 
                                     cursor += child_main;
 
-                                    add_child(child);
+                                    add_child(child, &mut cmin, &mut cmax);
 
                                     at = child.next_render_sibling;
                                 }
@@ -1429,10 +1465,19 @@ impl Gui {
                     this.needs_update = true;
                 }
 
+                // make sure content includes self.
+                // otherwise hit testing doesn't work
+                // for empty box widgets (eg: blank button).
+                let mut hmin = cmin;
+                let mut hmax = [ cmax[0].max(size[0]), cmax[1].max(size[1]) ];
+
 
                 // scrollbar sizes & positions.
                 if has_scrollbars[0] || has_scrollbars[1] {
                     let WidgetData::Box(data) = widget.data else { unreachable!() };
+
+                    let x0 = widget.scroll_pos[0];
+                    let y0 = widget.scroll_pos[1];
 
                     if has_scrollbars[0] {
                         if let Some(x_part) = data.scrollbar_parts[ScrollbarPart::X as usize] {
@@ -1445,7 +1490,9 @@ impl Gui {
                             layout_pass(this, x_part, x_size, true);
 
                             let x_part = &mut this.widgets[x_part];
-                            x_part.pos = [ 0.0, size[1] - scrollbar_sizes[0] ];
+                            x_part.pos = [ x0, y0 + size[1] - scrollbar_sizes[0] ];
+
+                            add_child(x_part, &mut hmin, &mut hmax);
                         }
                     }
 
@@ -1460,25 +1507,24 @@ impl Gui {
                             layout_pass(this, y_part, y_size, true);
 
                             let y_part = &mut this.widgets[y_part];
-                            y_part.pos = [ size[0] - scrollbar_sizes[1], 0.0 ];
+                            y_part.pos = [ x0 + size[0] - scrollbar_sizes[1], y0 ];
+
+                            add_child(y_part, &mut hmin, &mut hmax);
                         }
                     }
 
                     if has_scrollbars[0] && has_scrollbars[1] {
                         if let Some(corner) = data.scrollbar_parts[ScrollbarPart::Corner as usize] {
                             let corner = &mut this.widgets[corner.get() as usize];
-                            corner.pos  = [ size[0] - scrollbar_sizes[1], size[1] - scrollbar_sizes[0] ];
+                            corner.pos  = [ x0 + size[0] - scrollbar_sizes[1], y0 + size[1] - scrollbar_sizes[0] ];
                             corner.size = [ scrollbar_sizes[1], scrollbar_sizes[0] ];
+
+                            // don't need to add corner.
+                            // covered by other parts.
                         }
                     }
                 }
 
-
-                // make sure content includes self.
-                // otherwise hit testing doesn't work
-                // for empty box widgets (eg: blank button).
-                cmax[0] = cmax[0].max(size[0]);
-                cmax[1] = cmax[1].max(size[1]);
 
                 debug_assert!(size[0] >= 0.0);
                 debug_assert!(size[1] >= 0.0);
@@ -1486,13 +1532,27 @@ impl Gui {
                 debug_assert!(cmin[1] <= 0.0);
                 debug_assert!(cmax[0] >= 0.0);
                 debug_assert!(cmax[1] >= 0.0);
+                debug_assert!(hmin[0] <= 0.0);
+                debug_assert!(hmin[1] <= 0.0);
+                debug_assert!(hmax[0] >= 0.0);
+                debug_assert!(hmax[1] >= 0.0);
 
 
                 let widget = &mut this.widgets[widget_index];
 
+                if !this.needs_update {
+                    if has_scrollbars[0] || has_scrollbars[1] {
+                        if size != old_size || cmax != old_cmax {
+                            this.needs_update = true;
+                        }
+                    }
+                }
+
                 widget.size        = size;
                 widget.content_min = cmin;
                 widget.content_max = cmax;
+                widget.hit_min = hmin;
+                widget.hit_max = hmax;
                 widget.clip = [
                     widget.props.overflow[0] != Overflow::Visible,
                     widget.props.overflow[1] != Overflow::Visible,
@@ -1545,8 +1605,8 @@ impl Gui {
                             if cy { global_y1 } else { i32::MAX });
                     }
 
-                    let content_x0 = global_x0 + widget.scroll_pos[0] as i32;
-                    let content_y0 = global_y0 + widget.scroll_pos[1] as i32;
+                    let content_x0 = global_x0 - widget.scroll_pos[0] as i32;
+                    let content_y0 = global_y0 - widget.scroll_pos[1] as i32;
 
                     let mut at = data.first_render_child;
                     while let Some(current) = at {
@@ -1700,6 +1760,21 @@ impl Gui {
     #[inline]
     pub fn edit_props_no_render(&mut self, events: &WidgetEvents) -> &mut Props {
         &mut self.widgets[events.widget as usize].props
+    }
+
+    pub fn set_scroll_pos(&mut self, info: &ScrollbarInfo, pos: [f32; 2]) {
+        let widget = &mut self.widgets[info.parent as usize];
+
+        let old_scroll_pos = widget.scroll_pos;
+        let new_scroll_pos = [
+            pos[0].clamp(0.0, (widget.content_max[0] - (widget.size[0] - info.scrollbar_sizes[1])).max(0.0)).floor(),
+            pos[1].clamp(0.0, (widget.content_max[1] - (widget.size[1] - info.scrollbar_sizes[0])).max(0.0)).floor(),
+        ];
+        widget.scroll_pos = new_scroll_pos;
+
+        if new_scroll_pos != old_scroll_pos {
+            self.needs_update = true;
+        }
     }
 
     pub fn mark_for_render(&mut self, events: &WidgetEvents) {
