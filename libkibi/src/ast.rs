@@ -17,7 +17,77 @@ pub struct Span<'a> {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Token<'a> {
-    p: core::marker::PhantomData<&'a ()>,
+    pub kind: TokenKind<'a>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum TokenKind<'a> {
+    Error,
+
+    Ident(&'a str),
+    Number(&'a str),
+    Bool(bool),
+
+    String(&'a str),
+    //FString(&'a str),
+    //Code(&'a str),
+
+    KwLet, KwVar,
+
+    KwDo,
+
+    KwIf,
+    KwElif,
+    KwElse,
+
+    KwWhile,
+    KwFor,
+    KwIn,
+
+    KwBreak,
+    KwContinue,
+    KwReturn,
+
+    KwFn,
+
+    KwAnd,
+    KwOr,
+    KwNot,
+
+    LParen,   RParen,
+    LBracket, RBracket,
+    LCurly,   RCurly,
+
+    Dot,
+    Comma,
+    Semicolon,
+    Colon,
+    ColonEq,
+
+    Arrow,
+    FatArrow,
+
+    Add,
+    AddAssign,
+    Sub,
+    SubAssign,
+    Star,
+    MulAssign,
+    Div,
+    DivAssign,
+    FloorDiv,
+    FloorDivAssign,
+    Rem,
+    RemAssign,
+
+    Eq,
+    EqEq,
+    Not,
+    NotEq,
+    Le,
+    Lt,
+    Ge,
+    Gt,
 }
 
 

@@ -3,7 +3,7 @@
 version = 3
 
 [[package]]
-name = "libkibi"
+name = "kibi"
 version = "0.1.1"
 dependencies = [
  "sti",
@@ -13,7 +13,8 @@ dependencies = [
 name = "sandbox"
 version = "0.1.0"
 dependencies = [
- "libkibi",
+ "kibi",
+ "sti",
 ]
 
 [[package]]

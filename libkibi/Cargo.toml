@@ -1,5 +1,5 @@
 [package]
-name = "libkibi"
+name = "kibi"
 version = "0.1.1"
 edition = "2021"
 

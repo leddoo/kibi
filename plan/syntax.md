@@ -10,7 +10,7 @@ enum JsonValue {
     boolean: Bool
     number:  Number
     array:   [JsonValue]
-    object:  {String, JsonValue}
+    object:  {String: JsonValue}
 }
 
 
@@ -115,8 +115,11 @@ expr:
     - expr_index:
         - expr "[" expr_tup "]"
 
+    - expr_method_call:
+        - expr ("." | ":") ident "(" sep_by(call_arg, ",") ")"
+
     - expr_call:
-        - expr "(" sep_by(call_arg, ",") ")"
+        - expr "(" sep_by(call_arg, ",") ")"  // expr_method_call takes precedence
 
         call_arg:
             - expr
@@ -126,16 +129,16 @@ expr:
         - expr_tup "=" expr_tup
 
     - expr_list:
-        - "[" expr "]"
+        - "[" sep_by(expr, ",") "]"
 
-    - expr_list_type
-        - "[" expr "]"
+    - expr_list_type:
+        - "[" expr "]"  // expr_list takes precedence
 
     - expr_map:
         - "{" sep_by(ident ":" expr, ",") "}"
 
-    - expr_map_type
-        - "{" expr "," expr "}"
+    - expr_map_type:
+        - "{" expr ":" expr "}"  // expr_map takes precedence
 
     - expr_match:
         - "match" expr "{" match_case* "}"
