@@ -25,11 +25,12 @@ pub enum TokenKind<'a> {
     Error,
 
     Ident(&'a str),
-    Number(&'a str),
-    Bool(bool),
 
+    Bool(bool),
+    Number(&'a str),
     String(&'a str),
     //FString(&'a str),
+
     //Code(&'a str),
 
     KwLet, KwVar,
@@ -181,9 +182,13 @@ pub struct Expr<'a> {
 
 #[derive(Debug)]
 pub enum ExprKind<'a> {
-    Ident(Ident<'a>),
+    Ident(&'a str),
     DotIdent(Ident<'a>),
     Path(Path<'a>),
+
+    Bool(bool),
+    Number(&'a str),
+    String(&'a str),
 
     Parens(ExprRef<'a>),
     Block(expr::Block<'a>),

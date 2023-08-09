@@ -6,6 +6,10 @@
 
 - todo:
     - parser.
+        - grammar:
+            - labels.
+            - combined match/if.
+            - optional do block.
     - sti reader:
         - support non-copy. `next_ref` ig.
         - remember initial ptr -> offset & stuff.

@@ -245,25 +245,132 @@ impl<'a> Tokenizer<'a> {
 }
 
 
+
+#[derive(Clone, Copy)]
+pub struct ParseExprFlags {
+    pub tuple: bool,
+    pub type_hint: bool,
+    pub ty: bool,
+}
+
+impl ParseExprFlags {
+    #[inline(always)]
+    pub fn with_tuple(self) -> Self { Self { tuple: true, ..self } }
+
+    #[inline(always)]
+    pub fn with_type_hint(self) -> Self { Self { type_hint: true, ..self } }
+
+    #[inline(always)]
+    pub fn with_ty(self) -> Self { Self { ty: true, ..self } }
+}
+
+impl Default for ParseExprFlags {
+    #[inline(always)]
+    fn default() -> Self {
+        Self {
+            tuple: false,
+            type_hint: false,
+            ty: false,
+        }
+    }
+}
+
+
 pub struct Parser<'t, 'a> {
+    arena:  &'a GrowingArena,
     tokens: Reader<'t, Token<'a>>,
 }
 
 impl<'t, 'a> Parser<'t, 'a> {
-    pub fn new(tokens: &'t [Token<'a>]) -> Self {
-        Self { tokens: Reader::new(tokens) }
+    pub fn new(arena: &'a GrowingArena, tokens: &'t [Token<'a>]) -> Self {
+        Self { arena, tokens: Reader::new(tokens) }
     }
 
     pub fn parse_item(&mut self) -> Option<Item<'a>> {
         unimplemented!()
     }
 
-    pub fn parse_stmt(&mut self) -> Option<Item<'a>> {
+    pub fn parse_stmt(&mut self) -> Option<Stmt<'a>> {
         unimplemented!()
     }
 
-    pub fn parse_expr(&mut self) -> Option<Item<'a>> {
-        unimplemented!()
+    pub fn parse_expr(&mut self) -> Option<Expr<'a>> {
+        self.parse_expr_ex(ParseExprFlags::default(), 0)
+    }
+
+    pub fn parse_expr_ex(&mut self, flags: ParseExprFlags, prec: u32) -> Option<Expr<'a>> {
+        let mut result = self.parse_leading_expr(flags, prec)?;
+
+        loop {
+            result = result;
+            break;
+        }
+
+        return Some(result);
+    }
+
+    fn parse_leading_expr(&mut self, flags: ParseExprFlags, prec: u32) -> Option<Expr<'a>> {
+        let at = self.tokens.next()?;
+
+        let kind = 'kind: {
+            // lookahead 1 cases.
+            'next: { break 'kind match at.kind {
+                TokenKind::Ident(ident) => ExprKind::Ident(ident),
+
+                TokenKind::Bool(value) => ExprKind::Bool(value),
+
+                TokenKind::Number(value) => {
+                    // @temp: analyze compatible types.
+                    // maybe convert to value.
+                    ExprKind::Number(value)
+                }
+
+                TokenKind::String(value) => {
+                    // @temp: remove escapes.
+                    ExprKind::String(value)
+                }
+
+                // subexpr.
+                TokenKind::LParen => {
+                    let inner = self.arena.alloc_new(
+                        self.parse_expr_ex(
+                            ParseExprFlags::default()
+                                .with_tuple()
+                                .with_type_hint(),
+                            0)?);
+
+                    self.tokens.next_if(|at|
+                        matches!(at.kind, TokenKind::RParen))?;
+
+                    ExprKind::Parens(inner)
+                }
+
+                TokenKind::KwDo => {
+                    unimplemented!()
+                }
+
+                // list & list type.
+                TokenKind::LBracket => {
+                    unimplemented!()
+                }
+
+                // map & map type.
+                TokenKind::LCurly => {
+                    unimplemented!()
+                }
+
+                /*
+                Match(expr::Match<'a>),
+                If(expr::If<'a>),
+                */
+
+                _ => break 'next
+            }}
+
+            unimplemented!()
+        };
+
+        return Some(Expr { kind });
     }
 }
 
