@@ -69,7 +69,7 @@ item:
 
         param_list: "(" sep_by(binding, ",") ")"
 
-        ret: "->" type
+        ret: "->" expr
 
     - item_enum:
         - tbd
@@ -87,20 +87,8 @@ path:
     - path "::" ident
 
 binding:
-    - ident (":" type)? ("=" expr)?
+    - ident (":" expr)? ("=" expr)?
 
-
-type:
-    - path
-
-    - type_array
-        - "[" type "]"
-
-    - type_map
-        - "{" type "," type "}"
-
-    - type_fn
-        - tbd.
 
 stmt:
     - item
@@ -137,11 +125,17 @@ expr:
     - expr_assign:
         - expr_tup "=" expr_tup
 
-    - expr_array:
+    - expr_list:
+        - "[" expr "]"
+
+    - expr_list_type
         - "[" expr "]"
 
     - expr_map:
         - "{" sep_by(ident ":" expr, ",") "}"
+
+    - expr_map_type
+        - "{" expr "," expr "}"
 
     - expr_match:
         - "match" expr "{" match_case* "}"
@@ -169,7 +163,7 @@ expr:
 
     expr_tuple: sep_by(expr, ",")
 
-    expr_type_hint: expr ":" type
+    expr_type_hint: expr ":" expr
 
 
 ```

@@ -89,43 +89,8 @@ pub mod stmt {
     pub struct Let<'a> {
         pub is_var: bool,
         pub ident:  Ident<'a>,
-        pub ty:     Option<TypeRef<'a>>,
+        pub ty:     Option<ExprRef<'a>>,
         pub value:  Option<ExprRef<'a>>,
-    }
-}
-
-
-
-//
-// types
-//
-
-pub type TypeRef<'a> = &'a mut Type<'a>;
-
-pub type TypeList<'a> = &'a mut [TypeRef<'a>];
-
-#[derive(Debug)]
-pub struct Type<'a> {
-    pub kind: TypeKind<'a>,
-}
-
-#[derive(Debug)]
-pub enum TypeKind<'a> {
-    Ident(Ident<'a>),
-    Path(Path<'a>),
-    Array(TypeRef<'a>),
-    Map(ty::Map<'a>),
-}
-
-
-pub mod ty {
-    use super::*;
-
-
-    #[derive(Debug)]
-    pub struct Map<'a> {
-        pub key:   TypeRef<'a>,
-        pub value: TypeRef<'a>,
     }
 }
 
@@ -162,8 +127,10 @@ pub enum ExprKind<'a> {
 
     Assign(expr::Assign<'a>),
 
-    Array(expr::Array<'a>),
+    List(ExprList<'a>),
+    ListType(ExprRef<'a>),
     Map(expr::Map<'a>),
+    MapType(expr::MapType<'a>),
 
     Match(expr::Match<'a>),
     If(expr::If<'a>),
@@ -249,11 +216,6 @@ pub mod expr {
 
 
     #[derive(Debug)]
-    pub struct Array<'a> {
-        pub values: ExprList<'a>,
-    }
-
-    #[derive(Debug)]
     pub struct Map<'a> {
         pub entries: MapEntryList<'a>,
     }
@@ -263,6 +225,12 @@ pub mod expr {
     #[derive(Debug)]
     pub struct MapEntry<'a> {
         pub key:   Ident<'a>,
+        pub value: ExprRef<'a>,
+    }
+
+    #[derive(Debug)]
+    pub struct MapType<'a> {
+        pub key:   ExprRef<'a>,
         pub value: ExprRef<'a>,
     }
 
@@ -310,7 +278,7 @@ pub mod expr {
     #[derive(Debug)]
     pub struct TypeHint<'a> {
         pub expr: ExprRef<'a>,
-        pub ty:   TypeRef<'a>,
+        pub ty:   ExprRef<'a>,
     }
 }
 
