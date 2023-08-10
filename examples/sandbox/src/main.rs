@@ -10,6 +10,7 @@ fn main() {
         [a, b]
         [a, b,]
         a + b
+        a + b * c - -d * e
         if a + b < c {
             c *= 2
         }

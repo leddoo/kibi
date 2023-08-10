@@ -80,7 +80,7 @@ impl<'a> Tokenizer<'a> {
                     else if self.reader.consume_if_eq(&b'>') {
                         TokenKind::Arrow
                     }
-                    else { TokenKind::Sub }
+                    else { TokenKind::Minus }
                 }
 
                 '*' => {
@@ -285,14 +285,49 @@ impl<'t, 'a> Parser<'t, 'a> {
     }
 
     pub fn parse_expr(&mut self) -> Option<Expr<'a>> {
-        self.parse_expr_ex(ParseExprFlags::default(), 0)
+        self.parse_expr_exw(ParseExprFlags::default(), 0)
     }
 
-    pub fn parse_expr_ex(&mut self, flags: ParseExprFlags, prec: u32) -> Option<Expr<'a>> {
+    pub fn parse_expr_ex(&mut self, prec: u32) -> Option<Expr<'a>> {
+        self.parse_expr_exw(ParseExprFlags::default(), prec)
+    }
+
+    pub fn parse_expr_exw(&mut self, flags: ParseExprFlags, prec: u32) -> Option<Expr<'a>> {
         let mut result = self.parse_leading_expr(flags, prec)?;
 
-        loop {
-            result = result;
+        while let Some(at) = self.tokens.peek_ref() {
+
+            // infix operators.
+            if let Some(op) = InfixOp::from_token(at) {
+                if op.lprec() >= prec {
+                    self.tokens.consume(1);
+
+                    let lhs = self.arena.alloc_new(result);
+                    let rhs = self.arena.alloc_new(
+                        self.parse_expr_ex(op.rprec())?);
+
+                    let kind = match op {
+                        InfixOp::Assign =>
+                            ExprKind::Assign(expr::Assign { lhs, rhs }),
+
+                        InfixOp::Op2Assign(op) =>
+                            ExprKind::Op2Assign(expr::Op2 { op, lhs, rhs }),
+
+                        InfixOp::Op2(op) =>
+                            ExprKind::Op2(expr::Op2 { op, lhs, rhs }),
+                    };
+
+                    result = Expr { kind };
+
+                    continue;
+                }
+            }
+
+            // postfix operators.
+            if PREC_POSTFIX < prec {
+                break;
+            }
+
             break;
         }
 
@@ -303,7 +338,6 @@ impl<'t, 'a> Parser<'t, 'a> {
         let at = self.tokens.next_ref()?;
 
         let kind = 'kind: {
-            // lookahead 1 cases.
             'next: { break 'kind match at.kind {
                 TokenKind::Ident(ident) => ExprKind::Ident(ident),
 
@@ -335,7 +369,7 @@ impl<'t, 'a> Parser<'t, 'a> {
                 // subexpr.
                 TokenKind::LParen => {
                     let inner = self.arena.alloc_new(
-                        self.parse_expr_ex(
+                        self.parse_expr_exw(
                             ParseExprFlags::default()
                                 .with_tuple()
                                 .with_type_hint(),
@@ -371,7 +405,7 @@ impl<'t, 'a> Parser<'t, 'a> {
 
                 // map & map type.
                 TokenKind::LCurly => {
-                    unimplemented!()
+                    ExprKind::Error
                 }
 
                 /*
@@ -382,7 +416,20 @@ impl<'t, 'a> Parser<'t, 'a> {
                 _ => break 'next
             }}
 
-            unimplemented!()
+            // prefix operators.
+            if let Some(PrefixOp(op)) = PrefixOp::from_token(at) {
+                if PREC_PREFIX < prec {
+                    unimplemented!()
+                }
+
+                let expr = self.arena.alloc_new(
+                    self.parse_expr_ex(PREC_PREFIX)?);
+
+                break 'kind ExprKind::Op1(expr::Op1 { op, expr });
+            }
+
+
+            ExprKind::Error
         };
 
         return Some(Expr { kind });
@@ -432,6 +479,119 @@ impl<'t, 'a> Parser<'t, 'a> {
             Vec::leak(result)
         };
         (exprs, last_had_sep, had_error)
+    }
+}
+
+
+
+pub const PREC_PREFIX:  u32 =  900;
+pub const PREC_POSTFIX: u32 = 1000;
+
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PrefixOp(pub expr::Op1Kind);
+
+impl PrefixOp {
+    pub fn from_token(token: &Token) -> Option<Self> {
+        use expr::Op1Kind::*;
+        Some(PrefixOp(match token.kind {
+            TokenKind::KwNot => LogicNot,
+            TokenKind::Not   => Not,
+            TokenKind::Minus => Negate,
+
+            _ => return None,
+        }))
+    }
+}
+
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum InfixOp {
+    Assign,
+    Op2Assign(expr::Op2Kind),
+    Op2(expr::Op2Kind),
+}
+
+impl InfixOp {
+    #[inline(always)]
+    pub fn from_token(token: &Token) -> Option<Self> {
+        use InfixOp::*;
+        use expr::Op2Kind::*;
+        Some(match token.kind {
+            TokenKind::Eq               => Assign,
+            TokenKind::AddAssign        => Op2Assign(Add),
+            TokenKind::SubAssign        => Op2Assign(Sub),
+            TokenKind::MulAssign        => Op2Assign(Mul),
+            TokenKind::DivAssign        => Op2Assign(Div),
+            TokenKind::FloorDivAssign   => Op2Assign(FloorDiv),
+            TokenKind::RemAssign        => Op2Assign(Rem),
+            TokenKind::Add              => Op2(Add),
+            TokenKind::Minus            => Op2(Sub),
+            TokenKind::Star             => Op2(Mul),
+            TokenKind::Div              => Op2(Div),
+            TokenKind::FloorDiv         => Op2(FloorDiv),
+            TokenKind::Rem              => Op2(Rem),
+            TokenKind::EqEq             => Op2(CmpEq),
+            TokenKind::NotEq            => Op2(CmpNe),
+            TokenKind::Le               => Op2(CmpLe),
+            TokenKind::Lt               => Op2(CmpLt),
+            TokenKind::Ge               => Op2(CmpGe),
+            TokenKind::Gt               => Op2(CmpGt),
+
+            _ => return None,
+        })
+    }
+
+    #[inline(always)]
+    pub fn lprec(self) -> u32 {
+        use InfixOp::*;
+        use expr::Op2Kind::*;
+        match self {
+            Assign          => 100,
+            Op2Assign(_)    => 100,
+            Op2(op) => match op {
+                Or          => 200,
+                And         => 300,
+                CmpEq       => 400,
+                CmpNe       => 400,
+                CmpLe       => 400,
+                CmpLt       => 400,
+                CmpGe       => 400,
+                CmpGt       => 400,
+                Add         => 600,
+                Sub         => 600,
+                Mul         => 800,
+                Div         => 800,
+                FloorDiv    => 800,
+                Rem         => 800,
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub fn rprec(self) -> u32 {
+        use InfixOp::*;
+        use expr::Op2Kind::*;
+        match self {
+            Assign          => 100,
+            Op2Assign(_)    => 100,
+            Op2(op) => match op {
+                Or          => 201,
+                And         => 301,
+                CmpEq       => 401,
+                CmpNe       => 401,
+                CmpLe       => 401,
+                CmpLt       => 401,
+                CmpGe       => 401,
+                CmpGt       => 401,
+                Add         => 601,
+                Sub         => 601,
+                Mul         => 801,
+                Div         => 801,
+                FloorDiv    => 801,
+                Rem         => 801,
+            }
+        }
     }
 }
 

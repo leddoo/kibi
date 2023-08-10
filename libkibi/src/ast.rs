@@ -70,7 +70,7 @@ pub enum TokenKind<'a> {
 
     Add,
     AddAssign,
-    Sub,
+    Minus,
     SubAssign,
     Star,
     MulAssign,
@@ -197,12 +197,13 @@ pub enum ExprKind<'a> {
 
     Op1(expr::Op1<'a>),
     Op2(expr::Op2<'a>),
+    Op2Assign(expr::Op2<'a>),
+
+    Assign(expr::Assign<'a>),
 
     Field(expr::Field<'a>),
     Index(expr::Index<'a>),
     Call(expr::Call<'a>),
-
-    Assign(expr::Assign<'a>),
 
     List(ExprList<'a>),
     ListType(ExprRef<'a>),
@@ -228,8 +229,11 @@ pub mod expr {
     }
 
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug, PartialEq)]
     pub enum Op1Kind {
+        LogicNot,
+        Not,
+        Negate, // the real negate.
     }
 
     #[derive(Debug)]
@@ -239,8 +243,22 @@ pub mod expr {
     }
 
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug, PartialEq)]
     pub enum Op2Kind {
+        Add,
+        Sub,
+        Mul,
+        Div,
+        FloorDiv,
+        Rem,
+        And,
+        Or,
+        CmpEq,
+        CmpNe,
+        CmpLe,
+        CmpLt,
+        CmpGe,
+        CmpGt,
     }
 
     #[derive(Debug)]
