@@ -6,15 +6,17 @@
 
 - todo:
     - parser.
-        - grammar:
-            - labels.
-            - combined match/if.
-            - optional do block.
+        - do the thing.
     - begin type inference.
         - type/expr repr.
         - start with axioms & built-ins. inductive later.
 
 
-- macros:
-    - figure out compilation order.
+- backlog:
+    - parser:
+        - labels.
+        - combined match/if.
+        - optional do block.
+    - macros:
+        - figure out compilation order.
 

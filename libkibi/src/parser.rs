@@ -300,12 +300,23 @@ impl<'t, 'a> Parser<'t, 'a> {
     }
 
     fn parse_leading_expr(&mut self, flags: ParseExprFlags, prec: u32) -> Option<Expr<'a>> {
-        let at = self.tokens.next()?;
+        let at = self.tokens.next_ref()?;
 
         let kind = 'kind: {
             // lookahead 1 cases.
             'next: { break 'kind match at.kind {
                 TokenKind::Ident(ident) => ExprKind::Ident(ident),
+
+                TokenKind::Dot => {
+                    if let Some(at) = self.tokens.peek_ref() {
+                        if let TokenKind::Ident(ident) = at.kind {
+                            break 'kind ExprKind::DotIdent(ident);
+                        }
+                    }
+
+                    ExprKind::Error
+                }
+
 
                 TokenKind::Bool(value) => ExprKind::Bool(value),
 
@@ -320,6 +331,7 @@ impl<'t, 'a> Parser<'t, 'a> {
                     ExprKind::String(value)
                 }
 
+
                 // subexpr.
                 TokenKind::LParen => {
                     let inner = self.arena.alloc_new(
@@ -329,19 +341,32 @@ impl<'t, 'a> Parser<'t, 'a> {
                                 .with_type_hint(),
                             0)?);
 
-                    self.tokens.next_if(|at|
-                        matches!(at.kind, TokenKind::RParen))?;
+                    if !self.tokens.consume_if(|at| at.kind == TokenKind::RParen) {
+                        println!("todo: missing `)`");
+                    }
 
                     ExprKind::Parens(inner)
                 }
 
-                TokenKind::KwDo => {
-                    unimplemented!()
-                }
-
                 // list & list type.
                 TokenKind::LBracket => {
-                    unimplemented!()
+                    let (children, last_had_sep, had_error) =
+                        self.sep_by(TokenKind::Comma, TokenKind::RBracket, |this| {
+                            this.parse_expr()
+                        });
+
+                    if had_error {
+                        return None;
+                    }
+
+                    // list type.
+                    if !last_had_sep && children.len() == 1 && flags.ty {
+                        ExprKind::ListType(&mut children[0])
+                    }
+                    // list.
+                    else {
+                        ExprKind::List(children)
+                    }
                 }
 
                 // map & map type.
@@ -361,6 +386,52 @@ impl<'t, 'a> Parser<'t, 'a> {
         };
 
         return Some(Expr { kind });
+    }
+
+
+    // returns: (exprs, last_had_sep, had_error)
+    #[inline]
+    fn sep_by<F: FnMut(&mut Parser<'t, 'a>) -> Option<Expr<'a>>>
+        (&mut self, sep: TokenKind<'static>, end: TokenKind<'static>, mut f: F)
+        -> (ExprList<'a>, bool, bool)
+    {
+        // @temp: sti temp arena.
+        let mut buffer = Vec::new();
+
+        let mut last_had_sep = true;
+        let mut had_error = false;
+        loop {
+            if self.tokens.consume_if(|at| at.kind == end) {
+                break;
+            }
+
+            if !last_had_sep {
+                println!("todo: missing sep error");
+            }
+
+            if let Some(expr) = f(self) {
+                buffer.push(expr);
+            }
+            else {
+                had_error = true;
+                break;
+            }
+
+            last_had_sep = self.tokens.consume_if(|at| at.kind == sep);
+        }
+
+        // @temp: sti Vec::move_into
+        //let exprs = Vec::leak(buffer.move_into(self.arena));
+        let exprs = {
+            let mut result = Vec::with_cap_in(buffer.len(), self.arena);
+            // @temp: sti Vec::into_iter.
+            while let Some(expr) = buffer.pop() {
+                result.push(expr);
+            }
+            result.reverse();
+            Vec::leak(result)
+        };
+        (exprs, last_had_sep, had_error)
     }
 }
 

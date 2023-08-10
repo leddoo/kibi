@@ -17,4 +17,7 @@ what's happening?
   around visual debugging). as i started working on that in the last iteration
   (the kibi explorer), i realized, most of what i was doing was language
   independent, so i switched my focus to wasm and building my dev tools around that.
+- oh, right. we're also doing blocks with `{}` now. it's easier to work with in
+  current tools (eg: vim `%` or `ci{`). block expressions are still `do {}` and
+  introduce a break scope.
 

@@ -15,12 +15,12 @@ pub struct Span<'a> {
 // tokens
 //
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct Token<'a> {
     pub kind: TokenKind<'a>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug, PartialEq)]
 pub enum TokenKind<'a> {
     Error,
 
@@ -173,7 +173,7 @@ pub mod stmt {
 
 pub type ExprRef<'a> = &'a mut Expr<'a>;
 
-pub type ExprList<'a> = &'a mut [ExprRef<'a>];
+pub type ExprList<'a> = &'a mut [Expr<'a>];
 
 #[derive(Debug)]
 pub struct Expr<'a> {
@@ -182,8 +182,10 @@ pub struct Expr<'a> {
 
 #[derive(Debug)]
 pub enum ExprKind<'a> {
+    Error,
+
     Ident(&'a str),
-    DotIdent(Ident<'a>),
+    DotIdent(&'a str),
     Path(Path<'a>),
 
     Bool(bool),

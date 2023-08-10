@@ -3,6 +3,17 @@ fn main() {
     let arena = sti::growing_arena::GrowingArena::new();
 
     let mut tok = kibi::parser::Tokenizer::new(&arena, r#"
+        0
+        false
+        "hi\n\\\""
+        a
+        [a, b]
+        [a, b,]
+        a + b
+        if a + b < c {
+            c *= 2
+        }
+
         fn dump_json(val: JsonValue, indent = 0, do_indent = true) {
             if do_indent {
                 print("  " * indent)
@@ -34,6 +45,11 @@ fn main() {
     let tokens = tok.run();
     for tok in &tokens {
         println!("{:?}", tok);
+    }
+
+    let mut parser = kibi::parser::Parser::new(&arena, &tokens);
+    while let Some(expr) = parser.parse_expr() {
+        println!("{:?}", expr);
     }
 }
 
