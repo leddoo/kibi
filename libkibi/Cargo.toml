@@ -4,5 +4,5 @@ version = "0.1.1"
 edition = "2021"
 
 [dependencies]
-sti = "0.1.3"
+sti = { git = "https://github.com/leddoo/sti" }
 

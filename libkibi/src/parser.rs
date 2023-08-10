@@ -33,17 +33,16 @@ impl<'a> Tokenizer<'a> {
         loop {
             self.skip_ws();
 
-            if self.reader.rest().starts_with(b"--") {
+            if self.reader.starts_with(b"--") {
                 self.reader.consume(2);
-                self.reader.consume_while(|at| at != '\n' as u8);
+                self.reader.consume_while(|at| *at != b'\n');
                 continue;
             }
 
             break;
         }
 
-        let initial = self.reader.rest();
-
+        let start_offset = self.reader.offset();
         let at = self.reader.next()?;
 
         let kind = 'kind: {
@@ -61,42 +60,42 @@ impl<'a> Tokenizer<'a> {
                 ';' => TokenKind::Semicolon,
 
                 ':' => {
-                    if self.reader.next_if(|at| at as char == '=').is_some() {
+                    if self.reader.consume_if_eq(&b'=') {
                         TokenKind::ColonEq
                     }
                     else { TokenKind::Colon }
                 }
 
                 '+' => {
-                    if self.reader.next_if(|at| at as char == '=').is_some() {
+                    if self.reader.consume_if_eq(&b'=') {
                         TokenKind::AddAssign
                     }
                     else { TokenKind::Add }
                 }
 
                 '-' => {
-                    if self.reader.next_if(|at| at as char == '=').is_some() {
+                    if self.reader.consume_if_eq(&b'=') {
                         TokenKind::SubAssign
                     }
-                    else if self.reader.next_if(|at| at as char == '>').is_some() {
+                    else if self.reader.consume_if_eq(&b'>') {
                         TokenKind::Arrow
                     }
                     else { TokenKind::Sub }
                 }
 
                 '*' => {
-                    if self.reader.next_if(|at| at as char == '=').is_some() {
+                    if self.reader.consume_if_eq(&b'=') {
                         TokenKind::MulAssign
                     }
                     else { TokenKind::Star }
                 }
 
                 '/' => {
-                    if self.reader.next_if(|at| at as char == '=').is_some() {
+                    if self.reader.consume_if_eq(&b'=') {
                         TokenKind::DivAssign
                     }
-                    else if self.reader.next_if(|at| at as char == '/').is_some() {
-                        if self.reader.next_if(|at| at as char == '=').is_some() {
+                    else if self.reader.consume_if_eq(&b'/') {
+                        if self.reader.consume_if_eq(&b'=') {
                             TokenKind::FloorDivAssign
                         }
                         else { TokenKind::FloorDiv }
@@ -105,38 +104,38 @@ impl<'a> Tokenizer<'a> {
                 }
 
                 '%' => {
-                    if self.reader.next_if(|at| at as char == '=').is_some() {
+                    if self.reader.consume_if_eq(&b'=') {
                         TokenKind::RemAssign
                     }
                     else { TokenKind::Rem }
                 }
 
                 '=' => {
-                    if self.reader.next_if(|at| at as char == '=').is_some() {
+                    if self.reader.consume_if_eq(&b'=') {
                         TokenKind::EqEq
                     }
-                    else if self.reader.next_if(|at| at as char == '>').is_some() {
+                    else if self.reader.consume_if_eq(&b'>') {
                         TokenKind::FatArrow
                     }
                     else { TokenKind::Eq }
                 }
 
                 '!' => {
-                    if self.reader.next_if(|at| at as char == '=').is_some() {
+                    if self.reader.consume_if_eq(&b'=') {
                         TokenKind::NotEq
                     }
                     else { TokenKind::Not }
                 }
 
                 '<' => {
-                    if self.reader.next_if(|at| at as char == '=').is_some() {
+                    if self.reader.consume_if_eq(&b'=') {
                         TokenKind::Le
                     }
                     else { TokenKind::Lt }
                 }
 
                 '>' => {
-                    if self.reader.next_if(|at| at as char == '=').is_some() {
+                    if self.reader.consume_if_eq(&b'=') {
                         TokenKind::Ge
                     }
                     else { TokenKind::Gt }
@@ -148,17 +147,14 @@ impl<'a> Tokenizer<'a> {
             // strings.
             if at == '"' as u8 {
                 let mut is_escaped = false;
-                self.reader.consume_while(|at| {
-                    let done = !is_escaped && at == '"' as u8;
-                    is_escaped = at == '\\' as u8 && !is_escaped;
+                let (value, no_eoi) = self.reader.consume_while_slice(|at| {
+                    let done = !is_escaped && *at == b'"';
+                    is_escaped = *at == b'\\' as u8 && !is_escaped;
                     return !done;
                 });
-                self.reader.consume(1);
+                if no_eoi { self.reader.consume(1) }
+                // else: @todo: error.
 
-                let len = self.reader.rest().as_ptr() as usize
-                    - initial.as_ptr() as usize;
-
-                let value = &initial[1 .. len-1];
                 let value = unsafe { core::str::from_utf8_unchecked(value) };
 
                 TokenKind::String(value)
@@ -170,14 +166,10 @@ impl<'a> Tokenizer<'a> {
             }
             */
             // idents & keywords.
-            else if at.is_ascii_alphabetic() || at == '_' as u8 {
-                self.reader.consume_while(|at|
-                    at.is_ascii_alphanumeric() || at == '_' as u8);
+            else if at.is_ascii_alphabetic() || at == b'_' {
+                let (value, _) = self.reader.consume_while_slice_from(start_offset, |at|
+                    at.is_ascii_alphanumeric() || *at == b'_');
 
-                let len = self.reader.rest().as_ptr() as usize
-                    - initial.as_ptr() as usize;
-
-                let value = &initial[..len];
                 let value = unsafe { core::str::from_utf8_unchecked(value) };
 
                 // keywords.
@@ -213,15 +205,13 @@ impl<'a> Tokenizer<'a> {
                 // before decimal.
                 self.reader.consume_while(|at| at.is_ascii_digit());
 
-                if self.reader.next_if(|at| at == '.' as u8).is_some() {
+                // decimal.
+                if self.reader.consume_if_eq(&b'.') {
                     // after decimal.
                     self.reader.consume_while(|at| at.is_ascii_digit());
                 }
 
-                let len = self.reader.rest().as_ptr() as usize
-                    - initial.as_ptr() as usize;
-
-                let value = &initial[..len];
+                let value = &self.reader.consumed_slice()[start_offset..];
                 let value = unsafe { core::str::from_utf8_unchecked(value) };
 
                 TokenKind::Number(value)
