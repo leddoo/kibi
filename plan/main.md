@@ -6,10 +6,7 @@
 
 - todo:
     - tt imp:
-        - construct some sample terms.
-            - nat/eq built-ins.
-        - whnf.
-        - reduce.
+        - maybe an arena wrapper with `mkt_*`?
         - infer type.
 
     - sti:

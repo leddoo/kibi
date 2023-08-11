@@ -2,7 +2,7 @@ use sti::rc::Rc;
 use sti::vec::Vec;
 use sti::keyed::Key;
 
-use super::term::*;
+use super::syntax::*;
 
 
 // @todo: debug version with (global) generational indices.
@@ -17,7 +17,7 @@ pub struct LocalCtx<'a> {
 #[derive(Clone)]
 pub struct Entry<'a> {
     pub ty:    TermRef<'a>,
-    pub value: TermRef<'a>,
+    pub value: Option<TermRef<'a>>,
 }
 
 #[derive(Clone, Copy)]
@@ -31,7 +31,11 @@ impl<'a> LocalCtx<'a> {
     }
 
 
-    pub fn extend(&mut self, ty: TermRef<'a>, value: TermRef<'a>) -> LocalId {
+    #[track_caller]
+    pub fn extend(&mut self, ty: TermRef<'a>, value: Option<TermRef<'a>>) -> LocalId {
+        assert!(ty.closed());
+        if let Some(v) = value { assert!(v.closed()); }
+
         // @temp
         if self.entries.try_mut().is_none() {
             println!("clone lctx");
@@ -45,7 +49,7 @@ impl<'a> LocalCtx<'a> {
 
     #[track_caller]
     #[inline(always)]
-    pub fn lookup(&self, id: LocalId) -> &Entry {
+    pub fn lookup(&self, id: LocalId) -> &Entry<'a> {
         &self.entries[id.usize()]
     }
 
