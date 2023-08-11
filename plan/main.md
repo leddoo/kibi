@@ -5,15 +5,16 @@
     - no any.
 
 - todo:
-    - initial sample programs.
-        - some basic dependent types,
-          so we gotta deal with the expr repr.
-        - mby stuff we started with in quinn.
-        - mby some axioms.
-        - also, *lambda*.
-    - parse em.
-    - infer em.
-    - profit.
+    - tt imp:
+        - construct some sample terms.
+            - nat/eq built-ins.
+        - whnf.
+        - reduce.
+        - infer type.
+
+    - sti:
+        - Vec::truncate track caller.
+        - KVec::truncate, clone.
 
 
 - stuff:
