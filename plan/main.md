@@ -5,8 +5,18 @@
     - no any.
 
 - todo:
-    - tt imp:
-        - def-eq.
+    - tt elaboration:
+        - syntax: lambda, levels.
+        - temp commands: def, check, reduce.
+        - level inference.
+        - term inference.
+        - motive inference.
+        - implicit params.
+    - tt integration:
+        - var to let.
+        - `fib_iter`.
+    - interpreter.
+
 
     - sti:
         - Vec::truncate track caller.
