@@ -62,6 +62,10 @@ fn main() {
         let n3r = tc.reduce(n3);
         println!("{:?}", n3r);
 
+        let n3t = tc.infer_type(n3).unwrap();
+        let n3tw = tc.whnf(n3t);
+        println!("type of 3: {:?}", n3tw);
+
         return;
     }
 

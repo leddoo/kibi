@@ -13,12 +13,14 @@ pub struct Level<'a> {
     pub kind: LevelKind<'a>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum LevelKind<'a> {
     Zero,
     Succ(LevelRef<'a>),
     Max(level::Pair<'a>),
     IMax(level::Pair<'a>),
+
+    // sync: `Level::syntax_eq`
 }
 
 
@@ -26,7 +28,7 @@ pub mod level {
     use super::*;
 
 
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct Pair<'a> {
         pub lhs: LevelRef<'a>,
         pub rhs: LevelRef<'a>,
@@ -42,7 +44,7 @@ pub struct Term<'a> {
     pub kind: TermKind<'a>
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum TermKind<'a> {
     Sort(LevelRef<'a>),
 
@@ -122,6 +124,66 @@ impl<'a> Level<'a> {
     pub const fn mk_imax(lhs: LevelRef<'a>, rhs: LevelRef<'a>) -> Self {
         Self { kind: LevelKind::IMax(level::Pair { lhs, rhs }) }
     }
+
+
+    #[inline(always)]
+    pub fn syntax_eq(&self, other: &Self) -> bool {
+        match (self.kind, other.kind) {
+            (LevelKind::Zero, LevelKind::Zero) =>
+                true,
+
+            (LevelKind::Succ(a), LevelKind::Succ(b)) =>
+                a.syntax_eq(b),
+
+            (LevelKind::Max(a),  LevelKind::Max(b)) |
+            (LevelKind::IMax(a), LevelKind::IMax(b)) =>
+                a.lhs.syntax_eq(b.lhs) && a.rhs.syntax_eq(b.rhs),
+
+            _ => false
+        }
+    }
+
+
+    #[inline(always)]
+    pub fn is_zero(&self) -> bool {
+        matches!(self.kind, LevelKind::Zero)
+    }
+
+    pub fn non_zero(&self) -> bool {
+        match self.kind {
+            LevelKind::Zero    => false,
+            LevelKind::Succ(_) => true,
+            LevelKind::Max(p)  => p.lhs.non_zero() || p.rhs.non_zero(),
+            LevelKind::IMax(p) => p.rhs.non_zero(),
+        }
+    }
+
+
+
+    #[inline(always)]
+    pub fn succ(&'a self, alloc: super::Alloc<'a>) -> LevelRef<'a> {
+        alloc.mkl_succ(self)
+    }
+
+    #[inline(always)]
+    pub fn imax(&'a self, other: LevelRef<'a>, alloc: super::Alloc<'a>) -> LevelRef<'a> {
+        let (a, b) = (self, other);
+
+        // imax(a 0) = 0
+        if b.is_zero() { return b; /*aka zero*/ }
+
+        // imax(0 b) = b
+        if a.is_zero() { return b; }
+
+        // imax(a (succ b)) = max(a (succ b))
+        // note: this handles the numeric cases.
+        if b.non_zero() { return alloc.mkl_max(a, b); }
+
+        // imax(a a) = a
+        if a.syntax_eq(b) { return a; }
+
+        alloc.mkl_imax(a, b)
+    }
 }
 
 
@@ -145,6 +207,14 @@ impl<'a> term::Apply<'a> {
 
 
 impl<'a> Term<'a> {
+    pub const SORT_0: TermRef<'static> = &Term::mk_sort(Level::L0);
+    pub const SORT_1: TermRef<'static> = &Term::mk_sort(Level::L1);
+
+    pub const NAT: TermRef<'static> = &Term::mk_nat();
+    pub const NAT_ZERO: TermRef<'static> = &Term::mk_nat_zero();
+    pub const NAT_SUCC: TermRef<'static> = &Term::mk_nat_succ();
+    pub const NAT_SUCC_TY: TermRef<'static> = &Term::mk_forall(0, Self::NAT, Self::NAT);
+
     #[inline(always)]
     pub const fn mk_sort(level: LevelRef<'a>) -> Self {
         Self { kind: TermKind::Sort(level) }
@@ -260,7 +330,53 @@ impl<'a> Term<'a> {
 
 
     pub fn closed(&self) -> bool {
-        unimplemented!()
+        self.find(|at, offset| {
+            if let TermKind::BVar(BVar(i)) = at.kind {
+                return Some(i > offset);
+            }
+            None
+        }).is_none()
+    }
+
+
+    pub fn find<F: Fn(TermRef<'a>, u32) -> Option<bool>>
+        (&'a self, f: F) -> Option<TermRef<'a>>
+    {
+        self.find_ex(0, &f)
+    }
+
+    pub fn find_ex<F: Fn(TermRef<'a>, u32) -> Option<bool>>
+        (&'a self, offset: u32, f: &F) -> Option<TermRef<'a>>
+    {
+        if let Some(true) = f(self, offset) {
+            return Some(self);
+        }
+
+        match self.kind {
+            TermKind::Sort(_) |
+            TermKind::BVar(_) |
+            TermKind::Local(_) |
+            TermKind::Global(_) => None,
+
+            TermKind::Forall(b) |
+            TermKind::Lambda(b) => {
+                b.ty.find_ex(offset, f).or_else(||
+                b.val.find_ex(offset + 1, f))
+            }
+
+            TermKind::Apply(a) => {
+                a.fun.find_ex(offset, f).or_else(||
+                a.arg.find_ex(offset, f))
+            }
+
+            TermKind::Nat |
+            TermKind::NatZero |
+            TermKind::NatSucc |
+            TermKind::NatRec(_) |
+            TermKind::Eq(_) |
+            TermKind::EqRefl(_) |
+            TermKind::EqRec(_, _) => None,
+        }
     }
 
 

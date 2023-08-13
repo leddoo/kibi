@@ -6,7 +6,6 @@
 
 - todo:
     - tt imp:
-        - infer type.
         - def-eq.
 
     - sti:

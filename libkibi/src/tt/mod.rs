@@ -13,8 +13,6 @@ pub use ty_ctx::*;
 
 
 
-use syntax::*;
-
 
 #[derive(Clone, Copy)]
 pub struct Alloc<'a> {

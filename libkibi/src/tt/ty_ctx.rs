@@ -17,6 +17,143 @@ impl<'a> TyCtx<'a> {
     }
 
 
+    #[inline(always)]
+    pub fn save_lctx<R, F: FnOnce(&mut Self) -> R>(&mut self, f: F) -> R {
+        let save = self.lctx.save();
+        let result = f(self);
+        self.lctx.restore(save);
+        return result;
+    }
+
+
+    pub fn infer_type(&mut self, t: TermRef<'a>) -> Option<TermRef<'a>> {
+        assert!(t.closed());
+
+        let result = match t.kind {
+            TermKind::Sort (l) => {
+                self.alloc.mkt_sort(l.succ(self.alloc))
+            }
+
+            TermKind::BVar (_) => {
+                unreachable!()
+            }
+
+            TermKind::Local (id) => {
+                self.lctx.lookup(id).ty
+            }
+
+            TermKind::Global (_) => {
+                //self.env.global_type(g.id, g.levels.data())
+                unimplemented!()
+            }
+
+            TermKind::Lambda (b) => {
+                self.infer_type_as_sort(b.ty)?;
+
+                self.save_lctx(|this| {
+                    let id = this.lctx.extend(b.ty, None);
+                    let value = b.val.instantiate(this.alloc.mkt_local(id), this.alloc);
+
+                    let value_ty = this.infer_type(&value)?;
+                    Some(this.alloc.mkt_forall(b.name, b.ty, value_ty.abstracc(id, this.alloc)))
+                })?
+            }
+
+            TermKind::Forall (b) => {
+                let param_level = self.infer_type_as_sort(b.ty)?;
+
+                self.save_lctx(|this| {
+                    let id = this.lctx.extend(b.ty, None);
+                    let value = b.val.instantiate(this.alloc.mkt_local(id), this.alloc);
+
+                    let value_level = this.infer_type_as_sort(value)?;
+                    Some(this.alloc.mkt_sort(param_level.imax(value_level, this.alloc)))
+                })?
+            }
+
+            TermKind::Apply (app) => {
+                let fun_ty = self.infer_type_as_forall(&app.fun)?;
+                /* @temp
+                let arg_ty = self.infer_type(&app.arg)?;
+
+                if self.check_types {
+                    if !self.expr_def_eq(&fun_ty.param, &arg_ty) {
+                        return None;
+                    }
+                }
+                */
+
+                fun_ty.val.instantiate(app.arg, self.alloc)
+            }
+
+            TermKind::Nat => Term::SORT_1,
+            TermKind::NatZero => Term::NAT,
+            TermKind::NatSucc => Term::NAT_SUCC_TY,
+            TermKind::NatRec(r) =>
+                self.alloc.mkt_forall(0,
+                    // M: Nat -> Sort(r)
+                    self.alloc.mkt_forall(0,
+                        Term::NAT,
+                        self.alloc.mkt_sort(r)),
+                self.alloc.mkt_forall(0,
+                    // M(0)
+                    self.alloc.mkt_apply(
+                        self.alloc.mkt_bvar(BVar(0)),
+                        Term::NAT_ZERO),
+                self.alloc.mkt_forall(0,
+                    // Π(n, ih) => M(n.succ())
+                    self.alloc.mkt_forall(0,
+                        // n: Nat
+                        Term::NAT,
+                    self.alloc.mkt_forall(0,
+                        // ih: M(n)
+                        self.alloc.mkt_apply(
+                            self.alloc.mkt_bvar(BVar(2)),
+                            self.alloc.mkt_bvar(BVar(0))),
+                        // -> M(n.succ())
+                        self.alloc.mkt_apply(
+                            self.alloc.mkt_bvar(BVar(3)),
+                            self.alloc.mkt_apply(
+                                Term::NAT_SUCC,
+                                self.alloc.mkt_bvar(BVar(1)))))),
+                self.alloc.mkt_forall(0,
+                    // n: Nat
+                    Term::NAT,
+                    // -> M(n)
+                    self.alloc.mkt_apply(
+                        self.alloc.mkt_bvar(BVar(3)),
+                        self.alloc.mkt_bvar(BVar(0))))))),
+
+            TermKind::Eq(_) => todo!(),
+            TermKind::EqRefl(_) => todo!(),
+            TermKind::EqRec(_, _) => todo!(),
+        };
+
+        assert!(result.closed());
+        // TODO: assert all locals are in current local context.
+
+        Some(result)
+    }
+
+    pub fn infer_type_as_sort(&mut self, t: TermRef<'a>) -> Option<LevelRef<'a>> {
+        let ty = self.infer_type(t)?;
+        let ty = self.whnf(ty);
+        if let TermKind::Sort(l) = ty.kind {
+            return Some(l);
+        }
+        return None;
+    }
+
+    pub fn infer_type_as_forall(&mut self, t: TermRef<'a>) -> Option<term::Binder<'a>> {
+        let ty = self.infer_type(t)?;
+        let ty = self.whnf(ty);
+        if let TermKind::Forall(b) = ty.kind {
+            return Some(b);
+        }
+        return None;
+    }
+
+
 
     // reductions: local.
     // supports ptr_eq for change detection.
