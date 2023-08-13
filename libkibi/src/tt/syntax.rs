@@ -1,4 +1,3 @@
-use sti::growing_arena::GrowingArena;
 use sti::vec::Vec;
 
 use super::local_ctx::LocalId;
@@ -61,9 +60,9 @@ pub enum TermKind<'a> {
     NatSucc,
     NatRec(LevelRef<'a>),
 
-    Eq,
-    EqRefl,
-    EqRec(LevelRef<'a>),
+    Eq(LevelRef<'a>),
+    EqRefl(LevelRef<'a>),
+    EqRec(LevelRef<'a>, LevelRef<'a>),
 }
 
 
@@ -197,15 +196,6 @@ impl<'a> Term<'a> {
     }
 
     #[inline(always)]
-    pub fn mk_apps(fun: TermRef<'a>, args: &[TermRef<'a>], alloc: &'a GrowingArena) -> TermRef<'a> {
-        let mut result = fun;
-        for arg in args {
-            result = alloc.alloc_new(Term::mk_apply(result, arg));
-        }
-        return result;
-    }
-
-    #[inline(always)]
     pub const fn mk_nat() -> Self {
         Self { kind: TermKind::Nat }
     }
@@ -221,23 +211,23 @@ impl<'a> Term<'a> {
     }
 
     #[inline(always)]
-    pub const fn mk_nat_rec(l: LevelRef<'a>) -> Self {
-        Self { kind: TermKind::NatRec(l) }
+    pub const fn mk_nat_rec(r: LevelRef<'a>) -> Self {
+        Self { kind: TermKind::NatRec(r) }
     }
 
     #[inline(always)]
-    pub const fn mk_eq() -> Self {
-        Self { kind: TermKind::Eq }
+    pub const fn mk_eq(l: LevelRef<'a>) -> Self {
+        Self { kind: TermKind::Eq(l) }
     }
 
     #[inline(always)]
-    pub const fn mk_eq_zero() -> Self {
-        Self { kind: TermKind::EqRefl }
+    pub const fn mk_eq_refl(l: LevelRef<'a>) -> Self {
+        Self { kind: TermKind::EqRefl(l) }
     }
 
     #[inline(always)]
-    pub const fn mk_eq_rec(l: LevelRef<'a>) -> Self {
-        Self { kind: TermKind::EqRec(l) }
+    pub const fn mk_eq_rec(l: LevelRef<'a>, r: LevelRef<'a>) -> Self {
+        Self { kind: TermKind::EqRec(l, r) }
     }
 
 
@@ -274,14 +264,14 @@ impl<'a> Term<'a> {
     }
 
 
-    pub fn replace<F: Fn(TermRef<'a>, u32, &'a GrowingArena) -> Option<TermRef<'a>>>
-        (&'a self, alloc: &'a GrowingArena, f: F) -> TermRef<'a>
+    pub fn replace<F: Fn(TermRef<'a>, u32, super::Alloc<'a>) -> Option<TermRef<'a>>>
+        (&'a self, alloc: super::Alloc<'a>, f: F) -> TermRef<'a>
     {
         self.replace_ex(0, alloc, &f)
     }
 
-    pub fn replace_ex<F: Fn(TermRef<'a>, u32, &'a GrowingArena) -> Option<TermRef<'a>>>
-        (&'a self, offset: u32, alloc: &'a GrowingArena, f: &F) -> TermRef<'a>
+    pub fn replace_ex<F: Fn(TermRef<'a>, u32, super::Alloc<'a>) -> Option<TermRef<'a>>>
+        (&'a self, offset: u32, alloc: super::Alloc<'a>, f: &F) -> TermRef<'a>
     {
         if let Some(new) = f(self, offset, alloc) {
             return new;
@@ -300,9 +290,8 @@ impl<'a> Term<'a> {
                     b.val.replace_ex(offset + 1, alloc, f));
 
                 if let Some(b) = new_b {
-                    alloc.alloc_new(
-                        if self.is_forall() { Term::mk_forall_b(b) }
-                        else                { Term::mk_lambda_b(b) })
+                    if self.is_forall() { alloc.mkt_forall_b(b) }
+                    else                { alloc.mkt_lambda_b(b) }
                 }
                 else { self }
             }
@@ -313,7 +302,7 @@ impl<'a> Term<'a> {
                     a.arg.replace_ex(offset, alloc, f));
 
                 if let Some(a) = new_a {
-                    alloc.alloc_new(Term::mk_apply_a(a))
+                    alloc.mkt_apply_a(a)
                 }
                 else { self }
             }
@@ -322,27 +311,26 @@ impl<'a> Term<'a> {
             TermKind::NatZero |
             TermKind::NatSucc |
             TermKind::NatRec(_) |
-            TermKind::Eq |
-            TermKind::EqRefl |
-            TermKind::EqRec(_) => self
+            TermKind::Eq(_) |
+            TermKind::EqRefl(_) |
+            TermKind::EqRec(_, _) => self
         }
     }
 
 
-    pub fn abstracc(&'a self, id: LocalId, alloc: &'a GrowingArena) -> TermRef<'a> {
+    pub fn abstracc(&'a self, id: LocalId, alloc: super::Alloc<'a>) -> TermRef<'a> {
         // @speed: has_local. or even max_local?
         self.replace(alloc, |at, offset, alloc| {
             if let TermKind::Local(l) = at.kind {
                 if l == id {
-                    return Some(alloc.alloc_new(
-                        Term::mk_bvar(BVar(offset))));
+                    return Some(alloc.mkt_bvar(BVar(offset)));
                 }
             }
             None
         })
     }
 
-    pub fn instantiate(&'a self, subst: TermRef<'a>, alloc: &'a GrowingArena) -> TermRef<'a> {
+    pub fn instantiate(&'a self, subst: TermRef<'a>, alloc: super::Alloc<'a>) -> TermRef<'a> {
         // @speed: max_bvar.
         self.replace(alloc, |at, offset, _| {
             if let TermKind::BVar(b) = at.kind {
@@ -386,10 +374,10 @@ impl<'a> Term<'a> {
 
 
     // doesn't check for `ptr_eq` of old `app_fun`.
-    pub fn replace_app_fun(&self, new_fun: TermRef<'a>, alloc: &'a GrowingArena) -> TermRef<'a> {
+    pub fn replace_app_fun(&self, new_fun: TermRef<'a>, alloc: super::Alloc<'a>) -> TermRef<'a> {
         if let TermKind::Apply(app) = self.kind {
             let fun = app.fun.replace_app_fun(new_fun, alloc);
-            return alloc.alloc_new(Term::mk_apply(fun, app.arg));
+            return alloc.mkt_apply(fun, app.arg);
         }
         return new_fun;
     }

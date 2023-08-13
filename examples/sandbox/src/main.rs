@@ -57,7 +57,8 @@ fn main() {
                     n1)),
                 n2));
 
-        let mut tc = TyCtx::new(&arena);
+        let alloc = Alloc::new(&arena);
+        let mut tc = TyCtx::new(alloc);
         let n3r = tc.reduce(n3);
         println!("{:?}", n3r);
 

@@ -6,8 +6,8 @@
 
 - todo:
     - tt imp:
-        - maybe an arena wrapper with `mkt_*`?
         - infer type.
+        - def-eq.
 
     - sti:
         - Vec::truncate track caller.

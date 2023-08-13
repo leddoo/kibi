@@ -1,17 +1,15 @@
-use sti::growing_arena::GrowingArena;
-
 use super::syntax::*;
 use super::LocalCtx;
 
 
 pub struct TyCtx<'a> {
-    pub alloc: &'a GrowingArena,
+    pub alloc: super::Alloc<'a>,
 
     pub lctx: LocalCtx<'a>,
 }
 
 impl<'a> TyCtx<'a> {
-    pub fn new(alloc: &'a GrowingArena) -> Self {
+    pub fn new(alloc: super::Alloc<'a>) -> Self {
         Self {
             alloc,
             lctx: LocalCtx::new(),
@@ -54,9 +52,9 @@ impl<'a> TyCtx<'a> {
             TermKind::NatZero |
             TermKind::NatSucc |
             TermKind::NatRec(_) |
-            TermKind::Eq |
-            TermKind::EqRefl |
-            TermKind::EqRec(_) => (e, true)
+            TermKind::Eq(_) |
+            TermKind::EqRefl(_) |
+            TermKind::EqRec(_, _) => (e, true)
         }
     }
 
@@ -112,7 +110,7 @@ impl<'a> TyCtx<'a> {
                 else { break }
             }
 
-            let result = Term::mk_apps(result, &args[i..], self.alloc);
+            let result = self.alloc.mkt_apps(result, &args[i..]);
             return self.whnf_no_unfold(result);
         }
 
@@ -159,15 +157,15 @@ impl<'a> TyCtx<'a> {
                     let ms = rec_args[2];
                     let n = ctor_args[0];
 
-                    return Some(Term::mk_apps(ms, &[
+                    return Some(self.alloc.mkt_apps(ms, &[
                         n,
-                        Term::mk_apps(self.alloc.alloc_new(Term::mk_nat_rec(l)), &[
+                        self.alloc.mkt_apps(self.alloc.mkt_nat_rec(l), &[
                             m,
                             mz,
                             ms,
                             n,
-                        ], self.alloc),
-                    ], self.alloc));
+                        ]),
+                    ]));
                 }
 
                 _ => unreachable!()
@@ -209,9 +207,8 @@ impl<'a> TyCtx<'a> {
                     self.reduce(b.val));
 
                 if let Some(b) = new_b {
-                    self.alloc.alloc_new(
-                        if result.is_forall() { Term::mk_forall_b(b) }
-                        else                  { Term::mk_lambda_b(b) })
+                    if result.is_forall() { self.alloc.mkt_forall_b(b) }
+                    else                  { self.alloc.mkt_lambda_b(b) }
                 }
                 else { result }
             }
@@ -222,7 +219,7 @@ impl<'a> TyCtx<'a> {
                     self.reduce(a.arg));
 
                 if let Some(a) = new_a {
-                    self.alloc.alloc_new(Term::mk_apply_a(a))
+                    self.alloc.mkt_apply_a(a)
                 }
                 else { result }
             }
@@ -231,9 +228,9 @@ impl<'a> TyCtx<'a> {
             TermKind::NatZero |
             TermKind::NatSucc |
             TermKind::NatRec(_) |
-            TermKind::Eq |
-            TermKind::EqRefl |
-            TermKind::EqRec(_) => result,
+            TermKind::Eq(_) |
+            TermKind::EqRefl(_) |
+            TermKind::EqRec(_, _) => result,
         }
     }
 }
