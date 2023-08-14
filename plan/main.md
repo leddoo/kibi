@@ -6,12 +6,12 @@
 
 - todo:
     - tt elaboration:
-        - syntax: lambda, levels.
-        - temp commands: def, check, reduce.
+        - to-tt.
         - level inference.
         - term inference.
         - motive inference.
         - implicit params.
+        - temp commands: def, check, reduce.
     - tt integration:
         - var to let.
         - `fib_iter`.

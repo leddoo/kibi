@@ -13,6 +13,15 @@ pub struct Tokenizer<'a> {
 }
 
 impl<'a> Tokenizer<'a> {
+    pub fn tokenize(arena: &'a GrowingArena, input: &'a [u8]) -> Vec<Token<'a>> {
+        Self::tokenize_in(arena, GlobalAlloc, input)
+    }
+
+    pub fn tokenize_in<A: Alloc>(arena: &'a GrowingArena, alloc: A, input: &'a [u8]) -> Vec<Token<'a>, A> {
+        Self::new(arena, input).run_in(alloc)
+    }
+
+
     pub fn new(arena: &'a GrowingArena, input: &'a [u8]) -> Self {
         Self { arena, reader: Reader::new(input) }
     }
@@ -28,6 +37,7 @@ impl<'a> Tokenizer<'a> {
         }
         return tokens;
     }
+
 
     pub fn next(&mut self) -> Option<Token<'a>> {
         loop {
@@ -141,6 +151,18 @@ impl<'a> Tokenizer<'a> {
                     else { TokenKind::Gt }
                 }
 
+                '\u{CE}' => {
+                    // Π
+                    if self.reader.consume_if_eq(&0xA0) {
+                        TokenKind::KwPi
+                    }
+                    // λ
+                    else if self.reader.consume_if_eq(&0xBB) {
+                        TokenKind::KwLam
+                    }
+                    else { break 'next }
+                }
+
                 _ => break 'next
             }}
 
@@ -174,6 +196,12 @@ impl<'a> Tokenizer<'a> {
 
                 // keywords.
                 match value {
+                    "Sort" => TokenKind::KwSort,
+                    "Prop" => TokenKind::KwProp,
+                    "Type" => TokenKind::KwType,
+                    "lam"  => TokenKind::KwLam,
+                    "Pi"   => TokenKind::KwPi,
+
                     "let" => TokenKind::KwLet,
                     "var" => TokenKind::KwVar,
 
@@ -328,6 +356,52 @@ impl<'t, 'a> Parser<'t, 'a> {
                 break;
             }
 
+            if at.kind == TokenKind::Dot {
+                self.tokens.consume(1);
+
+                let at = self.tokens.next_ref()?;
+                let kind = match at.kind {
+                    TokenKind::Ident(name) => {
+                        ExprKind::Field(expr::Field {
+                            name,
+                            base: self.arena.alloc_new(result),
+                        })
+                    }
+
+                    TokenKind::LCurly => {
+                        let ExprKind::Ident(ident) = result.kind else { return None };
+
+                        let levels = self.sep_by(TokenKind::Comma, TokenKind::RCurly, |this| {
+                            this.parse_level()
+                        })?;
+
+                        ExprKind::Levels(expr::Levels { ident, levels })
+                    }
+
+                    _ => return None,
+                };
+
+                result = Expr { kind };
+
+                continue;
+            }
+
+            if at.kind == TokenKind::LParen {
+                self.tokens.consume(1);
+
+                let args = self.sep_by(TokenKind::Comma, TokenKind::RParen, |this| {
+                    // @temp.
+                    this.parse_expr()
+                    .map(|value| expr::CallArg::Positional(value))
+                })?;
+
+                let kind = ExprKind::Call(expr::Call {
+                    func: self.arena.alloc_new(result),
+                    args,
+                });
+                result = Expr { kind };
+            }
+
             break;
         }
 
@@ -348,7 +422,50 @@ impl<'t, 'a> Parser<'t, 'a> {
                         }
                     }
 
+                    // @temp
                     ExprKind::Error
+                }
+
+
+                TokenKind::KwSort => {
+                    if !self.tokens.consume_if(|at| at.kind == TokenKind::LParen) {
+                        return None;
+                    }
+
+                    let level = self.arena.alloc_new(self.parse_level()?);
+
+                    if !self.tokens.consume_if(|at| at.kind == TokenKind::RParen) {
+                        return None;
+                    }
+
+                    ExprKind::Sort(level)
+                }
+
+                TokenKind::KwProp => {
+                    ExprKind::Sort(self.arena.alloc_new(
+                        Level { kind: LevelKind::Nat(0) }))
+                }
+
+                TokenKind::KwType => {
+                    ExprKind::Sort(self.arena.alloc_new(
+                        Level { kind: LevelKind::Nat(1) }))
+                }
+
+                TokenKind::KwPi => {
+                    unimplemented!()
+                }
+
+                TokenKind::KwLam => {
+                    let binders = self.parse_binders()?;
+
+                    if self.tokens.consume_if(|at| at.kind == TokenKind::FatArrow) {
+                        let value = self.arena.alloc_new(self.parse_expr()?);
+                        ExprKind::Lambda(expr::Lambda { binders, value })
+                    }
+                    else {
+                        // @temp
+                        ExprKind::Error
+                    }
                 }
 
 
@@ -385,7 +502,7 @@ impl<'t, 'a> Parser<'t, 'a> {
                 // list & list type.
                 TokenKind::LBracket => {
                     let (children, last_had_sep, had_error) =
-                        self.sep_by(TokenKind::Comma, TokenKind::RBracket, |this| {
+                        self.sep_by_ex(TokenKind::Comma, TokenKind::RBracket, |this| {
                             this.parse_expr()
                         });
 
@@ -405,6 +522,7 @@ impl<'t, 'a> Parser<'t, 'a> {
 
                 // map & map type.
                 TokenKind::LCurly => {
+                    // @temp
                     ExprKind::Error
                 }
 
@@ -429,6 +547,7 @@ impl<'t, 'a> Parser<'t, 'a> {
             }
 
 
+            // @temp
             ExprKind::Error
         };
 
@@ -436,11 +555,91 @@ impl<'t, 'a> Parser<'t, 'a> {
     }
 
 
+    fn parse_level(&mut self) -> Option<Level<'a>> {
+        let at = self.tokens.next_ref()?;
+
+        let mut kind = match at.kind {
+            TokenKind::Ident(v) => {
+                if v == "max" || v == "imax" {
+                    if !self.tokens.consume_if(|at| at.kind == TokenKind::LParen) {
+                        return None;
+                    }
+
+                    let lhs = self.arena.alloc_new(self.parse_level()?);
+
+                    if !self.tokens.consume_if(|at| at.kind == TokenKind::Comma) {
+                        return None;
+                    }
+
+                    let rhs = self.arena.alloc_new(self.parse_level()?);
+
+                    if !self.tokens.consume_if(|at| at.kind == TokenKind::RParen) {
+                        return None;
+                    }
+
+                    if v == "max" {
+                        LevelKind::Max((lhs, rhs))
+                    }
+                    else if v == "imax" {
+                        LevelKind::IMax((lhs, rhs))
+                    }
+                    else { unreachable!() }
+                }
+                else {
+                    LevelKind::Var(v)
+                }
+            }
+
+            TokenKind::Number(v) => {
+                let v = u32::from_str_radix(v, 10).ok()?;
+                LevelKind::Nat(v)
+            }
+
+            _ => return None,
+        };
+
+        if self.tokens.consume_if(|at| at.kind == TokenKind::Add) {
+            let at = self.tokens.next_ref()?;
+            let TokenKind::Number(v) = at.kind else { return None };
+
+            let l = self.arena.alloc_new(Level { kind });
+            let v = u32::from_str_radix(v, 10).ok()?;
+            kind = LevelKind::Add((l, v));
+        }
+
+        return Some(Level { kind });
+    }
+
+    fn parse_binders(&mut self) -> Option<expr::BinderList<'a>> {
+        if !self.tokens.consume_if(|at| at.kind == TokenKind::LParen) {
+            return None;
+        }
+
+        self.sep_by(TokenKind::Comma, TokenKind::RParen, |this| {
+            this.parse_binder()
+        })
+    }
+
+    fn parse_binder(&mut self) -> Option<expr::Binder<'a>> {
+        let at = self.tokens.next_ref()?;
+
+        let TokenKind::Ident(name) = at.kind else { return None };
+
+        let mut ty = None;
+        if self.tokens.consume_if(|at| at.kind == TokenKind::Colon) {
+            ty = Some(self.arena.alloc_new(self.parse_expr()?));
+        }
+
+        let default = None;
+        return Some(expr::Binder { name, ty, default });
+    }
+
+
     // returns: (exprs, last_had_sep, had_error)
     #[inline]
-    fn sep_by<F: FnMut(&mut Parser<'t, 'a>) -> Option<Expr<'a>>>
+    fn sep_by_ex<T, F: FnMut(&mut Parser<'t, 'a>) -> Option<T>>
         (&mut self, sep: TokenKind<'static>, end: TokenKind<'static>, mut f: F)
-        -> (ExprList<'a>, bool, bool)
+        -> (&'a mut [T], bool, bool)
     {
         // @temp: sti temp arena.
         let mut buffer = Vec::new();
@@ -479,6 +678,18 @@ impl<'t, 'a> Parser<'t, 'a> {
             Vec::leak(result)
         };
         (exprs, last_had_sep, had_error)
+    }
+
+    #[inline]
+    fn sep_by<T, F: FnMut(&mut Parser<'t, 'a>) -> Option<T>>
+        (&mut self, sep: TokenKind<'static>, end: TokenKind<'static>, f: F)
+        -> Option<&'a mut [T]>
+    {
+        let (result, _, had_error) = self.sep_by_ex(sep, end, f);
+        if had_error {
+            return None;
+        }
+        return Some(result);
     }
 }
 

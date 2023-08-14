@@ -44,6 +44,24 @@ fn main() {
                         arena.alloc_new(
                         Term::mk_bvar(BVar(0)))))))));
 
+        let nat_add = {
+            let input = "λ(a: Nat, b: Nat) =>
+                NatRec.{1}(λ(_: Nat) => Nat, a, λ(_: Nat, r: Nat) => NatSucc(r), b)";
+
+            let tokens = kibi::parser::Tokenizer::tokenize(&arena, input.as_bytes());
+
+            for tok in &tokens {
+                println!("{:?}", tok);
+            }
+
+            let mut parser = kibi::parser::Parser::new(&arena, &tokens);
+            let ast = parser.parse_expr();
+
+            println!("{:#?}", ast);
+
+            nat_add
+        };
+
         let n0 = &*arena.alloc_new(Term::mk_nat_zero());
         let n1 = &*arena.alloc_new(Term::mk_apply(arena.alloc_new(Term::mk_nat_succ()), arena.alloc_new(n0)));
         let n2 = &*arena.alloc_new(Term::mk_apply(arena.alloc_new(Term::mk_nat_succ()), arena.alloc_new(n1)));

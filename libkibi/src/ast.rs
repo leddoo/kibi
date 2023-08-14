@@ -33,6 +33,9 @@ pub enum TokenKind<'a> {
 
     //Code(&'a str),
 
+    KwSort, KwProp, KwType,
+    KwLam, KwPi,
+
     KwLet, KwVar,
 
     KwDo,
@@ -188,6 +191,11 @@ pub enum ExprKind<'a> {
     DotIdent(&'a str),
     Path(Path<'a>),
 
+    Levels(expr::Levels<'a>),
+    Sort(LevelRef<'a>),
+    Forall(expr::Forall<'a>),
+    Lambda(expr::Lambda<'a>),
+
     Bool(bool),
     Number(&'a str),
     String(&'a str),
@@ -220,6 +228,36 @@ pub enum ExprKind<'a> {
 
 pub mod expr {
     use super::*;
+
+
+    #[derive(Debug)]
+    pub struct Levels<'a> {
+        pub ident:  &'a str,
+        pub levels: LevelList<'a>,
+    }
+
+
+    #[derive(Debug)]
+    pub struct Binder<'a> {
+        pub name:    &'a str,
+        pub ty:      Option<ExprRef<'a>>,
+        pub default: Option<ExprRef<'a>>,
+    }
+
+    pub type BinderList<'a> = &'a mut [Binder<'a>];
+
+
+    #[derive(Debug)]
+    pub struct Forall<'a> {
+        pub binders: BinderList<'a>,
+        pub ret:     ExprRef<'a>,
+    }
+
+    #[derive(Debug)]
+    pub struct Lambda<'a> {
+        pub binders: BinderList<'a>,
+        pub value:   ExprRef<'a>,
+    }
 
 
     #[derive(Debug)]
@@ -272,7 +310,7 @@ pub mod expr {
     #[derive(Debug)]
     pub struct Field<'a> {
         pub base: ExprRef<'a>,
-        pub name: Ident<'a>,
+        pub name: &'a str,
     }
 
     #[derive(Debug)]
@@ -283,7 +321,7 @@ pub mod expr {
 
     #[derive(Debug)]
     pub struct Call<'a> {
-        pub self_post_eval: bool,
+        //pub self_post_eval: bool,
         pub func: ExprRef<'a>,
         pub args: CallArgList<'a>,
     }
@@ -292,14 +330,14 @@ pub mod expr {
 
     #[derive(Debug)]
     pub enum CallArg<'a> {
-        Positional(ExprRef<'a>),
+        Positional(Expr<'a>),
         Named(NamedArg<'a>),
     }
 
     #[derive(Debug)]
     pub struct NamedArg<'a> {
         pub name:  Ident<'a>,
-        pub value: ExprRef<'a>,
+        pub value: Expr<'a>,
     }
 
 
@@ -375,5 +413,30 @@ pub mod expr {
         pub expr: ExprRef<'a>,
         pub ty:   ExprRef<'a>,
     }
+}
+
+
+
+//
+// levels
+//
+
+pub type LevelRef<'a> = &'a mut Level<'a>;
+
+pub type LevelList<'a> = &'a mut [Level<'a>];
+
+#[derive(Debug)]
+pub struct Level<'a> {
+    pub kind: LevelKind<'a>,
+}
+
+#[derive(Debug)]
+pub enum LevelKind<'a> {
+    Nat(u32),
+    Add((LevelRef<'a>, u32)),
+    Max((LevelRef<'a>, LevelRef<'a>)),
+    IMax((LevelRef<'a>, LevelRef<'a>)),
+
+    Var(&'a str),
 }
 
