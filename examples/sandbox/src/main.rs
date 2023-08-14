@@ -50,16 +50,13 @@ fn main() {
 
             let tokens = kibi::parser::Tokenizer::tokenize(&arena, input.as_bytes());
 
-            for tok in &tokens {
-                println!("{:?}", tok);
-            }
-
             let mut parser = kibi::parser::Parser::new(&arena, &tokens);
-            let ast = parser.parse_expr();
+            let ast = parser.parse_expr().unwrap();
 
-            println!("{:#?}", ast);
+            let mut elab = kibi::elab::Elab::new(&arena);
+            let term = elab.elab_term(&ast).unwrap();
 
-            nat_add
+            term
         };
 
         let n0 = &*arena.alloc_new(Term::mk_nat_zero());

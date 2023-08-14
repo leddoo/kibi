@@ -1,13 +1,11 @@
 use sti::growing_arena::GrowingArena;
 
 
-mod syntax;
-
+pub mod syntax;
 pub mod local_ctx;
-mod ty_ctx;
+pub mod ty_ctx;
 
 pub use syntax::*;
-
 pub use local_ctx::{LocalId, LocalCtx};
 pub use ty_ctx::*;
 
@@ -28,12 +26,29 @@ impl<'a> Alloc<'a> {
 
     #[inline(always)]
     pub fn mkl_zero(&self) -> LevelRef<'a> {
-        self.arena.alloc_new(Level::mk_zero())
+        Level::L0
     }
 
     #[inline(always)]
     pub fn mkl_succ(&self, of: LevelRef<'a>) -> LevelRef<'a> {
         self.arena.alloc_new(Level::mk_succ(of))
+    }
+
+    #[inline(always)]
+    pub fn mkl_nat(&self, n: u32) -> LevelRef<'a> {
+        match n {
+            0 => Level::L0,
+            1 => Level::L1,
+            2 => Level::L2,
+            3 => Level::L3,
+            _ => {
+                let mut result = Level::L3;
+                for _ in 3..n {
+                    result = self.mkl_succ(result);
+                }
+                result
+            }
+        }
     }
 
     #[inline(always)]

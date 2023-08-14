@@ -6,7 +6,7 @@
 
 - todo:
     - tt elaboration:
-        - to-tt.
+        - type checking.
         - level inference.
         - term inference.
         - motive inference.

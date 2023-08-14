@@ -1,4 +1,3 @@
-use sti::rc::Rc;
 use sti::vec::Vec;
 use sti::keyed::Key;
 
@@ -11,7 +10,8 @@ sti::define_key!(u32, pub LocalId);
 
 #[derive(Clone)]
 pub struct LocalCtx<'a> {
-    entries: Rc<Vec<Entry<'a>>>,
+    alloc: super::Alloc<'a>,
+    entries: Vec<Entry<'a>>,
 }
 
 #[derive(Clone)]
@@ -26,8 +26,8 @@ pub struct SavePoint(usize);
 
 impl<'a> LocalCtx<'a> {
     #[inline(always)]
-    pub fn new() -> Self {
-        Self { entries: Rc::new(Vec::new()) }
+    pub fn new(alloc: super::Alloc<'a>) -> Self {
+        Self { alloc, entries: Vec::new() }
     }
 
 
@@ -36,14 +36,8 @@ impl<'a> LocalCtx<'a> {
         assert!(ty.closed());
         if let Some(v) = value { assert!(v.closed()); }
 
-        // @temp
-        if self.entries.try_mut().is_none() {
-            println!("clone lctx");
-        }
-
-        let entries = self.entries.make_mut();
-        let id = LocalId::from_usize(entries.len()).unwrap();
-        entries.push(Entry { ty, value });
+        let id = LocalId::from_usize(self.entries.len()).unwrap();
+        self.entries.push(Entry { ty, value });
         id
     }
 
@@ -54,21 +48,26 @@ impl<'a> LocalCtx<'a> {
     }
 
 
+    #[track_caller]
+    #[inline(always)]
+    pub fn abstracc_lambda(&self, value: TermRef<'a>, id: LocalId) -> TermRef<'a> {
+        // @temp.
+        let entry = self.lookup(id);
+        let value = value.abstracc(id, self.alloc);
+        self.alloc.mkt_lambda(0, entry.ty, value)
+    }
+
+
     #[inline(always)]
     pub fn save(&self) -> SavePoint {
         SavePoint(self.entries.len())
     }
 
     #[track_caller]
+    #[inline(always)]
     pub fn restore(&mut self, save: SavePoint) {
-        // @temp
-        if self.entries.try_mut().is_none() {
-            println!("clone lctx");
-        }
-
-        let entries = self.entries.make_mut();
-        assert!(save.0 <= entries.len());
-        entries.truncate(save.0);
+        assert!(save.0 <= self.entries.len());
+        self.entries.truncate(save.0);
     }
 }
 

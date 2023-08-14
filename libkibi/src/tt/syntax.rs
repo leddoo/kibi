@@ -1,6 +1,6 @@
 use sti::vec::Vec;
 
-use super::local_ctx::LocalId;
+pub use super::local_ctx::LocalId;
 
 
 pub type LevelRef<'a> = &'a Level<'a>;
@@ -163,6 +163,15 @@ impl<'a> Level<'a> {
     #[inline(always)]
     pub fn succ(&'a self, alloc: super::Alloc<'a>) -> LevelRef<'a> {
         alloc.mkl_succ(self)
+    }
+
+    #[inline(always)]
+    pub fn offset(&'a self, n: u32, alloc: super::Alloc<'a>) -> LevelRef<'a> {
+        let mut result = self;
+        for _ in 0..n {
+            result = result.succ(alloc)
+        }
+        return result;
     }
 
     #[inline(always)]

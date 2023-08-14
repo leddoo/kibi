@@ -625,6 +625,8 @@ impl<'t, 'a> Parser<'t, 'a> {
 
         let TokenKind::Ident(name) = at.kind else { return None };
 
+        let name = Some(name).filter(|name| *name != "_");
+
         let mut ty = None;
         if self.tokens.consume_if(|at| at.kind == TokenKind::Colon) {
             ty = Some(self.arena.alloc_new(self.parse_expr()?));

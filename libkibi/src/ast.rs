@@ -239,7 +239,7 @@ pub mod expr {
 
     #[derive(Debug)]
     pub struct Binder<'a> {
-        pub name:    &'a str,
+        pub name:    Option<&'a str>,
         pub ty:      Option<ExprRef<'a>>,
         pub default: Option<ExprRef<'a>>,
     }

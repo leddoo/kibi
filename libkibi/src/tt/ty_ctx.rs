@@ -12,7 +12,7 @@ impl<'a> TyCtx<'a> {
     pub fn new(alloc: super::Alloc<'a>) -> Self {
         Self {
             alloc,
-            lctx: LocalCtx::new(),
+            lctx: LocalCtx::new(alloc),
         }
     }
 
