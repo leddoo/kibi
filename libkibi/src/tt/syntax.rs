@@ -127,7 +127,16 @@ impl<'a> Level<'a> {
 
 
     #[inline(always)]
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        core::ptr::eq(self, other)
+    }
+
+    #[inline(always)]
     pub fn syntax_eq(&self, other: &Self) -> bool {
+        if self.ptr_eq(other) {
+            return true;
+        }
+
         match (self.kind, other.kind) {
             (LevelKind::Zero, LevelKind::Zero) =>
                 true,
