@@ -27,11 +27,13 @@
 
 
 - todo:
-    - elab type checking.
-        - `TyCtx::def_eq`.
     - level inference.
-    - def, check, reduce.
-    - namespaces.
+    - def.
+        - syntax.
+        - env.
+        - unfold.
+        - namespaces.
+    - check, reduce.
     - dot-idents.
     - term inference.
     - motive inference.

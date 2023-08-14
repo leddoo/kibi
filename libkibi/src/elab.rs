@@ -150,8 +150,12 @@ impl<'a> Elab<'a> {
     fn elab_expr_checking_type(&mut self, expr: &Expr<'a>, expected_ty: Option<TermRef<'a>>) -> Option<(TermRef<'a>, TermRef<'a>)> {
         let (term, ty) = self.elab_expr_ex(expr, expected_ty)?;
 
-        if let Some(_expected) = expected_ty {
-            // def_eq.
+        if let Some(expected) = expected_ty {
+            let mut tc = self.tc();
+            if !tc.def_eq(ty, expected) {
+                println!("type mismatch.\nexpected {:?}\ngot      {:?}\n", expected, ty);
+                return None;
+            }
         }
 
         Some((term, ty))
