@@ -2,18 +2,15 @@ use super::syntax::*;
 use super::LocalCtx;
 
 
-pub struct TyCtx<'a> {
+pub struct TyCtx<'a, 'l> {
     pub alloc: super::Alloc<'a>,
 
-    pub lctx: LocalCtx<'a>,
+    pub lctx: &'l mut LocalCtx<'a>,
 }
 
-impl<'a> TyCtx<'a> {
-    pub fn new(alloc: super::Alloc<'a>) -> Self {
-        Self {
-            alloc,
-            lctx: LocalCtx::new(alloc),
-        }
+impl<'a, 'l> TyCtx<'a, 'l> {
+    pub fn new(alloc: super::Alloc<'a>, lctx: &'l mut LocalCtx<'a>) -> Self {
+        Self { alloc, lctx }
     }
 
 
@@ -89,40 +86,7 @@ impl<'a> TyCtx<'a> {
             TermKind::Nat => Term::SORT_1,
             TermKind::NatZero => Term::NAT,
             TermKind::NatSucc => Term::NAT_SUCC_TY,
-            TermKind::NatRec(r) =>
-                self.alloc.mkt_forall(0,
-                    // M: Nat -> Sort(r)
-                    self.alloc.mkt_forall(0,
-                        Term::NAT,
-                        self.alloc.mkt_sort(r)),
-                self.alloc.mkt_forall(0,
-                    // M(0)
-                    self.alloc.mkt_apply(
-                        self.alloc.mkt_bvar(BVar(0)),
-                        Term::NAT_ZERO),
-                self.alloc.mkt_forall(0,
-                    // Π(n, ih) => M(n.succ())
-                    self.alloc.mkt_forall(0,
-                        // n: Nat
-                        Term::NAT,
-                    self.alloc.mkt_forall(0,
-                        // ih: M(n)
-                        self.alloc.mkt_apply(
-                            self.alloc.mkt_bvar(BVar(2)),
-                            self.alloc.mkt_bvar(BVar(0))),
-                        // -> M(n.succ())
-                        self.alloc.mkt_apply(
-                            self.alloc.mkt_bvar(BVar(3)),
-                            self.alloc.mkt_apply(
-                                Term::NAT_SUCC,
-                                self.alloc.mkt_bvar(BVar(1)))))),
-                self.alloc.mkt_forall(0,
-                    // n: Nat
-                    Term::NAT,
-                    // -> M(n)
-                    self.alloc.mkt_apply(
-                        self.alloc.mkt_bvar(BVar(3)),
-                        self.alloc.mkt_bvar(BVar(0))))))),
+            TermKind::NatRec(r) => self.alloc.mkt_nat_rec_ty(r),
 
             TermKind::Eq(_) => todo!(),
             TermKind::EqRefl(_) => todo!(),

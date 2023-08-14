@@ -17,6 +17,11 @@
         - we could do some compiler magic here:
             - if have proof that `beq = true -> Eq`, `==` means `Eq`.
             - same for other boolean comparisons.
+    - actually, it's fine:
+        - `=` is `Eq` in type context.
+        - `==` is `HasBEq.beq: T -> T -> Bool`.
+        - `<=` is `HasLe.le: T -> T -> Prop`.
+            - can convert boolean to prop with `ble(a, b) = true`.
 
 - `def` is for math definitions.
     - can still codegen, cause why not.

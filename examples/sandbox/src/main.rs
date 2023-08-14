@@ -54,7 +54,9 @@ fn main() {
             let ast = parser.parse_expr().unwrap();
 
             let mut elab = kibi::elab::Elab::new(&arena);
-            let term = elab.elab_term(&ast).unwrap();
+            let (term, _) = elab.elab_expr(&ast).unwrap();
+
+            assert!(term.syntax_eq(nat_add));
 
             term
         };
@@ -73,7 +75,8 @@ fn main() {
                 n2));
 
         let alloc = Alloc::new(&arena);
-        let mut tc = TyCtx::new(alloc);
+        let mut lctx = LocalCtx::new(kibi::tt::Alloc::new(&arena));
+        let mut tc = TyCtx::new(alloc, &mut lctx);
         let n3r = tc.reduce(n3);
         println!("{:?}", n3r);
 

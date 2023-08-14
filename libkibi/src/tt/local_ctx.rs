@@ -50,7 +50,16 @@ impl<'a> LocalCtx<'a> {
 
     #[track_caller]
     #[inline(always)]
-    pub fn abstracc_lambda(&self, value: TermRef<'a>, id: LocalId) -> TermRef<'a> {
+    pub fn abstract_forall(&self, ret: TermRef<'a>, id: LocalId) -> TermRef<'a> {
+        // @temp.
+        let entry = self.lookup(id);
+        let ret = ret.abstracc(id, self.alloc);
+        self.alloc.mkt_forall(0, entry.ty, ret)
+    }
+
+    #[track_caller]
+    #[inline(always)]
+    pub fn abstract_lambda(&self, value: TermRef<'a>, id: LocalId) -> TermRef<'a> {
         // @temp.
         let entry = self.lookup(id);
         let value = value.abstracc(id, self.alloc);

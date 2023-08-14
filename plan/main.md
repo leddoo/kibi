@@ -27,17 +27,17 @@
 
 
 - todo:
-    - tt elaboration:
-        - type checking.
-        - level inference.
-        - term inference.
-        - motive inference.
-        - implicit params.
-        - temp commands: def, check, reduce.
-    - tt integration:
-        - `def` vs `fn`.
-        - var to let.
-        - `fib_iter`.
+    - elab type checking.
+        - `TyCtx::def_eq`.
+    - level inference.
+    - def, check, reduce.
+    - namespaces.
+    - dot-idents.
+    - term inference.
+    - motive inference.
+    - implicit params.
+    - var to let.
+    - `fib_iter`.
 
 
     - sti:

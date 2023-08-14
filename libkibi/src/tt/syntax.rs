@@ -68,10 +68,10 @@ pub enum TermKind<'a> {
 }
 
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BVar(pub u32);
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GlobalId(pub u32);
 
 
@@ -127,29 +127,41 @@ impl<'a> Level<'a> {
 
 
     #[inline(always)]
-    pub fn ptr_eq(&self, other: &Self) -> bool {
+    pub fn ptr_eq(&self, other: &Level) -> bool {
         core::ptr::eq(self, other)
     }
 
     #[inline(always)]
-    pub fn syntax_eq(&self, other: &Self) -> bool {
+    pub fn syntax_eq(&self, other: &Level) -> bool {
         if self.ptr_eq(other) {
             return true;
         }
 
+        use LevelKind::*;
         match (self.kind, other.kind) {
-            (LevelKind::Zero, LevelKind::Zero) =>
-                true,
+            (Zero, Zero) => true,
 
-            (LevelKind::Succ(a), LevelKind::Succ(b)) =>
-                a.syntax_eq(b),
+            (Succ(a), Succ(b)) => a.syntax_eq(b),
 
-            (LevelKind::Max(a),  LevelKind::Max(b)) |
-            (LevelKind::IMax(a), LevelKind::IMax(b)) =>
+            (Max(a),  Max(b)) |
+            (IMax(a), IMax(b)) =>
                 a.lhs.syntax_eq(b.lhs) && a.rhs.syntax_eq(b.rhs),
 
             _ => false
         }
+    }
+
+    #[inline(always)]
+    pub fn list_syntax_eq(a: &[Level], b: &[Level]) -> bool {
+        if a.len() != b.len() {
+            return false;
+        }
+        for i in 0..a.len() {
+            if !a[i].syntax_eq(&b[i]) {
+                return false;
+            }
+        }
+        true
     }
 
 
@@ -344,6 +356,43 @@ impl<'a> Term<'a> {
     #[inline(always)]
     pub fn ptr_eq(&self, other: &Term) -> bool {
         core::ptr::eq(self, other)
+    }
+
+    #[inline(always)]
+    pub fn syntax_eq(&self, other: &Term) -> bool {
+        if self.ptr_eq(other) {
+            return true;
+        }
+
+        use TermKind::*;
+        match (self.kind, other.kind) {
+            (Sort(l1), Sort(l2)) => l1.syntax_eq(l2),
+
+            (BVar(b1), BVar(b2)) => b1 == b2,
+
+            (Local(l1), Local(l2)) => l1 == l2,
+
+            (Global(g1), Global(g2)) =>
+                g1.id == g2.id && Level::list_syntax_eq(g1.levels, g2.levels),
+
+            (Forall(b1), Forall(b2)) |
+            (Lambda(b1), Lambda(b2)) =>
+               b1.ty.syntax_eq(b2.ty) && b1.val.syntax_eq(b2.val),
+
+            (Apply(a1), Apply(a2)) =>
+                a1.fun.syntax_eq(a2.fun) && a1.arg.syntax_eq(a2.arg),
+
+            (Nat, Nat) => true,
+            (NatZero, NatZero) => true,
+            (NatSucc, NatSucc) => true,
+            (NatRec(l1), NatRec(l2)) => l1.syntax_eq(l2),
+
+            (Eq(l1), Eq(l2)) => l1.syntax_eq(l2),
+            (EqRefl(l1), EqRefl(l2)) => l1.syntax_eq(l2),
+            (EqRec(l1, r1), EqRec(l2, r2)) => l1.syntax_eq(l2) && r1.syntax_eq(r2),
+
+            _ => false
+        }
     }
 
 

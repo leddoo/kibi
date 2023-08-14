@@ -141,6 +141,42 @@ impl<'a> Alloc<'a> {
         self.arena.alloc_new(Term::mk_nat_rec(r))
     }
 
+    pub fn mkt_nat_rec_ty(&self, r: LevelRef<'a>) -> TermRef<'a> {
+        self.mkt_forall(0,
+            // M: Nat -> Sort(r)
+            self.mkt_forall(0,
+                Term::NAT,
+                self.mkt_sort(r)),
+        self.mkt_forall(0,
+            // M(0)
+            self.mkt_apply(
+                self.mkt_bvar(BVar(0)),
+                Term::NAT_ZERO),
+        self.mkt_forall(0,
+            // Π(n, ih) => M(n.succ())
+            self.mkt_forall(0,
+                // n: Nat
+                Term::NAT,
+            self.mkt_forall(0,
+                // ih: M(n)
+                self.mkt_apply(
+                    self.mkt_bvar(BVar(2)),
+                    self.mkt_bvar(BVar(0))),
+                // -> M(n.succ())
+                self.mkt_apply(
+                    self.mkt_bvar(BVar(3)),
+                    self.mkt_apply(
+                        Term::NAT_SUCC,
+                        self.mkt_bvar(BVar(1)))))),
+        self.mkt_forall(0,
+            // n: Nat
+            Term::NAT,
+            // -> M(n)
+            self.mkt_apply(
+                self.mkt_bvar(BVar(3)),
+                self.mkt_bvar(BVar(0)))))))
+    }
+
     #[inline(always)]
     pub fn mkt_eq(&self, l: LevelRef<'a>) -> TermRef<'a> {
         self.arena.alloc_new(Term::mk_eq(l))
