@@ -177,6 +177,15 @@ impl<'a> Alloc<'a> {
                 self.mkt_bvar(BVar(0)))))))
     }
 
+    pub fn mkt_nat_val(&self, n: u32) -> TermRef<'a> {
+        let mut result = Term::NAT_ZERO;
+        for _ in 0..n {
+            result = self.mkt_apply(Term::NAT_SUCC, result);
+        }
+        return result;
+    }
+
+
     #[inline(always)]
     pub fn mkt_eq(&self, l: LevelRef<'a>) -> TermRef<'a> {
         self.arena.alloc_new(Term::mk_eq(l))

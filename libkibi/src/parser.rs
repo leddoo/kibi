@@ -8,8 +8,8 @@ use crate::ast::*;
 
 pub struct Tokenizer<'a> {
     #[allow(dead_code)]
-    arena:  &'a GrowingArena,
-    reader: Reader<'a, u8>,
+    pub arena:  &'a GrowingArena,
+    pub reader: Reader<'a, u8>,
 }
 
 impl<'a> Tokenizer<'a> {
@@ -295,8 +295,8 @@ impl Default for ParseExprFlags {
 
 
 pub struct Parser<'t, 'a> {
-    arena:  &'a GrowingArena,
-    tokens: Reader<'t, Token<'a>>,
+    pub arena:  &'a GrowingArena,
+    pub tokens: Reader<'t, Token<'a>>,
 }
 
 impl<'t, 'a> Parser<'t, 'a> {
@@ -305,7 +305,18 @@ impl<'t, 'a> Parser<'t, 'a> {
     }
 
     pub fn parse_item(&mut self) -> Option<Item<'a>> {
-        unimplemented!()
+        let at = self.tokens.next_ref()?;
+
+        let kind = match at.kind {
+            TokenKind::Ident("reduce") => {
+                let expr = self.arena.alloc_new(self.parse_expr()?);
+                ItemKind::Reduce(expr)
+            }
+
+            _ => return None,
+        };
+
+        Some(Item { kind })
     }
 
     pub fn parse_stmt(&mut self) -> Option<Stmt<'a>> {

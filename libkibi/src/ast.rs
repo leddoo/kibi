@@ -130,7 +130,22 @@ pub struct Item<'a> {
 
 #[derive(Debug)]
 pub enum ItemKind<'a> {
-    Use(Path<'a>),
+    Def(item::Def<'a>),
+    Reduce(ExprRef<'a>),
+}
+
+
+pub mod item {
+    use super::*;
+
+
+    #[derive(Debug)]
+    pub struct Def<'a> {
+        pub name:   &'a str,
+        pub levels: LevelList<'a>,
+        pub ty:     Option<ExprRef<'a>>,
+        pub value:  ExprRef<'a>,
+    }
 }
 
 

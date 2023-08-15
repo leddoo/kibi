@@ -27,14 +27,16 @@
 
 
 - todo:
-    - level inference.
     - def.
         - syntax.
         - env.
         - unfold.
         - namespaces.
-    - check, reduce.
+    - level inference.
+        - ivars.
     - dot-idents.
+    - error messages.
+        - term printing.
     - term inference.
     - motive inference.
     - implicit params.

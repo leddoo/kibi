@@ -71,6 +71,8 @@ impl<'a> Elab<'a> {
                                 return Some((self.alloc.mkt_local(*id), ty));
                             }
                         }
+
+                        println!("unknown ident {:?}", ident);
                         return None;
                     }
                 }
@@ -80,6 +82,7 @@ impl<'a> Elab<'a> {
                 match it.ident {
                     "NatRec" => {
                         if it.levels.len() != 1 {
+                            println!("NatRec requires exactly one level");
                             return None;
                         }
 
@@ -119,6 +122,10 @@ impl<'a> Elab<'a> {
 
                 (result, result_ty)
             }
+            
+            ExprKind::Parens(it) => {
+                return self.elab_expr_ex(it, expected_ty);
+            }
 
             ExprKind::Call(it) => {
                 let (mut result, mut result_ty) = self.elab_expr(it.func)?;
@@ -139,11 +146,15 @@ impl<'a> Elab<'a> {
                 (result, result_ty)
             }
 
-            ExprKind::Number(_) => {
-                unimplemented!()
+            ExprKind::Number(n) => {
+                let n = u32::from_str_radix(n, 10).unwrap();
+                (self.alloc.mkt_nat_val(n), Term::NAT)
             }
 
-            _ => return None,
+            _ => {
+                println!("unsupported expr kind");
+                return None
+            }
         })
     }
 
@@ -170,11 +181,13 @@ impl<'a> Elab<'a> {
         if let TermKind::Sort(l) = ty.kind {
             return Some((term, l));
         }
-        None
+
+        println!("type expected");
+        return None;
     }
 
     #[inline(always)]
-    fn tc<'l>(&mut self) -> TyCtx<'a, '_> {
+    pub fn tc<'l>(&mut self) -> TyCtx<'a, '_> {
         TyCtx::new(self.alloc, &mut self.lctx)
     }
 }
