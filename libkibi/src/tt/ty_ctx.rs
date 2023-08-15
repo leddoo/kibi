@@ -241,7 +241,7 @@ impl<'a, 'l> TyCtx<'a, 'l> {
 
             let (_, rec_args) = t.app_args();
 
-            let mp = rec_args[rec_args.len() - 1];
+            let mp = rec_args[0];
             let mp = self.whnf(mp);
 
             let (ctor, ctor_args) = mp.app_args();
@@ -249,7 +249,7 @@ impl<'a, 'l> TyCtx<'a, 'l> {
             match ctor.kind {
                 TermKind::NatZero => {
                     assert_eq!(ctor_args.len(), 0);
-                    return Some(rec_args[1]);
+                    return Some(rec_args[2]);
                 }
 
                 TermKind::NatSucc => {
@@ -260,18 +260,18 @@ impl<'a, 'l> TyCtx<'a, 'l> {
 
                     // result = ms n (Nat.rec M mz ms n)
 
-                    let m  = rec_args[0];
-                    let mz = rec_args[1];
-                    let ms = rec_args[2];
+                    let m  = rec_args[1];
+                    let mz = rec_args[2];
+                    let ms = rec_args[3];
                     let n = ctor_args[0];
 
                     return Some(self.alloc.mkt_apps(ms, &[
                         n,
                         self.alloc.mkt_apps(self.alloc.mkt_nat_rec(l), &[
+                            n,
                             m,
                             mz,
                             ms,
-                            n,
                         ]),
                     ]));
                 }

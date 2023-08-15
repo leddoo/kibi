@@ -4,49 +4,30 @@ use kibi::tt::*;
 #[test]
 fn nat_add_elab() {
     let arena = sti::growing_arena::GrowingArena::new();
+    let alloc = Alloc::new(&arena);
 
-    // λ a b, Nat.rec((λ _, Nat), a, (λ _ r, Nat.succ(r)), b)
+    // λ a b, Nat.rec(b, (λ _, Nat), a, (λ _ r, Nat.succ(r)))
     let nat_add = &*
-        arena.alloc_new(
-        Term::mk_lambda(0, arena.alloc_new(Term::mk_nat()),
-            arena.alloc_new(
-            Term::mk_lambda(1, arena.alloc_new(Term::mk_nat()),
-                arena.alloc_new(
-                Term::mk_apply(
-                    arena.alloc_new(
-                    Term::mk_apply(
-                        arena.alloc_new(
-                        Term::mk_apply(
-                            arena.alloc_new(
-                            Term::mk_apply(
-                                arena.alloc_new(Term::mk_nat_rec(Level::L1)),
-                                arena.alloc_new(
-                                Term::mk_lambda(
-                                    2,
-                                    arena.alloc_new(Term::mk_nat()),
-                                    arena.alloc_new(Term::mk_nat()))))),
-                            arena.alloc_new(
-                            Term::mk_bvar(BVar(1))))),
-                        arena.alloc_new(
-                        Term::mk_lambda(
-                            3,
-                            arena.alloc_new(Term::mk_nat()),
-                            arena.alloc_new(
-                            Term::mk_lambda(
-                                4,
-                                arena.alloc_new(Term::mk_nat()),
-                                arena.alloc_new(
-                                Term::mk_apply(
-                                    arena.alloc_new(
-                                    Term::mk_nat_succ()),
-                                    arena.alloc_new(
-                                    Term::mk_bvar(BVar(0))))))))))),
-                    arena.alloc_new(
-                    Term::mk_bvar(BVar(0)))))))));
+        alloc.mkt_lambda(0, Term::NAT,
+        alloc.mkt_lambda(1, Term::NAT,
+            alloc.mkt_apps(alloc.mkt_nat_rec(Level::L1), &[
+                alloc.mkt_bvar(BVar(0)),
+                alloc.mkt_lambda(2, Term::NAT, Term::NAT),
+                alloc.mkt_bvar(BVar(1)),
+                alloc.mkt_lambda(
+                    3,
+                    Term::NAT,
+                    alloc.mkt_lambda(
+                        4,
+                        Term::NAT,
+                        alloc.mkt_apply(
+                            Term::NAT_SUCC,
+                            alloc.mkt_bvar(BVar(0))))),
+            ])));
 
     let nat_add = {
         let input = "λ(a: Nat, b: Nat) =>
-            NatRec.{1}(λ(_: Nat) => Nat, a, λ(_: Nat, r: Nat) => NatSucc(r), b)";
+            NatRec.{1}(b, λ(_: Nat) => Nat, a, λ(_: Nat, r: Nat) => NatSucc(r))";
 
         let tokens = kibi::parser::Tokenizer::tokenize(&arena, input.as_bytes());
 
@@ -61,27 +42,18 @@ fn nat_add_elab() {
         term
     };
 
-    let n0 = &*arena.alloc_new(Term::mk_nat_zero());
-    let n1 = &*arena.alloc_new(Term::mk_apply(arena.alloc_new(Term::mk_nat_succ()), arena.alloc_new(n0)));
-    let n2 = &*arena.alloc_new(Term::mk_apply(arena.alloc_new(Term::mk_nat_succ()), arena.alloc_new(n1)));
+    let n1 = alloc.mkt_nat_val(1);
+    let n2 = alloc.mkt_nat_val(2);
+    let n3 = alloc.mkt_nat_val(3);
 
-    let n3 = &*
-        arena.alloc_new(
-        Term::mk_apply(
-            arena.alloc_new(
-            Term::mk_apply(
-                nat_add,
-                n1)),
-            n2));
+    let n3_add = alloc.mkt_apps(nat_add, &[n1, n2]);
 
-    let alloc = Alloc::new(&arena);
-    let mut lctx = LocalCtx::new(kibi::tt::Alloc::new(&arena));
+    let mut lctx = LocalCtx::new(alloc);
     let mut tc = TyCtx::new(alloc, &mut lctx);
-    let n3r = tc.reduce(n3);
-    println!("{:?}", n3r);
 
-    let n3t = tc.infer_type(n3).unwrap();
-    let n3tw = tc.whnf(n3t);
-    println!("type of 3: {:?}", n3tw);
+    assert!(tc.reduce(n3_add).syntax_eq(n3));
+
+    let n3_ty = tc.infer_type(n3_add).unwrap();
+    assert!(tc.whnf(n3_ty).syntax_eq(Term::NAT));
 }
 

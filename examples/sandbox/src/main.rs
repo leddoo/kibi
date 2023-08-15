@@ -5,20 +5,21 @@ fn main() {
 
     let input = "
 reduce (λ(a: Nat, b: Nat) =>
-        NatRec.{1}(
-            λ(_: Nat) => Nat,
-            a,
-            λ(_: Nat, r: Nat) => NatSucc(r),
-            b))(1, 2)
+    NatRec.{1}(
+        b,
+        λ(_: Nat) => Nat,
+        a,
+        λ(_: Nat, r: Nat) => NatSucc(r))
+    )(1, 2)
 
-def Nat_add = λ(a: Nat, b: Nat) =>
-        NatRec.{1}(
-            λ(_: Nat) => Nat,
-            a,
-            λ(_: Nat, r: Nat) => NatSucc(r),
-            b)
+def Nat.add (a: Nat, b: Nat): Nat =
+    NatRec.{1}(
+        b,
+        λ(_: Nat) => Nat,
+        a,
+        λ(_: Nat, r: Nat) => NatSucc(r))
 
-reduce Nat_add(1, 2)
+reduce 1.add(2)
 ";
 
     let tokens = kibi::parser::Tokenizer::tokenize(&arena, input.as_bytes());

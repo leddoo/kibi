@@ -143,6 +143,9 @@ impl<'a> Alloc<'a> {
 
     pub fn mkt_nat_rec_ty(&self, r: LevelRef<'a>) -> TermRef<'a> {
         self.mkt_forall(0,
+            // n: Nat
+            Term::NAT,
+        self.mkt_forall(0,
             // M: Nat -> Sort(r)
             self.mkt_forall(0,
                 Term::NAT,
@@ -168,13 +171,10 @@ impl<'a> Alloc<'a> {
                     self.mkt_apply(
                         Term::NAT_SUCC,
                         self.mkt_bvar(BVar(1)))))),
-        self.mkt_forall(0,
-            // n: Nat
-            Term::NAT,
             // -> M(n)
             self.mkt_apply(
-                self.mkt_bvar(BVar(3)),
-                self.mkt_bvar(BVar(0)))))))
+                self.mkt_bvar(BVar(2)),
+                self.mkt_bvar(BVar(3)))))))
     }
 
     pub fn mkt_nat_val(&self, n: u32) -> TermRef<'a> {

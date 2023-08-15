@@ -32,11 +32,11 @@
         - env.
         - unfold.
         - namespaces.
-    - level inference.
-        - ivars.
-    - dot-idents.
     - error messages.
         - term printing.
+    - dot-idents.
+    - level inference.
+        - ivars.
     - term inference.
     - motive inference.
     - implicit params.
