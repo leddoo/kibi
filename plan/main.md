@@ -27,11 +27,12 @@
 
 
 - todo:
+    - namespaces.
+        - ident lookup.
     - def.
         - syntax.
         - env.
         - unfold.
-        - namespaces.
     - error messages.
         - term printing.
     - dot-idents.
