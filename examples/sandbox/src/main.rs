@@ -13,8 +13,9 @@ reduce (λ(a: Nat, b: Nat) =>
         λ(_: Nat, r: Nat) => Nat::succ(r))
     )(1, 2)
 
-def Nat.add (a: Nat, b: Nat): Nat =
-    b.rec.{1}(
+def Nat::add (a: Nat, b: Nat): Nat :=
+    Nat::rec.{1}(
+        b,
         λ(_: Nat) => Nat,
         a,
         λ(_: Nat, r: Nat) => r.succ)
@@ -28,16 +29,17 @@ reduce 1.add(2)
     let nat = env.create_nat();
     let ns = env.create_initial(nat);
 
+    let mut elab = kibi::elab::Elab::new(&mut env, ns, &arena);
+
     let mut parser = kibi::parser::Parser::new(&arena, &tokens);
     while !parser.tokens.is_empty() {
         let item = parser.parse_item().unwrap();
 
-        match item.kind {
-            ItemKind::Def(_) => {
+        match &item.kind {
+            ItemKind::Def(def) => {
             }
 
             ItemKind::Reduce(expr) => {
-                let mut elab = kibi::elab::Elab::new(&mut env, ns, &arena);
                 let (term, _) = elab.elab_expr(expr).unwrap();
                 let red = elab.tc().reduce(term);
                 println!("{:?}", red);

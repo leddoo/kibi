@@ -4,10 +4,27 @@
 // common
 //
 
-#[derive(Clone, Copy, Debug)]
-pub struct Span<'a> {
-    pub value: &'a str,
+#[derive(Debug)]
+pub struct Path<'a> {
+    pub local: bool,
+    pub parts: &'a [&'a str],
 }
+
+#[derive(Debug)]
+pub enum IdentOrPath<'a> {
+    Ident(&'a str),
+    Path(Path<'a>),
+}
+
+
+#[derive(Debug)]
+pub struct Binder<'a> {
+    pub name:    Option<&'a str>,
+    pub ty:      Option<ExprRef<'a>>,
+    pub default: Option<ExprRef<'a>>,
+}
+
+pub type BinderList<'a> = &'a mut [Binder<'a>];
 
 
 
@@ -35,6 +52,8 @@ pub enum TokenKind<'a> {
 
     KwSort, KwProp, KwType,
     KwLam, KwPi,
+
+    KwDef,
 
     KwLet, KwVar,
 
@@ -119,10 +138,11 @@ pub mod item {
 
     #[derive(Debug)]
     pub struct Def<'a> {
-        pub name:   &'a str,
+        pub name:   IdentOrPath<'a>,
         pub levels: LevelList<'a>,
-        pub ty:     Option<ExprRef<'a>>,
-        pub value:  ExprRef<'a>,
+        pub params: BinderList<'a>,
+        pub ty:     Option<Expr<'a>>,
+        pub value:  Expr<'a>,
     }
 }
 
@@ -182,7 +202,7 @@ pub enum ExprKind<'a> {
 
     Ident(&'a str),
     DotIdent(&'a str),
-    Path(expr::Path<'a>),
+    Path(Path<'a>),
 
     Levels(expr::Levels<'a>),
     Sort(LevelRef<'a>),
@@ -224,27 +244,10 @@ pub mod expr {
 
 
     #[derive(Debug)]
-    pub struct Path<'a> {
-        pub local: bool,
-        pub parts: &'a [&'a str],
-    }
-
-
-    #[derive(Debug)]
     pub struct Levels<'a> {
-        pub expr:   ExprRef<'a>,
+        pub symbol: IdentOrPath<'a>,
         pub levels: LevelList<'a>,
     }
-
-
-    #[derive(Debug)]
-    pub struct Binder<'a> {
-        pub name:    Option<&'a str>,
-        pub ty:      Option<ExprRef<'a>>,
-        pub default: Option<ExprRef<'a>>,
-    }
-
-    pub type BinderList<'a> = &'a mut [Binder<'a>];
 
 
     #[derive(Debug)]

@@ -49,23 +49,8 @@
         - KVec::truncate, clone.
 
 
-- stuff:
-    - parser.
-        Block(expr::Block<'a>),
-        Field(expr::Field<'a>),
-        Index(expr::Index<'a>),
-        Call(expr::Call<'a>),
-        - method call.
-        Map(expr::Map<'a>),
-        MapType(expr::MapType<'a>),
-        Match(expr::Match<'a>),
-        If(expr::If<'a>),
-        Loop(expr::Loop<'a>),
-        TypeHint(expr::TypeHint<'a>),
-        Path(Path<'a>),
-
-
 - backlog:
+    - fix number parsing: `1.a` not `"1." "a"`.
     - parser:
         - labels.
         - combined match/if.

@@ -4,7 +4,6 @@ use sti::keyed::KVec;
 use crate::tt::*;
 
 
-
 pub struct Env<'a> {
     symbols: KVec<SymbolId, Symbol<'a>>,
     namespaces: KVec<NamespaceId, Namespace<'a>>,

@@ -79,7 +79,21 @@ impl<'a, 'e> Elab<'a, 'e> {
             }
 
             ExprKind::Levels(it) => {
-                let symbol = self.lookup_symbol_expr(it.expr)?;
+                let symbol = match &it.symbol {
+                    IdentOrPath::Ident(name) => {
+                        if self.lookup_local(*name).is_some() {
+                            println!("symbol shadowed by local");
+                            return None;
+                        }
+
+                        self.lookup_symbol_ident(*name)?
+                    }
+
+                    IdentOrPath::Path(path) => {
+                        self.lookup_symbol_path(path)?
+                    }
+                };
+
                 self.elab_symbol(symbol, it.levels)?
             }
 
@@ -192,7 +206,7 @@ impl<'a, 'e> Elab<'a, 'e> {
         Some(entry.symbol)
     }
 
-    fn lookup_symbol_path(&self, path: &expr::Path) -> Option<SymbolId> {
+    fn lookup_symbol_path(&self, path: &Path) -> Option<SymbolId> {
         if path.local {
             let mut result = self.lookup_symbol_ident(path.parts[0])?;
 
@@ -215,28 +229,6 @@ impl<'a, 'e> Elab<'a, 'e> {
         }
         else {
             unimplemented!()
-        }
-    }
-
-    fn lookup_symbol_expr(&self, expr: &Expr) -> Option<SymbolId> {
-        match &expr.kind {
-            ExprKind::Ident(name) => {
-                if self.lookup_local(*name).is_some() {
-                    println!("symbol shadowed by local");
-                    return None;
-                }
-
-                self.lookup_symbol_ident(*name)
-            }
-
-            ExprKind::Path(path) => {
-                self.lookup_symbol_path(path)
-            }
-
-            _ => {
-                println!("invalid symbol expr");
-                return None;
-            }
         }
     }
 

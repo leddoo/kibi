@@ -205,6 +205,8 @@ impl<'a> Tokenizer<'a> {
                     "lam"  => TokenKind::KwLam,
                     "Pi"   => TokenKind::KwPi,
 
+                    "def" => TokenKind::KwDef,
+
                     "let" => TokenKind::KwLet,
                     "var" => TokenKind::KwVar,
 
@@ -237,9 +239,15 @@ impl<'a> Tokenizer<'a> {
                 self.reader.consume_while(|at| at.is_ascii_digit());
 
                 // decimal.
-                if self.reader.consume_if_eq(&b'.') {
-                    // after decimal.
-                    self.reader.consume_while(|at| at.is_ascii_digit());
+                if let Some(b'.') = self.reader.get(0) {
+                    if let Some(after_decimal) = self.reader.get(1) {
+                        if after_decimal.is_ascii_digit() {
+                            self.reader.consume(1);
+
+                            // after decimal.
+                            self.reader.consume_while(|at| at.is_ascii_digit());
+                        }
+                    }
                 }
 
                 let value = &self.reader.consumed_slice()[start_offset..];
@@ -311,6 +319,43 @@ impl<'t, 'a> Parser<'t, 'a> {
         let at = self.tokens.next_ref()?;
 
         let kind = match at.kind {
+            TokenKind::KwDef => {
+                // @temp.
+                let name = self.parse_expr_ex(u32::MAX)?;
+
+                let (name, levels) = match name.kind {
+                    ExprKind::Ident(name)    => (IdentOrPath::Ident(name), &mut [][..]),
+                    ExprKind::Path(path)     => (IdentOrPath::Path(path),  &mut [][..]),
+                    ExprKind::Levels(levels) => (levels.symbol, levels.levels),
+
+                    _ => {
+                        println!("expected ident or path");
+                        return None;
+                    }
+                };
+
+                let mut params = &mut [][..];
+                if self.tokens.consume_if(|at| at.kind == TokenKind::LParen) {
+                    params = self.sep_by(TokenKind::Comma, TokenKind::RParen, |this| {
+                        this.parse_binder()
+                    })?;
+                }
+
+                let mut ty = None;
+                if self.tokens.consume_if(|at| at.kind == TokenKind::Colon) {
+                    ty = Some(self.parse_expr()?);
+                }
+
+                if !self.tokens.consume_if(|at| at.kind == TokenKind::ColonEq) {
+                    println!("expected ':='");
+                    return None;
+                }
+
+                let value = self.parse_expr()?;
+
+                ItemKind::Def(item::Def { name, levels, params, ty, value })
+            }
+
             TokenKind::Ident("reduce") => {
                 let expr = self.arena.alloc_new(self.parse_expr()?);
                 ItemKind::Reduce(expr)
@@ -386,12 +431,20 @@ impl<'t, 'a> Parser<'t, 'a> {
                     }
 
                     TokenKind::LCurly => {
+                        let symbol = match result.kind {
+                            ExprKind::Ident(name) => IdentOrPath::Ident(name),
+                            ExprKind::Path(path)  => IdentOrPath::Path(path),
+                            _ => {
+                                println!("expected ident or path");
+                                return None;
+                            }
+                        };
+
                         let levels = self.sep_by(TokenKind::Comma, TokenKind::RCurly, |this| {
                             this.parse_level()
                         })?;
 
-                        let expr = self.arena.alloc_new(result);
-                        ExprKind::Levels(expr::Levels { expr, levels })
+                        ExprKind::Levels(expr::Levels { symbol, levels })
                     }
 
                     _ => return None,
@@ -446,7 +499,7 @@ impl<'t, 'a> Parser<'t, 'a> {
                         }
                         let parts = Vec::leak(parts.clone_in(self.arena));
 
-                        ExprKind::Path(expr::Path { local: true, parts })
+                        ExprKind::Path(Path { local: true, parts })
                     }
                     else { ExprKind::Ident(ident) }
                 }
@@ -657,7 +710,7 @@ impl<'t, 'a> Parser<'t, 'a> {
         return Some(Level { kind });
     }
 
-    fn parse_binders(&mut self) -> Option<expr::BinderList<'a>> {
+    fn parse_binders(&mut self) -> Option<BinderList<'a>> {
         if !self.tokens.consume_if(|at| at.kind == TokenKind::LParen) {
             println!("expected '('");
             return None;
@@ -668,7 +721,7 @@ impl<'t, 'a> Parser<'t, 'a> {
         })
     }
 
-    fn parse_binder(&mut self) -> Option<expr::Binder<'a>> {
+    fn parse_binder(&mut self) -> Option<Binder<'a>> {
         let at = self.tokens.next_ref()?;
         let TokenKind::Ident(name) = at.kind else {
             println!("expected ident");
@@ -683,7 +736,7 @@ impl<'t, 'a> Parser<'t, 'a> {
         }
 
         let default = None;
-        return Some(expr::Binder { name, ty, default });
+        return Some(Binder { name, ty, default });
     }
 
 
