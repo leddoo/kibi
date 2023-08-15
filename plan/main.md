@@ -28,8 +28,7 @@
 
 - todo:
     - def.
-        - parse.
-        - add to env.
+        - handle levels.
         - unfold.
     - error messages.
         - term printing.
@@ -40,6 +39,7 @@
     - term inference.
     - motive inference.
     - implicit params.
+        - binder info.
     - var to let.
     - `fib_iter`.
 

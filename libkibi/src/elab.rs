@@ -74,7 +74,7 @@ impl<'a, 'e> Elab<'a, 'e> {
             }
 
             ExprKind::Path(path) => {
-                let symbol = self.lookup_symbol_path(path)?;
+                let symbol = self.lookup_symbol_path(path.local, path.parts)?;
                 self.elab_symbol(symbol, &[])?
             }
 
@@ -90,7 +90,7 @@ impl<'a, 'e> Elab<'a, 'e> {
                     }
 
                     IdentOrPath::Path(path) => {
-                        self.lookup_symbol_path(path)?
+                        self.lookup_symbol_path(path.local, path.parts)?
                     }
                 };
 
@@ -105,6 +105,7 @@ impl<'a, 'e> Elab<'a, 'e> {
                 let save = self.lctx.save();
                 let num_locals = self.locals.len();
 
+                // @cleanup: elab_binders.
                 for param in it.binders.iter() {
                     let (ty, _) = self.elab_expr_as_type(param.ty.as_ref()?)?;
                     let id = self.lctx.extend(ty, None);
@@ -189,6 +190,57 @@ impl<'a, 'e> Elab<'a, 'e> {
     }
 
 
+    pub fn elab_def(&mut self, def: &item::Def<'a>) -> Option<SymbolId> {
+        assert_eq!(self.locals.len(), 0);
+        let save = self.lctx.save();
+
+        // @cleanup: elab_binders.
+        for param in def.params.iter() {
+            let (ty, _) = self.elab_expr_as_type(param.ty.as_ref()?)?;
+            let id = self.lctx.extend(ty, None);
+            let name = param.name.unwrap_or("");
+            self.locals.push((name, id));
+        }
+
+        let mut ty = None;
+        if let Some(t) = &def.ty {
+            ty = Some(self.elab_expr_as_type(&t)?.0);
+        }
+
+        let (mut val, val_ty) = self.elab_expr_checking_type(&def.value, ty)?;
+        assert_eq!(self.locals.len(), def.params.len());
+
+        let mut ty = ty.unwrap_or(val_ty);
+        for (_, id) in self.locals.iter().copied().rev() {
+            ty  = self.lctx.abstract_forall(ty,  id);
+            val = self.lctx.abstract_lambda(val, id);
+        }
+
+        let (parent_ns, name) = match &def.name {
+            IdentOrPath::Ident(name) => (self.ns, *name),
+
+            IdentOrPath::Path(path) => {
+                let (name, parts) = path.parts.split_last().unwrap();
+                let ns = self.lookup_namespace_path(path.local, parts)?;
+                (ns, *name)
+            }
+        };
+
+        let symbol = self.env.new_symbol(parent_ns, name,
+            SymbolKind::Def(symbol::Def {
+                num_levels: 0,
+                ty,
+                val,
+            })
+        )?;
+
+        self.lctx.restore(save);
+        self.locals.truncate(0);
+
+        Some(symbol)
+    }
+
+
     fn lookup_local(&self, name: &str) -> Option<LocalId> {
         for (n, id) in self.locals.iter().rev().copied() {
             if n == name {
@@ -206,11 +258,11 @@ impl<'a, 'e> Elab<'a, 'e> {
         Some(entry.symbol)
     }
 
-    fn lookup_symbol_path(&self, path: &Path) -> Option<SymbolId> {
-        if path.local {
-            let mut result = self.lookup_symbol_ident(path.parts[0])?;
+    fn lookup_symbol_path(&self, local: bool, parts: &[&str]) -> Option<SymbolId> {
+        if local {
+            let mut result = self.lookup_symbol_ident(parts[0])?;
 
-            for part in &path.parts[1..] {
+            for part in &parts[1..] {
                 let symbol = self.env.symbol(result);
 
                 let Some(ns) = symbol.own_ns.to_option() else {
@@ -230,6 +282,17 @@ impl<'a, 'e> Elab<'a, 'e> {
         else {
             unimplemented!()
         }
+    }
+
+    fn lookup_namespace_path(&self, local: bool, parts: &[&str]) -> Option<NamespaceId> {
+        let symbol = self.lookup_symbol_path(local, parts)?;
+        let symbol = self.env.symbol(symbol);
+
+        let Some(ns) = symbol.own_ns.to_option() else {
+            println!("symbol doesn't have ns");
+            return None;
+        };
+        return Some(ns);
     }
 
 
@@ -275,7 +338,13 @@ impl<'a, 'e> Elab<'a, 'e> {
                 }
             }
 
-            _ => unimplemented!()
+            SymbolKind::Def(def) => {
+                if def.num_levels != 0 || levels.len() != 0 {
+                    unimplemented!()
+                }
+
+                (self.alloc.mkt_global(id, &[]), def.ty)
+            }
         })
     }
 

@@ -18,9 +18,9 @@ def Nat::add (a: Nat, b: Nat): Nat :=
         b,
         λ(_: Nat) => Nat,
         a,
-        λ(_: Nat, r: Nat) => r.succ)
+        λ(_: Nat, r: Nat) => Nat::succ(r))
 
-reduce 1.add(2)
+reduce Nat::add(1, 2)
 ";
 
     let tokens = kibi::parser::Tokenizer::tokenize(&arena, input.as_bytes());
@@ -37,6 +37,7 @@ reduce 1.add(2)
 
         match &item.kind {
             ItemKind::Def(def) => {
+                elab.elab_def(def).unwrap();
             }
 
             ItemKind::Reduce(expr) => {

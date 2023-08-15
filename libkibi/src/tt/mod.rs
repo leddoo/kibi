@@ -78,7 +78,7 @@ impl<'a> Alloc<'a> {
     }
 
     #[inline(always)]
-    pub fn mkt_global(&self, id: GlobalId, levels: LevelList<'a>) -> TermRef<'a> {
+    pub fn mkt_global(&self, id: SymbolId, levels: LevelList<'a>) -> TermRef<'a> {
         self.arena.alloc_new(Term::mk_global(id, levels))
     }
 

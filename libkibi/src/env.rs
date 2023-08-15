@@ -81,15 +81,38 @@ impl<'a> Env<'a> {
         }
     }
 
+    #[inline(always)]
+    pub fn new_symbol(&mut self, ns: NamespaceId, name: &'a str, kind: SymbolKind<'a>) -> Option<SymbolId> {
+        if self.lookup(ns, name).is_some() {
+            return None;
+        }
+
+        let symbol = self.symbols.push(Symbol {
+            parent_ns: ns,
+            own_ns: None.into(),
+            name,
+            kind,
+        });
+
+        self.namespaces[ns].entries.push(NsEntry { name, symbol });
+
+        return Some(symbol);
+    }
+
+
     pub fn create_nat(&mut self) -> SymbolId {
-        let root_ns = NamespaceId::ROOT;
         let nat_ns = self.namespaces.next_key();
 
         let nat = self.symbols.push(Symbol {
-            parent_ns: root_ns,
+            parent_ns: NamespaceId::ROOT,
             own_ns: nat_ns.some(),
             name: "Nat",
             kind: SymbolKind::BuiltIn(symbol::BuiltIn::Nat),
+        });
+
+        self.namespaces[NamespaceId::ROOT].entries.push(NsEntry {
+            name: "Nat",
+            symbol: nat,
         });
 
         let nat_zero = self.symbols.push(Symbol {
@@ -154,7 +177,7 @@ impl<'a> Env<'a> {
 
 
     #[inline(always)]
-    pub fn symbol(&self, id: SymbolId) -> &Symbol {
+    pub fn symbol(&self, id: SymbolId) -> &Symbol<'a> {
         &self.symbols[id]
     }
 

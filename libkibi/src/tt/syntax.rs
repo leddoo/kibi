@@ -1,6 +1,7 @@
 use sti::vec::Vec;
 
 pub use super::local_ctx::LocalId;
+pub use crate::env::SymbolId;
 
 
 pub type LevelRef<'a> = &'a Level<'a>;
@@ -71,16 +72,13 @@ pub enum TermKind<'a> {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BVar(pub u32);
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct GlobalId(pub u32);
-
 
 pub mod term {
     use super::*;
 
     #[derive(Clone, Copy, Debug)]
     pub struct Global<'a> {
-        pub id: GlobalId,
+        pub id: SymbolId,
         pub levels: LevelList<'a>,
     }
 
@@ -261,7 +259,7 @@ impl<'a> Term<'a> {
     }
 
     #[inline(always)]
-    pub const fn mk_global(id: GlobalId, levels: LevelList<'a>) -> Self {
+    pub const fn mk_global(id: SymbolId, levels: LevelList<'a>) -> Self {
         Self { kind: TermKind::Global(term::Global { id, levels }) }
     }
 
