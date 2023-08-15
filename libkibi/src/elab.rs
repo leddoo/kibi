@@ -3,21 +3,27 @@ use sti::vec::Vec;
 
 use crate::ast::{self, *};
 use crate::tt::{self, *};
+use crate::env::*;
 
 
-pub struct Elab<'a> {
+pub struct Elab<'a, 'e> {
     alloc: tt::Alloc<'a>,
+
+    env: &'e mut Env<'a>,
+    ns: NamespaceId,
 
     lctx: LocalCtx<'a>,
     locals: Vec<(&'a str, LocalId)>,
 }
 
-impl<'a> Elab<'a> {
+impl<'a, 'e> Elab<'a, 'e> {
     #[inline(always)]
-    pub fn new(arena: &'a GrowingArena) -> Self {
+    pub fn new(env: &'e mut Env<'a>, ns: NamespaceId, arena: &'a GrowingArena) -> Self {
         let alloc = tt::Alloc::new(arena);
         Self {
             alloc,
+            env,
+            ns,
             lctx: LocalCtx::new(alloc),
             locals: Vec::new(),
         }
@@ -56,43 +62,25 @@ impl<'a> Elab<'a> {
 
     pub fn elab_expr_ex(&mut self, expr: &Expr<'a>, expected_ty: Option<TermRef<'a>>) -> Option<(TermRef<'a>, TermRef<'a>)> {
         Some(match &expr.kind {
-            ExprKind::Ident(ident) => {
-                match *ident {
-                    "Nat"     => (Term::NAT, Term::SORT_1),
-                    "NatZero" => (Term::NAT_ZERO, Term::NAT),
-                    "NatSucc" => (Term::NAT_SUCC, Term::NAT_SUCC_TY),
-
-                    "NatRec" => unimplemented!(),
-
-                    _ => {
-                        for (name, id) in self.locals.iter().rev() {
-                            if name == ident {
-                                let ty = self.lctx.lookup(*id).ty;
-                                return Some((self.alloc.mkt_local(*id), ty));
-                            }
-                        }
-
-                        println!("unknown ident {:?}", ident);
-                        return None;
-                    }
+            ExprKind::Ident(name) => {
+                if let Some(local) = self.lookup_local(name) {
+                    let ty = self.lctx.lookup(local).ty;
+                    (self.alloc.mkt_local(local), ty)
+                }
+                else {
+                    let symbol = self.lookup_symbol_ident(name)?;
+                    self.elab_symbol(symbol, &[])?
                 }
             }
 
+            ExprKind::Path(path) => {
+                let symbol = self.lookup_symbol_path(path)?;
+                self.elab_symbol(symbol, &[])?
+            }
+
             ExprKind::Levels(it) => {
-                match it.ident {
-                    "NatRec" => {
-                        if it.levels.len() != 1 {
-                            println!("NatRec requires exactly one level");
-                            return None;
-                        }
-
-                        let l = self.elab_level(&it.levels[0])?;
-                        (self.alloc.mkt_nat_rec(l),
-                         self.alloc.mkt_nat_rec_ty(l))
-                    }
-
-                    _ => todo!(),
-                }
+                let symbol = self.lookup_symbol_expr(it.expr)?;
+                self.elab_symbol(symbol, it.levels)?
             }
 
             ExprKind::Forall(_) => {
@@ -152,7 +140,7 @@ impl<'a> Elab<'a> {
             }
 
             _ => {
-                println!("unsupported expr kind");
+                println!("unimp expr kind {:?}", expr);
                 return None
             }
         })
@@ -185,6 +173,120 @@ impl<'a> Elab<'a> {
         println!("type expected");
         return None;
     }
+
+
+    fn lookup_local(&self, name: &str) -> Option<LocalId> {
+        for (n, id) in self.locals.iter().rev().copied() {
+            if n == name {
+                return Some(id);
+            }
+        }
+        None
+    }
+
+    fn lookup_symbol_ident(&self, name: &str) -> Option<SymbolId> {
+        let Some(entry) = self.env.lookup(self.ns, name) else {
+            println!("symbol not found: {:?}", name);
+            return None;
+        };
+        Some(entry.symbol)
+    }
+
+    fn lookup_symbol_path(&self, path: &expr::Path) -> Option<SymbolId> {
+        if path.local {
+            let mut result = self.lookup_symbol_ident(path.parts[0])?;
+
+            for part in &path.parts[1..] {
+                let symbol = self.env.symbol(result);
+
+                let Some(ns) = symbol.own_ns.to_option() else {
+                    println!("symbol doesn't have ns");
+                    return None;
+                };
+
+                let Some(entry) = self.env.lookup(ns, part) else {
+                    println!("symbol not found: {:?}", part);
+                    return None;
+                };
+                result = entry.symbol;
+            }
+
+            Some(result)
+        }
+        else {
+            unimplemented!()
+        }
+    }
+
+    fn lookup_symbol_expr(&self, expr: &Expr) -> Option<SymbolId> {
+        match &expr.kind {
+            ExprKind::Ident(name) => {
+                if self.lookup_local(*name).is_some() {
+                    println!("symbol shadowed by local");
+                    return None;
+                }
+
+                self.lookup_symbol_ident(*name)
+            }
+
+            ExprKind::Path(path) => {
+                self.lookup_symbol_path(path)
+            }
+
+            _ => {
+                println!("invalid symbol expr");
+                return None;
+            }
+        }
+    }
+
+
+    fn elab_symbol(&mut self, id: SymbolId, levels: &[ast::Level<'a>]) -> Option<(TermRef<'a>, TermRef<'a>)> {
+        let symbol = self.env.symbol(id);
+        Some(match symbol.kind {
+            SymbolKind::BuiltIn(b) => {
+                match b {
+                    symbol::BuiltIn::Nat => {
+                        if levels.len() != 0 {
+                            println!("Nat takes no levels");
+                            return None;
+                        }
+                        (Term::NAT, Term::SORT_1)
+                    }
+
+                    symbol::BuiltIn::NatZero => {
+                        if levels.len() != 0 {
+                            println!("Nat.zero takes no levels");
+                            return None;
+                        }
+                        (Term::NAT_ZERO, Term::NAT)
+                    }
+
+                    symbol::BuiltIn::NatSucc => {
+                        if levels.len() != 0 {
+                            println!("Nat.succ takes no levels");
+                            return None;
+                        }
+                        (Term::NAT_SUCC, Term::NAT_SUCC_TY)
+                    }
+
+                    symbol::BuiltIn::NatRec => {
+                        if levels.len() != 1 {
+                            println!("Nat.rec takes exactly 1 level");
+                            return None;
+                        }
+
+                        let l = self.elab_level(&levels[0])?;
+                        (self.alloc.mkt_nat_rec(l),
+                         self.alloc.mkt_nat_rec_ty(l))
+                    }
+                }
+            }
+
+            _ => unimplemented!()
+        })
+    }
+
 
     #[inline(always)]
     pub fn tc<'l>(&mut self) -> TyCtx<'a, '_> {

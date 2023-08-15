@@ -1,4 +1,5 @@
 use kibi::tt::*;
+use kibi::env::*;
 
 
 #[test]
@@ -25,16 +26,20 @@ fn nat_add_elab() {
                             alloc.mkt_bvar(BVar(0))))),
             ])));
 
+    let mut env = Env::new();
+    let nat = env.create_nat();
+    let ns  = env.create_initial(nat);
+
     let nat_add = {
         let input = "λ(a: Nat, b: Nat) =>
-            NatRec.{1}(b, λ(_: Nat) => Nat, a, λ(_: Nat, r: Nat) => NatSucc(r))";
+            Nat::rec.{1}(b, λ(_: Nat) => Nat, a, λ(_: Nat, r: Nat) => Nat::succ(r))";
 
         let tokens = kibi::parser::Tokenizer::tokenize(&arena, input.as_bytes());
 
         let mut parser = kibi::parser::Parser::new(&arena, &tokens);
         let ast = parser.parse_expr().unwrap();
 
-        let mut elab = kibi::elab::Elab::new(&arena);
+        let mut elab = kibi::elab::Elab::new(&mut env, ns, &arena);
         let (term, _) = elab.elab_expr(&ast).unwrap();
 
         assert!(term.syntax_eq(nat_add));

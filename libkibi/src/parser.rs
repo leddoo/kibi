@@ -70,7 +70,10 @@ impl<'a> Tokenizer<'a> {
                 ';' => TokenKind::Semicolon,
 
                 ':' => {
-                    if self.reader.consume_if_eq(&b'=') {
+                    if self.reader.consume_if_eq(&b':') {
+                        TokenKind::ColonColon
+                    }
+                    else if self.reader.consume_if_eq(&b'=') {
                         TokenKind::ColonEq
                     }
                     else { TokenKind::Colon }
@@ -313,7 +316,10 @@ impl<'t, 'a> Parser<'t, 'a> {
                 ItemKind::Reduce(expr)
             }
 
-            _ => return None,
+            _ => {
+                println!("unexpected {:?}", at);
+                return None;
+            }
         };
 
         Some(Item { kind })
@@ -380,13 +386,12 @@ impl<'t, 'a> Parser<'t, 'a> {
                     }
 
                     TokenKind::LCurly => {
-                        let ExprKind::Ident(ident) = result.kind else { return None };
-
                         let levels = self.sep_by(TokenKind::Comma, TokenKind::RCurly, |this| {
                             this.parse_level()
                         })?;
 
-                        ExprKind::Levels(expr::Levels { ident, levels })
+                        let expr = self.arena.alloc_new(result);
+                        ExprKind::Levels(expr::Levels { expr, levels })
                     }
 
                     _ => return None,
@@ -424,7 +429,27 @@ impl<'t, 'a> Parser<'t, 'a> {
 
         let kind = 'kind: {
             'next: { break 'kind match at.kind {
-                TokenKind::Ident(ident) => ExprKind::Ident(ident),
+                TokenKind::Ident(ident) => {
+                    if self.tokens.consume_if(|at| at.kind == TokenKind::ColonColon) {
+                        // @speed: temp arena.
+                        let mut parts = Vec::new();
+                        parts.push(ident);
+
+                        loop {
+                            let at = self.tokens.next_ref()?;
+                            let TokenKind::Ident(part) = at.kind else { return None };
+                            parts.push(part);
+
+                            if !self.tokens.consume_if(|at| at.kind == TokenKind::ColonColon) {
+                                break;
+                            }
+                        }
+                        let parts = Vec::leak(parts.clone_in(self.arena));
+
+                        ExprKind::Path(expr::Path { local: true, parts })
+                    }
+                    else { ExprKind::Ident(ident) }
+                }
 
                 TokenKind::Dot => {
                     if let Some(at) = self.tokens.peek_ref() {
@@ -440,12 +465,14 @@ impl<'t, 'a> Parser<'t, 'a> {
 
                 TokenKind::KwSort => {
                     if !self.tokens.consume_if(|at| at.kind == TokenKind::LParen) {
+                        println!("expected '('");
                         return None;
                     }
 
                     let level = self.arena.alloc_new(self.parse_level()?);
 
                     if !self.tokens.consume_if(|at| at.kind == TokenKind::RParen) {
+                        println!("expected ')'");
                         return None;
                     }
 
@@ -573,18 +600,21 @@ impl<'t, 'a> Parser<'t, 'a> {
             TokenKind::Ident(v) => {
                 if v == "max" || v == "imax" {
                     if !self.tokens.consume_if(|at| at.kind == TokenKind::LParen) {
+                        println!("expected '('");
                         return None;
                     }
 
                     let lhs = self.arena.alloc_new(self.parse_level()?);
 
                     if !self.tokens.consume_if(|at| at.kind == TokenKind::Comma) {
+                        println!("expected ','");
                         return None;
                     }
 
                     let rhs = self.arena.alloc_new(self.parse_level()?);
 
                     if !self.tokens.consume_if(|at| at.kind == TokenKind::RParen) {
+                        println!("expected ')'");
                         return None;
                     }
 
@@ -606,12 +636,18 @@ impl<'t, 'a> Parser<'t, 'a> {
                 LevelKind::Nat(v)
             }
 
-            _ => return None,
+            _ => {
+                println!("unexpected {:?}", at);
+                return None;
+            }
         };
 
         if self.tokens.consume_if(|at| at.kind == TokenKind::Add) {
             let at = self.tokens.next_ref()?;
-            let TokenKind::Number(v) = at.kind else { return None };
+            let TokenKind::Number(v) = at.kind else {
+                println!("expected number");
+                return None;
+            };
 
             let l = self.arena.alloc_new(Level { kind });
             let v = u32::from_str_radix(v, 10).ok()?;
@@ -623,6 +659,7 @@ impl<'t, 'a> Parser<'t, 'a> {
 
     fn parse_binders(&mut self) -> Option<expr::BinderList<'a>> {
         if !self.tokens.consume_if(|at| at.kind == TokenKind::LParen) {
+            println!("expected '('");
             return None;
         }
 
@@ -633,8 +670,10 @@ impl<'t, 'a> Parser<'t, 'a> {
 
     fn parse_binder(&mut self) -> Option<expr::Binder<'a>> {
         let at = self.tokens.next_ref()?;
-
-        let TokenKind::Ident(name) = at.kind else { return None };
+        let TokenKind::Ident(name) = at.kind else {
+            println!("expected ident");
+            return None
+        };
 
         let name = Some(name).filter(|name| *name != "_");
 

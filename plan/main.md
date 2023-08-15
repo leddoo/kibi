@@ -27,14 +27,13 @@
 
 
 - todo:
-    - namespaces.
-        - ident lookup.
     - def.
-        - syntax.
-        - env.
+        - parse.
+        - add to env.
         - unfold.
     - error messages.
         - term printing.
+    - method call syntax.
     - dot-idents.
     - level inference.
         - ivars.

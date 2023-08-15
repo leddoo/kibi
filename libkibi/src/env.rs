@@ -32,7 +32,7 @@ pub enum SymbolKind<'a> {
 pub mod symbol {
     use super::*;
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug, PartialEq)]
     pub enum BuiltIn {
         Nat,
         NatZero,
@@ -40,7 +40,7 @@ pub mod symbol {
         NatRec,
     }
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct Def<'a> {
         pub num_levels: u32,
         pub ty:  TermRef<'a>,
@@ -153,6 +153,11 @@ impl<'a> Env<'a> {
         })
     }
 
+
+    #[inline(always)]
+    pub fn symbol(&self, id: SymbolId) -> &Symbol {
+        &self.symbols[id]
+    }
 
     pub fn lookup(&self, ns: NamespaceId, name: &str) -> Option<&NsEntry<'a>> {
         let ns = &self.namespaces[ns];

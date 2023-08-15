@@ -66,6 +66,7 @@ pub enum TokenKind<'a> {
     Comma,
     Semicolon,
     Colon,
+    ColonColon,
     ColonEq,
 
     Arrow,
@@ -92,29 +93,6 @@ pub enum TokenKind<'a> {
     Lt,
     Ge,
     Gt,
-}
-
-
-
-//
-// ast common
-//
-
-#[derive(Clone, Copy, Debug)]
-pub struct Ident<'a> {
-    pub span: Span<'a>
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct Path<'a> {
-    pub span: Span<'a>
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum GenericIdent<'a> {
-    Ident(Ident<'a>),
-    DotIdent(Ident<'a>),
-    Path(Path<'a>),
 }
 
 
@@ -177,7 +155,7 @@ pub mod stmt {
     #[derive(Debug)]
     pub struct Let<'a> {
         pub is_var: bool,
-        pub ident:  Ident<'a>,
+        pub ident:  &'a str,
         pub ty:     Option<ExprRef<'a>>,
         pub value:  Option<ExprRef<'a>>,
     }
@@ -204,7 +182,7 @@ pub enum ExprKind<'a> {
 
     Ident(&'a str),
     DotIdent(&'a str),
-    Path(Path<'a>),
+    Path(expr::Path<'a>),
 
     Levels(expr::Levels<'a>),
     Sort(LevelRef<'a>),
@@ -246,8 +224,15 @@ pub mod expr {
 
 
     #[derive(Debug)]
+    pub struct Path<'a> {
+        pub local: bool,
+        pub parts: &'a [&'a str],
+    }
+
+
+    #[derive(Debug)]
     pub struct Levels<'a> {
-        pub ident:  &'a str,
+        pub expr:   ExprRef<'a>,
         pub levels: LevelList<'a>,
     }
 
@@ -351,7 +336,7 @@ pub mod expr {
 
     #[derive(Debug)]
     pub struct NamedArg<'a> {
-        pub name:  Ident<'a>,
+        pub name:  &'a str,
         pub value: Expr<'a>,
     }
 
@@ -372,7 +357,7 @@ pub mod expr {
 
     #[derive(Debug)]
     pub struct MapEntry<'a> {
-        pub key:   Ident<'a>,
+        pub key:   &'a str,
         pub value: ExprRef<'a>,
     }
 
@@ -393,8 +378,8 @@ pub mod expr {
 
     #[derive(Debug)]
     pub struct MatchCase<'a> {
-        pub ctor:    GenericIdent<'a>,
-        pub binding: Option<Ident<'a>>,
+        //pub ctor:    GenericIdent<'a>,
+        pub binding: Option<&'a str>,
         pub expr:    ExprRef<'a>,
     }
 
