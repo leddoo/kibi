@@ -4,6 +4,8 @@
 // common
 //
 
+pub use crate::source_map::SourceRange;
+
 #[derive(Debug)]
 pub struct Path<'a> {
     pub local: bool,
@@ -34,6 +36,7 @@ pub type BinderList<'a> = &'a mut [Binder<'a>];
 
 #[derive(Debug)]
 pub struct Token<'a> {
+    pub source: SourceRange,
     pub kind: TokenKind<'a>,
 }
 
@@ -193,6 +196,7 @@ pub type ExprList<'a> = &'a mut [Expr<'a>];
 
 #[derive(Debug)]
 pub struct Expr<'a> {
+    pub source: SourceRange,
     pub kind: ExprKind<'a>,
 }
 
@@ -391,7 +395,6 @@ pub mod expr {
     pub struct If<'a> {
         pub cond:  ExprRef<'a>,
         pub then:  Block<'a>,
-        pub elifs: IfCaseList<'a>,
         pub els:   Option<ExprRef<'a>>,
     }
 

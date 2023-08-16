@@ -23,7 +23,7 @@ def Nat::add (a: Nat, b: Nat): Nat :=
 reduce Nat::add(1, 2)
 ";
 
-    let tokens = kibi::parser::Tokenizer::tokenize(&arena, input.as_bytes());
+    let tokens = kibi::parser::Tokenizer::tokenize(&arena, 0, input.as_bytes());
 
     let mut env = Env::new();
     let nat = env.create_nat();

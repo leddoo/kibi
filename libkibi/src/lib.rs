@@ -1,3 +1,4 @@
+pub mod source_map;
 pub mod ast;
 pub mod parser;
 pub mod tt;

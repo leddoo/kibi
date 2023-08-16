@@ -27,19 +27,24 @@
 
 
 - todo:
-    - def.
-        - handle levels.
-        - unfold.
     - error messages.
+        - collect errors.
+        - print errors.
+            - source map.
         - term printing.
+    - def levels.
+    - def unfold.
     - method call syntax.
     - dot-idents.
     - level inference.
         - ivars.
     - term inference.
-    - motive inference.
+    - error resilience.
+        - `ax_sorry`.
     - implicit params.
+        - new binder syntax.
         - binder info.
+    - motive inference.
     - var to let.
     - `fib_iter`.
 
@@ -47,9 +52,11 @@
     - sti:
         - Vec::truncate track caller.
         - KVec::truncate, clone.
+        - swiss table.
 
 
 - backlog:
+    - `Term::hash` for faster `syntax_eq`.
     - fix number parsing: `1.a` not `"1." "a"`.
     - parser:
         - labels.

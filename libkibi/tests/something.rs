@@ -34,7 +34,7 @@ fn nat_add_elab() {
         let input = "λ(a: Nat, b: Nat) =>
             Nat::rec.{1}(b, λ(_: Nat) => Nat, a, λ(_: Nat, r: Nat) => Nat::succ(r))";
 
-        let tokens = kibi::parser::Tokenizer::tokenize(&arena, input.as_bytes());
+        let tokens = kibi::parser::Tokenizer::tokenize(&arena, 0, input.as_bytes());
 
         let mut parser = kibi::parser::Parser::new(&arena, &tokens);
         let ast = parser.parse_expr().unwrap();

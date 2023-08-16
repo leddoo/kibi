@@ -9,21 +9,22 @@ use crate::ast::*;
 pub struct Tokenizer<'a> {
     #[allow(dead_code)]
     pub arena:  &'a GrowingArena,
+    pub source_offset: u32,
     pub reader: Reader<'a, u8>,
 }
 
 impl<'a> Tokenizer<'a> {
-    pub fn tokenize(arena: &'a GrowingArena, input: &'a [u8]) -> Vec<Token<'a>> {
-        Self::tokenize_in(arena, GlobalAlloc, input)
+    pub fn tokenize(arena: &'a GrowingArena, source_offset: u32, input: &'a [u8]) -> Vec<Token<'a>> {
+        Self::tokenize_in(arena, GlobalAlloc, source_offset, input)
     }
 
-    pub fn tokenize_in<A: Alloc>(arena: &'a GrowingArena, alloc: A, input: &'a [u8]) -> Vec<Token<'a>, A> {
-        Self::new(arena, input).run_in(alloc)
+    pub fn tokenize_in<A: Alloc>(arena: &'a GrowingArena, alloc: A, source_offset: u32, input: &'a [u8]) -> Vec<Token<'a>, A> {
+        Self::new(arena, source_offset, input).run_in(alloc)
     }
 
 
-    pub fn new(arena: &'a GrowingArena, input: &'a [u8]) -> Self {
-        Self { arena, reader: Reader::new(input) }
+    pub fn new(arena: &'a GrowingArena, source_offset: u32, input: &'a [u8]) -> Self {
+        Self { arena, source_offset, reader: Reader::new(input) }
     }
 
     pub fn run(&mut self) -> Vec<Token<'a>> {
@@ -52,7 +53,7 @@ impl<'a> Tokenizer<'a> {
             break;
         }
 
-        let start_offset = self.reader.offset();
+        let begin_offset = self.reader.offset();
         let at = self.reader.next()?;
 
         let kind = 'kind: {
@@ -192,7 +193,7 @@ impl<'a> Tokenizer<'a> {
             */
             // idents & keywords.
             else if at.is_ascii_alphabetic() || at == b'_' {
-                let (value, _) = self.reader.consume_while_slice_from(start_offset, |at|
+                let (value, _) = self.reader.consume_while_slice_from(begin_offset, |at|
                     at.is_ascii_alphanumeric() || *at == b'_');
 
                 let value = unsafe { core::str::from_utf8_unchecked(value) };
@@ -250,7 +251,7 @@ impl<'a> Tokenizer<'a> {
                     }
                 }
 
-                let value = &self.reader.consumed_slice()[start_offset..];
+                let value = &self.reader.consumed_slice()[begin_offset..];
                 let value = unsafe { core::str::from_utf8_unchecked(value) };
 
                 TokenKind::Number(value)
@@ -261,9 +262,13 @@ impl<'a> Tokenizer<'a> {
             }
         };
 
-        Some(Token {
-            kind,
-        })
+        let end_offset = self.reader.offset();
+        let source = SourceRange {
+            begin: self.source_offset + begin_offset as u32,
+            end:   self.source_offset + end_offset as u32,
+        };
+
+        Some(Token { source, kind })
     }
 
 
@@ -386,6 +391,7 @@ impl<'t, 'a> Parser<'t, 'a> {
         let mut result = self.parse_leading_expr(flags, prec)?;
 
         while let Some(at) = self.tokens.peek_ref() {
+            let source_begin = result.source;
 
             // infix operators.
             if let Some(op) = InfixOp::from_token(at) {
@@ -395,6 +401,8 @@ impl<'t, 'a> Parser<'t, 'a> {
                     let lhs = self.arena.alloc_new(result);
                     let rhs = self.arena.alloc_new(
                         self.parse_expr_ex(op.rprec())?);
+
+                    let source = source_begin.join(rhs.source);
 
                     let kind = match op {
                         InfixOp::Assign =>
@@ -407,7 +415,7 @@ impl<'t, 'a> Parser<'t, 'a> {
                             ExprKind::Op2(expr::Op2 { op, lhs, rhs }),
                     };
 
-                    result = Expr { kind };
+                    result = Expr { source, kind };
 
                     continue;
                 }
@@ -450,7 +458,8 @@ impl<'t, 'a> Parser<'t, 'a> {
                     _ => return None,
                 };
 
-                result = Expr { kind };
+                let source = source_begin.join(self.prev_token_source());
+                result = Expr { source, kind };
 
                 continue;
             }
@@ -464,11 +473,12 @@ impl<'t, 'a> Parser<'t, 'a> {
                     .map(|value| expr::CallArg::Positional(value))
                 })?;
 
+                let source = source_begin.join(self.prev_token_source());
                 let kind = ExprKind::Call(expr::Call {
                     func: self.arena.alloc_new(result),
                     args,
                 });
-                result = Expr { kind };
+                result = Expr { source, kind };
             }
 
             break;
@@ -479,6 +489,8 @@ impl<'t, 'a> Parser<'t, 'a> {
 
     fn parse_leading_expr(&mut self, flags: ParseExprFlags, prec: u32) -> Option<Expr<'a>> {
         let at = self.tokens.next_ref()?;
+
+        let source_begin = at.source;
 
         let kind = 'kind: {
             'next: { break 'kind match at.kind {
@@ -642,7 +654,8 @@ impl<'t, 'a> Parser<'t, 'a> {
             ExprKind::Error
         };
 
-        return Some(Expr { kind });
+        let source = source_begin.join(self.prev_token_source());
+        return Some(Expr { source, kind });
     }
 
 
@@ -795,6 +808,12 @@ impl<'t, 'a> Parser<'t, 'a> {
             return None;
         }
         return Some(result);
+    }
+
+    #[track_caller]
+    #[inline(always)]
+    fn prev_token_source(&self) -> SourceRange {
+        self.tokens.consumed_slice().last().unwrap().source
     }
 }
 
