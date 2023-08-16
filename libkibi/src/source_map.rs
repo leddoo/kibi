@@ -6,6 +6,11 @@ pub struct SourceRange {
 }
 
 impl SourceRange {
+    #[inline(always)]
+    pub fn collapsed(pos: u32) -> SourceRange {
+        SourceRange { begin: pos, end: pos }
+    }
+
     #[track_caller]
     #[inline(always)]
     pub fn join(self, other: SourceRange) -> SourceRange {

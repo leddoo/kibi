@@ -28,9 +28,7 @@
 
 - todo:
     - error messages.
-        - collect errors.
-        - print errors.
-            - source map.
+        - elab errors.
         - term printing.
     - def levels.
     - def unfold.

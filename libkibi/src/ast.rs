@@ -118,6 +118,75 @@ pub enum TokenKind<'a> {
 }
 
 
+impl<'a> TokenKind<'a> {
+    pub fn repr(&self) -> &'static str {
+        match self {
+            TokenKind::Error => unreachable!(),
+            TokenKind::Ident(_) => "ident",
+            TokenKind::Bool(_) => "bool",
+            TokenKind::Number(_) => "number",
+            TokenKind::String(_) => "string",
+            TokenKind::KwSort => "'Sort'",
+            TokenKind::KwProp => "'Prop'",
+            TokenKind::KwType => "'Type'",
+            TokenKind::KwLam => "'λ' | 'lam'",
+            TokenKind::KwPi => "'Π' | 'Pi'",
+            TokenKind::KwDef => "'def'",
+            TokenKind::KwLet => "'let'",
+            TokenKind::KwVar => "'var'",
+            TokenKind::KwDo => "'do'",
+            TokenKind::KwIf => "'if'",
+            TokenKind::KwElif => "'elif'",
+            TokenKind::KwElse => "'else'",
+            TokenKind::KwWhile => "'while'",
+            TokenKind::KwFor => "'for'",
+            TokenKind::KwIn => "'in'",
+            TokenKind::KwBreak => "'break'",
+            TokenKind::KwContinue => "'continue'",
+            TokenKind::KwReturn => "'return'",
+            TokenKind::KwFn => "'fn'",
+            TokenKind::KwAnd => "'and'",
+            TokenKind::KwOr => "'or'",
+            TokenKind::KwNot => "'not'",
+            TokenKind::LParen => "'('",
+            TokenKind::RParen => "')'",
+            TokenKind::LBracket => "'['",
+            TokenKind::RBracket => "']'",
+            TokenKind::LCurly => "'{'",
+            TokenKind::RCurly => "'}'",
+            TokenKind::Dot => "'.'",
+            TokenKind::Comma => "','",
+            TokenKind::Semicolon => "';'",
+            TokenKind::Colon => "':'",
+            TokenKind::ColonColon => "'::'",
+            TokenKind::ColonEq => "':='",
+            TokenKind::Arrow => "'->'",
+            TokenKind::FatArrow => "'=>'",
+            TokenKind::Add => "'+'",
+            TokenKind::AddAssign => "'+='",
+            TokenKind::Minus => "'-'",
+            TokenKind::SubAssign => "'-='",
+            TokenKind::Star => "'*'",
+            TokenKind::MulAssign => "'*='",
+            TokenKind::Div => "'/'",
+            TokenKind::DivAssign => "'/='",
+            TokenKind::FloorDiv => "'//'",
+            TokenKind::FloorDivAssign => "'//='",
+            TokenKind::Rem => "'%'",
+            TokenKind::RemAssign => "'%='",
+            TokenKind::Eq => "'='",
+            TokenKind::EqEq => "'=='",
+            TokenKind::Not => "''!",
+            TokenKind::NotEq => "'!='",
+            TokenKind::Le => "'<='",
+            TokenKind::Lt => "'<'",
+            TokenKind::Ge => "'>='",
+            TokenKind::Gt => "'>'",
+        }
+    }
+}
+
+
 
 //
 // items

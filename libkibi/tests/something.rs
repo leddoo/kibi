@@ -1,3 +1,5 @@
+use sti::vec::Vec;
+
 use kibi::tt::*;
 use kibi::env::*;
 
@@ -36,8 +38,10 @@ fn nat_add_elab() {
 
         let tokens = kibi::parser::Tokenizer::tokenize(&arena, 0, input.as_bytes());
 
-        let mut parser = kibi::parser::Parser::new(&arena, &tokens);
+        let mut errors = Vec::new();
+        let mut parser = kibi::parser::Parser::new(&arena, &mut errors, &tokens);
         let ast = parser.parse_expr().unwrap();
+        assert!(errors.is_empty());
 
         let mut elab = kibi::elab::Elab::new(&mut env, ns, &arena);
         let (term, _) = elab.elab_expr(&ast).unwrap();

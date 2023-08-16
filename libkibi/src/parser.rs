@@ -3,6 +3,7 @@ use sti::growing_arena::GrowingArena;
 use sti::vec::Vec;
 use sti::reader::Reader;
 
+use crate::error::*;
 use crate::ast::*;
 
 
@@ -310,14 +311,15 @@ impl Default for ParseExprFlags {
 }
 
 
-pub struct Parser<'t, 'a> {
+pub struct Parser<'a, 'p> {
     pub arena:  &'a GrowingArena,
-    pub tokens: Reader<'t, Token<'a>>,
+    pub errors: &'p mut Vec<Error<'a>>,
+    pub tokens: Reader<'p, Token<'a>>,
 }
 
-impl<'t, 'a> Parser<'t, 'a> {
-    pub fn new(arena: &'a GrowingArena, tokens: &'t [Token<'a>]) -> Self {
-        Self { arena, tokens: Reader::new(tokens) }
+impl<'a, 'p> Parser<'a, 'p> {
+    pub fn new(arena: &'a GrowingArena, errors: &'p mut Vec<Error<'a>>, tokens: &'p [Token<'a>]) -> Self {
+        Self { arena, errors, tokens: Reader::new(tokens) }
     }
 
     pub fn parse_item(&mut self) -> Option<Item<'a>> {
@@ -334,7 +336,7 @@ impl<'t, 'a> Parser<'t, 'a> {
                     ExprKind::Levels(levels) => (levels.symbol, levels.levels),
 
                     _ => {
-                        println!("expected ident or path");
+                        self.error_expect(name.source, "ident | path");
                         return None;
                     }
                 };
@@ -351,10 +353,7 @@ impl<'t, 'a> Parser<'t, 'a> {
                     ty = Some(self.parse_expr()?);
                 }
 
-                if !self.tokens.consume_if(|at| at.kind == TokenKind::ColonEq) {
-                    println!("expected ':='");
-                    return None;
-                }
+                self.expect(TokenKind::ColonEq)?;
 
                 let value = self.parse_expr()?;
 
@@ -367,7 +366,7 @@ impl<'t, 'a> Parser<'t, 'a> {
             }
 
             _ => {
-                println!("unexpected {:?}", at);
+                self.error_unexpected(at);
                 return None;
             }
         };
@@ -443,7 +442,7 @@ impl<'t, 'a> Parser<'t, 'a> {
                             ExprKind::Ident(name) => IdentOrPath::Ident(name),
                             ExprKind::Path(path)  => IdentOrPath::Path(path),
                             _ => {
-                                println!("expected ident or path");
+                                self.error_expect(result.source, "ident | path");
                                 return None;
                             }
                         };
@@ -524,23 +523,14 @@ impl<'t, 'a> Parser<'t, 'a> {
                     }
 
                     // @temp
-                    ExprKind::Error
+                    return None;
                 }
 
 
                 TokenKind::KwSort => {
-                    if !self.tokens.consume_if(|at| at.kind == TokenKind::LParen) {
-                        println!("expected '('");
-                        return None;
-                    }
-
+                    self.expect(TokenKind::LParen)?;
                     let level = self.arena.alloc_new(self.parse_level()?);
-
-                    if !self.tokens.consume_if(|at| at.kind == TokenKind::RParen) {
-                        println!("expected ')'");
-                        return None;
-                    }
-
+                    self.expect(TokenKind::RParen)?;
                     ExprKind::Sort(level)
                 }
 
@@ -567,7 +557,7 @@ impl<'t, 'a> Parser<'t, 'a> {
                     }
                     else {
                         // @temp
-                        ExprKind::Error
+                        return None;
                     }
                 }
 
@@ -595,9 +585,7 @@ impl<'t, 'a> Parser<'t, 'a> {
                                 .with_type_hint(),
                             0)?);
 
-                    if !self.tokens.consume_if(|at| at.kind == TokenKind::RParen) {
-                        println!("todo: missing `)`");
-                    }
+                    self.expect(TokenKind::RParen)?;
 
                     ExprKind::Parens(inner)
                 }
@@ -626,7 +614,7 @@ impl<'t, 'a> Parser<'t, 'a> {
                 // map & map type.
                 TokenKind::LCurly => {
                     // @temp
-                    ExprKind::Error
+                    return None;
                 }
 
                 /*
@@ -650,8 +638,8 @@ impl<'t, 'a> Parser<'t, 'a> {
             }
 
 
-            // @temp
-            ExprKind::Error
+            self.error_unexpected(at);
+            return None;
         };
 
         let source = source_begin.join(self.prev_token_source());
@@ -665,24 +653,11 @@ impl<'t, 'a> Parser<'t, 'a> {
         let mut kind = match at.kind {
             TokenKind::Ident(v) => {
                 if v == "max" || v == "imax" {
-                    if !self.tokens.consume_if(|at| at.kind == TokenKind::LParen) {
-                        println!("expected '('");
-                        return None;
-                    }
-
+                    self.expect(TokenKind::LParen)?;
                     let lhs = self.arena.alloc_new(self.parse_level()?);
-
-                    if !self.tokens.consume_if(|at| at.kind == TokenKind::Comma) {
-                        println!("expected ','");
-                        return None;
-                    }
-
+                    self.expect(TokenKind::Comma)?;
                     let rhs = self.arena.alloc_new(self.parse_level()?);
-
-                    if !self.tokens.consume_if(|at| at.kind == TokenKind::RParen) {
-                        println!("expected ')'");
-                        return None;
-                    }
+                    self.expect(TokenKind::RParen)?;
 
                     if v == "max" {
                         LevelKind::Max((lhs, rhs))
@@ -703,7 +678,7 @@ impl<'t, 'a> Parser<'t, 'a> {
             }
 
             _ => {
-                println!("unexpected {:?}", at);
+                self.error_unexpected(at);
                 return None;
             }
         };
@@ -711,7 +686,7 @@ impl<'t, 'a> Parser<'t, 'a> {
         if self.tokens.consume_if(|at| at.kind == TokenKind::Add) {
             let at = self.tokens.next_ref()?;
             let TokenKind::Number(v) = at.kind else {
-                println!("expected number");
+                self.error_expect(at.source, "number");
                 return None;
             };
 
@@ -724,10 +699,7 @@ impl<'t, 'a> Parser<'t, 'a> {
     }
 
     fn parse_binders(&mut self) -> Option<BinderList<'a>> {
-        if !self.tokens.consume_if(|at| at.kind == TokenKind::LParen) {
-            println!("expected '('");
-            return None;
-        }
+        self.expect(TokenKind::LParen)?;
 
         self.sep_by(TokenKind::Comma, TokenKind::RParen, |this| {
             this.parse_binder()
@@ -737,7 +709,7 @@ impl<'t, 'a> Parser<'t, 'a> {
     fn parse_binder(&mut self) -> Option<Binder<'a>> {
         let at = self.tokens.next_ref()?;
         let TokenKind::Ident(name) = at.kind else {
-            println!("expected ident");
+            self.error_expect(at.source, "ident");
             return None
         };
 
@@ -755,7 +727,7 @@ impl<'t, 'a> Parser<'t, 'a> {
 
     // returns: (exprs, last_had_sep, had_error)
     #[inline]
-    fn sep_by_ex<T, F: FnMut(&mut Parser<'t, 'a>) -> Option<T>>
+    fn sep_by_ex<T, F: FnMut(&mut Parser<'a, 'p>) -> Option<T>>
         (&mut self, sep: TokenKind<'static>, end: TokenKind<'static>, mut f: F)
         -> (&'a mut [T], bool, bool)
     {
@@ -763,6 +735,7 @@ impl<'t, 'a> Parser<'t, 'a> {
         let mut buffer = Vec::new();
 
         let mut last_had_sep = true;
+        let mut last_end = 0;
         let mut had_error = false;
         loop {
             if self.tokens.consume_if(|at| at.kind == end) {
@@ -770,11 +743,13 @@ impl<'t, 'a> Parser<'t, 'a> {
             }
 
             if !last_had_sep {
-                println!("todo: missing sep error");
+                debug_assert!(last_end != 0);
+                self.error_expect(SourceRange::collapsed(last_end), sep.repr());
             }
 
-            if let Some(expr) = f(self) {
-                buffer.push(expr);
+            if let Some(x) = f(self) {
+                last_end = self.prev_token_source().end;
+                buffer.push(x);
             }
             else {
                 had_error = true;
@@ -786,7 +761,7 @@ impl<'t, 'a> Parser<'t, 'a> {
 
         // @temp: sti Vec::move_into
         //let exprs = Vec::leak(buffer.move_into(self.arena));
-        let exprs = {
+        let result = {
             let mut result = Vec::with_cap_in(buffer.len(), self.arena);
             // @temp: sti Vec::into_iter.
             while let Some(expr) = buffer.pop() {
@@ -795,11 +770,11 @@ impl<'t, 'a> Parser<'t, 'a> {
             result.reverse();
             Vec::leak(result)
         };
-        (exprs, last_had_sep, had_error)
+        (result, last_had_sep, had_error)
     }
 
     #[inline]
-    fn sep_by<T, F: FnMut(&mut Parser<'t, 'a>) -> Option<T>>
+    fn sep_by<T, F: FnMut(&mut Parser<'a, 'p>) -> Option<T>>
         (&mut self, sep: TokenKind<'static>, end: TokenKind<'static>, f: F)
         -> Option<&'a mut [T]>
     {
@@ -814,6 +789,34 @@ impl<'t, 'a> Parser<'t, 'a> {
     #[inline(always)]
     fn prev_token_source(&self) -> SourceRange {
         self.tokens.consumed_slice().last().unwrap().source
+    }
+
+
+    #[inline(always)]
+    fn expect(&mut self, kind: TokenKind) -> Option<()> {
+        let at = self.tokens.next_ref()?;
+        if at.kind != kind {
+            self.error_expect(at.source, kind.repr());
+            return None;
+        }
+        Some(())
+    }
+
+
+    #[inline(always)]
+    fn error_expect(&mut self, source: SourceRange, what: &'a str) {
+        self.errors.push(Error {
+            source,
+            kind: ErrorKind::Parse(ParseError::Expected(what)),
+        });
+    }
+
+    #[inline(always)]
+    fn error_unexpected(&mut self, token: &Token<'a>) {
+        self.errors.push(Error {
+            source: token.source,
+            kind: ErrorKind::Parse(ParseError::Unexpected(token.kind.repr())),
+        });
     }
 }
 
