@@ -133,8 +133,6 @@ impl<'a, 'e> Elab<'a, 'e> {
             ExprKind::Call(it) => {
                 let (mut result, mut result_ty) = self.elab_expr(it.func)?;
 
-                //println!("call {:#?}\n{:#?}\n{:#?}", expr, result, result_ty);
-
                 for arg in it.args.iter() {
                     let expr::CallArg::Positional(arg) = arg else { unimplemented!() };
 

@@ -1,3 +1,4 @@
+pub mod pp;
 pub mod source_map;
 pub mod error;
 pub mod ast;
