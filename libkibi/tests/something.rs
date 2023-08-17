@@ -1,3 +1,4 @@
+use kibi::error::ErrorCtx;
 use sti::vec::Vec;
 
 use kibi::tt::*;
@@ -32,16 +33,17 @@ fn nat_add_elab() {
     let nat = env.create_nat();
     let ns  = env.create_initial(nat);
 
+    let errors = ErrorCtx::new(&arena);
+
     let nat_add = {
         let input = "λ(a: Nat, b: Nat) =>
             Nat::rec.{1}(b, λ(_: Nat) => Nat, a, λ(_: Nat, r: Nat) => Nat::succ(r))";
 
         let tokens = kibi::parser::Tokenizer::tokenize(&arena, 0, input.as_bytes());
 
-        let mut errors = Vec::new();
-        let mut parser = kibi::parser::Parser::new(&arena, &mut errors, &tokens);
+        let mut parser = kibi::parser::Parser::new(&arena, &errors, &tokens);
         let ast = parser.parse_expr().unwrap();
-        assert!(errors.is_empty());
+        errors.with(|errors| assert!(errors.empty()));
 
         let mut elab = kibi::elab::Elab::new(&mut env, ns, &arena);
         let (term, _) = elab.elab_expr(&ast).unwrap();

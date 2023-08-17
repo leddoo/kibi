@@ -311,14 +311,14 @@ impl Default for ParseExprFlags {
 }
 
 
-pub struct Parser<'a, 'p> {
+pub struct Parser<'me, 'err, 'a> {
     pub arena:  &'a GrowingArena,
-    pub errors: &'p mut Vec<Error<'a>>,
-    pub tokens: Reader<'p, Token<'a>>,
+    pub errors: &'me ErrorCtx<'err>,
+    pub tokens: Reader<'me, Token<'a>>,
 }
 
-impl<'a, 'p> Parser<'a, 'p> {
-    pub fn new(arena: &'a GrowingArena, errors: &'p mut Vec<Error<'a>>, tokens: &'p [Token<'a>]) -> Self {
+impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
+    pub fn new(arena: &'a GrowingArena, errors: &'me ErrorCtx<'err>, tokens: &'me [Token<'a>]) -> Self {
         Self { arena, errors, tokens: Reader::new(tokens) }
     }
 
@@ -727,7 +727,7 @@ impl<'a, 'p> Parser<'a, 'p> {
 
     // returns: (exprs, last_had_sep, had_error)
     #[inline]
-    fn sep_by_ex<T, F: FnMut(&mut Parser<'a, 'p>) -> Option<T>>
+    fn sep_by_ex<T, F: FnMut(&mut Self) -> Option<T>>
         (&mut self, sep: TokenKind<'static>, end: TokenKind<'static>, mut f: F)
         -> (&'a mut [T], bool, bool)
     {
@@ -774,7 +774,7 @@ impl<'a, 'p> Parser<'a, 'p> {
     }
 
     #[inline]
-    fn sep_by<T, F: FnMut(&mut Parser<'a, 'p>) -> Option<T>>
+    fn sep_by<T, F: FnMut(&mut Self) -> Option<T>>
         (&mut self, sep: TokenKind<'static>, end: TokenKind<'static>, f: F)
         -> Option<&'a mut [T]>
     {
@@ -803,19 +803,21 @@ impl<'a, 'p> Parser<'a, 'p> {
     }
 
 
-    #[inline(always)]
-    fn error_expect(&mut self, source: SourceRange, what: &'a str) {
-        self.errors.push(Error {
-            source,
-            kind: ErrorKind::Parse(ParseError::Expected(what)),
+    fn error_expect(&mut self, source: SourceRange, what: &'err str) {
+        self.errors.with(|errors| {
+            errors.report(Error {
+                source,
+                kind: ErrorKind::Parse(ParseError::Expected(what)),
+            });
         });
     }
 
-    #[inline(always)]
     fn error_unexpected(&mut self, token: &Token<'a>) {
-        self.errors.push(Error {
-            source: token.source,
-            kind: ErrorKind::Parse(ParseError::Unexpected(token.kind.repr())),
+        self.errors.with(|errors| {
+            errors.report(Error {
+                source: token.source,
+                kind: ErrorKind::Parse(ParseError::Unexpected(token.kind.repr())),
+            });
         });
     }
 }

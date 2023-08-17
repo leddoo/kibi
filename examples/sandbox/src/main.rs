@@ -1,4 +1,4 @@
-use sti::vec::Vec;
+use kibi::error::ErrorCtx;
 
 use kibi::ast::*;
 use kibi::env::*;
@@ -34,11 +34,11 @@ reduce Nat::add(1, 2)
     let nat = env.create_nat();
     let ns = env.create_initial(nat);
 
-    let mut parse_errors = Vec::new();
+    let errors = ErrorCtx::new(&arena);
 
     let mut elab = kibi::elab::Elab::new(&mut env, ns, &arena);
 
-    let mut parser = kibi::parser::Parser::new(&arena, &mut parse_errors, &tokens);
+    let mut parser = kibi::parser::Parser::new(&arena, &errors, &tokens);
     while !parser.tokens.is_empty() {
         let Some(item) = parser.parse_item() else { break };
 
@@ -59,17 +59,16 @@ reduce Nat::add(1, 2)
     let p1 = arena.alloc_ptr::<u8>().as_ptr() as usize;
     println!("total: {:?}", p1 - p0 - 16);
 
-    let mut errors = Vec::new();
-    for e in &parse_errors { errors.push(e) }
-
-    for e in &errors {
-        println!("{:?}", e);
-        let mut begin = (e.source.begin - 10.min(e.source.begin)) as usize;
-        let mut end = (e.source.end   + 10).min(input.len() as u32) as usize;
-        while input.as_bytes()[begin] & 0xc0 == 0x80 { begin -= 1 }
-        while input.as_bytes()[end]   & 0xc0 == 0x80 { end   -= 1 }
-        println!("{:?}", &input[begin..end]);
-    }
+    errors.with(|errors| {
+        errors.iter(|e| {
+            println!("{:?}", e);
+            let mut begin = (e.source.begin - 10.min(e.source.begin)) as usize;
+            let mut end = (e.source.end   + 10).min(input.len() as u32) as usize;
+            while input.as_bytes()[begin] & 0xc0 == 0x80 { begin -= 1 }
+            while input.as_bytes()[end]   & 0xc0 == 0x80 { end   -= 1 }
+            println!("{:?}", &input[begin..end]);
+        });
+    });
 
 
     let alloc = kibi::tt::Alloc::new(&arena);
@@ -88,10 +87,10 @@ reduce Nat::add(1, 2)
 
         let tokens = kibi::parser::Tokenizer::tokenize(&arena, 0, input.as_bytes());
 
-        let mut errors = Vec::new();
-        let mut parser = kibi::parser::Parser::new(&arena, &mut errors, &tokens);
+        let errors = ErrorCtx::new(&arena);
+        let mut parser = kibi::parser::Parser::new(&arena, &errors, &tokens);
         let ast = parser.parse_expr().unwrap();
-        assert!(errors.is_empty());
+        errors.with(|errors| assert!(errors.empty()));
 
         let mut elab = kibi::elab::Elab::new(&mut env, ns, &arena);
         let (term, _) = elab.elab_expr(&ast).unwrap();

@@ -1,4 +1,18 @@
+use core::cell::RefCell;
+use sti::growing_arena::*;
+use sti::vec::Vec;
+
 use crate::source_map::SourceRange;
+
+
+pub struct ErrorCtx<'err> {
+    inner: RefCell<ErrorCtxMut<'err>>,
+}
+
+pub struct ErrorCtxMut<'err> {
+    pub alloc: &'err GrowingArena,
+    errors: Vec<Error<'err>>,
+}
 
 
 #[derive(Clone, Copy, Debug)]
@@ -19,5 +33,40 @@ pub enum ErrorKind<'a> {
 pub enum ParseError<'a> {
     Expected(&'a str),
     Unexpected(&'a str),
+}
+
+
+impl<'err> ErrorCtx<'err> {
+    #[inline(always)]
+    pub fn new(alloc: &'err GrowingArena) -> Self {
+        Self { inner: RefCell::new(ErrorCtxMut {
+            alloc,
+            errors: Vec::new(),
+        })}
+    }
+
+    #[inline(always)]
+    pub fn with<F: FnOnce(&mut ErrorCtxMut<'err>)>(&self, f: F) {
+        f(&mut self.inner.borrow_mut());
+    }
+}
+
+impl<'err> ErrorCtxMut<'err> {
+    #[inline(always)]
+    pub fn report(&mut self, error: Error<'err>) {
+        self.errors.push(error);
+    }
+
+    #[inline(always)]
+    pub fn empty(&self) -> bool {
+        self.errors.is_empty()
+    }
+
+    #[inline(always)]
+    pub fn iter<F: FnMut(&Error<'err>)>(&self, mut f: F) {
+        for e in &self.errors {
+            f(e);
+        }
+    }
 }
 
