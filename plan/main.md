@@ -27,8 +27,10 @@
 
 
 - todo:
+    - better pp:
+        - rm vec.
+        - generic layout.
     - term pp.
-    - pp generic layout impl.
     - error messages.
         - elab errors.
             - 1) we should probably have `'err` and copy all error
@@ -40,6 +42,7 @@
                 - would need to deep clone the entire lctx due to `'e`.
                 - annotated `pp::Doc`s seem fine.
                 - we'll worry about the whole introspection thing later.
+    - fix kernel bugs: all rules must fail.
     - def levels.
     - def unfold.
     - method call syntax.

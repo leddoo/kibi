@@ -74,6 +74,17 @@ reduce Nat::add(1, 2)
 
     let pp = kibi::pp::PP::new(&arena);
 
+    /*
+        want:
+            hello a b c d
+
+            hello a b c
+              d
+
+            hello a b
+              c d
+    */
+
     let p0 = arena.alloc_ptr::<u8>().as_ptr() as usize;
     let doc =
         pp.group(pp.cat(
@@ -81,15 +92,28 @@ reduce Nat::add(1, 2)
                 pp.group(pp.cat(
                     pp.group(pp.cat(
                         pp.text("hello"),
-                        pp.line(0, pp.text("a")))),
-                    pp.line(0, pp.text("b")))),
-                pp.line(0, pp.text("c")))),
-            pp.line(0, pp.text("d"))));
+                        pp.cat(pp.line(), pp.text("a")))),
+                    pp.cat(pp.line(), pp.text("b")))),
+                pp.cat(pp.line(), pp.text("c")))),
+            pp.cat(pp.line(), pp.text("d"))));
+    let p1 = arena.alloc_ptr::<u8>().as_ptr() as usize;
+    println!("pp size: {:?}", p1 - p0 - 16);
+
+    let p0 = arena.alloc_ptr::<u8>().as_ptr() as usize;
+    let doc = pp.group(pp.cats(&[
+        pp.text("hello"),
+        pp.group(pp.indent(1, pp.cats(&[
+            pp.group(pp.cat(pp.line(), pp.text("a,"))),
+            pp.group(pp.cat(pp.line(), pp.text("b,"))),
+            pp.group(pp.cat(pp.line(), pp.text("c,"))),
+            pp.group(pp.cat(pp.line(), pp.text("d;"))),
+        ]))),
+    ]));
     let p1 = arena.alloc_ptr::<u8>().as_ptr() as usize;
     println!("pp size: {:?}", p1 - p0 - 16);
 
     let print = |doc: &kibi::pp::Doc, width: i32| {
-        let doc = pp.best(doc, width);
+        let doc = pp.render(doc, width);
 
         let mut buffer = String::new();
         doc.layout(&mut buffer);
@@ -98,7 +122,7 @@ reduce Nat::add(1, 2)
         println!("{}", buffer);
     };
 
-    for i in (5..14).step_by(2) {
+    for i in (5..18).step_by(3) {
         print(doc, i);
     }
 }

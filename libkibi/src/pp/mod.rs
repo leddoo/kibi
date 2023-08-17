@@ -19,9 +19,26 @@ pub struct Doc<'a> {
 #[derive(Debug)]
 pub enum DocKind<'a> {
     Nil,
-    Text  (&'a str,    DocRef<'a>),
-    Line  (i32,        DocRef<'a>),
+    Line,
+    Text(&'a str),
+    Indent(i32,        DocRef<'a>),
+    Cat   (DocRef<'a>, DocRef<'a>),
     Choice(DocRef<'a>, DocRef<'a>),
+}
+
+
+
+pub type RDocRef<'a> = &'a RDoc<'a>;
+
+pub struct RDoc<'a> {
+    pub kind: RDocKind<'a>,
+}
+
+#[derive(Debug)]
+pub enum RDocKind<'a> {
+    Nil,
+    Text(&'a str, RDocRef<'a>),
+    Line(i32,     RDocRef<'a>),
 }
 
 
@@ -30,52 +47,51 @@ impl<'a> Doc<'a> {
     pub fn ptr_eq(&self, other: &Doc) -> bool {
         core::ptr::eq(self, other)
     }
+}
 
-    pub fn fits(&self, width: i32) -> bool {
+impl<'a> core::fmt::Debug for Doc<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        self.kind.fmt(f)
+    }
+}
+
+impl<'a> RDoc<'a> {
+    fn fits(&self, width: i32) -> bool {
         if width < 0 {
             return false;
         }
 
         match self.kind {
-            DocKind::Nil => true,
+            RDocKind::Nil => true,
 
-            DocKind::Text(string, rest) => 
+            RDocKind::Text(string, rest) =>
                 rest.fits(width - string.len() as i32),
 
-            DocKind::Line(_, _) => true,
-
-            DocKind::Choice(_, _) => unreachable!()
+            RDocKind::Line(_, _) => true,
         }
     }
 
     pub fn layout(&self, buffer: &mut String) {
-        self.layout_ex(0, buffer)
-    }
-
-    pub fn layout_ex(&self, indent: i32, buffer: &mut String) {
         match self.kind {
-            DocKind::Nil => (),
+            RDocKind::Nil => (),
 
-            DocKind::Text(string, rest) => {
+            RDocKind::Text(string, rest) => {
                 buffer.push_str(string);
-                rest.layout_ex(indent, buffer);
+                rest.layout(buffer);
             }
 
-            DocKind::Line(delta, rest) => {
+            RDocKind::Line(indent, rest) => {
                 buffer.push('\n');
-                let new_indent = indent + delta;
-                for _ in 0..new_indent {
+                for _ in 0..indent {
                     buffer.push(' ');
                 }
-                rest.layout_ex(new_indent, buffer)
+                rest.layout(buffer)
             }
-
-            DocKind::Choice(_, _) => unreachable!(),
         }
     }
 }
 
-impl<'a> core::fmt::Debug for Doc<'a> {
+impl<'a> core::fmt::Debug for RDoc<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         self.kind.fmt(f)
     }
@@ -88,27 +104,48 @@ impl<'a> PP<'a> {
         Self { arena }
     }
 
+
     #[inline(always)]
     pub fn nil(&self) -> DocRef<'a> {
         &Doc { kind: DocKind::Nil }
     }
 
     #[inline(always)]
-    pub fn text_and(&self, string: &'a str, rest: DocRef<'a>) -> DocRef<'a> {
-        if string.len() == 0 {
-            return rest;
-        }
-        self.arena.alloc_new(Doc { kind: DocKind::Text(string, rest) })
+    pub fn line(&self) -> DocRef<'a> {
+        self.arena.alloc_new(Doc { kind: DocKind::Line })
     }
 
     #[inline(always)]
     pub fn text(&self, string: &'a str) -> DocRef<'a> {
-        self.text_and(string, self.nil())
+        self.arena.alloc_new(Doc { kind: DocKind::Text(string) })
     }
 
     #[inline(always)]
-    pub fn line(&self, indent_delta: i32, rest: DocRef<'a>) -> DocRef<'a> {
-        self.arena.alloc_new(Doc { kind: DocKind::Line(indent_delta, rest) })
+    pub fn space(&self) -> DocRef<'a> {
+        &Doc { kind: DocKind::Text(" ") }
+    }
+
+    #[inline(always)]
+    pub fn indent(&self, delta: i32, rest: DocRef<'a>) -> DocRef<'a> {
+        self.arena.alloc_new(Doc { kind: DocKind::Indent(delta, rest) })
+    }
+
+    #[inline(always)]
+    pub fn cat(&self, a: DocRef<'a>, b: DocRef<'a>) -> DocRef<'a> {
+        self.arena.alloc_new(Doc { kind: DocKind::Cat(a, b) })
+    }
+
+    #[inline(always)]
+    pub fn cats(&self, docs: &[DocRef<'a>]) -> DocRef<'a> {
+        if docs.len() == 0 {
+            return self.nil();
+        }
+
+        let mut result = docs[0];
+        for doc in &docs[1..] {
+            result = self.cat(result, doc);
+        }
+        result
     }
 
 
@@ -117,121 +154,110 @@ impl<'a> PP<'a> {
         self.arena.alloc_new(Doc { kind: DocKind::Choice(a, b) })
     }
 
-    pub fn cat(&self, a: DocRef<'a>, b: DocRef<'a>) -> DocRef<'a> {
-        match a.kind {
-            // Nil <> y = y
-            DocKind::Nil => b,
-
-            // (s ‘Text‘ x) <> y = s ‘Text‘ (x <> y)
-            DocKind::Text(string, rest) =>
-                self.text_and(string, self.cat(rest, b)),
-
-            // (i ‘Line‘ x) <> y = i ‘Line‘ (x <> y)
-            DocKind::Line(delta, rest) =>
-                self.line(delta, self.cat(rest, b)),
-
-            // (x ‘Union‘ y) <> z = (x <> z) ‘Union‘ (y <> z)
-            DocKind::Choice(c1, c2) =>
-                self.choice(
-                    self.cat(c1, b),
-                    self.cat(c2, b)),
-        }
-    }
-
+    #[inline(always)]
     pub fn group(&self, doc: DocRef<'a>) -> DocRef<'a> {
-        match doc.kind {
-            // group Nil = Nil
-            DocKind::Nil => doc,
-
-            // group (s ‘Text‘ x) = s ‘Text‘ group x
-            DocKind::Text(string, rest) => {
-                let rest_group = self.group(rest);
-                if rest_group.ptr_eq(rest) {
-                    return doc;
-                }
-                self.text_and(string, rest_group)
-            }
-
-            // group (i ‘Line‘ x) = (" " ‘Text‘ flatten x) ‘Union‘ (i ‘Line‘ x)
-            DocKind::Line(_, rest) => {
-                self.choice(self.text_and(" ", self.flatten(rest)), doc)
-            }
-
-            // group (x ‘Union‘ y) = group x ‘Union‘ y
-            DocKind::Choice(a, b) => {
-                let a_group = self.group(a);
-                if a_group.ptr_eq(a) {
-                    return doc;
-                }
-                self.choice(a_group, b)
-            }
-        }
+        // group x = flatten x :<|> x
+        self.choice(self.flatten(doc), doc)
     }
 
     pub fn flatten(&self, doc: DocRef<'a>) -> DocRef<'a> {
         match doc.kind {
-            // flatten Nil = Nil
+            // flatten NIL = NIL
             DocKind::Nil => doc,
 
-            // flatten (s ‘Text‘ x) = s ‘Text‘ flatten x
-            DocKind::Text(string, rest) => {
-                let rest_flat = self.flatten(rest);
-                if rest_flat.ptr_eq(rest) {
+            // flatten LINE = TEXT " "
+            DocKind::Line => self.space(),
+
+            // flatten (TEXT s) = TEXT s
+            DocKind::Text(_) => doc,
+
+            // flatten (NEST i x) = flatten x
+            DocKind::Indent(_, rest) => self.flatten(rest),
+
+            // flatten (x :<> y) = flatten x :<> flatten y
+            DocKind::Cat(a, b) => {
+                let flat_a = self.flatten(a);
+                let flat_b = self.flatten(b);
+                if flat_a.ptr_eq(a) && flat_b.ptr_eq(b) {
                     return doc;
                 }
-                self.text_and(string, rest_flat)
+                self.cat(flat_a, flat_b)
             }
 
-            // flatten (i ‘Line‘ x) = " " ‘Text‘ flatten x
-            DocKind::Line(_, rest) => {
-                self.text_and(" ", rest)
-            }
-
-            // flatten (x ‘Union‘ y) = flatten x
-            DocKind::Choice(a, _) => {
-                self.flatten(a)
-            }
+            // flatten (x :<|> y) = flatten x
+            DocKind::Choice(a, _) => self.flatten(a),
         }
     }
 
+
     #[inline(always)]
-    pub fn best(&self, doc: DocRef<'a>, width: i32) -> DocRef<'a> {
-        self.best_ex(doc, width, 0, 0)
+    pub fn rnil(&self) -> RDocRef<'a> {
+        &RDoc { kind: RDocKind::Nil }
     }
 
-    pub fn best_ex(&self, doc: DocRef<'a>, width: i32, indent: i32, used: i32) -> DocRef<'a> {
+    #[inline(always)]
+    pub fn rline(&self, indent: i32, rest: RDocRef<'a>) -> RDocRef<'a> {
+        self.arena.alloc_new(RDoc { kind: RDocKind::Line(indent, rest) })
+    }
+
+    #[inline(always)]
+    pub fn rtext(&self, string: &'a str, rest: RDocRef<'a>) -> RDocRef<'a> {
+        self.arena.alloc_new(RDoc { kind: RDocKind::Text(string, rest) })
+    }
+
+
+    #[inline(always)]
+    pub fn render(&self, doc: DocRef<'a>, width: i32) -> RDocRef<'a> {
+        self.render_ex(width, 0, &mut vec![(0, doc)])
+    }
+
+    pub fn render_ex(&self, width: i32, used: i32, z: &mut Vec<(i32, DocRef<'a>)>) -> RDocRef<'a> {
+        let Some((indent, doc)) = z.pop() else {
+            // be w k [] = Nil
+            return self.rnil();
+        };
+
         match doc.kind {
-            // best w k Nil = Nil
-            DocKind::Nil => doc,
+            // be w k ((i,NIL):z) = be w k z
+            DocKind::Nil => self.render_ex(width, used, z),
 
-            // best w k (s ‘Text‘ x) = s ‘Text‘ best w (k + length s) x
-            DocKind::Text(string, rest) => {
-                // approximate length as utf8 length.
+            // be w k ((i,LINE):z) = i ‘Line‘ be w i z
+            DocKind::Line => {
+                let rest = self.render_ex(width, indent, z);
+                self.rline(indent, rest)
+            }
+
+            // be w k ((i,TEXT s):z) = s ‘Text‘ be w (k + length s) z
+            DocKind::Text(string) => {
                 let len = string.len() as i32;
-                let best_rest = self.best_ex(rest, width, indent, used + len);
-                if best_rest.ptr_eq(rest) {
-                    return doc;
-                }
-                self.text_and(string, best_rest)
+                let rest = self.render_ex(width, used + len, z);
+                self.rtext(string, rest)
             }
 
-            // best w k (i ‘Line‘ x) = i ‘Line‘ best w i x
-            DocKind::Line(delta, rest) => {
-                let new_indent = indent + delta;
-                let best_rest = self.best_ex(rest, width, new_indent, new_indent);
-                if best_rest.ptr_eq(rest) {
-                    return doc;
-                }
-                self.line(delta, best_rest)
+            // be w k ((i,NEST j x):z) = be w k ((i+j,x):z)
+            DocKind::Indent(delta, rest) => {
+                z.push((indent + delta, rest));
+                self.render_ex(width, used, z)
             }
 
-            // best w k (x ‘Union‘ y) = better w k (best w k x) (best w k y)
+            // be w k ((i,x :<> y):z) = be w k ((i,x):(i,y):z)
+            DocKind::Cat(a, b) => {
+                z.push((indent, b));
+                z.push((indent, a));
+                self.render_ex(width, used, z)
+            }
+
+            // be w k ((i,x :<|> y):z) = better w k (be w k ((i,x):z)) (be w k ((i,y):z))
             DocKind::Choice(a, b) => {
-                let best_a = self.best_ex(a, width, indent, used);
+                let mut za = z.clone();
+                za.push((indent, a));
+                let best_a = self.render_ex(width, used, &mut za);
                 if best_a.fits(width - used) {
                     return best_a;
                 }
-                self.best_ex(b, width, indent, used)
+
+                z.push((indent, b));
+                self.render_ex(width, used, z)
             }
         }
     }
