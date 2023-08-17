@@ -27,61 +27,72 @@
 
 
 - todo:
-    - term pp.
-        - group binders.
-        - binder names.
     - error messages.
         - elab errors.
-            - 1) we should probably have `'err` and copy all error
-                 related data into an error arena.
-                - cause `'a` prevents us from having temporary arenas.
-                - we may also want a `&ErrorCtx<'err>`.
-                - we'd perhaps also want `'env: 'a`.
-            - 2) thinking we don't want to clone the lctx & terms.
-                - would need to deep clone the entire lctx due to `'e`.
-                - annotated `pp::Doc`s seem fine.
-                - we'll worry about the whole introspection thing later.
+            - pp types, store `pp:DocRef<'err>`s.
+        - prettier printing.
+            - headline, separation.
+            - 3 source lines.
+            - source line/col.
     - fix kernel bugs: all rules must fail.
     - def levels.
     - def unfold.
-    - method call syntax.
-    - dot-idents.
-    - level inference.
-        - ivars.
-    - term inference.
-    - error resilience.
-        - `ax_sorry`.
-    - implicit params.
-        - new binder syntax.
-        - binder info.
-    - motive inference.
-    - var to let.
     - `fib_iter`.
 
 
-    - stuff:
-        - more immutability:
-            - for lsp and other queries.
-            - but would like to compute ad-hoc, cause seems
-              like it could require *a lot* of memory.
-            - namespaces - they're kinda immutable by default,
-              once we're doing ordering.
-            - scopes: the single local + parent id seems nice.
 
+### backlog:
 
-    - sti:
-        - Vec::truncate track caller.
-        - KVec::truncate, clone.
-        - swiss table.
+- sti:
+    - Vec::truncate track caller.
+    - KVec::truncate, clone.
+    - swiss table.
 
+- features:
+    - implicit params.
+        - new binder syntax.
+        - binder info.
+    - dot-idents.
+    - method call syntax.
 
-- backlog:
+- parser:
+    - labels.
+    - combined match/if.
+    - optional do block.
+
+- elab:
+    - level inference.
+        - ivars.
+    - term inference.
+    - motive inference.
+    - var to let.
+
+- term pretty printer:
+    - group binders.
+    - binder names.
+    - config:
+        - indent width.
+        - args on separate lines.
+
+- macros:
+    - figure out compilation order.
+
+- architecture:
+    - error resilience.
+        - `ax_sorry`.
+    - shared data structures & multi-threading.
+        - symbol table & namespaces.
+        - error context.
+        - consider fork/join around ordering points.
+          populating symbol table synchronously.
+    - more immutability:
+        - for lsp and other queries.
+        - but would like to compute ad-hoc, cause seems
+          like it could require *a lot* of memory.
+        - namespaces - they're kinda immutable by default,
+          once we're doing ordering.
+        - scopes: the single local + parent id seems nice.
+
+- optimization:
     - `Term::hash` for faster `syntax_eq`.
-    - fix number parsing: `1.a` not `"1." "a"`.
-    - parser:
-        - labels.
-        - combined match/if.
-        - optional do block.
-    - macros:
-        - figure out compilation order.
 
