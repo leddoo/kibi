@@ -71,21 +71,25 @@ impl<'a> RDoc<'a> {
         }
     }
 
-    pub fn layout(&self, buffer: &mut String) {
-        match self.kind {
-            RDocKind::Nil => (),
+    pub fn layout_string(&self, buffer: &mut String) {
+        let mut at = self;
+        loop {
+            match at.kind {
+                RDocKind::Nil => return,
 
-            RDocKind::Text(string, rest) => {
-                buffer.push_str(string);
-                rest.layout(buffer);
-            }
-
-            RDocKind::Line(indent, rest) => {
-                buffer.push('\n');
-                for _ in 0..indent {
-                    buffer.push(' ');
+                RDocKind::Text(string, rest) => {
+                    buffer.push_str(string);
+                    at = rest;
                 }
-                rest.layout(buffer)
+
+                RDocKind::Line(indent, rest) => {
+                    buffer.push('\n');
+                    buffer.reserve(indent as usize);
+                    for _ in 0..indent {
+                        buffer.push(' ');
+                    }
+                    at = rest;
+                }
             }
         }
     }

@@ -116,7 +116,7 @@ reduce Nat::add(1, 2)
         let doc = pp.render(doc, width);
 
         let mut buffer = String::new();
-        doc.layout(&mut buffer);
+        doc.layout_string(&mut buffer);
 
         for _ in 0..width { print!("-") } println!();
         println!("{}", buffer);
