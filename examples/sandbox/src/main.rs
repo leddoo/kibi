@@ -128,7 +128,7 @@ reduce Nat::add(1, 2)
         println!("{}", buffer);
     };
 
-    for i in (6..30).step_by(4) {
+    for i in (10..40).step_by(7) {
         print(doc, i);
     }
 }

@@ -109,8 +109,7 @@ impl<'a> TermPP<'a> {
             }
 
             TermKind::Apply(app) => {
-                let fun = self.pp_term(app.fun);
-                let arg = self.pp_term(app.arg);
+                let (fun, args) = self.pp_apply(&app);
                 self.pp.group(self.pp.cats(&[
                     self.pp.text("("),
                     self.pp.group(self.pp.cat(
@@ -118,7 +117,8 @@ impl<'a> TermPP<'a> {
                         self.pp.line())),
                     self.pp.text(")("),
                     self.pp.group(
-                        self.pp.indent(2, arg)),
+                        self.pp.indent(2,
+                            self.pp.cat(self.pp.line(), args))),
                     self.pp.text(")"),
                 ]))
             }
@@ -150,6 +150,22 @@ impl<'a> TermPP<'a> {
                 unimplemented!()
             }
 
+        }
+    }
+
+    fn pp_apply(&mut self, app: &term::Apply) -> (DocRef<'a>, DocRef<'a>) {
+        if let TermKind::Apply(a) = &app.fun.kind {
+            let (fun, args) = self.pp_apply(a);
+            let arg = self.pp_term(app.arg);
+            let args = self.pp.cats(&[
+                args,
+                self.pp.text(","),
+                self.pp.group(self.pp.cat(self.pp.line_or_sp(), arg))
+            ]);
+            return (fun, args);
+        }
+        else {
+            return (self.pp_term(app.fun), self.pp_term(app.arg))
         }
     }
 }

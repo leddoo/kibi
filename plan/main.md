@@ -28,8 +28,8 @@
 
 - todo:
     - term pp.
-        - multiple app args.
         - avoid parens.
+        - group binders.
         - binder names.
     - error messages.
         - elab errors.
