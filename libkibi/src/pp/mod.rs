@@ -112,7 +112,7 @@ impl<'a> PP<'a> {
 
     #[inline(always)]
     pub fn line(&self) -> DocRef<'a> {
-        self.arena.alloc_new(Doc { kind: DocKind::Line })
+        &Doc { kind: DocKind::Line }
     }
 
     #[inline(always)]
@@ -208,56 +208,71 @@ impl<'a> PP<'a> {
 
     #[inline(always)]
     pub fn render(&self, doc: DocRef<'a>, width: i32) -> RDocRef<'a> {
-        self.render_ex(width, 0, &mut vec![(0, doc)])
+        self.render_ex(width, 0, Some(&RenderList::new(0, doc, None)))
     }
+}
 
-    pub fn render_ex(&self, width: i32, used: i32, z: &mut Vec<(i32, DocRef<'a>)>) -> RDocRef<'a> {
-        let Some((indent, doc)) = z.pop() else {
+#[derive(Clone, Copy)]
+struct RenderList<'l, 'a> {
+    indent: i32,
+    doc: DocRef<'a>,
+    tail: Option<&'l RenderList<'l, 'a>>,
+}
+
+impl<'l, 'a> RenderList<'l, 'a> {
+    #[inline(always)]
+    fn new(indent: i32, doc: DocRef<'a>, tail: Option<&'l RenderList<'l, 'a>>) -> Self {
+        Self { indent, doc, tail }
+    }
+}
+
+impl<'a> PP<'a> {
+    fn render_ex<'l>(&self, width: i32, used: i32, list: Option<&'l RenderList<'l, 'a>>) -> RDocRef<'a> {
+        let Some(RenderList { indent, doc, tail }) = list.copied() else {
             // be w k [] = Nil
             return self.rnil();
         };
 
         match doc.kind {
             // be w k ((i,NIL):z) = be w k z
-            DocKind::Nil => self.render_ex(width, used, z),
+            DocKind::Nil => self.render_ex(width, used, tail),
 
             // be w k ((i,LINE):z) = i ‘Line‘ be w i z
             DocKind::Line => {
-                let rest = self.render_ex(width, indent, z);
-                self.rline(indent, rest)
+                let tail = self.render_ex(width, indent, tail);
+                self.rline(indent, tail)
             }
 
             // be w k ((i,TEXT s):z) = s ‘Text‘ be w (k + length s) z
             DocKind::Text(string) => {
                 let len = string.len() as i32;
-                let rest = self.render_ex(width, used + len, z);
+                let rest = self.render_ex(width, used + len, tail);
                 self.rtext(string, rest)
             }
 
             // be w k ((i,NEST j x):z) = be w k ((i+j,x):z)
             DocKind::Indent(delta, rest) => {
-                z.push((indent + delta, rest));
-                self.render_ex(width, used, z)
+                let list = RenderList::new(indent + delta, rest, tail);
+                self.render_ex(width, used, Some(&list))
             }
 
             // be w k ((i,x :<> y):z) = be w k ((i,x):(i,y):z)
             DocKind::Cat(a, b) => {
-                z.push((indent, b));
-                z.push((indent, a));
-                self.render_ex(width, used, z)
+                let list = RenderList::new(indent, b, tail);
+                let list = RenderList::new(indent, a, Some(&list));
+                self.render_ex(width, used, Some(&list))
             }
 
             // be w k ((i,x :<|> y):z) = better w k (be w k ((i,x):z)) (be w k ((i,y):z))
             DocKind::Choice(a, b) => {
-                let mut za = z.clone();
-                za.push((indent, a));
-                let best_a = self.render_ex(width, used, &mut za);
+                let list_a = RenderList::new(indent, a, tail);
+                let best_a = self.render_ex(width, used, Some(&list_a));
                 if best_a.fits(width - used) {
                     return best_a;
                 }
 
-                z.push((indent, b));
-                self.render_ex(width, used, z)
+                let list_b = RenderList::new(indent, b, tail);
+                self.render_ex(width, used, Some(&list_b))
             }
         }
     }
