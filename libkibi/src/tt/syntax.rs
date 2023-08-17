@@ -66,6 +66,9 @@ pub enum TermKind<'a> {
     Eq(LevelRef<'a>),
     EqRefl(LevelRef<'a>),
     EqRec(LevelRef<'a>, LevelRef<'a>),
+
+    // sync:
+    // - @pp_needs_parens.
 }
 
 

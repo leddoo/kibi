@@ -109,13 +109,29 @@ impl<'a> TermPP<'a> {
             }
 
             TermKind::Apply(app) => {
-                let (fun, args) = self.pp_apply(&app);
+                let (fun_term, fun, args) = self.pp_apply(&app);
+
+                let needs_parens = match fun_term.kind {
+                    TermKind::Forall(_) |
+                    TermKind::Lambda(_) => true,
+                    _ => false,
+                    // @pp_needs_parens
+                };
+
+                let fun = if needs_parens {
+                    self.pp.cats(&[
+                        self.pp.text("("),
+                        self.pp.group(self.pp.cat(
+                            self.pp.indent(1, fun),
+                            self.pp.line())),
+                        self.pp.text(")"),
+                    ])
+                }
+                else { fun };
+
                 self.pp.group(self.pp.cats(&[
+                    fun,
                     self.pp.text("("),
-                    self.pp.group(self.pp.cat(
-                        self.pp.indent(1, fun),
-                        self.pp.line())),
-                    self.pp.text(")("),
                     self.pp.group(
                         self.pp.indent(2,
                             self.pp.cat(self.pp.line(), args))),
@@ -153,19 +169,19 @@ impl<'a> TermPP<'a> {
         }
     }
 
-    fn pp_apply(&mut self, app: &term::Apply) -> (DocRef<'a>, DocRef<'a>) {
+    fn pp_apply<'t>(&mut self, app: &term::Apply<'t>) -> (TermRef<'t>, DocRef<'a>, DocRef<'a>) {
         if let TermKind::Apply(a) = &app.fun.kind {
-            let (fun, args) = self.pp_apply(a);
+            let (fun_term, fun, args) = self.pp_apply(a);
             let arg = self.pp_term(app.arg);
             let args = self.pp.cats(&[
                 args,
                 self.pp.text(","),
                 self.pp.group(self.pp.cat(self.pp.line_or_sp(), arg))
             ]);
-            return (fun, args);
+            return (fun_term, fun, args);
         }
         else {
-            return (self.pp_term(app.fun), self.pp_term(app.arg))
+            return (app.fun, self.pp_term(app.fun), self.pp_term(app.arg))
         }
     }
 }

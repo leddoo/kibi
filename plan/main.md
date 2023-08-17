@@ -28,7 +28,6 @@
 
 - todo:
     - term pp.
-        - avoid parens.
         - group binders.
         - binder names.
     - error messages.
