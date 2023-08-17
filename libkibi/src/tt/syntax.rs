@@ -164,9 +164,16 @@ impl<'a> Level<'a> {
 
 
     #[inline(always)]
-    pub fn is_zero(&self) -> bool {
-        matches!(self.kind, LevelKind::Zero)
-    }
+    pub const fn is_zero(&self) -> bool { matches!(self.kind, LevelKind::Zero) }
+
+    #[inline(always)]
+    pub const fn is_succ(&self) -> bool { matches!(self.kind, LevelKind::Succ(_)) }
+
+    #[inline(always)]
+    pub const fn is_max(&self) -> bool { matches!(self.kind, LevelKind::Max(_)) }
+
+    #[inline(always)]
+    pub const fn is_imax(&self) -> bool { matches!(self.kind, LevelKind::IMax(_)) }
 
     pub fn non_zero(&self) -> bool {
         match self.kind {
@@ -175,6 +182,23 @@ impl<'a> Level<'a> {
             LevelKind::Max(p)  => p.lhs.non_zero() || p.rhs.non_zero(),
             LevelKind::IMax(p) => p.rhs.non_zero(),
         }
+    }
+
+
+    pub fn to_offset(&'a self) -> (LevelRef<'a>, u32) {
+        let mut at = self;
+        let mut offset = 0;
+        while let LevelKind::Succ(l) = at.kind {
+            offset += 1;
+            at = l;
+        }
+        return (at, offset);
+    }
+
+    #[inline(always)]
+    pub fn to_nat(&self) -> Option<u32> {
+        let (l, offset) = self.to_offset();
+        l.is_zero().then_some(offset)
     }
 
 

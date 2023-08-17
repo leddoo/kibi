@@ -6,7 +6,7 @@ use sti::growing_arena::GrowingArena;
 
 
 pub struct PP<'a> {
-    arena: &'a GrowingArena,
+    pub alloc: &'a GrowingArena,
 }
 
 
@@ -19,7 +19,7 @@ pub struct Doc<'a> {
 #[derive(Debug)]
 pub enum DocKind<'a> {
     Nil,
-    Line,
+    Line(bool), // flatten as space.
     Text(&'a str),
     Indent(i32,        DocRef<'a>),
     Cat   (DocRef<'a>, DocRef<'a>),
@@ -47,6 +47,11 @@ impl<'a> Doc<'a> {
     pub fn ptr_eq(&self, other: &Doc) -> bool {
         core::ptr::eq(self, other)
     }
+
+    #[inline(always)]
+    pub fn is_nil(&self) -> bool {
+        matches!(self.kind, DocKind::Nil)
+    }
 }
 
 impl<'a> core::fmt::Debug for Doc<'a> {
@@ -56,18 +61,21 @@ impl<'a> core::fmt::Debug for Doc<'a> {
 }
 
 impl<'a> RDoc<'a> {
-    fn fits(&self, width: i32) -> bool {
-        if width < 0 {
-            return false;
-        }
+    pub fn fits(&self, mut width: i32) -> bool {
+        let mut at = self;
+        loop {
+            if width < 0 { return false }
 
-        match self.kind {
-            RDocKind::Nil => true,
+            match at.kind {
+                RDocKind::Nil => return true,
 
-            RDocKind::Text(string, rest) =>
-                rest.fits(width - string.len() as i32),
+                RDocKind::Text(string, rest) => {
+                    width -= string.len() as i32;
+                    at = rest;
+                }
 
-            RDocKind::Line(_, _) => true,
+                RDocKind::Line(_, _) => return true,
+            }
         }
     }
 
@@ -104,8 +112,21 @@ impl<'a> core::fmt::Debug for RDoc<'a> {
 
 impl<'a> PP<'a> {
     #[inline(always)]
-    pub fn new(arena: &'a GrowingArena) -> Self {
-        Self { arena }
+    pub fn new(alloc: &'a GrowingArena) -> Self {
+        Self { alloc }
+    }
+
+
+    #[inline(always)]
+    pub fn alloc_str(&self, string: &str) -> &'a str {
+        // @temp.
+        use sti::alloc::*;
+        unsafe {
+            let ptr = self.alloc.alloc(Layout::for_value(string)).unwrap();
+            core::ptr::copy_nonoverlapping(string.as_ptr(), ptr.as_ptr(), string.len());
+            core::str::from_utf8_unchecked(
+                core::slice::from_raw_parts(ptr.as_ptr(), string.len()))
+        }
     }
 
 
@@ -115,13 +136,18 @@ impl<'a> PP<'a> {
     }
 
     #[inline(always)]
+    pub fn line_or_sp(&self) -> DocRef<'a> {
+        &Doc { kind: DocKind::Line(true) }
+    }
+
+    #[inline(always)]
     pub fn line(&self) -> DocRef<'a> {
-        &Doc { kind: DocKind::Line }
+        &Doc { kind: DocKind::Line(false) }
     }
 
     #[inline(always)]
     pub fn text(&self, string: &'a str) -> DocRef<'a> {
-        self.arena.alloc_new(Doc { kind: DocKind::Text(string) })
+        self.alloc.alloc_new(Doc { kind: DocKind::Text(string) })
     }
 
     #[inline(always)]
@@ -131,12 +157,12 @@ impl<'a> PP<'a> {
 
     #[inline(always)]
     pub fn indent(&self, delta: i32, rest: DocRef<'a>) -> DocRef<'a> {
-        self.arena.alloc_new(Doc { kind: DocKind::Indent(delta, rest) })
+        self.alloc.alloc_new(Doc { kind: DocKind::Indent(delta, rest) })
     }
 
     #[inline(always)]
     pub fn cat(&self, a: DocRef<'a>, b: DocRef<'a>) -> DocRef<'a> {
-        self.arena.alloc_new(Doc { kind: DocKind::Cat(a, b) })
+        self.alloc.alloc_new(Doc { kind: DocKind::Cat(a, b) })
     }
 
     #[inline(always)]
@@ -147,7 +173,9 @@ impl<'a> PP<'a> {
 
         let mut result = docs[0];
         for doc in &docs[1..] {
-            result = self.cat(result, doc);
+            if !doc.is_nil() {
+                result = self.cat(result, doc);
+            }
         }
         result
     }
@@ -155,7 +183,7 @@ impl<'a> PP<'a> {
 
     #[inline(always)]
     fn choice(&self, a: DocRef<'a>, b: DocRef<'a>) -> DocRef<'a> {
-        self.arena.alloc_new(Doc { kind: DocKind::Choice(a, b) })
+        self.alloc.alloc_new(Doc { kind: DocKind::Choice(a, b) })
     }
 
     #[inline(always)]
@@ -170,7 +198,10 @@ impl<'a> PP<'a> {
             DocKind::Nil => doc,
 
             // flatten LINE = TEXT " "
-            DocKind::Line => self.space(),
+            DocKind::Line(space) => {
+                if space { self.space() }
+                else     { self.nil()   }
+            }
 
             // flatten (TEXT s) = TEXT s
             DocKind::Text(_) => doc,
@@ -201,12 +232,12 @@ impl<'a> PP<'a> {
 
     #[inline(always)]
     pub fn rline(&self, indent: i32, rest: RDocRef<'a>) -> RDocRef<'a> {
-        self.arena.alloc_new(RDoc { kind: RDocKind::Line(indent, rest) })
+        self.alloc.alloc_new(RDoc { kind: RDocKind::Line(indent, rest) })
     }
 
     #[inline(always)]
     pub fn rtext(&self, string: &'a str, rest: RDocRef<'a>) -> RDocRef<'a> {
-        self.arena.alloc_new(RDoc { kind: RDocKind::Text(string, rest) })
+        self.alloc.alloc_new(RDoc { kind: RDocKind::Text(string, rest) })
     }
 
 
@@ -242,7 +273,7 @@ impl<'a> PP<'a> {
             DocKind::Nil => self.render_ex(width, used, tail),
 
             // be w k ((i,LINE):z) = i ‘Line‘ be w i z
-            DocKind::Line => {
+            DocKind::Line(_) => {
                 let tail = self.render_ex(width, indent, tail);
                 self.rline(indent, tail)
             }

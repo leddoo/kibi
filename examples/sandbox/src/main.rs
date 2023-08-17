@@ -72,45 +72,51 @@ reduce Nat::add(1, 2)
     }
 
 
+    let alloc = kibi::tt::Alloc::new(&arena);
+    let l = alloc.mkl_max(
+        alloc.mkl_nat(5),
+        alloc.mkl_imax(
+            alloc.mkl_nat(7),
+            alloc.mkl_nat(0)));
+
     let pp = kibi::pp::PP::new(&arena);
+    let mut tpp = kibi::tt::TermPP::new(&arena);
 
-    /*
-        want:
-            hello a b c d
+    let nat_add = {
+        let input = "λ(a: Nat, b: Nat) =>
+            Nat::rec.{1}(b, λ(_: Nat) => Nat, a, λ(_: Nat, r: Nat) => Nat::succ(r))";
 
-            hello a b c
-              d
+        let tokens = kibi::parser::Tokenizer::tokenize(&arena, 0, input.as_bytes());
 
-            hello a b
-              c d
-    */
+        let mut errors = Vec::new();
+        let mut parser = kibi::parser::Parser::new(&arena, &mut errors, &tokens);
+        let ast = parser.parse_expr().unwrap();
+        assert!(errors.is_empty());
 
-    let p0 = arena.alloc_ptr::<u8>().as_ptr() as usize;
-    let doc =
-        pp.group(pp.cat(
-            pp.group(pp.cat(
-                pp.group(pp.cat(
-                    pp.group(pp.cat(
-                        pp.text("hello"),
-                        pp.cat(pp.line(), pp.text("a")))),
-                    pp.cat(pp.line(), pp.text("b")))),
-                pp.cat(pp.line(), pp.text("c")))),
-            pp.cat(pp.line(), pp.text("d"))));
-    let p1 = arena.alloc_ptr::<u8>().as_ptr() as usize;
-    println!("pp size: {:?}", p1 - p0 - 16);
+        let mut elab = kibi::elab::Elab::new(&mut env, ns, &arena);
+        let (term, _) = elab.elab_expr(&ast).unwrap();
 
-    let p0 = arena.alloc_ptr::<u8>().as_ptr() as usize;
-    let doc = pp.group(pp.cats(&[
-        pp.text("hello"),
-        pp.group(pp.indent(1, pp.cats(&[
-            pp.group(pp.cat(pp.line(), pp.text("a,"))),
-            pp.group(pp.cat(pp.line(), pp.text("b,"))),
-            pp.group(pp.cat(pp.line(), pp.text("c,"))),
-            pp.group(pp.cat(pp.line(), pp.text("d;"))),
-        ]))),
-    ]));
-    let p1 = arena.alloc_ptr::<u8>().as_ptr() as usize;
-    println!("pp size: {:?}", p1 - p0 - 16);
+        term
+    };
+
+    let doc = tpp.pp_term(nat_add);
+
+    let _doc = 
+        pp.group(pp.cats(&[
+            pp.text("("),
+            pp.indent(1,
+                pp.group(pp.cats(&[
+                    pp.text("aaaa"),
+                    pp.line(),
+                    pp.text("bbb"),
+                ]))),
+            pp.text(")("),
+            pp.group(pp.indent(2, pp.cats(&[
+                pp.line(),
+                pp.text("bbbbb"),
+            ]))),
+            pp.text(")"),
+        ]));
 
     let print = |doc: &kibi::pp::Doc, width: i32| {
         let doc = pp.render(doc, width);
@@ -122,7 +128,7 @@ reduce Nat::add(1, 2)
         println!("{}", buffer);
     };
 
-    for i in (5..18).step_by(3) {
+    for i in (6..30).step_by(4) {
         print(doc, i);
     }
 }

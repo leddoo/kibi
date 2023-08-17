@@ -27,10 +27,10 @@
 
 
 - todo:
-    - better pp:
-        - rm vec.
-        - generic layout.
     - term pp.
+        - multiple app args.
+        - avoid parens.
+        - binder names.
     - error messages.
         - elab errors.
             - 1) we should probably have `'err` and copy all error
