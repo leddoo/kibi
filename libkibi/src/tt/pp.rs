@@ -1,17 +1,20 @@
 use sti::growing_arena::GrowingArena;
 
 use crate::pp::*;
+use crate::env::{Env, NamespaceId};
 use super::*;
 
 
-pub struct TermPP<'a> {
+pub struct TermPP<'me, 'a> {
     pub pp: PP<'a>,
+    pub env: &'me Env<'me>,
 }
 
-impl<'a> TermPP<'a> {
-    pub fn new(arena: &'a GrowingArena) -> Self {
+impl<'me, 'a> TermPP<'me, 'a> {
+    pub fn new(arena: &'a GrowingArena, env: &'me Env<'me>) -> Self {
         Self {
             pp: PP::new(arena),
+            env,
         }
     }
 
@@ -83,7 +86,26 @@ impl<'a> TermPP<'a> {
             }
 
             TermKind::Global(g) => {
-                self.pp.text(self.pp.alloc_str(&format!("s{}", g.id.value())))
+                let symbol = self.env.symbol(g.id);
+
+                let mut name = self.pp.text(self.pp.alloc_str(symbol.name));
+                let mut at = symbol.parent_ns;
+                while at != NamespaceId::ROOT {
+                    let symbol = self.env.namespace(at).symbol.unwrap();
+                    let symbol = self.env.symbol(symbol);
+                    name = self.pp.cats(&[
+                        self.pp.text(self.pp.alloc_str(symbol.name)),
+                        self.pp.text("::"),
+                        name]);
+                    at = symbol.parent_ns;
+                }
+
+                if g.levels.len() > 0 {
+                    self.pp.cat(
+                        name,
+                        self.pp.text(".{tbd}"))
+                }
+                else { name }
             }
 
             TermKind::Forall(b) => {
@@ -217,7 +239,7 @@ impl<'a> TermPP<'a> {
     }
 }
 
-impl<'a> core::ops::Deref for TermPP<'a> {
+impl<'me, 'a> core::ops::Deref for TermPP<'me, 'a> {
     type Target = PP<'a>;
 
     #[inline(always)]

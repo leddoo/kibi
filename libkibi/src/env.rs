@@ -52,8 +52,8 @@ pub mod symbol {
 sti::define_key!(u32, pub NamespaceId, opt: OptNamespaceId);
 
 pub struct Namespace<'a> {
-    symbol: OptSymbolId,
-    entries: Vec<NsEntry<'a>>,
+    pub symbol: OptSymbolId,
+    pub entries: Vec<NsEntry<'a>>,
 }
 
 pub struct NsEntry<'a> {
@@ -146,6 +146,11 @@ impl<'a> Env<'a> {
     #[inline(always)]
     pub fn symbol(&self, id: SymbolId) -> &Symbol<'a> {
         &self.symbols[id]
+    }
+
+    #[inline(always)]
+    pub fn namespace(&self, id: NamespaceId) -> &Namespace<'a> {
+        &self.namespaces[id]
     }
 
     pub fn lookup(&self, ns: NamespaceId, name: &str) -> Option<&NsEntry<'a>> {

@@ -11,7 +11,6 @@
 
 
 - todo:
-    - global pp.
     - eq impl.
     - naive def unfold.
     - some proofs!
@@ -28,6 +27,9 @@
 ### backlog:
 
 - cleanup:
+    - namespace == symbol.
+        - so we can always derive a unique name.
+        - ig hidden namespaces (symbols in fn bodies) need special names then.
     - consistent lifetime names.
     - consistent param order.
     - `tt::Alloc`.

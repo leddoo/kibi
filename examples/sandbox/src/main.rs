@@ -62,7 +62,7 @@ reduce Nat::add(1, 2)
                 let Some((term, _)) = elab.elab_expr(expr) else { break };
                 let r = elab.tc().reduce(term);
 
-                let mut pp = TermPP::new(&arena);
+                let mut pp = TermPP::new(&arena, &elab.env);
                 let r = pp.pp_term(r);
                 let r = pp.indent(9, r);
                 let r = pp.render(r, 50);

@@ -9,10 +9,10 @@ use crate::env::*;
 
 
 pub struct Elab<'me, 'err, 'a> {
-    alloc: tt::Alloc<'a>,
-    errors: &'me ErrorCtx<'err>,
+    pub alloc: tt::Alloc<'a>,
+    pub errors: &'me ErrorCtx<'err>,
+    pub env: &'me mut Env<'a>,
 
-    env: &'me mut Env<'a>,
     ns: NamespaceId,
 
     lctx: LocalCtx<'a>,
@@ -171,7 +171,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             let mut tc = self.tc();
             if !tc.def_eq(ty, expected) {
                 self.error(expr.source, |alloc| {
-                    let mut pp = TermPP::new(alloc);
+                    let mut pp = TermPP::new(alloc, self.env);
                     let expected = pp.pp_term(expected);
                     let found    = pp.pp_term(ty);
                     ElabError::TypeMismatch { expected, found }
@@ -194,7 +194,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
 
         self.error(expr.source, |alloc| {
-            let mut pp = TermPP::new(alloc);
+            let mut pp = TermPP::new(alloc, self.env);
             let found = pp.pp_term(ty);
             ElabError::TypeExpected { found }
         });
