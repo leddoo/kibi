@@ -3,47 +3,45 @@
     - tt elab.
     - interpreter.
     - basic proof inference.
+    - mutual inductive.
     - unordered decls.
     - modules.
     - user types.
     - macros.
 
 
-- fp-non-fp:
-    - `def`s are math definitions.
-        - must not have side effects,
-        - must be total (incl WF).
-    - for now, just generate code for fp code too.
-    - for now, just generate a term for non-fp code too.
-        - incl aux defs.
-    - actually, we would like to avoid non-fp terms, where possible.
-        - but i don't really know how.
-        - could do terms for `def`s, and code for `fn`s.
-        - issue is just, still need the ability to gen term for `fn` for extended checking.
-          and need lctx with locals for type inference/checking.
-        - could return (some kind of) `None` for the term.
-          and then use `None` as the value in lctx.
-        - we pretty much only care about locals, their types, and their (opt) values.
-
-
 - todo:
     - error messages.
-        - elab errors.
-            - pp types, store `pp:DocRef<'err>`s.
         - prettier printing.
             - headline, separation.
             - 3 source lines.
             - source line/col.
-    - fix kernel bugs: all rules must fail.
+    - eq impl.
+    - some proofs!
     - def levels.
-    - def unfold.
+    - naive def unfold.
+    - fix kernel bugs: all rules must fail.
+
     - `fib_iter`.
+        - parse it.
+        - elab it.
+        - interp it.
 
 
 
 ### backlog:
 
+- cleanup:
+    - consistent lifetime names.
+    - consistent param order.
+    - `tt::Alloc`.
+        - arena extension trait instead?
+        - proper allocator abstraction might be better -> tracing.
+
 - sti:
+    - rename `GrowingArena` -> `Arena`.
+    - arena `alloc_str`
+    - string and formatting stuff, write trait.
     - Vec::truncate track caller.
     - KVec::truncate, clone.
     - swiss table.

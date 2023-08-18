@@ -3,6 +3,7 @@ use sti::growing_arena::*;
 use sti::vec::Vec;
 
 use crate::source_map::SourceRange;
+use crate::pp::DocRef;
 
 
 pub struct ErrorCtx<'err> {
@@ -24,6 +25,7 @@ pub struct Error<'a> {
 #[derive(Clone, Copy, Debug)]
 pub enum ErrorKind<'a> {
     Parse(ParseError<'a>),
+    Elab(ElabError<'a>),
 
     Foo(&'a ()),
 }
@@ -33,6 +35,16 @@ pub enum ErrorKind<'a> {
 pub enum ParseError<'a> {
     Expected(&'a str),
     Unexpected(&'a str),
+}
+
+
+#[derive(Clone, Copy, Debug)]
+pub enum ElabError<'a> {
+    SymbolShadowedByLocal (&'a str),
+    UnresolvedName { base: &'a str, name: &'a str },
+    LevelMismatch { expected: u32, found: u32 },
+    TypeMismatch { expected: DocRef<'a>, found: DocRef<'a> },
+    TypeExpected { found: DocRef<'a> },
 }
 
 

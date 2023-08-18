@@ -1,27 +1,31 @@
 use sti::growing_arena::GrowingArena;
 use sti::vec::Vec;
 
+use crate::AllocStrExt;
+use crate::error::*;
 use crate::ast::{self, *};
 use crate::tt::{self, *};
 use crate::env::*;
 
 
-pub struct Elab<'a, 'e> {
+pub struct Elab<'me, 'err, 'a> {
     alloc: tt::Alloc<'a>,
+    errors: &'me ErrorCtx<'err>,
 
-    env: &'e mut Env<'a>,
+    env: &'me mut Env<'a>,
     ns: NamespaceId,
 
     lctx: LocalCtx<'a>,
     locals: Vec<(&'a str, LocalId)>,
 }
 
-impl<'a, 'e> Elab<'a, 'e> {
+impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     #[inline(always)]
-    pub fn new(env: &'e mut Env<'a>, ns: NamespaceId, arena: &'a GrowingArena) -> Self {
+    pub fn new(env: &'me mut Env<'a>, ns: NamespaceId, errors: &'me ErrorCtx<'err>, arena: &'a GrowingArena) -> Self {
         let alloc = tt::Alloc::new(arena);
         Self {
             alloc,
+            errors,
             env,
             ns,
             lctx: LocalCtx::new(alloc),
@@ -68,33 +72,34 @@ impl<'a, 'e> Elab<'a, 'e> {
                     (self.alloc.mkt_local(local), ty)
                 }
                 else {
-                    let symbol = self.lookup_symbol_ident(name)?;
-                    self.elab_symbol(symbol, &[])?
+                    let symbol = self.lookup_symbol_ident(expr.source, name)?;
+                    self.elab_symbol(expr.source, symbol, &[])?
                 }
             }
 
             ExprKind::Path(path) => {
-                let symbol = self.lookup_symbol_path(path.local, path.parts)?;
-                self.elab_symbol(symbol, &[])?
+                let symbol = self.lookup_symbol_path(expr.source, path.local, path.parts)?;
+                self.elab_symbol(expr.source, symbol, &[])?
             }
 
             ExprKind::Levels(it) => {
                 let symbol = match &it.symbol {
                     IdentOrPath::Ident(name) => {
                         if self.lookup_local(*name).is_some() {
-                            println!("symbol shadowed by local");
-                            return None;
+                            self.error(expr.source, |alloc|
+                                ElabError::SymbolShadowedByLocal(
+                                    alloc.alloc_str(*name)));
                         }
 
-                        self.lookup_symbol_ident(*name)?
+                        self.lookup_symbol_ident(expr.source, *name)?
                     }
 
                     IdentOrPath::Path(path) => {
-                        self.lookup_symbol_path(path.local, path.parts)?
+                        self.lookup_symbol_path(expr.source, path.local, path.parts)?
                     }
                 };
 
-                self.elab_symbol(symbol, it.levels)?
+                self.elab_symbol(expr.source, symbol, it.levels)?
             }
 
             ExprKind::Forall(_) => {
@@ -165,7 +170,12 @@ impl<'a, 'e> Elab<'a, 'e> {
         if let Some(expected) = expected_ty {
             let mut tc = self.tc();
             if !tc.def_eq(ty, expected) {
-                println!("type mismatch.\nexpected {:?}\ngot      {:?}\n", expected, ty);
+                self.error(expr.source, |alloc| {
+                    let mut pp = TermPP::new(alloc);
+                    let expected = pp.pp_term(expected);
+                    let found    = pp.pp_term(ty);
+                    ElabError::TypeMismatch { expected, found }
+                });
                 return None;
             }
         }
@@ -183,7 +193,11 @@ impl<'a, 'e> Elab<'a, 'e> {
             return Some((term, l));
         }
 
-        println!("type expected");
+        self.error(expr.source, |alloc| {
+            let mut pp = TermPP::new(alloc);
+            let found = pp.pp_term(ty);
+            ElabError::TypeExpected { found }
+        });
         return None;
     }
 
@@ -219,7 +233,8 @@ impl<'a, 'e> Elab<'a, 'e> {
 
             IdentOrPath::Path(path) => {
                 let (name, parts) = path.parts.split_last().unwrap();
-                let ns = self.lookup_namespace_path(path.local, parts)?;
+                // @temp
+                let ns = self.lookup_namespace_path(SourceRange::UNKNOWN, path.local, parts)?;
                 (ns, *name)
             }
         };
@@ -248,30 +263,29 @@ impl<'a, 'e> Elab<'a, 'e> {
         None
     }
 
-    fn lookup_symbol_ident(&self, name: &str) -> Option<SymbolId> {
+    fn lookup_symbol_ident(&self, source: SourceRange, name: &str) -> Option<SymbolId> {
         let Some(entry) = self.env.lookup(self.ns, name) else {
-            println!("symbol not found: {:?}", name);
+            self.error(source, |alloc|
+                ElabError::UnresolvedName { base: "", name: alloc.alloc_str(name) });
             return None;
         };
         Some(entry.symbol)
     }
 
-    fn lookup_symbol_path(&self, local: bool, parts: &[&str]) -> Option<SymbolId> {
+    fn lookup_symbol_path(&self, source: SourceRange, local: bool, parts: &[&str]) -> Option<SymbolId> {
         if local {
-            let mut result = self.lookup_symbol_ident(parts[0])?;
+            let mut result = self.lookup_symbol_ident(source, parts[0])?;
 
             for part in &parts[1..] {
                 let symbol = self.env.symbol(result);
 
-                let Some(ns) = symbol.own_ns.to_option() else {
-                    println!("symbol doesn't have ns");
+                let Some(entry) = self.env.lookup(symbol.own_ns, part) else {
+                    // @todo: proper base.
+                    self.error(source, |alloc|
+                        ElabError::UnresolvedName { base: "", name: alloc.alloc_str(part) });
                     return None;
                 };
 
-                let Some(entry) = self.env.lookup(ns, part) else {
-                    println!("symbol not found: {:?}", part);
-                    return None;
-                };
                 result = entry.symbol;
             }
 
@@ -282,26 +296,22 @@ impl<'a, 'e> Elab<'a, 'e> {
         }
     }
 
-    fn lookup_namespace_path(&self, local: bool, parts: &[&str]) -> Option<NamespaceId> {
-        let symbol = self.lookup_symbol_path(local, parts)?;
-        let symbol = self.env.symbol(symbol);
-
-        let Some(ns) = symbol.own_ns.to_option() else {
-            println!("symbol doesn't have ns");
-            return None;
-        };
-        return Some(ns);
+    fn lookup_namespace_path(&self, source: SourceRange, local: bool, parts: &[&str]) -> Option<NamespaceId> {
+        let symbol = self.lookup_symbol_path(source, local, parts)?;
+        return Some(self.env.symbol(symbol).own_ns);
     }
 
 
-    fn elab_symbol(&mut self, id: SymbolId, levels: &[ast::Level<'a>]) -> Option<(TermRef<'a>, TermRef<'a>)> {
+    fn elab_symbol(&mut self, source: SourceRange, id: SymbolId, levels: &[ast::Level<'a>]) -> Option<(TermRef<'a>, TermRef<'a>)> {
         let symbol = self.env.symbol(id);
         Some(match symbol.kind {
             SymbolKind::BuiltIn(b) => {
                 match b {
                     symbol::BuiltIn::Nat => {
                         if levels.len() != 0 {
-                            println!("Nat takes no levels");
+                            self.error(source, |_|
+                                ElabError::LevelMismatch {
+                                    expected: 0, found: levels.len() as u32 });
                             return None;
                         }
                         (Term::NAT, Term::SORT_1)
@@ -309,7 +319,9 @@ impl<'a, 'e> Elab<'a, 'e> {
 
                     symbol::BuiltIn::NatZero => {
                         if levels.len() != 0 {
-                            println!("Nat.zero takes no levels");
+                            self.error(source, |_|
+                                ElabError::LevelMismatch {
+                                    expected: 0, found: levels.len() as u32 });
                             return None;
                         }
                         (Term::NAT_ZERO, Term::NAT)
@@ -317,7 +329,9 @@ impl<'a, 'e> Elab<'a, 'e> {
 
                     symbol::BuiltIn::NatSucc => {
                         if levels.len() != 0 {
-                            println!("Nat.succ takes no levels");
+                            self.error(source, |_|
+                                ElabError::LevelMismatch {
+                                    expected: 0, found: levels.len() as u32 });
                             return None;
                         }
                         (Term::NAT_SUCC, Term::NAT_SUCC_TY)
@@ -325,7 +339,9 @@ impl<'a, 'e> Elab<'a, 'e> {
 
                     symbol::BuiltIn::NatRec => {
                         if levels.len() != 1 {
-                            println!("Nat.rec takes exactly 1 level");
+                            self.error(source, |_|
+                                ElabError::LevelMismatch {
+                                    expected: 1, found: levels.len() as u32 });
                             return None;
                         }
 
@@ -350,6 +366,13 @@ impl<'a, 'e> Elab<'a, 'e> {
     #[inline(always)]
     pub fn tc<'l>(&mut self) -> TyCtx<'a, '_> {
         TyCtx::new(self.alloc, &mut self.lctx)
+    }
+
+
+    fn error<F: FnOnce(&'err GrowingArena) -> ElabError<'err>>(&self, source: SourceRange, f: F) {
+        self.errors.with(|errors| {
+            errors.report(Error { source, kind: ErrorKind::Elab(f(errors.alloc)) });
+        });
     }
 }
 

@@ -1,5 +1,4 @@
 use kibi::error::ErrorCtx;
-use sti::vec::Vec;
 
 use kibi::tt::*;
 use kibi::env::*;
@@ -43,15 +42,16 @@ fn nat_add_elab() {
 
         let mut parser = kibi::parser::Parser::new(&arena, &errors, &tokens);
         let ast = parser.parse_expr().unwrap();
-        errors.with(|errors| assert!(errors.empty()));
 
-        let mut elab = kibi::elab::Elab::new(&mut env, ns, &arena);
+        let mut elab = kibi::elab::Elab::new(&mut env, ns, &errors, &arena);
         let (term, _) = elab.elab_expr(&ast).unwrap();
 
         assert!(term.syntax_eq(nat_add));
 
         term
     };
+
+    errors.with(|errors| assert!(errors.empty()));
 
     let n1 = alloc.mkt_nat_val(1);
     let n2 = alloc.mkt_nat_val(2);

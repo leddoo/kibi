@@ -1,5 +1,7 @@
 use sti::growing_arena::GrowingArena;
 
+use crate::AllocStrExt;
+
 
 // impl of "A prettier printer" by Philip Wadler
 // https://homepages.inf.ed.ac.uk/wadler/papers/prettier/prettier.pdf
@@ -119,14 +121,7 @@ impl<'a> PP<'a> {
 
     #[inline(always)]
     pub fn alloc_str(&self, string: &str) -> &'a str {
-        // @temp.
-        use sti::alloc::*;
-        unsafe {
-            let ptr = self.alloc.alloc(Layout::for_value(string)).unwrap();
-            core::ptr::copy_nonoverlapping(string.as_ptr(), ptr.as_ptr(), string.len());
-            core::str::from_utf8_unchecked(
-                core::slice::from_raw_parts(ptr.as_ptr(), string.len()))
-        }
+        self.alloc.alloc_str(string)
     }
 
 

@@ -36,7 +36,7 @@ reduce Nat::add(1, 2)
 
     let errors = ErrorCtx::new(&arena);
 
-    let mut elab = kibi::elab::Elab::new(&mut env, ns, &arena);
+    let mut elab = kibi::elab::Elab::new(&mut env, ns, &errors, &arena);
 
     let mut parser = kibi::parser::Parser::new(&arena, &errors, &tokens);
     while !parser.tokens.is_empty() {
@@ -88,12 +88,15 @@ reduce Nat::add(1, 2)
         let tokens = kibi::parser::Tokenizer::tokenize(&arena, 0, input.as_bytes());
 
         let errors = ErrorCtx::new(&arena);
+
         let mut parser = kibi::parser::Parser::new(&arena, &errors, &tokens);
         let ast = parser.parse_expr().unwrap();
         errors.with(|errors| assert!(errors.empty()));
 
-        let mut elab = kibi::elab::Elab::new(&mut env, ns, &arena);
+        let mut elab = kibi::elab::Elab::new(&mut env, ns, &errors, &arena);
         let (term, _) = elab.elab_expr(&ast).unwrap();
+
+        errors.with(|errors| assert!(errors.empty()));
 
         term
     };

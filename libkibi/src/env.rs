@@ -15,7 +15,7 @@ sti::define_key!(u32, pub SymbolId, opt: OptSymbolId);
 #[derive(Debug)]
 pub struct Symbol<'a> {
     pub parent_ns: NamespaceId,
-    pub own_ns:    OptNamespaceId,
+    pub own_ns:    NamespaceId,
 
     pub kind: SymbolKind<'a>,
     pub name: &'a str,
@@ -87,78 +87,45 @@ impl<'a> Env<'a> {
             return None;
         }
 
-        let symbol = self.symbols.push(Symbol {
+        let symbol = self.symbols.next_key();
+        let own_ns = self.new_namespace(symbol.some());
+
+        let id = self.symbols.push(Symbol {
             parent_ns: ns,
-            own_ns: None.into(),
+            own_ns,
             name,
             kind,
         });
+        debug_assert_eq!(id, symbol);
 
         self.namespaces[ns].entries.push(NsEntry { name, symbol });
 
         return Some(symbol);
     }
 
+    #[inline(always)]
+    pub fn new_namespace(&mut self, symbol: OptSymbolId) -> NamespaceId {
+        self.namespaces.push(Namespace {
+            symbol,
+            entries: Vec::new(),
+        })
+    }
+
 
     pub fn create_nat(&mut self) -> SymbolId {
-        let nat_ns = self.namespaces.next_key();
+        let nat = self.new_symbol(NamespaceId::ROOT, "Nat",
+            SymbolKind::BuiltIn(symbol::BuiltIn::Nat)).unwrap();
 
-        let nat = self.symbols.push(Symbol {
-            parent_ns: NamespaceId::ROOT,
-            own_ns: nat_ns.some(),
-            name: "Nat",
-            kind: SymbolKind::BuiltIn(symbol::BuiltIn::Nat),
-        });
+        let nat_ns = self.symbols[nat].own_ns;
 
-        self.namespaces[NamespaceId::ROOT].entries.push(NsEntry {
-            name: "Nat",
-            symbol: nat,
-        });
+        self.new_symbol(nat_ns, "zero",
+            SymbolKind::BuiltIn(symbol::BuiltIn::NatZero)).unwrap();
 
-        let nat_zero = self.symbols.push(Symbol {
-            parent_ns: nat_ns,
-            own_ns: None.into(),
-            name: "zero",
-            kind: SymbolKind::BuiltIn(symbol::BuiltIn::NatZero),
-        });
+        self.new_symbol(nat_ns, "succ",
+            SymbolKind::BuiltIn(symbol::BuiltIn::NatSucc)).unwrap();
 
-        let nat_succ = self.symbols.push(Symbol {
-            parent_ns: nat_ns,
-            own_ns: None.into(),
-            name: "succ",
-            kind: SymbolKind::BuiltIn(symbol::BuiltIn::NatSucc),
-        });
-
-        let nat_rec = self.symbols.push(Symbol {
-            parent_ns: nat_ns,
-            own_ns: None.into(),
-            name: "rec",
-            kind: SymbolKind::BuiltIn(symbol::BuiltIn::NatRec),
-        });
-
-        let mut entries = Vec::new();
-        entries.push(NsEntry {
-            name: "Self",
-            symbol: nat,
-        });
-        entries.push(NsEntry {
-            name: "zero",
-            symbol: nat_zero,
-        });
-        entries.push(NsEntry {
-            name: "succ",
-            symbol: nat_succ,
-        });
-        entries.push(NsEntry {
-            name: "rec",
-            symbol: nat_rec,
-        });
-
-        let ns = self.namespaces.push(Namespace {
-            symbol: nat.some(),
-            entries,
-        });
-        assert_eq!(ns, nat_ns);
+        self.new_symbol(nat_ns, "rec",
+            SymbolKind::BuiltIn(symbol::BuiltIn::NatRec)).unwrap();
 
         return nat;
     }
