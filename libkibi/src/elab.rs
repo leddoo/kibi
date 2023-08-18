@@ -349,6 +349,46 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                         (self.alloc.mkt_nat_rec(l),
                          self.alloc.mkt_nat_rec_ty(l))
                     }
+
+                    symbol::BuiltIn::Eq => {
+                        if levels.len() != 1 {
+                            self.error(source, |_|
+                                ElabError::LevelMismatch {
+                                    expected: 1, found: levels.len() as u32 });
+                            return None;
+                        }
+
+                        let l = self.elab_level(&levels[0])?;
+                        (self.alloc.mkt_eq(l),
+                         self.alloc.mkt_eq_ty(l))
+                    }
+
+                    symbol::BuiltIn::EqRefl => {
+                        if levels.len() != 1 {
+                            self.error(source, |_|
+                                ElabError::LevelMismatch {
+                                    expected: 1, found: levels.len() as u32 });
+                            return None;
+                        }
+
+                        let l = self.elab_level(&levels[0])?;
+                        (self.alloc.mkt_eq_refl(l),
+                         self.alloc.mkt_eq_refl_ty(l))
+                    }
+
+                    symbol::BuiltIn::EqRec => {
+                        if levels.len() != 2 {
+                            self.error(source, |_|
+                                ElabError::LevelMismatch {
+                                    expected: 1, found: levels.len() as u32 });
+                            return None;
+                        }
+
+                        let l = self.elab_level(&levels[0])?;
+                        let r = self.elab_level(&levels[1])?;
+                        (self.alloc.mkt_eq_rec(l, r),
+                         self.alloc.mkt_eq_rec_ty(l, r))
+                    }
                 }
             }
 
@@ -364,8 +404,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
 
     #[inline(always)]
-    pub fn tc<'l>(&mut self) -> TyCtx<'a, '_> {
-        TyCtx::new(self.alloc, &mut self.lctx)
+    pub fn tc<'l>(&mut self) -> TyCtx<'_, 'a> {
+        TyCtx::new(self.alloc, &mut self.lctx, self.env)
     }
 
 

@@ -42,7 +42,8 @@ reduce Nat::add(1, 2)
 
     let mut env = Env::new();
     let nat = env.create_nat();
-    let ns = env.create_initial(nat);
+    let eq = env.create_eq();
+    let ns = env.create_initial(nat, eq);
 
     let errors = ErrorCtx::new(&arena);
 
@@ -96,13 +97,21 @@ reduce Nat::add(1, 2)
 
                     ErrorKind::Elab(e) => {
                         match e {
-                            ElabError::SymbolShadowedByLocal(_) => {
+                            ElabError::SymbolShadowedByLocal(name) => {
+                                println!("symbol {:?} shadowed by a local variable", name);
                             }
 
-                            ElabError::UnresolvedName {..} => {
+                            ElabError::UnresolvedName { base, name } => {
+                                if base != "" {
+                                    println!("unresolved name. cannot find {name:?} in {base:?}");
+                                }
+                                else {
+                                    println!("unresolved name: {name:?}");
+                                }
                             }
 
-                            ElabError::LevelMismatch {..} => {
+                            ElabError::LevelMismatch { expected, found } => {
+                                println!("level count mismatch. expected {expected} levels, found {found}");
                             }
 
                             ElabError::TypeMismatch {..} => {
@@ -110,6 +119,7 @@ reduce Nat::add(1, 2)
                             }
 
                             ElabError::TypeExpected {..} => {
+                                println!("type expected.");
                             }
                         }
                     }

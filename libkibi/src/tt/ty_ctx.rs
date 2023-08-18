@@ -1,16 +1,19 @@
+use crate::env::*;
+
 use super::syntax::*;
 use super::LocalCtx;
 
 
-pub struct TyCtx<'a, 'l> {
+pub struct TyCtx<'me, 'a> {
     pub alloc: super::Alloc<'a>,
+    pub env: &'me Env<'a>,
 
-    pub lctx: &'l mut LocalCtx<'a>,
+    pub lctx: &'me mut LocalCtx<'a>,
 }
 
-impl<'a, 'l> TyCtx<'a, 'l> {
-    pub fn new(alloc: super::Alloc<'a>, lctx: &'l mut LocalCtx<'a>) -> Self {
-        Self { alloc, lctx }
+impl<'me, 'a> TyCtx<'me, 'a> {
+    pub fn new(alloc: super::Alloc<'a>, lctx: &'me mut LocalCtx<'a>, env: &'me Env<'a>) -> Self {
+        Self { alloc, env, lctx }
     }
 
 
@@ -43,9 +46,60 @@ impl<'a, 'l> TyCtx<'a, 'l> {
                 self.lctx.lookup(id).ty
             }
 
-            TermKind::Global (_) => {
-                //self.env.global_type(g.id, g.levels.data())
-                unimplemented!()
+            TermKind::Global (g) => {
+                let symbol = self.env.symbol(g.id);
+                match symbol.kind {
+                    SymbolKind::BuiltIn(b) => {
+                        match b {
+                            symbol::BuiltIn::Nat => {
+                                debug_assert_eq!(g.levels.len(), 0);
+                                Term::SORT_1
+                            }
+
+                            symbol::BuiltIn::NatZero => {
+                                debug_assert_eq!(g.levels.len(), 0);
+                                Term::NAT
+                            }
+
+                            symbol::BuiltIn::NatSucc => {
+                                debug_assert_eq!(g.levels.len(), 0);
+                                Term::NAT_SUCC_TY
+                            }
+
+                            symbol::BuiltIn::NatRec => {
+                                debug_assert_eq!(g.levels.len(), 1);
+                                let r = &g.levels[0];
+                                self.alloc.mkt_nat_rec_ty(r)
+                            }
+
+                            symbol::BuiltIn::Eq => {
+                                debug_assert_eq!(g.levels.len(), 1);
+                                let l = &g.levels[0];
+                                self.alloc.mkt_eq_ty(l)
+                            }
+
+                            symbol::BuiltIn::EqRefl => {
+                                debug_assert_eq!(g.levels.len(), 1);
+                                let l = &g.levels[0];
+                                self.alloc.mkt_eq_refl_ty(l)
+                            }
+
+                            symbol::BuiltIn::EqRec => {
+                                debug_assert_eq!(g.levels.len(), 2);
+                                let l = &g.levels[0];
+                                let r = &g.levels[1];
+                                self.alloc.mkt_eq_rec_ty(l, r)
+                            }
+                        }
+                    }
+
+                    SymbolKind::Def(d) => {
+                        if g.levels.len() != 0 {
+                            unimplemented!()
+                        }
+                        d.ty
+                    }
+                }
             }
 
             TermKind::Lambda (b) => {
@@ -92,9 +146,9 @@ impl<'a, 'l> TyCtx<'a, 'l> {
             TermKind::NatSucc => Term::NAT_SUCC_TY,
             TermKind::NatRec(r) => self.alloc.mkt_nat_rec_ty(r),
 
-            TermKind::Eq(_) => todo!(),
-            TermKind::EqRefl(_) => todo!(),
-            TermKind::EqRec(_, _) => todo!(),
+            TermKind::Eq(l) => self.alloc.mkt_eq_ty(l),
+            TermKind::EqRefl(l) => self.alloc.mkt_eq_refl_ty(l),
+            TermKind::EqRec(l, r) => self.alloc.mkt_eq_rec_ty(l, r),
         };
 
         assert!(result.closed());

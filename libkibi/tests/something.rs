@@ -30,7 +30,8 @@ fn nat_add_elab() {
 
     let mut env = Env::new();
     let nat = env.create_nat();
-    let ns  = env.create_initial(nat);
+    let eq = env.create_eq();
+    let ns  = env.create_initial(nat, eq);
 
     let errors = ErrorCtx::new(&arena);
 
@@ -60,7 +61,7 @@ fn nat_add_elab() {
     let n3_add = alloc.mkt_apps(nat_add, &[n1, n2]);
 
     let mut lctx = LocalCtx::new(alloc);
-    let mut tc = TyCtx::new(alloc, &mut lctx);
+    let mut tc = TyCtx::new(alloc, &mut lctx, &env);
 
     assert!(tc.reduce(n3_add).syntax_eq(n3));
 

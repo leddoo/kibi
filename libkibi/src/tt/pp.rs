@@ -208,8 +208,13 @@ impl<'me, 'a> TermPP<'me, 'a> {
                 ])
             }
 
-            TermKind::Eq(_) => {
-                unimplemented!()
+            TermKind::Eq(l) => {
+                let l = self.pp_level(l);
+                self.pp.cats(&[
+                    self.pp.text("Eq.{"),
+                    l,
+                    self.pp.text("}"),
+                ])
             }
 
             TermKind::EqRefl(_) => {

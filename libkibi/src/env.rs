@@ -37,6 +37,9 @@ pub mod symbol {
         NatZero,
         NatSucc,
         NatRec,
+        Eq,
+        EqRefl,
+        EqRec,
     }
 
     #[derive(Clone, Copy, Debug)]
@@ -130,11 +133,30 @@ impl<'a> Env<'a> {
         return nat;
     }
 
-    pub fn create_initial(&mut self, nat: SymbolId) -> NamespaceId {
+    pub fn create_eq(&mut self) -> SymbolId {
+        let eq = self.new_symbol(NamespaceId::ROOT, "Eq",
+            SymbolKind::BuiltIn(symbol::BuiltIn::Eq)).unwrap();
+
+        let eq_ns = self.symbols[eq].own_ns;
+
+        self.new_symbol(eq_ns, "refl",
+            SymbolKind::BuiltIn(symbol::BuiltIn::EqRefl)).unwrap();
+
+        self.new_symbol(eq_ns, "rec",
+            SymbolKind::BuiltIn(symbol::BuiltIn::EqRec)).unwrap();
+
+        return eq;
+    }
+
+    pub fn create_initial(&mut self, nat: SymbolId, eq: SymbolId) -> NamespaceId {
         let mut entries = Vec::new();
         entries.push(NsEntry {
             name: "Nat",
             symbol: nat,
+        });
+        entries.push(NsEntry {
+            name: "Eq",
+            symbol: eq,
         });
         self.namespaces.push(Namespace {
             symbol: None.into(),

@@ -11,9 +11,9 @@
 
 
 - todo:
-    - eq impl.
     - naive def unfold.
     - some proofs!
+        - eq rec.
     - def levels.
     - fix kernel bugs: all rules must fail.
 
@@ -51,6 +51,7 @@
     - swiss table.
 
 - features:
+    - print.
     - implicit params.
         - new binder syntax.
         - binder info.

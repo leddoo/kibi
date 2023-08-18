@@ -202,5 +202,67 @@ impl<'a> Alloc<'a> {
     pub fn mkt_eq_rec(&self, l: LevelRef<'a>, r: LevelRef<'a>) -> TermRef<'a> {
         self.arena.alloc_new(Term::mk_eq_rec(l, r))
     }
+
+    pub fn mkt_eq_ty(&self, l: LevelRef<'a>) -> TermRef<'a> {
+        self.mkt_forall(0,
+            // T: Sort(l)
+            self.mkt_sort(l),
+        self.mkt_forall(0,
+            // a: T
+            self.mkt_bvar(BVar(0)),
+        self.mkt_forall(0,
+            // b: T
+            self.mkt_bvar(BVar(1)),
+            // -> Prop
+            self.mkt_sort(self.mkl_zero()))))
+    }
+
+    pub fn mkt_eq_refl_ty(&self, l: LevelRef<'a>) -> TermRef<'a> {
+        self.mkt_forall(0,
+            // T: Sort(l)
+            self.mkt_sort(l),
+        self.mkt_forall(0,
+            // a: T
+            self.mkt_bvar(BVar(0)),
+            // -> Eq(T, a, a)
+            self.mkt_apps(self.mkt_eq(l), &[
+                self.mkt_bvar(BVar(1)),
+                self.mkt_bvar(BVar(0)),
+                self.mkt_bvar(BVar(0)),
+            ])))
+    }
+
+    pub fn mkt_eq_rec_ty(&self, l: LevelRef<'a>, r: LevelRef<'a>) -> TermRef<'a> {
+        self.mkt_forall(0,
+            // T: Sort(l)
+            self.mkt_sort(l),
+        self.mkt_forall(0,
+            // a: T
+            self.mkt_bvar(BVar(0)),
+        self.mkt_forall(0,
+            // b: T
+            self.mkt_bvar(BVar(1)),
+        self.mkt_forall(0,
+            // M: Π(b: T) -> Sort(r)
+            self.mkt_forall(0,
+                self.mkt_bvar(BVar(2)),
+                self.mkt_sort(r)),
+        self.mkt_forall(0,
+            // n: Eq(T, a, b)
+            self.mkt_apps(self.mkt_eq(l), &[
+                self.mkt_bvar(BVar(3)),
+                self.mkt_bvar(BVar(2)),
+                self.mkt_bvar(BVar(1)),
+            ]),
+        self.mkt_forall(0,
+            // mr: M(a)
+            self.mkt_apply(
+                self.mkt_bvar(BVar(1)),
+                self.mkt_bvar(BVar(3))),
+            // -> M(b)
+            self.mkt_apply(
+                self.mkt_bvar(BVar(2)),
+                self.mkt_bvar(BVar(3)))))))))
+    }
 }
 
