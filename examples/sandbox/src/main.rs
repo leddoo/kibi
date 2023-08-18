@@ -179,9 +179,9 @@ reduce Nat::add(1, 2)
 
                             ElabError::TypeMismatch { expected, found } => {
                                 let pp = PP::new(&arena);
-                                let expected = pp.render(expected, 40);
+                                let expected = pp.render(expected, 50);
                                 let expected = expected.layout_string();
-                                let found = pp.render(found, 40);
+                                let found = pp.render(found, 50);
                                 let found = found.layout_string();
                                 println!("expected: {}", expected.lines().next().unwrap());
                                 for line in expected.lines().skip(1) {

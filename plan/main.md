@@ -11,7 +11,6 @@
 
 
 - todo:
-    - nat pp.
     - global pp.
     - eq impl.
     - naive def unfold.
@@ -34,6 +33,12 @@
     - `tt::Alloc`.
         - arena extension trait instead?
         - proper allocator abstraction might be better -> tracing.
+
+- better errors:
+    - simplify types (cheap reductions).
+    - merge binders.
+    - binder names.
+    - `A -> B` for non-dependent funcs.
 
 - sti:
     - rename `GrowingArena` -> `Arena`.
@@ -63,8 +68,6 @@
     - var to let.
 
 - term pretty printer:
-    - group binders.
-    - binder names.
     - config:
         - indent width.
         - args on separate lines.

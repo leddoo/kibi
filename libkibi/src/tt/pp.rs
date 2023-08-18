@@ -123,6 +123,24 @@ impl<'a> TermPP<'a> {
             }
 
             TermKind::Apply(app) => {
+                if let TermKind::NatSucc = app.fun.kind {
+                    let mut offset = 1;
+                    let mut at = app.arg;
+                    loop {
+                        let TermKind::Apply(app) = at.kind else { break };
+                        let TermKind::NatSucc = app.fun.kind else { break };
+                        offset += 1;
+                        at = app.arg;
+                    }
+
+                    if let TermKind::NatZero = at.kind {
+                        return self.pp.text(self.pp.alloc_str(&format!("{offset}")))
+                    }
+                    else {
+                        unimplemented!()
+                    }
+                }
+
                 let (fun_term, fun, args) = self.pp_apply(&app);
 
                 let needs_parens = match fun_term.kind {
@@ -179,7 +197,6 @@ impl<'a> TermPP<'a> {
             TermKind::EqRec(_, _) => {
                 unimplemented!()
             }
-
         }
     }
 
