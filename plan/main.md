@@ -11,9 +11,9 @@
 
 
 - todo:
-    - naive def unfold.
     - some proofs!
-        - eq rec.
+        - `ax_sorry`.
+    - eq rec.
     - def levels.
     - fix kernel bugs: all rules must fail.
 

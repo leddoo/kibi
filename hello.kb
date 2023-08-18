@@ -9,3 +9,6 @@ reduce Nat::add(1, 2)
 
 def quick_maffs: Eq.{1}(Nat, Nat::add(2, 2), 4) := Eq::refl.{1}(Nat, 4)
 
+def Nat::add_zero (n: Nat): Eq.{1}(Nat, Nat::add(n, 0), n) :=
+    Eq::refl.{1}(Nat, n)
+

@@ -344,11 +344,9 @@ impl<'me, 'a> TyCtx<'me, 'a> {
             return e;
         }
 
-        /*
         if let Some(result) = self.unfold(e) {
             return self.whnf(result);
         }
-        */
 
         return e;
     }
@@ -568,7 +566,6 @@ impl<'me, 'a> TyCtx<'me, 'a> {
             }
         }
 
-        /*
         // unfold defs & retry on change.
         // TODO: unfold def(s) with highest depth.
         if let Some(a) = self.unfold(a) {
@@ -577,7 +574,6 @@ impl<'me, 'a> TyCtx<'me, 'a> {
         if let Some(b) = self.unfold(b) {
             return self.def_eq(a, b);
         }
-        */
 
         // note: exprs are now in whnf.
         let (fun1, num_args1) = a.app_fun();
@@ -629,6 +625,24 @@ impl<'me, 'a> TyCtx<'me, 'a> {
         }
 
         return self.app_args_def_eq(a.fun, b.fun);
+    }
+
+    fn unfold(&self, t: TermRef<'a>) -> Option<TermRef<'a>> {
+        let (fun, _) = t.app_fun();
+
+        let TermKind::Global(g) = fun.kind else { return None };
+
+        let symbol = self.env.symbol(g.id);
+        match symbol.kind {
+            SymbolKind::BuiltIn(_) => None,
+
+            SymbolKind::Def(d) => {
+                if d.num_levels != 0 {
+                    unimplemented!()
+                }
+                Some(t.replace_app_fun(d.val, self.alloc))
+            }
+        }
     }
 }
 
