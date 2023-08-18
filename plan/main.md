@@ -11,17 +11,13 @@
 
 
 - todo:
-    - error messages.
-        - prettier printing.
-            - headline, separation.
-            - 3 source lines.
-            - source line/col.
+    - forall pp.
     - nat pp.
     - global pp.
     - eq impl.
+    - naive def unfold.
     - some proofs!
     - def levels.
-    - naive def unfold.
     - fix kernel bugs: all rules must fail.
 
     - `fib_iter`.

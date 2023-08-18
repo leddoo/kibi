@@ -26,8 +26,6 @@ pub struct Error<'a> {
 pub enum ErrorKind<'a> {
     Parse(ParseError<'a>),
     Elab(ElabError<'a>),
-
-    Foo(&'a ()),
 }
 
 

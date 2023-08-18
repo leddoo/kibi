@@ -1,2 +1,8 @@
-reduce (λ(a: Nat) => a)(4)
+def Nat::add (a: Nat, b: Nat): Nat :=
+    Nat::rec.{1}(b,
+        lam(_: Nat) => Nat,
+        a,
+        lam(_: Nat, r: Nat) => Nat::succ(r))
+
+reduce Nat::add(1, 2)
 

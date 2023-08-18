@@ -1,8 +1,8 @@
-use kibi::error::ErrorCtx;
-
+use kibi::pp::*;
+use kibi::error::*;
 use kibi::ast::*;
-use kibi::env::*;
 use kibi::tt::TermPP;
+use kibi::env::*;
 
 
 fn main() {
@@ -77,12 +77,124 @@ reduce Nat::add(1, 2)
 
     errors.with(|errors| {
         errors.iter(|e| {
-            println!("{:?}", e);
-            let mut begin = (e.source.begin - 10.min(e.source.begin)) as usize;
-            let mut end = (e.source.end   + 10).min(input.len() as u32) as usize;
-            while input[begin] & 0xc0 == 0x80 { begin -= 1 }
-            while input[end]   & 0xc0 == 0x80 { end   -= 1 }
-            println!("{:?}", &input[begin..end]);
+            // error line:
+            {
+                print!("error: ");
+
+                match e.kind {
+                    ErrorKind::Parse(e) => {
+                        match e {
+                            ParseError::Expected(what) => {
+                                println!("expected: {what}");
+                            }
+
+                            ParseError::Unexpected(what) => {
+                                println!("unexpected: {what}");
+                            }
+                        }
+                    }
+
+                    ErrorKind::Elab(e) => {
+                        match e {
+                            ElabError::SymbolShadowedByLocal(_) => {
+                            }
+
+                            ElabError::UnresolvedName {..} => {
+                            }
+
+                            ElabError::LevelMismatch {..} => {
+                            }
+
+                            ElabError::TypeMismatch {..} => {
+                                println!("type mismatch.");
+                            }
+
+                            ElabError::TypeExpected {..} => {
+                            }
+                        }
+                    }
+                }
+            }
+
+            // code:
+            {
+                let err_begin = e.source.begin as usize;
+                let err_end   = e.source.end   as usize;
+                let mut begin = err_begin;
+                let mut end   = err_end;
+                while begin > 0 && input[begin - 1] != b'\n' { begin -= 1 }
+                while end < input.len() && input[end] != b'\n' { end += 1 }
+
+                let begin_line = {
+                    let mut line = 1;
+                    let mut at = begin;
+                    while at > 0 {
+                        if input[at] == b'\n' { line += 1 }
+                        at -= 1;
+                    }
+                    line
+                };
+
+                let string = unsafe { core::str::from_utf8_unchecked(&input[begin..end]) };
+
+                let mut line = begin_line;
+                let mut at = begin;
+                for l in string.lines() {
+                    println!("{:4} | {}", line, l);
+
+                    let end = at + l.len();
+                    if err_begin < end && err_end > at {
+                        let b = err_begin.max(at) - at;
+                        let e = err_end.min(end)  - at;
+                        for _ in 0..b+7 { print!(" ") }
+                        for _ in 0..(e-b).max(1) { print!("^") }
+                        println!();
+                    }
+
+                    line += 1;
+                    at = end + 1;
+                }
+            }
+
+            // extra info.
+            {
+                match e.kind {
+                    ErrorKind::Parse(e) => {
+                        match e {
+                            ParseError::Expected(what) => {}
+                            ParseError::Unexpected(what) => {}
+                        }
+                    }
+
+                    ErrorKind::Elab(e) => {
+                        match e {
+                            ElabError::SymbolShadowedByLocal(_) => {
+                            }
+
+                            ElabError::UnresolvedName { base, name } => {
+                            }
+
+                            ElabError::LevelMismatch { expected, found } => {
+                            }
+
+                            ElabError::TypeMismatch { expected, found } => {
+                                let pp = PP::new(&arena);
+                                let expected = pp.render(expected, 40);
+                                let expected = expected.layout_string();
+                                let found = pp.render(found, 40);
+                                let found = found.layout_string();
+                                println!("expected: {}", expected);
+                                println!("found:    {}", found);
+                            }
+
+                            ElabError::TypeExpected { found } => {
+                            }
+                        }
+                    }
+                }
+            }
+
+            println!();
         });
     });
 
