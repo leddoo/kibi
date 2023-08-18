@@ -2,6 +2,7 @@ use kibi::error::ErrorCtx;
 
 use kibi::ast::*;
 use kibi::env::*;
+use kibi::tt::TermPP;
 
 
 fn main() {
@@ -25,10 +26,19 @@ def Nat::add (a: Nat, b: Nat): Nat :=
         λ(_: Nat, r: Nat) => Nat::succ(r))
 
 reduce Nat::add(1, 2)
-";
+".as_bytes();
+
+    let input = {
+        let args = std::env::args();
+        if args.len() == 2 {
+            let path = args.into_iter().nth(1).unwrap();
+            Vec::leak(std::fs::read(path).unwrap())
+        }
+        else { input }
+    };
 
     let p0 = arena.alloc_ptr::<u8>().as_ptr() as usize;
-    let tokens = kibi::parser::Tokenizer::tokenize(&arena, 0, input.as_bytes());
+    let tokens = kibi::parser::Tokenizer::tokenize(&arena, 0, input);
 
     let mut env = Env::new();
     let nat = env.create_nat();
@@ -50,8 +60,14 @@ reduce Nat::add(1, 2)
 
             ItemKind::Reduce(expr) => {
                 let Some((term, _)) = elab.elab_expr(expr) else { break };
-                let red = elab.tc().reduce(term);
-                println!("reduced: {:?}", red);
+                let r = elab.tc().reduce(term);
+
+                let mut pp = TermPP::new(&arena);
+                let r = pp.pp_term(r);
+                let r = pp.indent(9, r);
+                let r = pp.render(r, 50);
+                let r = r.layout_string();
+                println!("reduced: {}", r);
             }
         }
     }
@@ -64,12 +80,13 @@ reduce Nat::add(1, 2)
             println!("{:?}", e);
             let mut begin = (e.source.begin - 10.min(e.source.begin)) as usize;
             let mut end = (e.source.end   + 10).min(input.len() as u32) as usize;
-            while input.as_bytes()[begin] & 0xc0 == 0x80 { begin -= 1 }
-            while input.as_bytes()[end]   & 0xc0 == 0x80 { end   -= 1 }
+            while input[begin] & 0xc0 == 0x80 { begin -= 1 }
+            while input[end]   & 0xc0 == 0x80 { end   -= 1 }
             println!("{:?}", &input[begin..end]);
         });
     });
 
+    /*
 
     let alloc = kibi::tt::Alloc::new(&arena);
     let l = alloc.mkl_max(
@@ -133,5 +150,6 @@ reduce Nat::add(1, 2)
     for i in (10..40).step_by(7) {
         print(doc, i);
     }
+    */
 }
 

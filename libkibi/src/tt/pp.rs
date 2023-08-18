@@ -82,8 +82,8 @@ impl<'a> TermPP<'a> {
                 unimplemented!()
             }
 
-            TermKind::Global(_) => {
-                unimplemented!()
+            TermKind::Global(g) => {
+                self.pp.text(self.pp.alloc_str(&format!("s{}", g.id.value())))
             }
 
             TermKind::Forall(_) => {
@@ -184,5 +184,12 @@ impl<'a> TermPP<'a> {
             return (app.fun, self.pp_term(app.fun), self.pp_term(app.arg))
         }
     }
+}
+
+impl<'a> core::ops::Deref for TermPP<'a> {
+    type Target = PP<'a>;
+
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target { &self.pp }
 }
 

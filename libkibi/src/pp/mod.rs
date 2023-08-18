@@ -81,7 +81,13 @@ impl<'a> RDoc<'a> {
         }
     }
 
-    pub fn layout_string(&self, buffer: &mut String) {
+    pub fn layout_string(&self) -> String {
+        let mut buffer = String::new();
+        self.layout_into_string(&mut buffer);
+        return buffer;
+    }
+
+    pub fn layout_into_string(&self, buffer: &mut String) {
         let mut at = self;
         loop {
             match at.kind {

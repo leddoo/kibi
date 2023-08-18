@@ -16,6 +16,8 @@
             - headline, separation.
             - 3 source lines.
             - source line/col.
+    - nat pp.
+    - global pp.
     - eq impl.
     - some proofs!
     - def levels.
