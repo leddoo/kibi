@@ -211,7 +211,7 @@ pub mod item {
     #[derive(Debug)]
     pub struct Def<'a> {
         pub name:   IdentOrPath<'a>,
-        pub levels: LevelList<'a>,
+        pub levels: &'a [&'a str],
         pub params: BinderList<'a>,
         pub ty:     Option<Expr<'a>>,
         pub value:  Expr<'a>,
@@ -502,6 +502,7 @@ pub type LevelList<'a> = &'a mut [Level<'a>];
 
 #[derive(Debug)]
 pub struct Level<'a> {
+    pub source: SourceRange,
     pub kind: LevelKind<'a>,
 }
 

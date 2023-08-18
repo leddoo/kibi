@@ -40,6 +40,7 @@ pub enum ParseError<'a> {
 pub enum ElabError<'a> {
     SymbolShadowedByLocal (&'a str),
     UnresolvedName { base: &'a str, name: &'a str },
+    UnresolvedLevel (&'a str),
     LevelMismatch { expected: u32, found: u32 },
     TypeMismatch { expected: DocRef<'a>, found: DocRef<'a> },
     TypeExpected { found: DocRef<'a> },

@@ -17,6 +17,7 @@ pub struct Elab<'me, 'err, 'a> {
 
     lctx: LocalCtx<'a>,
     locals: Vec<(&'a str, LocalId)>,
+    level_vars: Vec<&'a str>,
 }
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
@@ -30,6 +31,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             ns,
             lctx: LocalCtx::new(alloc),
             locals: Vec::new(),
+            level_vars: Vec::new(),
         }
     }
 
@@ -56,7 +58,17 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 self.alloc.mkl_imax(lhs, rhs)
             }
 
-            ast::LevelKind::Var(_) => todo!(),
+            ast::LevelKind::Var(name) => {
+                for i in 0..self.level_vars.len() {
+                    if *name == self.level_vars[i] {
+                        return Some(self.alloc.mkl_param(*name, i as u32));
+                    }
+                }
+                self.error(level.source, |alloc|
+                    ElabError::UnresolvedLevel(
+                        alloc.alloc_str(name)));
+                return None;
+            }
         })
     }
 
@@ -102,8 +114,42 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 self.elab_symbol(expr.source, symbol, it.levels)?
             }
 
-            ExprKind::Forall(_) => {
-                unimplemented!()
+            ExprKind::Sort(l) => {
+                let l = self.elab_level(l)?;
+                (self.alloc.mkt_sort(l),
+                 self.alloc.mkt_sort(l.succ(self.alloc)))
+            }
+
+            ExprKind::Forall(it) => {
+                let save = self.lctx.save();
+                let num_locals = self.locals.len();
+
+                // @temp
+                let mut levels = Vec::new();
+
+                // @cleanup: elab_binders.
+                for param in it.binders.iter() {
+                    let (ty, l) = self.elab_expr_as_type(param.ty.as_ref()?)?;
+                    let id = self.lctx.extend(ty, None);
+                    let name = param.name.unwrap_or("");
+                    self.locals.push((name, id));
+                    levels.push(l);
+                }
+
+                let (mut result, mut level) = self.elab_expr_as_type(it.ret)?;
+
+                for l in levels.iter().rev() {
+                    level = l.imax(level, self.alloc);
+                }
+
+                for i in (num_locals..self.locals.len()).rev() {
+                    let (_, id) = self.locals[i];
+                    result = self.lctx.abstract_forall(result, id);
+                }
+                self.lctx.restore(save);
+                self.locals.truncate(num_locals);
+
+                (result, self.alloc.mkt_sort(level))
             }
 
             ExprKind::Lambda(it) => {
@@ -206,6 +252,11 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         assert_eq!(self.locals.len(), 0);
         let save = self.lctx.save();
 
+        assert_eq!(self.level_vars.len(), 0);
+        for level in def.levels {
+            self.level_vars.push(level);
+        }
+
         // @cleanup: elab_binders.
         for param in def.params.iter() {
             let (ty, _) = self.elab_expr_as_type(param.ty.as_ref()?)?;
@@ -241,14 +292,15 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         let symbol = self.env.new_symbol(parent_ns, name,
             SymbolKind::Def(symbol::Def {
-                num_levels: 0,
+                num_levels: def.levels.len() as u32,
                 ty,
                 val,
             })
         )?;
 
         self.lctx.restore(save);
-        self.locals.truncate(0);
+        self.locals.clear();
+        self.level_vars.clear();
 
         Some(symbol)
     }
@@ -380,7 +432,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                         if levels.len() != 2 {
                             self.error(source, |_|
                                 ElabError::LevelMismatch {
-                                    expected: 1, found: levels.len() as u32 });
+                                    expected: 2, found: levels.len() as u32 });
                             return None;
                         }
 
@@ -393,11 +445,22 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
 
             SymbolKind::Def(def) => {
-                if def.num_levels != 0 || levels.len() != 0 {
-                    unimplemented!()
+                if levels.len() != def.num_levels as usize {
+                    self.error(source, |_|
+                        ElabError::LevelMismatch {
+                            expected: def.num_levels, found: levels.len() as u32 });
+                    return None;
                 }
 
-                (self.alloc.mkt_global(id, &[]), def.ty)
+                // @mega@temp
+                let mut ls = Vec::with_cap_in(levels.len(), self.alloc.arena);
+                for l in levels {
+                    ls.push(self.elab_level(l)?.clone());
+                }
+                let levels = &*Vec::leak(ls);
+
+                (self.alloc.mkt_global(id, levels),
+                 def.ty.instantiate_levels(levels, self.alloc))
             }
         })
     }

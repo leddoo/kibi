@@ -12,9 +12,10 @@
 
 - todo:
     - some proofs!
-        - `ax_sorry`.
+        - axioms & `ax_sorry`.
+        - `A -> B` syntax.
+    - level list = `&'a[LevelRef<'a>]`.
     - eq rec.
-    - def levels.
     - fix kernel bugs: all rules must fail.
 
     - `fib_iter`.

@@ -20,6 +20,7 @@ pub enum LevelKind<'a> {
     Succ(LevelRef<'a>),
     Max(level::Pair<'a>),
     IMax(level::Pair<'a>),
+    Param(level::Param<'a>),
 
     // sync: `Level::syntax_eq`
 }
@@ -33,6 +34,12 @@ pub mod level {
     pub struct Pair<'a> {
         pub lhs: LevelRef<'a>,
         pub rhs: LevelRef<'a>,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    pub struct Param<'a> {
+        pub name: &'a str,
+        pub index: u32,
     }
 }
 
@@ -68,7 +75,9 @@ pub enum TermKind<'a> {
     EqRec(LevelRef<'a>, LevelRef<'a>),
 
     // sync:
+    // - `Term::syntax_eq`.
     // - @pp_needs_parens.
+    // - replace & friends.
 }
 
 
@@ -126,6 +135,11 @@ impl<'a> Level<'a> {
         Self { kind: LevelKind::IMax(level::Pair { lhs, rhs }) }
     }
 
+    #[inline(always)]
+    pub const fn mk_param(name: &'a str, index: u32) -> Self {
+        Self { kind: LevelKind::Param(level::Param { name, index }) }
+    }
+
 
     #[inline(always)]
     pub fn ptr_eq(&self, other: &Level) -> bool {
@@ -147,6 +161,8 @@ impl<'a> Level<'a> {
             (Max(a),  Max(b)) |
             (IMax(a), IMax(b)) =>
                 a.lhs.syntax_eq(b.lhs) && a.rhs.syntax_eq(b.rhs),
+
+            (Param(a), Param(b)) => a.index == b.index,
 
             _ => false
         }
@@ -184,6 +200,7 @@ impl<'a> Level<'a> {
             LevelKind::Succ(_) => true,
             LevelKind::Max(p)  => p.lhs.non_zero() || p.rhs.non_zero(),
             LevelKind::IMax(p) => p.rhs.non_zero(),
+            LevelKind::Param(_) => false,
         }
     }
 
@@ -221,6 +238,12 @@ impl<'a> Level<'a> {
     }
 
     #[inline(always)]
+    pub fn max(&'a self, other: LevelRef<'a>, alloc: super::Alloc<'a>) -> LevelRef<'a> {
+        // @temp
+        alloc.mkl_max(self, other)
+    }
+
+    #[inline(always)]
     pub fn imax(&'a self, other: LevelRef<'a>, alloc: super::Alloc<'a>) -> LevelRef<'a> {
         let (a, b) = (self, other);
 
@@ -238,6 +261,58 @@ impl<'a> Level<'a> {
         if a.syntax_eq(b) { return a; }
 
         alloc.mkl_imax(a, b)
+    }
+
+
+
+    pub fn replace<F: Fn(LevelRef<'a>, super::Alloc<'a>) -> Option<LevelRef<'a>>>
+        (&'a self, alloc: super::Alloc<'a>, f: F) -> LevelRef<'a>
+    {
+        self.replace_ex(alloc, &f)
+    }
+
+    pub fn replace_ex<F: Fn(LevelRef<'a>, super::Alloc<'a>) -> Option<LevelRef<'a>>>
+        (&'a self, alloc: super::Alloc<'a>, f: &F) -> LevelRef<'a>
+    {
+        if let Some(new) = f(self, alloc) {
+            return new;
+        }
+
+        match self.kind {
+            LevelKind::Zero => self,
+
+            LevelKind::Succ(of) => {
+                let new_of = of.replace_ex(alloc, f);
+                if new_of.ptr_eq(of) {
+                    return self;
+                }
+                new_of.succ(alloc)
+            }
+
+            LevelKind::Max(p) |
+            LevelKind::IMax(p) => {
+                let new_lhs = p.lhs.replace_ex(alloc, f);
+                let new_rhs = p.rhs.replace_ex(alloc, f);
+                if new_lhs.ptr_eq(p.lhs) && new_rhs.ptr_eq(p.rhs) {
+                    return self;
+                }
+                if self.is_max() { new_lhs.max(new_rhs, alloc)  }
+                else             { new_lhs.imax(new_rhs, alloc) }
+            }
+
+            LevelKind::Param(_) => self,
+        }
+    }
+
+    pub fn instantiate(&'a self, subst: LevelList<'a>, alloc: super::Alloc<'a>) -> Option<LevelRef<'a>> {
+        // @speed: has_param.
+        let result = self.replace(alloc, |at, alloc| {
+            if let LevelKind::Param(p) = at.kind {
+                return Some(&subst[p.index as usize]);
+            }
+            None
+        });
+        (!result.ptr_eq(self)).then_some(result)
     }
 }
 
@@ -545,6 +620,73 @@ impl<'a> Term<'a> {
                 if b.0 == offset {
                     return Some(subst);
                 }
+            }
+            None
+        })
+    }
+
+    pub fn instantiate_levels(&'a self, subst: LevelList<'a>, alloc: super::Alloc<'a>) -> TermRef<'a> {
+        // @speed: has_level_param.
+        self.replace(alloc, |at, _, alloc| {
+            match at.kind {
+                TermKind::Sort(l) => {
+                    if let Some(l) = l.instantiate(subst, alloc) {
+                        return Some(alloc.mkt_sort(l));
+                    }
+                }
+
+                TermKind::Global(g) => {
+                    let mut new_levels = Vec::new_in(alloc.arena);
+
+                    for (i, l) in g.levels.iter().enumerate() {
+                        if let Some(l) = l.instantiate(subst, alloc) {
+                            if new_levels.len() == 0 {
+                                new_levels.reserve_exact(g.levels.len());
+                                for k in 0..i {
+                                    new_levels.push(g.levels[k].clone());
+                                }
+                            }
+
+                            new_levels.push(l.clone());
+                        }
+                    }
+
+                    if new_levels.len() != 0 {
+                        debug_assert_eq!(new_levels.len(), g.levels.len());
+                        let levels = Vec::leak(new_levels);
+                        return Some(alloc.mkt_global(g.id, levels));
+                    }
+                }
+
+                TermKind::NatRec(r) => {
+                    if let Some(r) = r.instantiate(subst, alloc) {
+                        return Some(alloc.mkt_nat_rec(r));
+                    }
+                }
+
+                TermKind::Eq(l) => {
+                    if let Some(l) = l.instantiate(subst, alloc) {
+                        return Some(alloc.mkt_eq(l));
+                    }
+                }
+
+                TermKind::EqRefl(l) => {
+                    if let Some(l) = l.instantiate(subst, alloc) {
+                        return Some(alloc.mkt_eq_refl(l));
+                    }
+                }
+
+                TermKind::EqRec(l, r) => {
+                    let new_l = l.instantiate(subst, alloc);
+                    let new_r = r.instantiate(subst, alloc);
+                    if new_l.is_some() || new_r.is_some() {
+                        let l = new_l.unwrap_or(l);
+                        let r = new_r.unwrap_or(r);
+                        return Some(alloc.mkt_eq_rec(l, r));
+                    }
+                }
+
+                _ => ()
             }
             None
         })

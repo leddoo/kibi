@@ -330,16 +330,25 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 // @temp.
                 let name = self.parse_expr_ex(u32::MAX)?;
 
-                let (name, levels) = match name.kind {
-                    ExprKind::Ident(name)    => (IdentOrPath::Ident(name), &mut [][..]),
-                    ExprKind::Path(path)     => (IdentOrPath::Path(path),  &mut [][..]),
-                    ExprKind::Levels(levels) => (levels.symbol, levels.levels),
+                let name = match name.kind {
+                    ExprKind::Ident(name)    => IdentOrPath::Ident(name),
+                    ExprKind::Path(path)     => IdentOrPath::Path(path),
 
                     _ => {
                         self.error_expect(name.source, "ident | path");
                         return None;
                     }
                 };
+
+                let mut levels = &mut [][..];
+                if self.tokens.consume_if(|at| at.kind == TokenKind::Dot) {
+                    self.expect(TokenKind::LCurly);
+                    levels = self.sep_by(TokenKind::Comma, TokenKind::RCurly, |this| {
+                        let at = this.tokens.next_ref()?;
+                        let TokenKind::Ident(name) = at.kind else { return None };
+                        Some(name)
+                    })?;
+                }
 
                 let mut params = &mut [][..];
                 if self.tokens.consume_if(|at| at.kind == TokenKind::LParen) {
@@ -536,29 +545,30 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
                 TokenKind::KwProp => {
                     ExprKind::Sort(self.arena.alloc_new(
-                        Level { kind: LevelKind::Nat(0) }))
+                        Level { source: at.source, kind: LevelKind::Nat(0) }))
                 }
 
                 TokenKind::KwType => {
                     ExprKind::Sort(self.arena.alloc_new(
-                        Level { kind: LevelKind::Nat(1) }))
+                        Level { source: at.source, kind: LevelKind::Nat(1) }))
                 }
 
                 TokenKind::KwPi => {
-                    unimplemented!()
+                    let binders = self.parse_binders()?;
+
+                    self.expect(TokenKind::Arrow)?;
+
+                    let ret = self.arena.alloc_new(self.parse_expr()?);
+                    ExprKind::Forall(expr::Forall { binders, ret })
                 }
 
                 TokenKind::KwLam => {
                     let binders = self.parse_binders()?;
 
-                    if self.tokens.consume_if(|at| at.kind == TokenKind::FatArrow) {
-                        let value = self.arena.alloc_new(self.parse_expr()?);
-                        ExprKind::Lambda(expr::Lambda { binders, value })
-                    }
-                    else {
-                        // @temp
-                        return None;
-                    }
+                    self.expect(TokenKind::FatArrow)?;
+
+                    let value = self.arena.alloc_new(self.parse_expr()?);
+                    ExprKind::Lambda(expr::Lambda { binders, value })
                 }
 
 
@@ -650,6 +660,8 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
     fn parse_level(&mut self) -> Option<Level<'a>> {
         let at = self.tokens.next_ref()?;
 
+        let source_begin = at.source;
+
         let mut kind = match at.kind {
             TokenKind::Ident(v) => {
                 if v == "max" || v == "imax" {
@@ -683,6 +695,8 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
             }
         };
 
+        let source = source_begin.join(self.prev_token_source());
+
         if self.tokens.consume_if(|at| at.kind == TokenKind::Add) {
             let at = self.tokens.next_ref()?;
             let TokenKind::Number(v) = at.kind else {
@@ -690,12 +704,14 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 return None;
             };
 
-            let l = self.arena.alloc_new(Level { kind });
+            let l = self.arena.alloc_new(Level { source, kind });
             let v = u32::from_str_radix(v, 10).ok()?;
             kind = LevelKind::Add((l, v));
         }
 
-        return Some(Level { kind });
+        let source = source_begin.join(self.prev_token_source());
+
+        return Some(Level { source, kind });
     }
 
     fn parse_binders(&mut self) -> Option<BinderList<'a>> {

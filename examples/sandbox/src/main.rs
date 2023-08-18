@@ -101,6 +101,10 @@ reduce Nat::add(1, 2)
                                 println!("symbol {:?} shadowed by a local variable", name);
                             }
 
+                            ElabError::UnresolvedLevel(name) => {
+                                println!("unresolved level: {name:?}");
+                            }
+
                             ElabError::UnresolvedName { base, name } => {
                                 if base != "" {
                                     println!("unresolved name. cannot find {name:?} in {base:?}");
@@ -171,8 +175,8 @@ reduce Nat::add(1, 2)
                 match e.kind {
                     ErrorKind::Parse(e) => {
                         match e {
-                            ParseError::Expected(what) => {}
-                            ParseError::Unexpected(what) => {}
+                            ParseError::Expected(_) => {}
+                            ParseError::Unexpected(_) => {}
                         }
                     }
 
@@ -181,11 +185,11 @@ reduce Nat::add(1, 2)
                             ElabError::SymbolShadowedByLocal(_) => {
                             }
 
-                            ElabError::UnresolvedName { base, name } => {
-                            }
+                            ElabError::UnresolvedName {..} => {}
 
-                            ElabError::LevelMismatch { expected, found } => {
-                            }
+                            ElabError::UnresolvedLevel(_) => {}
+
+                            ElabError::LevelMismatch {..} => {}
 
                             ElabError::TypeMismatch { expected, found } => {
                                 let pp = PP::new(&arena);
@@ -204,6 +208,13 @@ reduce Nat::add(1, 2)
                             }
 
                             ElabError::TypeExpected { found } => {
+                                let pp = PP::new(&arena);
+                                let found = pp.render(found, 50);
+                                let found = found.layout_string();
+                                println!("found: {}", found.lines().next().unwrap());
+                                for line in found.lines().skip(1) {
+                                    println!("       {}", line);
+                                }
                             }
                         }
                     }

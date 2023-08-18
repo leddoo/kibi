@@ -330,7 +330,7 @@ impl<'me, 'a> TyCtx<'me, 'a> {
                     ]));
                 }
 
-                _ => unreachable!()
+                _ => ()
             }
         }}
 

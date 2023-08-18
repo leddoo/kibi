@@ -63,6 +63,11 @@ impl<'a> Alloc<'a> {
         self.arena.alloc_new(Level::mk_imax(lhs, rhs))
     }
 
+    #[inline(always)]
+    pub fn mkl_param(&self, name: &'a str, index: u32) -> LevelRef<'a> {
+        self.arena.alloc_new(Level::mk_param(name, index))
+    }
+
 
     #[inline(always)]
     pub fn mkt_sort(&self, level: LevelRef<'a>) -> TermRef<'a> {
@@ -243,25 +248,25 @@ impl<'a> Alloc<'a> {
             // b: T
             self.mkt_bvar(BVar(1)),
         self.mkt_forall(0,
-            // M: Π(b: T) -> Sort(r)
-            self.mkt_forall(0,
-                self.mkt_bvar(BVar(2)),
-                self.mkt_sort(r)),
-        self.mkt_forall(0,
             // n: Eq(T, a, b)
             self.mkt_apps(self.mkt_eq(l), &[
-                self.mkt_bvar(BVar(3)),
                 self.mkt_bvar(BVar(2)),
                 self.mkt_bvar(BVar(1)),
+                self.mkt_bvar(BVar(0)),
             ]),
+        self.mkt_forall(0,
+            // M: Π(b: T) -> Sort(r)
+            self.mkt_forall(0,
+                self.mkt_bvar(BVar(3)),
+                self.mkt_sort(r)),
         self.mkt_forall(0,
             // mr: M(a)
             self.mkt_apply(
-                self.mkt_bvar(BVar(1)),
+                self.mkt_bvar(BVar(0)),
                 self.mkt_bvar(BVar(3))),
             // -> M(b)
             self.mkt_apply(
-                self.mkt_bvar(BVar(2)),
+                self.mkt_bvar(BVar(1)),
                 self.mkt_bvar(BVar(3)))))))))
     }
 }

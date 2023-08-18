@@ -54,6 +54,10 @@ impl<'me, 'a> TermPP<'me, 'a> {
                     else { self.pp.nil() },
                 ]))
             }
+
+            LevelKind::Param(p) => {
+                self.pp.text(self.pp.alloc_str(p.name))
+            }
         }
     }
 
@@ -81,8 +85,9 @@ impl<'me, 'a> TermPP<'me, 'a> {
                 self.pp.text(self.pp.alloc_str(&format!("${i}")))
             }
 
-            TermKind::Local(_) => {
-                unimplemented!()
+            TermKind::Local(i) => {
+                // @temp
+                self.pp.text(self.pp.alloc_str(&format!("%{}", i.value())))
             }
 
             TermKind::Global(g) => {
@@ -159,7 +164,7 @@ impl<'me, 'a> TermPP<'me, 'a> {
                         return self.pp.text(self.pp.alloc_str(&format!("{offset}")))
                     }
                     else {
-                        unimplemented!()
+                        // @todo: `() + offset`.
                     }
                 }
 
