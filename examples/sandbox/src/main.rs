@@ -183,8 +183,14 @@ reduce Nat::add(1, 2)
                                 let expected = expected.layout_string();
                                 let found = pp.render(found, 40);
                                 let found = found.layout_string();
-                                println!("expected: {}", expected);
-                                println!("found:    {}", found);
+                                println!("expected: {}", expected.lines().next().unwrap());
+                                for line in expected.lines().skip(1) {
+                                    println!("          {}", line);
+                                }
+                                println!("found:    {}", found.lines().next().unwrap());
+                                for line in found.lines().skip(1) {
+                                    println!("          {}", line);
+                                }
                             }
 
                             ElabError::TypeExpected { found } => {

@@ -86,8 +86,22 @@ impl<'a> TermPP<'a> {
                 self.pp.text(self.pp.alloc_str(&format!("s{}", g.id.value())))
             }
 
-            TermKind::Forall(_) => {
-                unimplemented!()
+            TermKind::Forall(b) => {
+                let ty  = self.pp_term(b.ty);
+                let val = self.pp_term(b.val);
+                self.pp.group(self.pp.cats(&[
+                    self.pp.text("Π("),
+                    self.pp.group(self.pp.indent(2, self.pp.cats(&[
+                        self.pp.text("_: "),
+                        self.pp.line(),
+                        ty,
+                    ]))),
+                    self.pp.text(") ->"),
+                    self.pp.group(self.pp.indent(2, self.pp.cats(&[
+                        self.pp.line_or_sp(),
+                        val,
+                    ]))),
+                ]))
             }
 
             TermKind::Lambda(b) => {

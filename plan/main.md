@@ -11,7 +11,6 @@
 
 
 - todo:
-    - forall pp.
     - nat pp.
     - global pp.
     - eq impl.
