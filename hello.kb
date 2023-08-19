@@ -32,3 +32,6 @@ def Nat::zero_add (n: Nat): Eq.{1}(Nat, Nat::add(0, n), n) :=
             congr_arg.{1, 1}(Nat, Nat, Nat::succ, Nat::add(0, n), n, ih))
 
 
+-- yeah, don't uncomment that...
+-- reduce Nat::zero_add
+

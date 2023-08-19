@@ -149,6 +149,8 @@ impl<'a> Env<'a> {
     }
 
     pub fn create_initial(&mut self, nat: SymbolId, eq: SymbolId) -> NamespaceId {
+        // @temp: symbol/ns refactor.
+        /*
         let mut entries = Vec::new();
         entries.push(NsEntry {
             name: "Nat",
@@ -162,6 +164,8 @@ impl<'a> Env<'a> {
             symbol: None.into(),
             entries,
         })
+        */
+        NamespaceId::ROOT
     }
 
 

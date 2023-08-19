@@ -11,12 +11,31 @@
 
 
 - todo:
-    - some proofs!
-        - axioms & `ax_sorry`.
-        - `A -> B` syntax.
-    - level list = `&'a[LevelRef<'a>]`.
-    - eq rec.
-    - fix kernel bugs: all rules must fail.
+    - cleanup:
+        - sti stuff.
+        - closed checks.
+        - type correct checks (`infer_type.unwrap(): Sort(l)`)
+        - level list = `&'a[LevelRef<'a>]`.
+        - `@temp`s.
+        - namespace == symbol.
+            - so we can always derive a unique name.
+            - ig hidden namespaces (symbols in fn bodies) need special names then.
+        - consistent lifetime names.
+        - consistent param order.
+        - `tt::Alloc`.
+            - arena extension trait instead?
+            - proper allocator abstraction might be better -> tracing.
+    - robustness:
+        - fix kernel bugs: all rules must fail.
+        - kernel type checking.
+        - debug mode consistency checks
+          (check well types & type is sort).
+
+    - inference:
+        - levels.
+        - terms in types.
+        - motives.
+        - implicit params.
 
     - `fib_iter`.
         - parse it.
@@ -26,16 +45,6 @@
 
 
 ### backlog:
-
-- cleanup:
-    - namespace == symbol.
-        - so we can always derive a unique name.
-        - ig hidden namespaces (symbols in fn bodies) need special names then.
-    - consistent lifetime names.
-    - consistent param order.
-    - `tt::Alloc`.
-        - arena extension trait instead?
-        - proper allocator abstraction might be better -> tracing.
 
 - better errors:
     - simplify types (cheap reductions).
@@ -52,6 +61,9 @@
     - swiss table.
 
 - features:
+    - eq rec.
+    - axioms & `ax_sorry`.
+    - `A -> B` syntax.
     - print.
     - implicit params.
         - new binder syntax.

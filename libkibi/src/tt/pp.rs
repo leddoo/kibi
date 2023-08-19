@@ -222,12 +222,25 @@ impl<'me, 'a> TermPP<'me, 'a> {
                 ])
             }
 
-            TermKind::EqRefl(_) => {
-                unimplemented!()
+            TermKind::EqRefl(l) => {
+                let l = self.pp_level(l);
+                self.pp.cats(&[
+                    self.pp.text("Eq::refl.{"),
+                    l,
+                    self.pp.text("}"),
+                ])
             }
 
-            TermKind::EqRec(_, _) => {
-                unimplemented!()
+            TermKind::EqRec(l, r) => {
+                let l = self.pp_level(l);
+                let r = self.pp_level(r);
+                self.pp.cats(&[
+                    self.pp.text("Eq::refl.{"),
+                    l,
+                    self.pp.text(", "),
+                    r,
+                    self.pp.text("}"),
+                ])
             }
         }
     }

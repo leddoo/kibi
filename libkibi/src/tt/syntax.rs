@@ -626,6 +626,10 @@ impl<'a> Term<'a> {
     }
 
     pub fn instantiate_levels(&'a self, subst: LevelList<'a>, alloc: super::Alloc<'a>) -> TermRef<'a> {
+        if subst.len() == 0 {
+            return self;
+        }
+
         // @speed: has_level_param.
         self.replace(alloc, |at, _, alloc| {
             match at.kind {

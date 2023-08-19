@@ -290,6 +290,9 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
         };
 
+        assert!(ty.closed());
+        assert!(val.closed());
+
         let symbol = self.env.new_symbol(parent_ns, name,
             SymbolKind::Def(symbol::Def {
                 num_levels: def.levels.len() as u32,

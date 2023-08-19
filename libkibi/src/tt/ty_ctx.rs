@@ -362,11 +362,17 @@ impl<'me, 'a> TyCtx<'me, 'a> {
 
             TermKind::Forall(b) |
             TermKind::Lambda(b) => {
-                let new_b = b.update(
-                    self.reduce(b.ty),
-                    self.reduce(b.val));
+                let new_ty = self.reduce(b.ty);
 
-                if let Some(b) = new_b {
+                let new_val = self.save_lctx(|this| {
+                    let id = this.lctx.extend(b.ty, None);
+                    let val = b.val.instantiate(this.alloc.mkt_local(id), this.alloc);
+
+                    let new_val = this.reduce(val);
+                    if new_val.ptr_eq(val) { b.val } else { new_val }
+                });
+
+                if let Some(b) = b.update(new_ty, new_val) {
                     if result.is_forall() { self.alloc.mkt_forall_b(b) }
                     else                  { self.alloc.mkt_lambda_b(b) }
                 }
@@ -637,10 +643,9 @@ impl<'me, 'a> TyCtx<'me, 'a> {
             SymbolKind::BuiltIn(_) => None,
 
             SymbolKind::Def(d) => {
-                if d.num_levels != 0 {
-                    unimplemented!()
-                }
-                Some(t.replace_app_fun(d.val, self.alloc))
+                debug_assert_eq!(g.levels.len(), d.num_levels as usize);
+                let val = d.val.instantiate_levels(g.levels, self.alloc);
+                Some(t.replace_app_fun(val, self.alloc))
             }
         }
     }
