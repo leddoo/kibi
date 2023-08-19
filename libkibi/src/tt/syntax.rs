@@ -64,7 +64,6 @@ pub enum TermKind<'a> {
     Lambda(term::Binder<'a>),
     Apply(term::Apply<'a>),
 
-    // @temp
     Nat,
     NatZero,
     NatSucc,
@@ -239,7 +238,7 @@ impl<'a> Level<'a> {
 
     #[inline(always)]
     pub fn max(&'a self, other: LevelRef<'a>, alloc: super::Alloc<'a>) -> LevelRef<'a> {
-        // @temp
+        // @temp: proper impl.
         alloc.mkl_max(self, other)
     }
 

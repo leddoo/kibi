@@ -9,11 +9,6 @@
     - user types.
     - macros.
 
-32 B, rounding:    3.826s,  9,142,401,936 B
-32 B, no rounding: 3.882s,  9,142,393,080 B  +1.4%   -0.0% (-8856 B)
-40 B, rounding:    4.301s, 13,713,564,032 B
-40 B, no rounding: 4.145s, 11,427,974,104 B  -3.6%  -16.7% (-2.3 GB)
-
 - todo:
     - cleanup:
         - closed checks.
@@ -28,6 +23,9 @@
         - `tt::Alloc`.
             - arena extension trait instead?
             - proper allocator abstraction might be better -> tracing.
+        - parser:
+            - `expect_ident`.
+            - `parse_ident_or_path`.
     - robustness:
         - fix kernel bugs: all rules must fail.
         - kernel type checking.

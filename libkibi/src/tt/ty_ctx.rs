@@ -128,7 +128,7 @@ impl<'me, 'a> TyCtx<'me, 'a> {
 
             TermKind::Apply (app) => {
                 let fun_ty = self.infer_type_as_forall(app.fun)?;
-                /* @temp
+                /* @temp: type checking.
                 let arg_ty = self.infer_type(app.arg)?;
 
                 if self.check_types {
@@ -199,7 +199,7 @@ impl<'me, 'a> TyCtx<'me, 'a> {
             }
 
             TermKind::Global (_) => {
-                // @temp
+                // @temp: reject axioms & opaque defs.
                 (e, false)
             }
 

@@ -123,7 +123,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 let save = self.lctx.save();
                 let num_locals = self.locals.len();
 
-                // @temp
+                // @temp: sti temp arena.
                 let mut levels = Vec::new();
 
                 // @cleanup: elab_binders.
@@ -283,7 +283,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
             IdentOrPath::Path(path) => {
                 let (name, parts) = path.parts.split_last().unwrap();
-                // @temp
+                // @temp: missing source range.
                 let ns = self.lookup_namespace_path(SourceRange::UNKNOWN, path.local, parts)?;
                 (ns, *name)
             }
@@ -454,7 +454,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     return None;
                 }
 
-                // @mega@temp
+                // @mega@temp: LevelList ref based.
                 let mut ls = Vec::with_cap_in(levels.len(), self.alloc.arena);
                 for l in levels {
                     ls.push(self.elab_level(l)?.clone());

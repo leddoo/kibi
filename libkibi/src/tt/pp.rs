@@ -23,7 +23,7 @@ impl<'me, 'a> TermPP<'me, 'a> {
 
         match l.kind {
             LevelKind::Zero => {
-                // @temp.
+                // @temp: sti string module.
                 self.pp.text(self.pp.alloc_str(&format!("{offset}")))
             }
 
@@ -48,7 +48,7 @@ impl<'me, 'a> TermPP<'me, 'a> {
                     if offset != 0 {
                         self.pp.cat(
                             self.pp.text("+ "),
-                            // @temp.
+                            // @temp: sti string module.
                             self.pp.text(self.pp.alloc_str(&format!("{offset}"))))
                     }
                     else { self.pp.nil() },
@@ -81,12 +81,12 @@ impl<'me, 'a> TermPP<'me, 'a> {
             }
 
             TermKind::BVar(BVar(i)) => {
-                // @temp
+                // @temp: sti string module.
                 self.pp.text(self.pp.alloc_str(&format!("${i}")))
             }
 
             TermKind::Local(i) => {
-                // @temp
+                // @temp: sti string module.
                 self.pp.text(self.pp.alloc_str(&format!("%{}", i.value())))
             }
 

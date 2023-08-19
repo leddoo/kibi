@@ -327,7 +327,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
         let kind = match at.kind {
             TokenKind::KwDef => {
-                // @temp.
+                // @temp: parse_ident_or_path.
                 let name = self.parse_expr_ex(u32::MAX)?;
 
                 let name = match name.kind {
@@ -476,7 +476,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 self.tokens.consume(1);
 
                 let args = self.sep_by(TokenKind::Comma, TokenKind::RParen, |this| {
-                    // @temp.
+                    // @temp: named args.
                     this.parse_expr()
                     .map(|value| expr::CallArg::Positional(value))
                 })?;
@@ -531,7 +531,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                         }
                     }
 
-                    // @temp
+                    // @temp: expect_ident.
                     return None;
                 }
 
@@ -577,6 +577,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 TokenKind::Number(value) => {
                     // @temp: analyze compatible types.
                     // maybe convert to value.
+                    // or structured repr, maybe in tok.
                     ExprKind::Number(value)
                 }
 
@@ -620,17 +621,6 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                         ExprKind::List(children)
                     }
                 }
-
-                // map & map type.
-                TokenKind::LCurly => {
-                    // @temp
-                    return None;
-                }
-
-                /*
-                Match(expr::Match<'a>),
-                If(expr::If<'a>),
-                */
 
                 _ => break 'next
             }}
