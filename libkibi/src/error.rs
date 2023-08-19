@@ -1,5 +1,5 @@
 use core::cell::RefCell;
-use sti::growing_arena::*;
+use sti::arena::*;
 use sti::vec::Vec;
 
 use crate::source_map::SourceRange;
@@ -11,7 +11,7 @@ pub struct ErrorCtx<'err> {
 }
 
 pub struct ErrorCtxMut<'err> {
-    pub alloc: &'err GrowingArena,
+    pub alloc: &'err Arena,
     errors: Vec<Error<'err>>,
 }
 
@@ -49,7 +49,7 @@ pub enum ElabError<'a> {
 
 impl<'err> ErrorCtx<'err> {
     #[inline(always)]
-    pub fn new(alloc: &'err GrowingArena) -> Self {
+    pub fn new(alloc: &'err Arena) -> Self {
         Self { inner: RefCell::new(ErrorCtxMut {
             alloc,
             errors: Vec::new(),

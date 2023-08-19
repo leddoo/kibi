@@ -1,4 +1,4 @@
-use sti::growing_arena::GrowingArena;
+use sti::arena::Arena;
 
 use crate::pp::*;
 use crate::env::{Env, NamespaceId};
@@ -11,7 +11,7 @@ pub struct TermPP<'me, 'a> {
 }
 
 impl<'me, 'a> TermPP<'me, 'a> {
-    pub fn new(arena: &'a GrowingArena, env: &'me Env<'me>) -> Self {
+    pub fn new(arena: &'a Arena, env: &'me Env<'me>) -> Self {
         Self {
             pp: PP::new(arena),
             env,

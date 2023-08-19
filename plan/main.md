@@ -9,10 +9,13 @@
     - user types.
     - macros.
 
+32 B, rounding:    3.826s,  9,142,401,936 B
+32 B, no rounding: 3.882s,  9,142,393,080 B  +1.4%   -0.0% (-8856 B)
+40 B, rounding:    4.301s, 13,713,564,032 B
+40 B, no rounding: 4.145s, 11,427,974,104 B  -3.6%  -16.7% (-2.3 GB)
 
 - todo:
     - cleanup:
-        - sti stuff.
         - closed checks.
         - type correct checks (`infer_type.unwrap(): Sort(l)`)
         - level list = `&'a[LevelRef<'a>]`.
@@ -53,12 +56,8 @@
     - `A -> B` for non-dependent funcs.
 
 - sti:
-    - rename `GrowingArena` -> `Arena`.
-    - arena `alloc_str`
     - string and formatting stuff, write trait.
-    - Vec::truncate track caller.
     - KVec::truncate, clone.
-    - swiss table.
 
 - features:
     - eq rec.

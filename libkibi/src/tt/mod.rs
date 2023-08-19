@@ -1,4 +1,4 @@
-use sti::growing_arena::GrowingArena;
+use sti::arena::Arena;
 
 
 pub mod syntax;
@@ -16,12 +16,12 @@ pub use ty_ctx::*;
 
 #[derive(Clone, Copy)]
 pub struct Alloc<'a> {
-    pub arena: &'a GrowingArena,
+    pub arena: &'a Arena,
 }
 
 impl<'a> Alloc<'a> {
     #[inline(always)]
-    pub fn new(arena: &'a GrowingArena) -> Self {
+    pub fn new(arena: &'a Arena) -> Self {
         Self { arena }
     }
 

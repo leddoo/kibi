@@ -6,7 +6,7 @@ use kibi::env::*;
 
 #[test]
 fn nat_add_elab() {
-    let arena = sti::growing_arena::GrowingArena::new();
+    let arena = sti::arena::Arena::new();
     let alloc = Alloc::new(&arena);
 
     // λ a b, Nat.rec(b, (λ _, Nat), a, (λ _ r, Nat.succ(r)))

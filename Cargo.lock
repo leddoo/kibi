@@ -14,10 +14,9 @@ name = "sandbox"
 version = "0.1.0"
 dependencies = [
  "kibi",
- "sti",
 ]
 
 [[package]]
 name = "sti"
-version = "0.1.5"
-source = "git+https://github.com/leddoo/sti#e620e03cb0eb0e6e7c54a5de2ca5130997476497"
+version = "0.1.6"
+source = "git+https://github.com/leddoo/sti#2d68f92d2c58d55daac00c60477cc496cba981a7"

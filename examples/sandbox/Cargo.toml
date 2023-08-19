@@ -5,5 +5,4 @@ edition = "2021"
 
 [dependencies]
 kibi = { path = "../../libkibi" }
-sti = { git = "https://github.com/leddoo/sti" }
 

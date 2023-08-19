@@ -1,3 +1,4 @@
+use kibi::sti;
 use kibi::pp::*;
 use kibi::error::*;
 use kibi::ast::*;
@@ -6,7 +7,7 @@ use kibi::env::*;
 
 
 fn main() {
-    let arena = sti::growing_arena::GrowingArena::new();
+    let arena = sti::arena::Arena::new();
     arena.min_block_size.set(1024*1024);
 
     let input = "

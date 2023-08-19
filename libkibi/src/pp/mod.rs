@@ -1,4 +1,4 @@
-use sti::growing_arena::GrowingArena;
+use sti::arena::Arena;
 
 use crate::AllocStrExt;
 
@@ -8,7 +8,7 @@ use crate::AllocStrExt;
 
 
 pub struct PP<'a> {
-    pub alloc: &'a GrowingArena,
+    pub alloc: &'a Arena,
 }
 
 
@@ -120,7 +120,7 @@ impl<'a> core::fmt::Debug for RDoc<'a> {
 
 impl<'a> PP<'a> {
     #[inline(always)]
-    pub fn new(alloc: &'a GrowingArena) -> Self {
+    pub fn new(alloc: &'a Arena) -> Self {
         Self { alloc }
     }
 

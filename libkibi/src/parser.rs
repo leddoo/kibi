@@ -1,5 +1,5 @@
 use sti::alloc::{Alloc, GlobalAlloc};
-use sti::growing_arena::GrowingArena;
+use sti::arena::Arena;
 use sti::vec::Vec;
 use sti::reader::Reader;
 
@@ -9,22 +9,22 @@ use crate::ast::*;
 
 pub struct Tokenizer<'a> {
     #[allow(dead_code)]
-    pub arena:  &'a GrowingArena,
+    pub arena:  &'a Arena,
     pub source_offset: u32,
     pub reader: Reader<'a, u8>,
 }
 
 impl<'a> Tokenizer<'a> {
-    pub fn tokenize(arena: &'a GrowingArena, source_offset: u32, input: &'a [u8]) -> Vec<Token<'a>> {
+    pub fn tokenize(arena: &'a Arena, source_offset: u32, input: &'a [u8]) -> Vec<Token<'a>> {
         Self::tokenize_in(arena, GlobalAlloc, source_offset, input)
     }
 
-    pub fn tokenize_in<A: Alloc>(arena: &'a GrowingArena, alloc: A, source_offset: u32, input: &'a [u8]) -> Vec<Token<'a>, A> {
+    pub fn tokenize_in<A: Alloc>(arena: &'a Arena, alloc: A, source_offset: u32, input: &'a [u8]) -> Vec<Token<'a>, A> {
         Self::new(arena, source_offset, input).run_in(alloc)
     }
 
 
-    pub fn new(arena: &'a GrowingArena, source_offset: u32, input: &'a [u8]) -> Self {
+    pub fn new(arena: &'a Arena, source_offset: u32, input: &'a [u8]) -> Self {
         Self { arena, source_offset, reader: Reader::new(input) }
     }
 
@@ -312,13 +312,13 @@ impl Default for ParseExprFlags {
 
 
 pub struct Parser<'me, 'err, 'a> {
-    pub arena:  &'a GrowingArena,
+    pub arena:  &'a Arena,
     pub errors: &'me ErrorCtx<'err>,
     pub tokens: Reader<'me, Token<'a>>,
 }
 
 impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
-    pub fn new(arena: &'a GrowingArena, errors: &'me ErrorCtx<'err>, tokens: &'me [Token<'a>]) -> Self {
+    pub fn new(arena: &'a Arena, errors: &'me ErrorCtx<'err>, tokens: &'me [Token<'a>]) -> Self {
         Self { arena, errors, tokens: Reader::new(tokens) }
     }
 

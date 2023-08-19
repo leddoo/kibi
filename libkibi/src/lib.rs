@@ -1,3 +1,6 @@
+pub use sti;
+
+
 pub mod pp;
 pub mod source_map;
 pub mod error;
@@ -13,7 +16,7 @@ trait AllocStrExt {
     fn alloc_str<'a>(&'a self, string: &str) -> &'a str;
 }
 
-impl AllocStrExt for sti::growing_arena::GrowingArena {
+impl AllocStrExt for sti::arena::Arena {
     #[inline(always)]
     fn alloc_str<'a>(&'a self, string: &str) -> &'a str {
         // @temp.

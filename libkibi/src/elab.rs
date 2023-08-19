@@ -1,4 +1,4 @@
-use sti::growing_arena::GrowingArena;
+use sti::arena::Arena;
 use sti::vec::Vec;
 
 use crate::AllocStrExt;
@@ -22,7 +22,7 @@ pub struct Elab<'me, 'err, 'a> {
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     #[inline(always)]
-    pub fn new(env: &'me mut Env<'a>, ns: NamespaceId, errors: &'me ErrorCtx<'err>, arena: &'a GrowingArena) -> Self {
+    pub fn new(env: &'me mut Env<'a>, ns: NamespaceId, errors: &'me ErrorCtx<'err>, arena: &'a Arena) -> Self {
         let alloc = tt::Alloc::new(arena);
         Self {
             alloc,
@@ -475,7 +475,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
 
-    fn error<F: FnOnce(&'err GrowingArena) -> ElabError<'err>>(&self, source: SourceRange, f: F) {
+    fn error<F: FnOnce(&'err Arena) -> ElabError<'err>>(&self, source: SourceRange, f: F) {
         self.errors.with(|errors| {
             errors.report(Error { source, kind: ErrorKind::Elab(f(errors.alloc)) });
         });
