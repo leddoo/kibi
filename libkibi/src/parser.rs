@@ -517,7 +517,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                                 break;
                             }
                         }
-                        let parts = Vec::leak(parts.clone_in(self.arena));
+                        let parts = parts.clone_in(self.arena).leak();
 
                         ExprKind::Path(Path { local: true, parts })
                     }
@@ -775,17 +775,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
             last_had_sep = self.tokens.consume_if(|at| at.kind == sep);
         }
 
-        // @temp: sti Vec::move_into
-        //let exprs = Vec::leak(buffer.move_into(self.arena));
-        let result = {
-            let mut result = Vec::with_cap_in(buffer.len(), self.arena);
-            // @temp: sti Vec::into_iter.
-            while let Some(expr) = buffer.pop() {
-                result.push(expr);
-            }
-            result.reverse();
-            Vec::leak(result)
-        };
+        let result = buffer.move_into(self.arena).leak();
         (result, last_had_sep, had_error)
     }
 

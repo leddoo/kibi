@@ -657,7 +657,7 @@ impl<'a> Term<'a> {
 
                     if new_levels.len() != 0 {
                         debug_assert_eq!(new_levels.len(), g.levels.len());
-                        let levels = Vec::leak(new_levels);
+                        let levels = new_levels.leak();
                         return Some(alloc.mkt_global(g.id, levels));
                     }
                 }

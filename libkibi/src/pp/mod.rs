@@ -1,7 +1,5 @@
 use sti::arena::Arena;
 
-use crate::AllocStrExt;
-
 
 // impl of "A prettier printer" by Philip Wadler
 // https://homepages.inf.ed.ac.uk/wadler/papers/prettier/prettier.pdf

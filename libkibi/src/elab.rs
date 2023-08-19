@@ -1,7 +1,6 @@
 use sti::arena::Arena;
 use sti::vec::Vec;
 
-use crate::AllocStrExt;
 use crate::error::*;
 use crate::ast::{self, *};
 use crate::tt::{self, *};
@@ -460,7 +459,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 for l in levels {
                     ls.push(self.elab_level(l)?.clone());
                 }
-                let levels = &*Vec::leak(ls);
+                let levels = ls.leak();
 
                 (self.alloc.mkt_global(id, levels),
                  def.ty.instantiate_levels(levels, self.alloc))
