@@ -327,26 +327,14 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
         let kind = match at.kind {
             TokenKind::KwDef => {
-                // @temp: parse_ident_or_path.
-                let name = self.parse_expr_ex(u32::MAX)?;
-
-                let name = match name.kind {
-                    ExprKind::Ident(name)    => IdentOrPath::Ident(name),
-                    ExprKind::Path(path)     => IdentOrPath::Path(path),
-
-                    _ => {
-                        self.error_expect(name.source, "ident | path");
-                        return None;
-                    }
-                };
+                let name = self.parse_ident()?;
+                let name = self.parse_ident_or_path(name)?;
 
                 let mut levels = &mut [][..];
                 if self.tokens.consume_if(|at| at.kind == TokenKind::Dot) {
-                    self.expect(TokenKind::LCurly);
+                    self.expect(TokenKind::LCurly)?;
                     levels = self.sep_by(TokenKind::Comma, TokenKind::RCurly, |this| {
-                        let at = this.tokens.next_ref()?;
-                        let TokenKind::Ident(name) = at.kind else { return None };
-                        Some(name)
+                        this.parse_ident()
                     })?;
                 }
 
@@ -439,6 +427,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
                 let at = self.tokens.next_ref()?;
                 let kind = match at.kind {
+                    // field.
                     TokenKind::Ident(name) => {
                         ExprKind::Field(expr::Field {
                             name,
@@ -446,6 +435,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                         })
                     }
 
+                    // levels
                     TokenKind::LCurly => {
                         let symbol = match result.kind {
                             ExprKind::Ident(name) => IdentOrPath::Ident(name),
@@ -463,7 +453,10 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                         ExprKind::Levels(expr::Levels { symbol, levels })
                     }
 
-                    _ => return None,
+                    _ => {
+                        self.error_expect(result.source, "ident | '{'");
+                        return None;
+                    }
                 };
 
                 let source = source_begin.join(self.prev_token_source());
@@ -503,35 +496,15 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
         let kind = 'kind: {
             'next: { break 'kind match at.kind {
                 TokenKind::Ident(ident) => {
-                    if self.tokens.consume_if(|at| at.kind == TokenKind::ColonColon) {
-                        let mut parts = Vec::with_cap_in(4, self.arena);
-                        parts.push(ident);
-
-                        loop { // don't use `self.arena` in here.
-                            let at = self.tokens.next_ref()?;
-                            let TokenKind::Ident(part) = at.kind else { return None };
-                            parts.push(part);
-
-                            if !self.tokens.consume_if(|at| at.kind == TokenKind::ColonColon) {
-                                break;
-                            }
-                        }
-                        parts.trim_exact();
-
-                        ExprKind::Path(Path { local: true, parts: parts.leak() })
+                    match self.parse_ident_or_path(ident)? {
+                        IdentOrPath::Ident(ident) => ExprKind::Ident(ident),
+                        IdentOrPath::Path(path) => ExprKind::Path(path),
                     }
-                    else { ExprKind::Ident(ident) }
                 }
 
                 TokenKind::Dot => {
-                    if let Some(at) = self.tokens.peek_ref() {
-                        if let TokenKind::Ident(ident) = at.kind {
-                            break 'kind ExprKind::DotIdent(ident);
-                        }
-                    }
-
-                    // @temp: expect_ident.
-                    return None;
+                    let ident = self.parse_ident()?;
+                    ExprKind::DotIdent(ident)
                 }
 
 
@@ -712,11 +685,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
     }
 
     fn parse_binder(&mut self) -> Option<Binder<'a>> {
-        let at = self.tokens.next_ref()?;
-        let TokenKind::Ident(name) = at.kind else {
-            self.error_expect(at.source, "ident");
-            return None
-        };
+        let name = self.parse_ident()?;
 
         let name = Some(name).filter(|name| *name != "_");
 
@@ -727,6 +696,39 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
         let default = None;
         return Some(Binder { name, ty, default });
+    }
+
+    #[inline(always)]
+    fn parse_ident(&mut self) -> Option<&'a str> {
+        let at = self.tokens.next_ref()?;
+        if let TokenKind::Ident(ident) = at.kind {
+            return Some(ident);
+        }
+        self.error_expect(at.source, "ident");
+        return None;
+    }
+
+    fn parse_ident_or_path(&mut self, start: &'a str) -> Option<IdentOrPath<'a>> {
+        if self.tokens.consume_if(|at| at.kind == TokenKind::ColonColon) {
+            let mut parts = Vec::with_cap_in(4, self.arena);
+            parts.push(start);
+
+            loop { // don't use `self.arena` in here.
+                let at = self.tokens.next_ref()?;
+                let TokenKind::Ident(part) = at.kind else { return None };
+                parts.push(part);
+
+                if !self.tokens.consume_if(|at| at.kind == TokenKind::ColonColon) {
+                    break;
+                }
+            }
+            parts.trim_exact();
+
+            return Some(IdentOrPath::Path(Path { local: true, parts: parts.leak() }));
+        }
+        else {
+            return Some(IdentOrPath::Ident(start));
+        }
     }
 
 
@@ -787,14 +789,15 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
     }
 
 
+    #[must_use]
     #[inline(always)]
     fn expect(&mut self, kind: TokenKind) -> Option<()> {
         let at = self.tokens.next_ref()?;
-        if at.kind != kind {
-            self.error_expect(at.source, kind.repr());
-            return None;
+        if at.kind == kind {
+            return Some(());
         }
-        Some(())
+        self.error_expect(at.source, kind.repr());
+        return None;
     }
 
 

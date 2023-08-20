@@ -11,9 +11,6 @@
 
 - todo:
     - cleanup:
-        - parser:
-            - `expect_ident`.
-            - `parse_ident_or_path`.
         - consistent lifetime names.
         - consistent param order.
         - namespace == symbol.
