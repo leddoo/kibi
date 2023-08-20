@@ -15,16 +15,16 @@ pub struct Tokenizer<'a> {
 }
 
 impl<'a> Tokenizer<'a> {
-    pub fn tokenize(arena: &'a Arena, source_offset: u32, input: &'a [u8]) -> Vec<Token<'a>> {
-        Self::tokenize_in(arena, GlobalAlloc, source_offset, input)
+    pub fn tokenize(input: &'a [u8], source_offset: u32, arena: &'a Arena) -> Vec<Token<'a>> {
+        Self::tokenize_in(input, source_offset, arena, GlobalAlloc)
     }
 
-    pub fn tokenize_in<A: Alloc>(arena: &'a Arena, alloc: A, source_offset: u32, input: &'a [u8]) -> Vec<Token<'a>, A> {
-        Self::new(arena, source_offset, input).run_in(alloc)
+    pub fn tokenize_in<A: Alloc>(input: &'a [u8], source_offset: u32, arena: &'a Arena, alloc: A) -> Vec<Token<'a>, A> {
+        Self::new(input, source_offset, arena).run_in(alloc)
     }
 
 
-    pub fn new(arena: &'a Arena, source_offset: u32, input: &'a [u8]) -> Self {
+    pub fn new(input: &'a [u8], source_offset: u32, arena: &'a Arena) -> Self {
         Self { arena, source_offset, reader: Reader::new(input) }
     }
 
@@ -318,7 +318,7 @@ pub struct Parser<'me, 'err, 'a> {
 }
 
 impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
-    pub fn new(arena: &'a Arena, errors: &'me ErrorCtx<'err>, tokens: &'me [Token<'a>]) -> Self {
+    pub fn new(tokens: &'me [Token<'a>], errors: &'me ErrorCtx<'err>, arena: &'a Arena) -> Self {
         Self { arena, errors, tokens: Reader::new(tokens) }
     }
 

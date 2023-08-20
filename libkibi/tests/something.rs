@@ -39,9 +39,9 @@ fn nat_add_elab() {
         let input = "λ(a: Nat, b: Nat) =>
             Nat::rec.{1}(b, λ(_: Nat) => Nat, a, λ(_: Nat, r: Nat) => Nat::succ(r))";
 
-        let tokens = kibi::parser::Tokenizer::tokenize(&arena, 0, input.as_bytes());
+        let tokens = kibi::parser::Tokenizer::tokenize(input.as_bytes(), 0, &arena);
 
-        let mut parser = kibi::parser::Parser::new(&arena, &errors, &tokens);
+        let mut parser = kibi::parser::Parser::new(&tokens, &errors, &arena);
         let ast = parser.parse_expr().unwrap();
 
         let mut elab = kibi::elab::Elab::new(&mut env, ns, &errors, &arena);
@@ -61,7 +61,7 @@ fn nat_add_elab() {
     let n3_add = alloc.mkt_apps(nat_add, &[n1, n2]);
 
     let mut lctx = LocalCtx::new(alloc);
-    let mut tc = TyCtx::new(alloc, &mut lctx, &env);
+    let mut tc = TyCtx::new(&mut lctx, &env, alloc);
 
     assert!(tc.reduce(n3_add).syntax_eq(n3));
 

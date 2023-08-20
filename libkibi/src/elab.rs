@@ -216,7 +216,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             let mut tc = self.tc();
             if !tc.def_eq(ty, expected) {
                 self.error(expr.source, |alloc| {
-                    let mut pp = TermPP::new(alloc, self.env);
+                    let mut pp = TermPP::new(self.env, alloc);
                     let expected = pp.pp_term(expected);
                     let found    = pp.pp_term(ty);
                     ElabError::TypeMismatch { expected, found }
@@ -239,7 +239,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
 
         self.error(expr.source, |alloc| {
-            let mut pp = TermPP::new(alloc, self.env);
+            let mut pp = TermPP::new(self.env, alloc);
             let found = pp.pp_term(ty);
             ElabError::TypeExpected { found }
         });
@@ -469,7 +469,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
     #[inline(always)]
     pub fn tc<'l>(&mut self) -> TyCtx<'_, 'a> {
-        TyCtx::new(self.alloc, &mut self.lctx, self.env)
+        TyCtx::new(&mut self.lctx, self.env, self.alloc)
     }
 
 

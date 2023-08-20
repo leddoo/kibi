@@ -39,7 +39,7 @@ reduce Nat::add(1, 2)
     };
 
     let p0 = arena.alloc_ptr::<u8>().as_ptr() as usize;
-    let tokens = kibi::parser::Tokenizer::tokenize(&arena, 0, input);
+    let tokens = kibi::parser::Tokenizer::tokenize(input, 0, &arena);
 
     let mut env = Env::new();
     let nat = env.create_nat();
@@ -52,7 +52,7 @@ reduce Nat::add(1, 2)
 
     let mut work_dt = std::time::Duration::ZERO;
 
-    let mut parser = kibi::parser::Parser::new(&arena, &errors, &tokens);
+    let mut parser = kibi::parser::Parser::new(&tokens, &errors, &arena);
     while !parser.tokens.is_empty() {
         let t0 = std::time::Instant::now();
 
@@ -70,7 +70,7 @@ reduce Nat::add(1, 2)
                 let r = elab.tc().reduce(term);
                 work_dt += t0.elapsed();
 
-                let mut pp = TermPP::new(&arena, &elab.env);
+                let mut pp = TermPP::new(&elab.env, &arena);
                 let r = pp.pp_term(r);
                 let r = pp.indent(9, r);
                 let t0 = std::time::Instant::now();

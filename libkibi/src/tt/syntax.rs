@@ -305,7 +305,7 @@ impl<'a> Level<'a> {
 
     pub fn instantiate(&'a self, subst: LevelList<'a>, alloc: super::Alloc<'a>) -> Option<LevelRef<'a>> {
         // @speed: has_param.
-        let result = self.replace(alloc, |at, alloc| {
+        let result = self.replace(alloc, |at, _| {
             if let LevelKind::Param(p) = at.kind {
                 return Some(&subst[p.index as usize]);
             }

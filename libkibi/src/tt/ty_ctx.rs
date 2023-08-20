@@ -12,7 +12,7 @@ pub struct TyCtx<'me, 'a> {
 }
 
 impl<'me, 'a> TyCtx<'me, 'a> {
-    pub fn new(alloc: super::Alloc<'a>, lctx: &'me mut LocalCtx<'a>, env: &'me Env<'a>) -> Self {
+    pub fn new(lctx: &'me mut LocalCtx<'a>, env: &'me Env<'a>, alloc: super::Alloc<'a>) -> Self {
         Self { alloc, env, lctx }
     }
 

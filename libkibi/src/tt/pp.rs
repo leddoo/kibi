@@ -11,7 +11,7 @@ pub struct TermPP<'me, 'a> {
 }
 
 impl<'me, 'a> TermPP<'me, 'a> {
-    pub fn new(arena: &'a Arena, env: &'me Env<'me>) -> Self {
+    pub fn new(env: &'me Env<'me>, arena: &'a Arena) -> Self {
         Self {
             pp: PP::new(arena),
             env,

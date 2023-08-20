@@ -11,8 +11,6 @@
 
 - todo:
     - cleanup:
-        - consistent lifetime names.
-        - consistent param order.
         - namespace == symbol.
             - so we can always derive a unique name.
             - ig hidden namespaces (symbols in fn bodies) need special names then.
