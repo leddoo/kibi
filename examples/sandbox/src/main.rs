@@ -50,32 +50,42 @@ reduce Nat::add(1, 2)
 
     let mut elab = kibi::elab::Elab::new(&mut env, ns, &errors, &arena);
 
+    let mut work_dt = std::time::Duration::ZERO;
+
     let mut parser = kibi::parser::Parser::new(&arena, &errors, &tokens);
     while !parser.tokens.is_empty() {
+        let t0 = std::time::Instant::now();
+
         let Some(item) = parser.parse_item() else { break };
 
         match &item.kind {
             ItemKind::Def(def) => {
                 let Some(_) = elab.elab_def(def) else { break };
+                work_dt += t0.elapsed();
                 println!("def {:?}", def.name);
             }
 
             ItemKind::Reduce(expr) => {
                 let Some((term, _)) = elab.elab_expr(expr) else { break };
                 let r = elab.tc().reduce(term);
+                work_dt += t0.elapsed();
 
                 let mut pp = TermPP::new(&arena, &elab.env);
                 let r = pp.pp_term(r);
                 let r = pp.indent(9, r);
+                let t0 = std::time::Instant::now();
                 let r = pp.render(r, 50);
+                let dt = t0.elapsed();
                 let r = r.layout_string();
                 println!("reduced: {}", r);
+                println!("{:?}", dt);
             }
         }
     }
 
     let p1 = arena.alloc_ptr::<u8>().as_ptr() as usize;
     println!("total: {:?}", p1 - p0 - 16);
+    println!("{:?}", work_dt);
 
     errors.with(|errors| {
         errors.iter(|e| {

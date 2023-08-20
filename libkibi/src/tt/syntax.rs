@@ -6,7 +6,7 @@ pub use crate::env::SymbolId;
 
 pub type LevelRef<'a> = &'a Level<'a>;
 
-pub type LevelList<'a> = &'a [Level<'a>];
+pub type LevelList<'a> = &'a [LevelRef<'a>];
 
 
 #[derive(Clone, Debug)]
@@ -168,12 +168,12 @@ impl<'a> Level<'a> {
     }
 
     #[inline(always)]
-    pub fn list_syntax_eq(a: &[Level], b: &[Level]) -> bool {
+    pub fn list_syntax_eq(a: &[LevelRef], b: &[LevelRef]) -> bool {
         if a.len() != b.len() {
             return false;
         }
         for i in 0..a.len() {
-            if !a[i].syntax_eq(&b[i]) {
+            if !a[i].syntax_eq(b[i]) {
                 return false;
             }
         }
@@ -646,11 +646,14 @@ impl<'a> Term<'a> {
                             if new_levels.len() == 0 {
                                 new_levels.reserve_exact(g.levels.len());
                                 for k in 0..i {
-                                    new_levels.push(g.levels[k].clone());
+                                    new_levels.push(g.levels[k]);
                                 }
                             }
 
-                            new_levels.push(l.clone());
+                            new_levels.push(l);
+                        }
+                        else if new_levels.len() != 0 {
+                            new_levels.push(l)
                         }
                     }
 

@@ -20,7 +20,7 @@ pub struct Entry<'a> {
     pub value: Option<TermRef<'a>>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct SavePoint(usize);
 
 

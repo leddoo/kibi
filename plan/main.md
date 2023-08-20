@@ -11,32 +11,35 @@
 
 - todo:
     - cleanup:
-        - closed checks.
-        - type correct checks (`infer_type.unwrap(): Sort(l)`)
-        - level list = `&'a[LevelRef<'a>]`.
-        - `@temp`s.
-        - namespace == symbol.
-            - so we can always derive a unique name.
-            - ig hidden namespaces (symbols in fn bodies) need special names then.
-        - consistent lifetime names.
-        - consistent param order.
-        - `tt::Alloc`.
-            - arena extension trait instead?
-            - proper allocator abstraction might be better -> tracing.
         - parser:
             - `expect_ident`.
             - `parse_ident_or_path`.
+        - consistent lifetime names.
+        - consistent param order.
+        - namespace == symbol.
+            - so we can always derive a unique name.
+            - ig hidden namespaces (symbols in fn bodies) need special names then.
+        - `tt::Alloc`.
+            - arena extension trait instead?
+            - proper allocator abstraction might be better -> tracing.
+        - `sti::String`
+        - `@temp`s.
     - robustness:
         - fix kernel bugs: all rules must fail.
-        - kernel type checking.
+        - closed checks.
+        - type correct checks (`infer_type.unwrap(): Sort(l)`)
         - debug mode consistency checks
           (check well types & type is sort).
+
+    - `Compiler`.
 
     - inference:
         - levels.
         - terms in types.
         - motives.
         - implicit params.
+
+    - pp opt.
 
     - `fib_iter`.
         - parse it.

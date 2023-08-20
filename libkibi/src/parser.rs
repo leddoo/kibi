@@ -504,11 +504,10 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
             'next: { break 'kind match at.kind {
                 TokenKind::Ident(ident) => {
                     if self.tokens.consume_if(|at| at.kind == TokenKind::ColonColon) {
-                        // @speed: temp arena.
-                        let mut parts = Vec::new();
+                        let mut parts = Vec::with_cap_in(4, self.arena);
                         parts.push(ident);
 
-                        loop {
+                        loop { // don't use `self.arena` in here.
                             let at = self.tokens.next_ref()?;
                             let TokenKind::Ident(part) = at.kind else { return None };
                             parts.push(part);
@@ -517,9 +516,9 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                                 break;
                             }
                         }
-                        let parts = parts.clone_in(self.arena).leak();
+                        parts.trim_exact();
 
-                        ExprKind::Path(Path { local: true, parts })
+                        ExprKind::Path(Path { local: true, parts: parts.leak() })
                     }
                     else { ExprKind::Ident(ident) }
                 }

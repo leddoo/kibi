@@ -454,10 +454,9 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     return None;
                 }
 
-                // @mega@temp: LevelList ref based.
                 let mut ls = Vec::with_cap_in(levels.len(), self.alloc.arena);
                 for l in levels {
-                    ls.push(self.elab_level(l)?.clone());
+                    ls.push(self.elab_level(l)?);
                 }
                 let levels = ls.leak();
 
