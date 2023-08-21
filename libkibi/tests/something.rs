@@ -28,9 +28,6 @@ fn nat_add_elab() {
             ])));
 
     let mut env = Env::new();
-    let nat = env.create_nat();
-    let eq = env.create_eq();
-    let ns  = env.create_initial(nat, eq);
 
     let errors = ErrorCtx::new(&alloc);
 
@@ -43,7 +40,7 @@ fn nat_add_elab() {
         let mut parser = kibi::parser::Parser::new(&tokens, &errors, &alloc);
         let ast = parser.parse_expr().unwrap();
 
-        let mut elab = kibi::elab::Elab::new(&mut env, ns, &errors, &alloc);
+        let mut elab = kibi::elab::Elab::new(&mut env, SymbolId::ROOT, &errors, &alloc);
         let (term, _) = elab.elab_expr(&ast).unwrap();
 
         assert!(term.syntax_eq(nat_add));

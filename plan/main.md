@@ -10,10 +10,6 @@
     - macros.
 
 - todo:
-    - cleanup:
-        - namespace == symbol.
-            - so we can always derive a unique name.
-            - ig hidden namespaces (symbols in fn bodies) need special names then.
     - robustness:
         - fix kernel bugs: all rules must fail.
         - closed checks.

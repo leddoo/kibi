@@ -51,6 +51,8 @@ impl<'me, 'a> TyCtx<'me, 'a> {
             TermKind::Global (g) => {
                 let symbol = self.env.symbol(g.id);
                 match symbol.kind {
+                    SymbolKind::Root => unreachable!(),
+
                     SymbolKind::BuiltIn(b) => {
                         match b {
                             symbol::BuiltIn::Nat => {
@@ -642,6 +644,8 @@ impl<'me, 'a> TyCtx<'me, 'a> {
 
         let symbol = self.env.symbol(g.id);
         match symbol.kind {
+            SymbolKind::Root => unreachable!(),
+
             SymbolKind::BuiltIn(_) => None,
 
             SymbolKind::Def(d) => {

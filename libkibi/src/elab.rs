@@ -12,7 +12,7 @@ pub struct Elab<'me, 'err, 'a> {
     pub errors: &'me ErrorCtx<'err>,
     pub env: &'me mut Env<'a>,
 
-    ns: NamespaceId,
+    root_symbol: SymbolId,
 
     lctx: LocalCtx<'a>,
     locals: Vec<(&'a str, LocalId)>,
@@ -21,12 +21,12 @@ pub struct Elab<'me, 'err, 'a> {
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     #[inline(always)]
-    pub fn new(env: &'me mut Env<'a>, ns: NamespaceId, errors: &'me ErrorCtx<'err>, alloc: &'a Arena) -> Self {
+    pub fn new(env: &'me mut Env<'a>, root_symbol: SymbolId, errors: &'me ErrorCtx<'err>, alloc: &'a Arena) -> Self {
         Self {
             alloc,
             errors,
             env,
-            ns,
+            root_symbol,
             lctx: LocalCtx::new(alloc),
             locals: Vec::new(),
             level_vars: Vec::new(),
@@ -277,21 +277,21 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             val = self.lctx.abstract_lambda(val, id);
         }
 
-        let (parent_ns, name) = match &def.name {
-            IdentOrPath::Ident(name) => (self.ns, *name),
+        let (parent, name) = match &def.name {
+            IdentOrPath::Ident(name) => (self.root_symbol, *name),
 
             IdentOrPath::Path(path) => {
                 let (name, parts) = path.parts.split_last().unwrap();
                 // @temp: missing source range.
-                let ns = self.lookup_namespace_path(SourceRange::UNKNOWN, path.local, parts)?;
-                (ns, *name)
+                let parent = self.lookup_symbol_path(SourceRange::UNKNOWN, path.local, parts)?;
+                (parent, *name)
             }
         };
 
         assert!(ty.closed());
         assert!(val.closed());
 
-        let symbol = self.env.new_symbol(parent_ns, name,
+        let symbol = self.env.new_symbol(parent, name,
             SymbolKind::Def(symbol::Def {
                 num_levels: def.levels.len() as u32,
                 ty,
@@ -317,12 +317,12 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
     fn lookup_symbol_ident(&self, source: SourceRange, name: &str) -> Option<SymbolId> {
-        let Some(entry) = self.env.lookup(self.ns, name) else {
+        let Some(symbol) = self.env.lookup(self.root_symbol, name) else {
             self.error(source, |alloc|
                 ElabError::UnresolvedName { base: "", name: alloc.alloc_str(name) });
             return None;
         };
-        Some(entry.symbol)
+        Some(symbol)
     }
 
     fn lookup_symbol_path(&self, source: SourceRange, local: bool, parts: &[&str]) -> Option<SymbolId> {
@@ -330,16 +330,14 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             let mut result = self.lookup_symbol_ident(source, parts[0])?;
 
             for part in &parts[1..] {
-                let symbol = self.env.symbol(result);
-
-                let Some(entry) = self.env.lookup(symbol.own_ns, part) else {
+                let Some(symbol) = self.env.lookup(result, part) else {
                     // @todo: proper base.
                     self.error(source, |alloc|
                         ElabError::UnresolvedName { base: "", name: alloc.alloc_str(part) });
                     return None;
                 };
 
-                result = entry.symbol;
+                result = symbol;
             }
 
             Some(result)
@@ -349,15 +347,12 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
     }
 
-    fn lookup_namespace_path(&self, source: SourceRange, local: bool, parts: &[&str]) -> Option<NamespaceId> {
-        let symbol = self.lookup_symbol_path(source, local, parts)?;
-        return Some(self.env.symbol(symbol).own_ns);
-    }
-
 
     fn elab_symbol(&mut self, source: SourceRange, id: SymbolId, levels: &[ast::Level<'a>]) -> Option<(TermRef<'a>, TermRef<'a>)> {
         let symbol = self.env.symbol(id);
         Some(match symbol.kind {
+            SymbolKind::Root => unreachable!(),
+
             SymbolKind::BuiltIn(b) => {
                 match b {
                     symbol::BuiltIn::Nat => {

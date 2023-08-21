@@ -1,7 +1,7 @@
 use sti::arena::Arena;
 
 use crate::pp::*;
-use crate::env::{Env, NamespaceId};
+use crate::env::{Env, SymbolId};
 use super::*;
 
 
@@ -94,15 +94,14 @@ impl<'me, 'a> TermPP<'me, 'a> {
                 let symbol = self.env.symbol(g.id);
 
                 let mut name = self.pp.text(self.pp.alloc_str(symbol.name));
-                let mut at = symbol.parent_ns;
-                while at != NamespaceId::ROOT {
-                    let symbol = self.env.namespace(at).symbol.unwrap();
-                    let symbol = self.env.symbol(symbol);
+                let mut at = symbol.parent;
+                while at != SymbolId::ROOT {
+                    let symbol = self.env.symbol(at);
                     name = self.pp.cats(&[
                         self.pp.text(self.pp.alloc_str(symbol.name)),
                         self.pp.text("::"),
                         name]);
-                    at = symbol.parent_ns;
+                    at = symbol.parent;
                 }
 
                 if g.levels.len() > 0 {

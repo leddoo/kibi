@@ -6,23 +6,27 @@ use crate::tt::*;
 
 pub struct Env<'a> {
     symbols: KVec<SymbolId, Symbol<'a>>,
-    namespaces: KVec<NamespaceId, Namespace<'a>>,
 }
 
 
 sti::define_key!(u32, pub SymbolId, opt: OptSymbolId);
 
+impl SymbolId { pub const ROOT: SymbolId = SymbolId(0); }
+
+
 #[derive(Debug)]
 pub struct Symbol<'a> {
-    pub parent_ns: NamespaceId,
-    pub own_ns:    NamespaceId,
+    pub parent: SymbolId,
 
     pub kind: SymbolKind<'a>,
     pub name: &'a str,
+
+    pub children: Vec<(&'a str, SymbolId)>,
 }
 
 #[derive(Debug)]
 pub enum SymbolKind<'a> {
+    Root,
     BuiltIn(symbol::BuiltIn),
     Def(symbol::Def<'a>),
 }
@@ -52,138 +56,83 @@ pub mod symbol {
 
 
 
-sti::define_key!(u32, pub NamespaceId, opt: OptNamespaceId);
-
-pub struct Namespace<'a> {
-    pub symbol: OptSymbolId,
-    pub entries: Vec<NsEntry<'a>>,
-}
-
-pub struct NsEntry<'a> {
-    pub name:  &'a str,
-    pub symbol: SymbolId,
-}
-
-
-impl NamespaceId { pub const ROOT: NamespaceId = NamespaceId(0); }
-
-
-
 impl<'a> Env<'a> {
     pub fn new() -> Env<'static> {
-        let mut namespaces = KVec::new();
-        let root_ns = namespaces.push(Namespace {
-            symbol: None.into(),
-            entries: Vec::new(),
+        let mut symbols = KVec::new();
+        let root = symbols.push(Symbol {
+            parent: SymbolId::ROOT,
+            kind: SymbolKind::Root,
+            name: "",
+            children: Vec::new(),
         });
-        assert_eq!(root_ns, NamespaceId::ROOT);
+        assert_eq!(root, SymbolId::ROOT);
 
-        Env {
-            symbols: KVec::new(),
-            namespaces,
+        let mut env = Env {
+            symbols,
+        };
+
+
+        // @temp: how to handle built-ins, if we have any?
+        {
+            let nat = env.new_symbol(SymbolId::ROOT, "Nat",
+                SymbolKind::BuiltIn(symbol::BuiltIn::Nat)).unwrap();
+
+            env.new_symbol(nat, "zero",
+                SymbolKind::BuiltIn(symbol::BuiltIn::NatZero)).unwrap();
+
+            env.new_symbol(nat, "succ",
+                SymbolKind::BuiltIn(symbol::BuiltIn::NatSucc)).unwrap();
+
+            env.new_symbol(nat, "rec",
+                SymbolKind::BuiltIn(symbol::BuiltIn::NatRec)).unwrap();
+
+
+            let eq = env.new_symbol(SymbolId::ROOT, "Eq",
+                SymbolKind::BuiltIn(symbol::BuiltIn::Eq)).unwrap();
+
+            env.new_symbol(eq, "refl",
+                SymbolKind::BuiltIn(symbol::BuiltIn::EqRefl)).unwrap();
+
+            env.new_symbol(eq, "rec",
+                SymbolKind::BuiltIn(symbol::BuiltIn::EqRec)).unwrap();
         }
+
+        return env;
     }
 
+
     #[inline(always)]
-    pub fn new_symbol(&mut self, ns: NamespaceId, name: &'a str, kind: SymbolKind<'a>) -> Option<SymbolId> {
-        if self.lookup(ns, name).is_some() {
+    pub fn new_symbol(&mut self, parent: SymbolId, name: &'a str, kind: SymbolKind<'a>) -> Option<SymbolId> {
+        if self.lookup(parent, name).is_some() {
             return None;
         }
 
         let symbol = self.symbols.next_key();
-        let own_ns = self.new_namespace(symbol.some());
 
         let id = self.symbols.push(Symbol {
-            parent_ns: ns,
-            own_ns,
-            name,
+            parent,
             kind,
+            name,
+            children: Vec::new(),
         });
         debug_assert_eq!(id, symbol);
 
-        self.namespaces[ns].entries.push(NsEntry { name, symbol });
+        self.symbols[parent].children.push((name, symbol));
 
         return Some(symbol);
     }
-
-    #[inline(always)]
-    pub fn new_namespace(&mut self, symbol: OptSymbolId) -> NamespaceId {
-        self.namespaces.push(Namespace {
-            symbol,
-            entries: Vec::new(),
-        })
-    }
-
-
-    pub fn create_nat(&mut self) -> SymbolId {
-        let nat = self.new_symbol(NamespaceId::ROOT, "Nat",
-            SymbolKind::BuiltIn(symbol::BuiltIn::Nat)).unwrap();
-
-        let nat_ns = self.symbols[nat].own_ns;
-
-        self.new_symbol(nat_ns, "zero",
-            SymbolKind::BuiltIn(symbol::BuiltIn::NatZero)).unwrap();
-
-        self.new_symbol(nat_ns, "succ",
-            SymbolKind::BuiltIn(symbol::BuiltIn::NatSucc)).unwrap();
-
-        self.new_symbol(nat_ns, "rec",
-            SymbolKind::BuiltIn(symbol::BuiltIn::NatRec)).unwrap();
-
-        return nat;
-    }
-
-    pub fn create_eq(&mut self) -> SymbolId {
-        let eq = self.new_symbol(NamespaceId::ROOT, "Eq",
-            SymbolKind::BuiltIn(symbol::BuiltIn::Eq)).unwrap();
-
-        let eq_ns = self.symbols[eq].own_ns;
-
-        self.new_symbol(eq_ns, "refl",
-            SymbolKind::BuiltIn(symbol::BuiltIn::EqRefl)).unwrap();
-
-        self.new_symbol(eq_ns, "rec",
-            SymbolKind::BuiltIn(symbol::BuiltIn::EqRec)).unwrap();
-
-        return eq;
-    }
-
-    pub fn create_initial(&mut self, nat: SymbolId, eq: SymbolId) -> NamespaceId {
-        // @temp: symbol/ns refactor.
-        /*
-        let mut entries = Vec::new();
-        entries.push(NsEntry {
-            name: "Nat",
-            symbol: nat,
-        });
-        entries.push(NsEntry {
-            name: "Eq",
-            symbol: eq,
-        });
-        self.namespaces.push(Namespace {
-            symbol: None.into(),
-            entries,
-        })
-        */
-        NamespaceId::ROOT
-    }
-
 
     #[inline(always)]
     pub fn symbol(&self, id: SymbolId) -> &Symbol<'a> {
         &self.symbols[id]
     }
 
-    #[inline(always)]
-    pub fn namespace(&self, id: NamespaceId) -> &Namespace<'a> {
-        &self.namespaces[id]
-    }
 
-    pub fn lookup(&self, ns: NamespaceId, name: &str) -> Option<&NsEntry<'a>> {
-        let ns = &self.namespaces[ns];
-        for entry in &ns.entries {
-            if entry.name == name {
-                return Some(entry);
+    pub fn lookup(&self, parent: SymbolId, name: &str) -> Option<SymbolId> {
+        let p = &self.symbols[parent];
+        for (child_name, child) in p.children.iter().copied() {
+            if name == child_name {
+                return Some(child);
             }
         }
         return None;

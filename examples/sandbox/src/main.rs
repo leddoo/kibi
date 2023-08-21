@@ -42,13 +42,10 @@ reduce Nat::add(1, 2)
     let tokens = kibi::parser::Tokenizer::tokenize(input, 0, &arena);
 
     let mut env = Env::new();
-    let nat = env.create_nat();
-    let eq = env.create_eq();
-    let ns = env.create_initial(nat, eq);
 
     let errors = ErrorCtx::new(&arena);
 
-    let mut elab = kibi::elab::Elab::new(&mut env, ns, &errors, &arena);
+    let mut elab = kibi::elab::Elab::new(&mut env, SymbolId::ROOT, &errors, &arena);
 
     let mut work_dt = std::time::Duration::ZERO;
 
