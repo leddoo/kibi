@@ -15,7 +15,7 @@ pub struct Elab<'me, 'err, 'a> {
     root_symbol: SymbolId,
 
     lctx: LocalCtx<'a>,
-    locals: Vec<(&'a str, LocalId)>,
+    locals: Vec<(&'a str, ScopeId)>,
     level_vars: Vec<&'a str>,
 
     ictx: InferCtx<'a>,
@@ -139,20 +139,19 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
 
             ExprKind::Forall(it) => {
-                let save = self.lctx.save();
-                let num_locals = self.locals.len();
-
                 // @temp: sti temp arena.
                 let mut levels = Vec::new();
 
                 // @cleanup: elab_binders.
+                let locals_begin = self.locals.len();
                 for param in it.binders.iter() {
                     let (ty, l) = self.elab_expr_as_type(param.ty.as_ref()?)?;
-                    let id = self.lctx.extend(ty, None);
+                    let id = self.lctx.push(ty, None);
                     let name = param.name.unwrap_or("");
                     self.locals.push((name, id));
                     levels.push(l);
                 }
+                let locals_end = self.locals.len();
 
                 let (mut result, mut level) = self.elab_expr_as_type(it.ret)?;
 
@@ -160,37 +159,38 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     level = l.imax(level, self.alloc);
                 }
 
-                for i in (num_locals..self.locals.len()).rev() {
+                assert_eq!(self.locals.len(), locals_end);
+                for i in (locals_begin..locals_end).rev() {
                     let (_, id) = self.locals[i];
                     result = self.lctx.abstract_forall(result, id);
+                    self.lctx.pop(id);
                 }
-                self.lctx.restore(save);
-                self.locals.truncate(num_locals);
+                self.locals.truncate(locals_begin);
 
                 (result, self.alloc.mkt_sort(level))
             }
 
             ExprKind::Lambda(it) => {
-                let save = self.lctx.save();
-                let num_locals = self.locals.len();
-
                 // @cleanup: elab_binders.
+                let locals_begin = self.locals.len();
                 for param in it.binders.iter() {
                     let (ty, _) = self.elab_expr_as_type(param.ty.as_ref()?)?;
-                    let id = self.lctx.extend(ty, None);
+                    let id = self.lctx.push(ty, None);
                     let name = param.name.unwrap_or("");
                     self.locals.push((name, id));
                 }
+                let locals_end = self.locals.len();
 
                 let (mut result, mut result_ty) = self.elab_expr(it.value)?;
 
-                for i in (num_locals..self.locals.len()).rev() {
+                assert_eq!(self.locals.len(), locals_end);
+                for i in (locals_begin..locals_end).rev() {
                     let (_, id) = self.locals[i];
                     result    = self.lctx.abstract_lambda(result, id);
                     result_ty = self.lctx.abstract_forall(result_ty, id);
+                    self.lctx.pop(id);
                 }
-                self.lctx.restore(save);
-                self.locals.truncate(num_locals);
+                self.locals.truncate(locals_begin);
 
                 (result, result_ty)
             }
@@ -268,9 +268,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
     pub fn elab_def(&mut self, def: &item::Def<'a>) -> Option<SymbolId> {
         assert_eq!(self.locals.len(), 0);
-        let save = self.lctx.save();
-
         assert_eq!(self.level_vars.len(), 0);
+
         for level in def.levels {
             self.level_vars.push(level);
         }
@@ -278,7 +277,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         // @cleanup: elab_binders.
         for param in def.params.iter() {
             let (ty, _) = self.elab_expr_as_type(param.ty.as_ref()?)?;
-            let id = self.lctx.extend(ty, None);
+            let id = self.lctx.push(ty, None);
             let name = param.name.unwrap_or("");
             self.locals.push((name, id));
         }
@@ -332,15 +331,11 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             })
         )?;
 
-        self.lctx.restore(save);
-        self.locals.clear();
-        self.level_vars.clear();
-
         Some(symbol)
     }
 
 
-    fn lookup_local(&self, name: &str) -> Option<LocalId> {
+    fn lookup_local(&self, name: &str) -> Option<ScopeId> {
         for (n, id) in self.locals.iter().rev().copied() {
             if n == name {
                 return Some(id);
@@ -527,7 +522,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
 
     #[inline(always)]
-    pub fn tc<'l>(&mut self) -> TyCtx<'_, 'a> {
+    pub fn tc(&mut self) -> TyCtx<'_, 'a> {
         TyCtx::new(&mut self.lctx, &mut self.ictx, self.env, self.alloc)
     }
 

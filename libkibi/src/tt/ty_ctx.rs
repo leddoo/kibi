@@ -22,15 +22,6 @@ impl<'me, 'a> TyCtx<'me, 'a> {
     }
 
 
-    #[inline(always)]
-    pub fn save_lctx<R, F: FnOnce(&mut Self) -> R>(&mut self, f: F) -> R {
-        let save = self.lctx.save();
-        let result = f(self);
-        self.lctx.restore(save);
-        return result;
-    }
-
-
     //
     // infer type
     //
@@ -116,25 +107,25 @@ impl<'me, 'a> TyCtx<'me, 'a> {
             TermKind::Lambda (b) => {
                 self.infer_type_as_sort(b.ty)?;
 
-                self.save_lctx(|this| {
-                    let id = this.lctx.extend(b.ty, None);
-                    let value = b.val.instantiate(this.alloc.mkt_local(id), this.alloc);
+                let id = self.lctx.push(b.ty, None);
+                let value = b.val.instantiate(self.alloc.mkt_local(id), self.alloc);
 
-                    let value_ty = this.infer_type(value)?;
-                    Some(this.alloc.mkt_forall(b.name, b.ty, value_ty.abstracc(id, this.alloc)))
-                })?
+                let value_ty = self.infer_type(value)?;
+                self.lctx.pop(id);
+
+                self.alloc.mkt_forall(b.name, b.ty, value_ty.abstracc(id, self.alloc))
             }
 
             TermKind::Forall (b) => {
                 let param_level = self.infer_type_as_sort(b.ty)?;
 
-                self.save_lctx(|this| {
-                    let id = this.lctx.extend(b.ty, None);
-                    let value = b.val.instantiate(this.alloc.mkt_local(id), this.alloc);
+                let id = self.lctx.push(b.ty, None);
+                let value = b.val.instantiate(self.alloc.mkt_local(id), self.alloc);
 
-                    let value_level = this.infer_type_as_sort(value)?;
-                    Some(this.alloc.mkt_sort(param_level.imax(value_level, this.alloc)))
-                })?
+                let value_level = self.infer_type_as_sort(value)?;
+                self.lctx.pop(id);
+
+                self.alloc.mkt_sort(param_level.imax(value_level, self.alloc))
             }
 
             TermKind::Apply (app) => {
@@ -390,13 +381,15 @@ impl<'me, 'a> TyCtx<'me, 'a> {
             TermKind::Lambda(b) => {
                 let new_ty = self.reduce(b.ty);
 
-                let new_val = self.save_lctx(|this| {
-                    let id = this.lctx.extend(b.ty, None);
-                    let val = b.val.instantiate(this.alloc.mkt_local(id), this.alloc);
+                let save = self.lctx.save();
 
-                    let new_val = this.reduce(val);
-                    if new_val.ptr_eq(val) { b.val } else { new_val }
-                });
+                let id = self.lctx.push(b.ty, None);
+                let val = b.val.instantiate(self.alloc.mkt_local(id), self.alloc);
+
+                let new_val = self.reduce(val);
+                let new_val = if new_val.ptr_eq(val) { b.val } else { new_val };
+
+                self.lctx.restore(save);
 
                 if let Some(b) = b.update(new_ty, new_val) {
                     if result.is_forall() { self.alloc.mkt_forall_b(b) }
@@ -540,20 +533,21 @@ impl<'me, 'a> TyCtx<'me, 'a> {
 
             (Forall(b1), Forall(b2)) |
             (Lambda(b1), Lambda(b2)) => {
-                Some(self.save_lctx(|tc| {
-                    // param eq.
-                    if !tc.def_eq(b1.ty, b2.ty) {
-                        return false;
-                    }
+                // param eq.
+                if !self.def_eq(b1.ty, b2.ty) {
+                    return Some(false);
+                }
 
-                    let id = tc.lctx.extend(b1.ty, None);
-                    let local = tc.alloc.mkt_local(id);
+                let id = self.lctx.push(b1.ty, None);
+                let local = self.alloc.mkt_local(id);
 
-                    // value eq.
-                    let val1 = b1.val.instantiate(local, tc.alloc);
-                    let val2 = b2.val.instantiate(local, tc.alloc);
-                    tc.def_eq(val1, val2)
-                }))
+                // value eq.
+                let val1 = b1.val.instantiate(local, self.alloc);
+                let val2 = b2.val.instantiate(local, self.alloc);
+
+                self.lctx.pop(id);
+
+                Some(self.def_eq(val1, val2))
             }
 
             (NatRec(l1), NatRec(l2)) |

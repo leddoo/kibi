@@ -1,57 +1,72 @@
 use sti::arena::Arena;
-use sti::vec::Vec;
-use sti::keyed::Key;
+use sti::keyed::KVec;
 
 use super::syntax::*;
 
 
 // @todo: debug version with (global) generational indices.
-sti::define_key!(u32, pub LocalId);
+sti::define_key!(u32, pub ScopeId, opt: OptScopeId);
 
 
-#[derive(Clone)]
 pub struct LocalCtx<'a> {
     alloc: &'a Arena,
-    entries: Vec<Entry<'a>>,
+
+    scopes: KVec<ScopeId, Scope<'a>>,
+    current: OptScopeId,
 }
 
-#[derive(Clone)]
-pub struct Entry<'a> {
+pub struct Scope<'a> {
+    pub parent: OptScopeId,
     pub ty:    TermRef<'a>,
     pub value: Option<TermRef<'a>>,
 }
 
 #[derive(Clone)]
-pub struct SavePoint(usize);
+pub struct SavePoint {
+    num_scopes: usize,
+    current: OptScopeId,
+}
 
 
 impl<'a> LocalCtx<'a> {
     #[inline(always)]
     pub fn new(alloc: &'a Arena) -> Self {
-        Self { alloc, entries: Vec::new() }
+        Self {
+            alloc,
+            scopes: KVec::new(),
+            current: None.into(),
+        }
     }
 
 
     #[track_caller]
-    pub fn extend(&mut self, ty: TermRef<'a>, value: Option<TermRef<'a>>) -> LocalId {
+    pub fn push(&mut self, ty: TermRef<'a>, value: Option<TermRef<'a>>) -> ScopeId {
         assert!(ty.closed());
         if let Some(v) = value { assert!(v.closed()); }
 
-        let id = LocalId::from_usize(self.entries.len()).unwrap();
-        self.entries.push(Entry { ty, value });
+        let parent = self.current;
+        let id = self.scopes.push(Scope { parent, ty, value });
+        self.current = id.some();
         id
     }
 
     #[track_caller]
     #[inline(always)]
-    pub fn lookup(&self, id: LocalId) -> &Entry<'a> {
-        &self.entries[id.usize()]
+    pub fn pop(&mut self, id: ScopeId) {
+        assert_eq!(self.current, id.some());
+        self.current = self.scopes[id].parent;
+    }
+
+    #[track_caller]
+    #[inline(always)]
+    pub fn lookup(&self, id: ScopeId) -> &Scope<'a> {
+        &self.scopes[id]
     }
 
 
     #[track_caller]
     #[inline(always)]
-    pub fn abstract_forall(&self, ret: TermRef<'a>, id: LocalId) -> TermRef<'a> {
+    pub fn abstract_forall(&self, ret: TermRef<'a>, id: ScopeId) -> TermRef<'a> {
         // @temp: binder name.
         let entry = self.lookup(id);
         let ret = ret.abstracc(id, self.alloc);
@@ -60,7 +75,7 @@ impl<'a> LocalCtx<'a> {
 
     #[track_caller]
     #[inline(always)]
-    pub fn abstract_lambda(&self, value: TermRef<'a>, id: LocalId) -> TermRef<'a> {
+    pub fn abstract_lambda(&self, value: TermRef<'a>, id: ScopeId) -> TermRef<'a> {
         // @temp: binder name.
         let entry = self.lookup(id);
         let value = value.abstracc(id, self.alloc);
@@ -70,14 +85,19 @@ impl<'a> LocalCtx<'a> {
 
     #[inline(always)]
     pub fn save(&self) -> SavePoint {
-        SavePoint(self.entries.len())
+        SavePoint {
+            num_scopes: self.scopes.len(),
+            current:    self.current,
+        }
     }
 
     #[track_caller]
     #[inline(always)]
     pub fn restore(&mut self, save: SavePoint) {
-        assert!(save.0 <= self.entries.len());
-        self.entries.truncate(save.0);
+        assert!(save.num_scopes <= self.scopes.len());
+        // @temp: sti kvec truncate.
+        unsafe { self.scopes.inner_mut().truncate(save.num_scopes) }
+        self.current = save.current;
     }
 }
 

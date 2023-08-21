@@ -1,7 +1,7 @@
 use sti::arena::Arena;
 use sti::vec::Vec;
 
-pub use super::local_ctx::LocalId;
+pub use super::local_ctx::ScopeId;
 pub use super::infer_ctx::{LevelVarId, TermVarId};
 pub use crate::env::SymbolId;
 
@@ -60,7 +60,7 @@ pub enum TermKind<'a> {
     Sort(LevelRef<'a>),
 
     Bound(BVar),
-    Local(LocalId),
+    Local(ScopeId),
     Global(term::Global<'a>),
     Var(TermVarId),
 
@@ -122,7 +122,7 @@ pub trait TTArena {
 
     fn mkt_sort<'a>(&'a self, level: LevelRef<'a>) -> TermRef<'a>;
     fn mkt_bound<'a>(&'a self, bvar: BVar) -> TermRef<'a>;
-    fn mkt_local<'a>(&'a self, id: LocalId) -> TermRef<'a>;
+    fn mkt_local<'a>(&'a self, id: ScopeId) -> TermRef<'a>;
     fn mkt_global<'a>(&'a self, id: SymbolId, levels: LevelList<'a>) -> TermRef<'a>;
     fn mkt_forall_b<'a>(&'a self, binder: term::Binder<'a>) -> TermRef<'a>;
     fn mkt_forall<'a>(&'a self, name: u32, ty: TermRef<'a>, ret: TermRef<'a>) -> TermRef<'a>;
@@ -207,7 +207,7 @@ impl TTArena for Arena {
     }
 
     #[inline(always)]
-    fn mkt_local<'a>(&'a self, id: LocalId) -> TermRef<'a> {
+    fn mkt_local<'a>(&'a self, id: ScopeId) -> TermRef<'a> {
         self.alloc_new(Term::mk_local(id))
     }
 
@@ -697,7 +697,7 @@ impl<'a> Term<'a> {
     }
 
     #[inline(always)]
-    pub const fn mk_local(id: LocalId) -> Self {
+    pub const fn mk_local(id: ScopeId) -> Self {
         Self { kind: TermKind::Local(id) }
     }
 
@@ -973,7 +973,7 @@ impl<'a> Term<'a> {
     }
 
 
-    pub fn abstracc(&'a self, id: LocalId, alloc: &'a Arena) -> TermRef<'a> {
+    pub fn abstracc(&'a self, id: ScopeId, alloc: &'a Arena) -> TermRef<'a> {
         // @speed: has_local. or even max_local?
         self.replace(alloc, |at, offset, alloc| {
             if let TermKind::Local(l) = at.kind {

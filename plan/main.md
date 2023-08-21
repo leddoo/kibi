@@ -41,6 +41,9 @@
 
 ### backlog:
 
+- sti:
+    - kvec truncate.
+
 - better errors:
     - simplify types (cheap reductions).
     - merge binders.
