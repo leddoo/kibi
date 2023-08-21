@@ -154,7 +154,6 @@ impl<'me, 'a> TyCtx<'me, 'a> {
             TermKind::EqRefl(l) => self.alloc.mkt_eq_refl_ty(l),
             TermKind::EqRec(l, r) => self.alloc.mkt_eq_rec_ty(l, r),
         };
-
         assert!(result.closed());
         // TODO: assert all locals are in current local context.
 
@@ -253,11 +252,11 @@ impl<'me, 'a> TyCtx<'me, 'a> {
 
         // is app?
         let (fun, num_args) = e.app_fun();
-        if num_args == 0 {
+        if num_args == 0 || !fun.closed() {
             return (e, false); // if were done, would have returned above.
         }
 
-        // reduce head.
+        // head reduction.
         let old_fun = fun;
         let (fun, _) = self.whnf_no_unfold(fun);
         let changed = !fun.ptr_eq(old_fun);
@@ -286,14 +285,18 @@ impl<'me, 'a> TyCtx<'me, 'a> {
         }
 
         if changed {
-            return (e.replace_app_fun(fun, self.alloc), false);
+            let result = e.replace_app_fun(fun, self.alloc);
+            assert!(result.closed());
+            return (result, false);
         }
 
         // TODO: use fun_done here?
-        (e, false)
+        return (e, false);
     }
 
     fn try_reduce_recursor(&mut self, t: TermRef<'a>, fun: TermRef<'a>, num_args: usize) -> Option<TermRef<'a>> {
+        assert!(t.closed());
+
         'next: { if let TermKind::NatRec(l) = fun.kind {
             if num_args < 4 { break 'next; }
 
@@ -304,10 +307,10 @@ impl<'me, 'a> TyCtx<'me, 'a> {
 
             let (ctor, ctor_args) = mp.app_args();
 
-            match ctor.kind {
+            let result = match ctor.kind {
                 TermKind::NatZero => {
                     assert_eq!(ctor_args.len(), 0);
-                    return Some(rec_args[2]);
+                    rec_args[2]
                 }
 
                 TermKind::NatSucc => {
@@ -323,7 +326,7 @@ impl<'me, 'a> TyCtx<'me, 'a> {
                     let ms = rec_args[3];
                     let n = ctor_args[0];
 
-                    return Some(self.alloc.mkt_apps(ms, &[
+                    self.alloc.mkt_apps(ms, &[
                         n,
                         self.alloc.mkt_apps(self.alloc.mkt_nat_rec(l), &[
                             n,
@@ -331,34 +334,41 @@ impl<'me, 'a> TyCtx<'me, 'a> {
                             mz,
                             ms,
                         ]),
-                    ]));
+                    ])
                 }
 
-                _ => ()
-            }
+                _ => break 'next,
+            };
+            assert!(result.closed());
+            return Some(result);
         }}
 
         None
     }
 
     // supports ptr_eq for change detection.
-    pub fn whnf(&mut self, e: TermRef<'a>) -> TermRef<'a> {
-        let (e, done) = self.whnf_no_unfold(e);
+    pub fn whnf(&mut self, t: TermRef<'a>) -> TermRef<'a> {
+        assert!(t.closed());
+
+        let (t, done) = self.whnf_no_unfold(t);
         if done {
-            return e;
+            return t;
         }
 
-        if let Some(result) = self.unfold(e) {
+        if let Some(result) = self.unfold(t) {
             return self.whnf(result);
         }
 
-        return e;
+        return t;
     }
 
 
-    pub fn reduce(&mut self, term: TermRef<'a>) -> TermRef<'a> {
-        let result = self.whnf(term);
-        match result.kind {
+    pub fn reduce(&mut self, t: TermRef<'a>) -> TermRef<'a> {
+        assert!(t.closed());
+
+        let result = self.whnf(t);
+
+        let result = match result.kind {
             TermKind::Sort(_) |
             TermKind::BVar(_) |
             TermKind::Local(_) |
@@ -401,7 +411,10 @@ impl<'me, 'a> TyCtx<'me, 'a> {
             TermKind::Eq(_) |
             TermKind::EqRefl(_) |
             TermKind::EqRec(_, _) => result,
-        }
+        };
+        assert!(result.closed());
+
+        return result;
     }
 
 
@@ -487,6 +500,9 @@ impl<'me, 'a> TyCtx<'me, 'a> {
 
 
     pub fn def_eq_basic(&mut self, a: TermRef<'a>, b: TermRef<'a>) -> Option<bool> {
+        assert!(a.closed());
+        assert!(b.closed());
+
         /*
         if let Some(id) = a.try_evar() {
             if let Some(a) = self.ivars.as_mut().unwrap().expr_value(id) {

@@ -11,7 +11,6 @@
 
 - todo:
     - robustness:
-        - closed checks.
         - type correct checks (`infer_type.unwrap(): Sort(l)`)
         - debug mode consistency checks
           (check well types & type is sort).
