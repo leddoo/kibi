@@ -12,7 +12,7 @@ fn main() {
 
     let input = "
 reduce (λ(a: Nat, b: Nat) =>
-    Nat::rec.{1}(
+    Nat::rec(
         b,
         λ(_: Nat) => Nat,
         a,

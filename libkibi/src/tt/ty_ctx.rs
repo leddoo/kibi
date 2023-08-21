@@ -13,11 +13,11 @@ pub struct TyCtx<'me, 'a> {
 
     pub lctx: &'me mut LocalCtx<'a>,
 
-    pub ictx: Option<&'me mut InferCtx<'a>>,
+    pub ictx: &'me mut InferCtx<'a>,
 }
 
 impl<'me, 'a> TyCtx<'me, 'a> {
-    pub fn new(lctx: &'me mut LocalCtx<'a>, ictx: Option<&'me mut InferCtx<'a>>, env: &'me Env<'a>, alloc: &'a Arena) -> Self {
+    pub fn new(lctx: &'me mut LocalCtx<'a>, ictx: &'me mut InferCtx<'a>, env: &'me Env<'a>, alloc: &'a Arena) -> Self {
         Self { alloc, env, lctx, ictx }
     }
 
@@ -110,8 +110,7 @@ impl<'me, 'a> TyCtx<'me, 'a> {
             }
 
             TermKind::Var(var) => {
-                let ictx = self.ictx.as_mut().unwrap();
-                ictx.term_type(var)
+                self.ictx.term_type(var)
             }
 
             TermKind::Lambda (b) => {
@@ -453,50 +452,43 @@ impl<'me, 'a> TyCtx<'me, 'a> {
                 self.level_def_eq_basic(p1.lhs, p2.lhs) &&
                 self.level_def_eq_basic(p1.rhs, p2.rhs),
 
-            /*
-            (LevelKind::Lvar(i1), LevelKind::Lvar(i2)) => {
+            (Var(i1), Var(i2)) => {
                 if i1 == i2 {
                     return true;
                 }
 
-                self.assign_level(*i1, self.cx.mkl_lvar(*i2));
+                self.ictx.assign_level(i1, b);
                 true
             }
 
-            (LevelKind::Lvar(id), _) => {
-                self.assign_level(*id, b.clone());
+            (Var(id), _) => {
+                self.ictx.assign_level(id, b);
                 true
             }
 
-            (_, LevelKind::Lvar(id)) => {
-                self.assign_level(*id, a.clone());
+            (_, Var(id)) => {
+                self.ictx.assign_level(id, a);
                 true
             }
-            */
 
             _ => false,
         }
     }
 
     pub fn level_def_eq(&mut self, a: LevelRef<'a>, b: LevelRef<'a>) -> bool {
-        self.level_def_eq_basic(a, b)
-        /*
-        if let Some(ivars) = &self.ivars {
-            // NOTE: need to fully instantiate first; can't instantiate lvars
-            //  ad-hoc while recursing.
-            //  eg: `(max (lvar v) x) =?= x` fails even if `v = x`.
-            //  instantiating first results in `(max x x)`, which,
-            //  on construction, is turned into `x`.
-            //  this is because we haven't implemented the le based equality
-            //  (`a <= b && b <= a`).
-            let a = ivars.instantiate_level(a);
-            let b = ivars.instantiate_level(b);
-            self._level_def_eq(a, b)
+        if self.ictx.has_level_vars() {
+            // we currently don't implement the proper level equivalence test.
+            // instead we just do syntax eq + var assignment.
+            // but that means, we need to instantiate all level vars first.
+            // eg: `max(?v, 0) =?= 0` fails even if `?v = 0`,
+            // because `max` and `0` are not syntactically equal.
+            let a = self.ictx.instantiate_level(a);
+            let b = self.ictx.instantiate_level(b);
+            self.level_def_eq_basic(a, b)
         }
         else {
-            self._level_def_eq(a, b)
+            self.level_def_eq_basic(a, b)
         }
-        */
     }
 
     pub fn level_list_def_eq(&mut self, a: LevelList<'a>, b: LevelList<'a>) -> bool {
@@ -562,6 +554,16 @@ impl<'me, 'a> TyCtx<'me, 'a> {
                     let val2 = b2.val.instantiate(local, tc.alloc);
                     tc.def_eq(val1, val2)
                 }))
+            }
+
+            (NatRec(l1), NatRec(l2)) |
+            (Eq    (l1), Eq    (l2)) |
+            (EqRefl(l1), EqRefl(l2)) => {
+                Some(self.level_def_eq(l1, l2))
+            }
+
+            (EqRec(l1, r1), EqRec(l2, r2)) => {
+                Some(self.level_def_eq(l1, l2) && self.level_def_eq(r1, r2))
             }
 
             /*
@@ -666,7 +668,7 @@ impl<'me, 'a> TyCtx<'me, 'a> {
 
             SymbolKind::Def(d) => {
                 debug_assert_eq!(g.levels.len(), d.num_levels as usize);
-                let val = d.val.instantiate_levels(g.levels, self.alloc);
+                let val = d.val.instantiate_level_params(g.levels, self.alloc);
                 Some(t.replace_app_fun(val, self.alloc))
             }
         }

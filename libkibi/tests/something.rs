@@ -33,7 +33,7 @@ fn nat_add_elab() {
 
     let nat_add = {
         let input = "λ(a: Nat, b: Nat) =>
-            Nat::rec.{1}(b, λ(_: Nat) => Nat, a, λ(_: Nat, r: Nat) => Nat::succ(r))";
+            Nat::rec(b, λ(_: Nat) => Nat, a, λ(_: Nat, r: Nat) => Nat::succ(r))";
 
         let tokens = kibi::parser::Tokenizer::tokenize(input.as_bytes(), 0, &alloc);
 
@@ -42,6 +42,10 @@ fn nat_add_elab() {
 
         let mut elab = kibi::elab::Elab::new(&mut env, SymbolId::ROOT, &errors, &alloc);
         let (term, _) = elab.elab_expr(&ast).unwrap();
+
+        let term = elab.tc().ictx.instantiate_term(term);
+
+        assert!(elab.check_no_unassigned_variables().is_some());
 
         assert!(term.syntax_eq(nat_add));
 
@@ -57,7 +61,8 @@ fn nat_add_elab() {
     let n3_add = alloc.mkt_apps(nat_add, &[n1, n2]);
 
     let mut lctx = LocalCtx::new(&alloc);
-    let mut tc = TyCtx::new(&mut lctx, None, &env, &alloc);
+    let mut ictx = InferCtx::new(&alloc);
+    let mut tc = TyCtx::new(&mut lctx, &mut ictx, &env, &alloc);
 
     assert!(tc.reduce(n3_add).syntax_eq(n3));
 

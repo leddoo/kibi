@@ -479,6 +479,11 @@ impl<'a> Level<'a> {
     }
 
 
+    pub fn has_vars(&self) -> bool {
+        self.find(|at| { Some(at.is_var()) }).is_some()
+    }
+
+
     #[inline(always)]
     pub const fn is_zero(&self) -> bool { matches!(self.kind, LevelKind::Zero) }
 
@@ -490,6 +495,12 @@ impl<'a> Level<'a> {
 
     #[inline(always)]
     pub const fn is_imax(&self) -> bool { matches!(self.kind, LevelKind::IMax(_)) }
+
+    #[inline(always)]
+    pub const fn is_param(&self) -> bool { matches!(self.kind, LevelKind::Param(_)) }
+
+    #[inline(always)]
+    pub const fn is_var(&self) -> bool { matches!(self.kind, LevelKind::Var(_)) }
 
     pub fn non_zero(&self) -> bool {
         match self.kind {
@@ -563,6 +574,36 @@ impl<'a> Level<'a> {
 
 
 
+    pub fn find<F: Fn(LevelRef<'a>) -> Option<bool>>
+        (&'a self, f: F) -> Option<LevelRef<'a>>
+    {
+        self.find_ex(&f)
+    }
+
+    pub fn find_ex<F: Fn(LevelRef<'a>) -> Option<bool>>
+        (&'a self, f: &F) -> Option<LevelRef<'a>>
+    {
+        if let Some(true) = f(self) {
+            return Some(self);
+        }
+
+        match self.kind {
+            LevelKind::Zero => None,
+
+            LevelKind::Succ(l) => l.find_ex(f),
+
+            LevelKind::Max(p) |
+            LevelKind::IMax(p) => {
+                p.lhs.find_ex(f).or_else(||
+                p.rhs.find_ex(f))
+            }
+
+            LevelKind::Param(_) |
+            LevelKind::Var(_) => None,
+        }
+    }
+
+
     pub fn replace<F: Fn(LevelRef<'a>, &'a Arena) -> Option<LevelRef<'a>>>
         (&'a self, alloc: &'a Arena, f: F) -> LevelRef<'a>
     {
@@ -604,7 +645,7 @@ impl<'a> Level<'a> {
         }
     }
 
-    pub fn instantiate(&'a self, subst: LevelList<'a>, alloc: &'a Arena) -> Option<LevelRef<'a>> {
+    pub fn instantiate_params(&'a self, subst: LevelList<'a>, alloc: &'a Arena) -> Option<LevelRef<'a>> {
         // @speed: has_param.
         let result = self.replace(alloc, |at, _| {
             if let LevelKind::Param(p) = at.kind {
@@ -807,6 +848,33 @@ impl<'a> Term<'a> {
         }).is_none()
     }
 
+    pub fn has_vars(&self) -> bool {
+        self.find(|at, _| {
+            Some(match at.kind {
+                TermKind::Sort(l) => l.has_vars(),
+
+                TermKind::Global(g) => {
+                    let mut has_vars = false;
+                    for l in g.levels.iter() {
+                        has_vars |= l.has_vars();
+                    }
+                    has_vars
+                }
+
+                TermKind::Var(_) => true,
+
+                TermKind::NatRec(l) |
+                TermKind::Eq(l) |
+                TermKind::EqRefl(l) => l.has_vars(),
+
+                TermKind::EqRec(l, r) =>
+                    l.has_vars() || r.has_vars(),
+
+                _ => return None,
+            })
+        }).is_some()
+    }
+
 
     pub fn find<F: Fn(TermRef<'a>, u32) -> Option<bool>>
         (&'a self, f: F) -> Option<TermRef<'a>>
@@ -929,77 +997,84 @@ impl<'a> Term<'a> {
         })
     }
 
-    pub fn instantiate_levels(&'a self, subst: LevelList<'a>, alloc: &'a Arena) -> TermRef<'a> {
+    pub fn replace_levels_flat<F: Fn(LevelRef<'a>, &'a Arena) -> Option<LevelRef<'a>>>
+        (&self, alloc: &'a Arena, f: F) -> Option<TermRef<'a>>
+    {
+        match self.kind {
+            TermKind::Sort(l) => {
+                if let Some(l) = f(l, alloc) {
+                    return Some(alloc.mkt_sort(l));
+                }
+            }
+
+            TermKind::Global(g) => {
+                let mut new_levels = Vec::new_in(alloc);
+
+                for (i, l) in g.levels.iter().enumerate() {
+                    if let Some(l) = f(l, alloc) {
+                        if new_levels.len() == 0 {
+                            new_levels.reserve_exact(g.levels.len());
+                            for k in 0..i {
+                                new_levels.push(g.levels[k]);
+                            }
+                        }
+
+                        new_levels.push(l);
+                    }
+                    else if new_levels.len() != 0 {
+                        new_levels.push(l)
+                    }
+                }
+
+                if new_levels.len() != 0 {
+                    debug_assert_eq!(new_levels.len(), g.levels.len());
+                    let levels = new_levels.leak();
+                    return Some(alloc.mkt_global(g.id, levels));
+                }
+            }
+
+            TermKind::NatRec(r) => {
+                if let Some(r) = f(r, alloc) {
+                    return Some(alloc.mkt_nat_rec(r));
+                }
+            }
+
+            TermKind::Eq(l) => {
+                if let Some(l) = f(l, alloc) {
+                    return Some(alloc.mkt_eq(l));
+                }
+            }
+
+            TermKind::EqRefl(l) => {
+                if let Some(l) = f(l, alloc) {
+                    return Some(alloc.mkt_eq_refl(l));
+                }
+            }
+
+            TermKind::EqRec(l, r) => {
+                let new_l = f(l, alloc);
+                let new_r = f(r, alloc);
+                if new_l.is_some() || new_r.is_some() {
+                    let l = new_l.unwrap_or(l);
+                    let r = new_r.unwrap_or(r);
+                    return Some(alloc.mkt_eq_rec(l, r));
+                }
+            }
+
+            _ => ()
+        }
+        return None;
+    }
+
+    pub fn instantiate_level_params(&'a self, subst: LevelList<'a>, alloc: &'a Arena) -> TermRef<'a> {
         if subst.len() == 0 {
             return self;
         }
 
         // @speed: has_level_param.
         self.replace(alloc, |at, _, alloc| {
-            match at.kind {
-                TermKind::Sort(l) => {
-                    if let Some(l) = l.instantiate(subst, alloc) {
-                        return Some(alloc.mkt_sort(l));
-                    }
-                }
-
-                TermKind::Global(g) => {
-                    let mut new_levels = Vec::new_in(alloc);
-
-                    for (i, l) in g.levels.iter().enumerate() {
-                        if let Some(l) = l.instantiate(subst, alloc) {
-                            if new_levels.len() == 0 {
-                                new_levels.reserve_exact(g.levels.len());
-                                for k in 0..i {
-                                    new_levels.push(g.levels[k]);
-                                }
-                            }
-
-                            new_levels.push(l);
-                        }
-                        else if new_levels.len() != 0 {
-                            new_levels.push(l)
-                        }
-                    }
-
-                    if new_levels.len() != 0 {
-                        debug_assert_eq!(new_levels.len(), g.levels.len());
-                        let levels = new_levels.leak();
-                        return Some(alloc.mkt_global(g.id, levels));
-                    }
-                }
-
-                TermKind::NatRec(r) => {
-                    if let Some(r) = r.instantiate(subst, alloc) {
-                        return Some(alloc.mkt_nat_rec(r));
-                    }
-                }
-
-                TermKind::Eq(l) => {
-                    if let Some(l) = l.instantiate(subst, alloc) {
-                        return Some(alloc.mkt_eq(l));
-                    }
-                }
-
-                TermKind::EqRefl(l) => {
-                    if let Some(l) = l.instantiate(subst, alloc) {
-                        return Some(alloc.mkt_eq_refl(l));
-                    }
-                }
-
-                TermKind::EqRec(l, r) => {
-                    let new_l = l.instantiate(subst, alloc);
-                    let new_r = r.instantiate(subst, alloc);
-                    if new_l.is_some() || new_r.is_some() {
-                        let l = new_l.unwrap_or(l);
-                        let r = new_r.unwrap_or(r);
-                        return Some(alloc.mkt_eq_rec(l, r));
-                    }
-                }
-
-                _ => ()
-            }
-            None
+            at.replace_levels_flat(alloc, |l, alloc|
+                l.instantiate_params(subst, alloc))
         })
     }
 

@@ -32,7 +32,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             lctx: LocalCtx::new(alloc),
             locals: Vec::new(),
             level_vars: Vec::new(),
-            ictx: InferCtx::new(),
+            ictx: InferCtx::new(alloc),
         }
     }
 
@@ -52,8 +52,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     pub fn elab_level(&mut self, level: &ast::Level<'a>) -> Option<tt::LevelRef<'a>> {
         Some(match &level.kind {
             ast::LevelKind::Hole => {
-                self.alloc.mkl_var(
-                    self.ictx.new_level_var())
+                self.ictx.new_level_var()
             }
 
             ast::LevelKind::Ident(name) => {
@@ -309,8 +308,21 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
         };
 
+        let ty  = self.ictx.instantiate_term(ty);
+        let val = self.ictx.instantiate_term(val);
+
         assert!(ty.closed());
         assert!(val.closed());
+
+        if ty.has_vars() || val.has_vars() {
+            println!("unresolved inference variables");
+            let mut pp = TermPP::new(self.env, self.alloc);
+            let ty  = pp.pp_term(ty);
+            let val = pp.pp_term(val);
+            println!("{}", pp.render(ty,  50).layout_string());
+            println!("{}", pp.render(val, 50).layout_string());
+            return None;
+        }
 
         let symbol = self.env.new_symbol(parent, name,
             SymbolKind::Def(symbol::Def {
@@ -408,7 +420,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
                     symbol::BuiltIn::NatRec => {
                         let r = if levels.len() == 0 {
-                            self.alloc.mkl_var(self.ictx.new_level_var())
+                            self.ictx.new_level_var()
                         }
                         else {
                             if levels.len() != 1 {
@@ -426,7 +438,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
                     symbol::BuiltIn::Eq => {
                         let l = if levels.len() == 0 {
-                            self.alloc.mkl_var(self.ictx.new_level_var())
+                            self.ictx.new_level_var()
                         }
                         else {
                             if levels.len() != 1 {
@@ -444,7 +456,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
                     symbol::BuiltIn::EqRefl => {
                         let l = if levels.len() == 0 {
-                            self.alloc.mkl_var(self.ictx.new_level_var())
+                            self.ictx.new_level_var()
                         }
                         else {
                             if levels.len() != 1 {
@@ -462,8 +474,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
                     symbol::BuiltIn::EqRec => {
                         let (l, r) = if levels.len() == 0 {
-                            (self.alloc.mkl_var(self.ictx.new_level_var()),
-                             self.alloc.mkl_var(self.ictx.new_level_var()))
+                            (self.ictx.new_level_var(),
+                             self.ictx.new_level_var())
                         }
                         else {
                             if levels.len() != 2 {
@@ -488,7 +500,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 let levels = if levels.len() == 0 {
                     let mut ls = Vec::with_cap_in(num_levels, self.alloc);
                     for _ in 0..num_levels {
-                        ls.push(self.alloc.mkl_var(self.ictx.new_level_var()));
+                        ls.push(self.ictx.new_level_var());
                     }
                     ls.leak()
                 }
@@ -508,7 +520,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 };
 
                 (self.alloc.mkt_global(id, levels),
-                 def.ty.instantiate_levels(levels, self.alloc))
+                 def.ty.instantiate_level_params(levels, self.alloc))
             }
         })
     }
@@ -516,7 +528,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
     #[inline(always)]
     pub fn tc<'l>(&mut self) -> TyCtx<'_, 'a> {
-        TyCtx::new(&mut self.lctx, Some(&mut self.ictx), self.env, self.alloc)
+        TyCtx::new(&mut self.lctx, &mut self.ictx, self.env, self.alloc)
     }
 
 

@@ -11,7 +11,6 @@
 
 - todo:
     - inference todo:
-        - impl level var `def_eq`.
         - create term vars for hole exprs.
         - impl term var `def_eq`.
 
