@@ -1,35 +1,35 @@
 def Nat::add (a: Nat, b: Nat): Nat :=
     Nat::rec(b,
-        lam(_: Nat) => Nat,
+        lam(_: _) => _,
         a,
-        lam(_: Nat, r: Nat) => Nat::succ(r))
+        lam(_: _, r: _) => Nat::succ(r))
 
 reduce Nat::add(1, 2)
 
 
-def quick_maffs: Eq(Nat, Nat::add(2, 2), 4) := Eq::refl(Nat, 4)
+def quick_maffs: Eq(_, Nat::add(2, 2), 4) := Eq::refl(_, 4)
 
 
 -- axiom ax_sorry.{l} (T: Sort(l)): T
 
 
 def congr_arg.{a, b} (A: Sort(a), B: Sort(b), f: Pi(_: A) -> B, x1: A, x2: A)
-    : Pi (_: Eq(A, x1, x2)) -> Eq.{b}(B, f(x1), f(x2))
-    := lam(heq: Eq(A, x1, x2)) =>
-        Eq::rec(A, x1, x2, heq,
-            lam(x2: A) => Eq(B, f(x1), f(x2)),
-            Eq::refl(B, f(x1)))
+    : Pi (_: Eq(_, x1, x2)) -> Eq(_, f(x1), f(x2))
+    := lam(heq: Eq(_, x1, x2)) =>
+        Eq::rec(_, x1, x2, heq,
+            lam(x2: _) => Eq(_, f(x1), f(x2)),
+            Eq::refl(_, f(x1)))
 
 
-def Nat::add_zero (n: Nat): Eq(Nat, Nat::add(n, 0), n) :=
-    Eq::refl(Nat, n)
+def Nat::add_zero (n: Nat): Eq(_, Nat::add(n, 0), n) :=
+    Eq::refl(_, n)
 
-def Nat::zero_add (n: Nat): Eq(Nat, Nat::add(0, n), n) :=
+def Nat::zero_add (n: Nat): Eq(_, Nat::add(0, n), n) :=
     Nat::rec(n,
-        lam(n: Nat) => Eq(Nat, Nat::add(0, n), n),
+        lam(n: _) => Eq(_, Nat::add(0, n), n),
         Eq::refl(Nat, 0),
-        lam(n: Nat, ih: Eq(Nat, Nat::add(0, n), n)) =>
-            congr_arg(Nat, Nat, Nat::succ, Nat::add(0, n), n, ih))
+        lam(n: Nat, ih: Eq(_, Nat::add(0, n), n)) =>
+            congr_arg(_, _, _, Nat::add(0, n), n, ih))
 
 
 -- yeah, don't uncomment that...

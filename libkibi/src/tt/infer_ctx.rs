@@ -2,6 +2,7 @@ use sti::arena::Arena;
 use sti::keyed::{KVec, KRange};
 
 use super::syntax::*;
+use super::local_ctx::OptScopeId;
 
 
 sti::define_key!(u32, pub LevelVarId);
@@ -20,8 +21,9 @@ struct LevelVar<'a> {
 }
 
 struct TermVar<'a> {
-    value: Option<TermRef<'a>>,
+    scope: OptScopeId,
     ty: TermRef<'a>,
+    value: Option<TermRef<'a>>,
 }
 
 impl<'a> InferCtx<'a> {
@@ -89,11 +91,17 @@ impl<'a> InferCtx<'a> {
 
     // terms.
 
-    pub fn new_term_var_id(&mut self, ty: TermRef<'a>) -> TermVarId {
+    pub fn new_term_var_id(&mut self, ty: TermRef<'a>, scope: OptScopeId) -> TermVarId {
         self.term_vars.push(TermVar {
-            value: None,
+            scope,
             ty,
+            value: None,
         })
+    }
+
+    pub fn new_term_var(&mut self, ty: TermRef<'a>, scope: OptScopeId) -> TermRef<'a> {
+        let id = self.new_term_var_id(ty, scope);
+        self.alloc.mkt_var(id)
     }
 
     #[inline(always)]
@@ -116,6 +124,10 @@ impl<'a> InferCtx<'a> {
 
     pub fn instantiate_term(&self, t: TermRef<'a>) -> TermRef<'a> {
         t.replace(self.alloc, |at, _, alloc| {
+            if let TermKind::Var(id) = at.kind {
+                return self.term_value(id);
+            }
+
             at.replace_levels_flat(alloc, |l, _| {
                 let new_l = self.instantiate_level(l);
                 (!new_l.ptr_eq(l)).then_some(new_l)

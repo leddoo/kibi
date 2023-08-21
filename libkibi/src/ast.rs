@@ -275,6 +275,7 @@ pub struct Expr<'a> {
 pub enum ExprKind<'a> {
     Error,
 
+    Hole,
     Ident(&'a str),
     DotIdent(&'a str),
     Path(Path<'a>),

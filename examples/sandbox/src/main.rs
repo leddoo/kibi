@@ -14,17 +14,17 @@ fn main() {
 reduce (λ(a: Nat, b: Nat) =>
     Nat::rec(
         b,
-        λ(_: Nat) => Nat,
+        λ(_: _) => _,
         a,
-        λ(_: Nat, r: Nat) => Nat::succ(r))
+        λ(_: _, r: _) => Nat::succ(r))
     )(1, 2)
 
 def Nat::add (a: Nat, b: Nat): Nat :=
     Nat::rec(
         b,
-        λ(_: Nat) => Nat,
+        λ(_: _) => _,
         a,
-        λ(_: Nat, r: Nat) => Nat::succ(r))
+        λ(_: _, r: _) => Nat::succ(r))
 
 reduce Nat::add(1, 2)
 ".as_bytes();
@@ -79,7 +79,10 @@ reduce Nat::add(1, 2)
             }
         }
 
-        elab.check_no_unassigned_variables().unwrap();
+        let Some(()) = elab.check_no_unassigned_variables() else {
+            println!("error: unassigned inference variables");
+            break;
+        };
     }
 
     let p1 = arena.alloc_ptr::<u8>().as_ptr() as usize;

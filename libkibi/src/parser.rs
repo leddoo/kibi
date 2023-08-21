@@ -497,6 +497,10 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
         let kind = 'kind: {
             'next: { break 'kind match at.kind {
+                TokenKind::Hole => {
+                    ExprKind::Hole
+                }
+
                 TokenKind::Ident(ident) => {
                     match self.parse_ident_or_path(ident)? {
                         IdentOrPath::Ident(ident) => ExprKind::Ident(ident),

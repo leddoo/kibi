@@ -39,11 +39,17 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     // @temp: `Compiler` rework.
     pub fn check_no_unassigned_variables(&self) -> Option<()> {
         for var in self.ictx.level_ids() {
-            self.ictx.level_value(var)?;
+            if self.ictx.level_value(var).is_none() {
+                println!("{:?} unassigned", var);
+                return None;
+            }
         }
 
         for var in self.ictx.term_ids() {
-            self.ictx.term_value(var)?;
+            if self.ictx.term_value(var).is_none() {
+                println!("{:?} unassigned", var);
+                return None;
+            }
         }
 
         Some(())
@@ -96,6 +102,10 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
     pub fn elab_expr_ex(&mut self, expr: &Expr<'a>, expected_ty: Option<TermRef<'a>>) -> Option<(TermRef<'a>, TermRef<'a>)> {
         Some(match &expr.kind {
+            ExprKind::Hole => {
+                self.new_term_var()
+            }
+
             ExprKind::Ident(name) => {
                 if let Some(local) = self.lookup_local(name) {
                     let ty = self.lctx.lookup(local).ty;
@@ -167,6 +177,9 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 }
                 self.locals.truncate(locals_begin);
 
+                // @temp: ictx.abstract_forall.
+                result = self.ictx.instantiate_term(result);
+
                 (result, self.alloc.mkt_sort(level))
             }
 
@@ -191,6 +204,10 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     self.lctx.pop(id);
                 }
                 self.locals.truncate(locals_begin);
+
+                // @temp: ictx.abstract_forall.
+                result    = self.ictx.instantiate_term(result);
+                result_ty = self.ictx.instantiate_term(result_ty);
 
                 (result, result_ty)
             }
@@ -236,8 +253,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             if !tc.def_eq(ty, expected) {
                 self.error(expr.source, |alloc| {
                     let mut pp = TermPP::new(self.env, alloc);
-                    let expected = pp.pp_term(expected);
-                    let found    = pp.pp_term(ty);
+                    let expected = pp.pp_term(self.ictx.instantiate_term(expected));
+                    let found    = pp.pp_term(self.ictx.instantiate_term(ty));
                     ElabError::TypeMismatch { expected, found }
                 });
                 return None;
@@ -250,11 +267,14 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     fn elab_expr_as_type(&mut self, expr: &Expr<'a>) -> Option<(TermRef<'a>, tt::LevelRef<'a>)> {
         let (term, ty) = self.elab_expr_ex(expr, None)?;
 
-        let mut tc = self.tc();
-
-        let ty = tc.whnf(ty);
+        let ty = self.tc().whnf(ty);
         if let TermKind::Sort(l) = ty.kind {
             return Some((term, l));
+        }
+
+        let (ty_var, l) = self.new_ty_var();
+        if self.tc().def_eq(term, ty_var) {
+            return Some((ty_var, l));
         }
 
         self.error(expr.source, |alloc| {
@@ -310,14 +330,25 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let ty  = self.ictx.instantiate_term(ty);
         let val = self.ictx.instantiate_term(val);
 
+        if !ty.closed() || !val.closed() || ty.has_locals() || val.has_locals() {
+            let mut pp = TermPP::new(self.env, self.alloc);
+            let ty  = pp.pp_term(self.ictx.instantiate_term(ty));
+            let val = pp.pp_term(self.ictx.instantiate_term(val));
+            println!("{}", pp.render(ty,  50).layout_string());
+            println!("{}", pp.render(val, 50).layout_string());
+        }
+
         assert!(ty.closed());
         assert!(val.closed());
+
+        assert!(!ty.has_locals());
+        assert!(!val.has_locals());
 
         if ty.has_vars() || val.has_vars() {
             println!("unresolved inference variables");
             let mut pp = TermPP::new(self.env, self.alloc);
-            let ty  = pp.pp_term(ty);
-            let val = pp.pp_term(val);
+            let ty  = pp.pp_term(self.ictx.instantiate_term(ty));
+            let val = pp.pp_term(self.ictx.instantiate_term(val));
             println!("{}", pp.render(ty,  50).layout_string());
             println!("{}", pp.render(val, 50).layout_string());
             return None;
@@ -518,6 +549,20 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                  def.ty.instantiate_level_params(levels, self.alloc))
             }
         })
+    }
+
+
+    fn new_term_var(&mut self) -> (TermRef<'a>, TermRef<'a>) {
+        let l = self.ictx.new_level_var();
+        let tyty = self.alloc.mkt_sort(l);
+        let ty = self.ictx.new_term_var(tyty, self.lctx.current());
+        (self.ictx.new_term_var(ty, self.lctx.current()), ty)
+    }
+
+    fn new_ty_var(&mut self) -> (TermRef<'a>, tt::LevelRef<'a>) {
+        let l = self.ictx.new_level_var();
+        let ty = self.alloc.mkt_sort(l);
+        (self.ictx.new_term_var(ty, self.lctx.current()), l)
     }
 
 

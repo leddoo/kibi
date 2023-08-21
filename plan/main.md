@@ -10,9 +10,11 @@
     - macros.
 
 - todo:
-    - inference todo:
-        - create term vars for hole exprs.
-        - impl term var `def_eq`.
+    - robustness: check for invalid locals after pop.
+    - infer locals:
+        - check locals in term var's lctx.
+        - var = var: check lctx is prefix & constrain.
+        - abstract locals out of term vars on pop or something.
 
     - implicit params.
         - binder rework.

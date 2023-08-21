@@ -5,13 +5,13 @@ use super::syntax::*;
 
 
 // @todo: debug version with (global) generational indices.
-sti::define_key!(u32, pub ScopeId, opt: OptScopeId);
+sti::define_key!(u32, pub ScopeId, opt: pub OptScopeId);
 
 
 pub struct LocalCtx<'a> {
     alloc: &'a Arena,
 
-    scopes: KVec<ScopeId, Scope<'a>>,
+    scopes:  KVec<ScopeId, Scope<'a>>,
     current: OptScopeId,
 }
 
@@ -55,6 +55,12 @@ impl<'a> LocalCtx<'a> {
     pub fn pop(&mut self, id: ScopeId) {
         assert_eq!(self.current, id.some());
         self.current = self.scopes[id].parent;
+    }
+
+
+    #[inline(always)]
+    pub fn current(&self) -> OptScopeId {
+        self.current
     }
 
     #[track_caller]

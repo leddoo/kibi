@@ -33,7 +33,7 @@ fn nat_add_elab() {
 
     let nat_add = {
         let input = "λ(a: Nat, b: Nat) =>
-            Nat::rec(b, λ(_: Nat) => Nat, a, λ(_: Nat, r: Nat) => Nat::succ(r))";
+            Nat::rec(b, λ(_: _) => _, a, λ(_: _, r: _) => Nat::succ(r))";
 
         let tokens = kibi::parser::Tokenizer::tokenize(input.as_bytes(), 0, &alloc);
 

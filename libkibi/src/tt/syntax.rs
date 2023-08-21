@@ -124,6 +124,7 @@ pub trait TTArena {
     fn mkt_bound<'a>(&'a self, bvar: BVar) -> TermRef<'a>;
     fn mkt_local<'a>(&'a self, id: ScopeId) -> TermRef<'a>;
     fn mkt_global<'a>(&'a self, id: SymbolId, levels: LevelList<'a>) -> TermRef<'a>;
+    fn mkt_var<'a>(&'a self, id: TermVarId) -> TermRef<'a>;
     fn mkt_forall_b<'a>(&'a self, binder: term::Binder<'a>) -> TermRef<'a>;
     fn mkt_forall<'a>(&'a self, name: u32, ty: TermRef<'a>, ret: TermRef<'a>) -> TermRef<'a>;
     fn mkt_lambda_b<'a>(&'a self, binder: term::Binder<'a>) -> TermRef<'a>;
@@ -214,6 +215,11 @@ impl TTArena for Arena {
     #[inline(always)]
     fn mkt_global<'a>(&'a self, id: SymbolId, levels: LevelList<'a>) -> TermRef<'a> {
         self.alloc_new(Term::mk_global(id, levels))
+    }
+
+    #[inline(always)]
+    fn mkt_var<'a>(&'a self, id: TermVarId) -> TermRef<'a> {
+        self.alloc_new(Term::mk_var(id))
     }
 
     #[inline(always)]
@@ -707,6 +713,11 @@ impl<'a> Term<'a> {
     }
 
     #[inline(always)]
+    pub const fn mk_var(id: TermVarId) -> Self {
+        Self { kind: TermKind::Var(id) }
+    }
+
+    #[inline(always)]
     pub const fn mk_forall_b(binder: term::Binder<'a>) -> Self {
         Self { kind: TermKind::Forall(binder) }
     }
@@ -846,6 +857,12 @@ impl<'a> Term<'a> {
             }
             None
         }).is_none()
+    }
+
+    pub fn has_locals(&self) -> bool {
+        self.find(|at, _| {
+            Some(at.is_local())
+        }).is_some()
     }
 
     pub fn has_vars(&self) -> bool {

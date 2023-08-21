@@ -204,8 +204,11 @@ impl<'me, 'a> TyCtx<'me, 'a> {
                 (e, false)
             }
 
-            TermKind::Var(_) => {
-                unimplemented!()
+            TermKind::Var(id) => {
+                if let Some(value) = self.ictx.term_value(id) {
+                    self.whnf_basic(value)
+                }
+                else { (e, false) } // could get assigned, ig.
             }
 
             TermKind::Lambda (_) |
@@ -501,18 +504,17 @@ impl<'me, 'a> TyCtx<'me, 'a> {
         assert!(a.closed());
         assert!(b.closed());
 
-        /*
-        if let Some(id) = a.try_evar() {
-            if let Some(a) = self.ivars.as_mut().unwrap().expr_value(id) {
-                return self.expr_def_eq_basic(a, b);
+        // instantiate inference vars.
+        if let TermKind::Var(id) = a.kind {
+            if let Some(a) = self.ictx.term_value(id) {
+                return self.def_eq_basic(a, b);
             }
         }
-        if let Some(id) = b.try_evar() {
-            if let Some(b) = self.ivars.as_mut().unwrap().expr_value(id) {
-                return self.expr_def_eq_basic(a, b);
+        if let TermKind::Var(id) = b.kind {
+            if let Some(b) = self.ictx.term_value(id) {
+                return self.def_eq_basic(a, b);
             }
         }
-        */
 
         if a.syntax_eq(b) {
             return Some(true);
@@ -560,23 +562,21 @@ impl<'me, 'a> TyCtx<'me, 'a> {
                 Some(self.level_def_eq(l1, l2) && self.level_def_eq(r1, r2))
             }
 
-            /*
-            (Evar(i1), Evar(i2)) => {
+            (Var(i1), Var(i2)) => {
                 if i1 == i2 {
                     return Some(true);
                 }
 
-                Some(self.assign_expr(*i1, self.cx.mke_evar(*i2)))
+                Some(self.assign_term(i1, b))
             }
 
-            (ExprKind::Evar(id), _) => {
-                Some(self.assign_expr(*id, b))
+            (Var(id), _) => {
+                Some(self.assign_term(id, b))
             }
 
-            (_, ExprKind::Evar(id)) => {
-                Some(self.assign_expr(*id, a))
+            (_, Var(id)) => {
+                Some(self.assign_term(id, a))
             }
-            */
 
             _ => None,
         }
@@ -666,6 +666,29 @@ impl<'me, 'a> TyCtx<'me, 'a> {
                 Some(t.replace_app_fun(val, self.alloc))
             }
         }
+    }
+
+    #[must_use]
+    fn assign_term(&mut self, var: TermVarId, value: TermRef<'a>) -> bool {
+        // occurs check.
+        if value.find(|at, _| {
+            if let TermKind::Var(id) = at.kind {
+                return Some(id == var);
+            }
+            None
+        }).is_some() {
+            return false;
+        }
+
+        // type check.
+        let var_ty = self.ictx.term_type(var);
+        let value_ty = self.infer_type(value).unwrap();
+        if !self.def_eq(var_ty, value_ty) {
+            return false;
+        }
+
+        self.ictx.assign_term(var, value);
+        return true;
     }
 }
 
