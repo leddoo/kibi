@@ -44,6 +44,7 @@ pub struct Token<'a> {
 pub enum TokenKind<'a> {
     Error,
 
+    Hole,
     Ident(&'a str),
 
     Bool(bool),
@@ -122,6 +123,7 @@ impl<'a> TokenKind<'a> {
     pub fn repr(&self) -> &'static str {
         match self {
             TokenKind::Error => unreachable!(),
+            TokenKind::Hole => "hole",
             TokenKind::Ident(_) => "ident",
             TokenKind::Bool(_) => "bool",
             TokenKind::Number(_) => "number",
@@ -508,11 +510,12 @@ pub struct Level<'a> {
 
 #[derive(Debug)]
 pub enum LevelKind<'a> {
+    Hole,
+    Ident(&'a str),
+
     Nat(u32),
     Add((LevelRef<'a>, u32)),
     Max((LevelRef<'a>, LevelRef<'a>)),
     IMax((LevelRef<'a>, LevelRef<'a>)),
-
-    Var(&'a str),
 }
 

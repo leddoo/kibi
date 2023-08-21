@@ -201,6 +201,8 @@ impl<'a> Tokenizer<'a> {
 
                 // keywords.
                 match value {
+                    "_" => TokenKind::Hole,
+
                     "Sort" => TokenKind::KwSort,
                     "Prop" => TokenKind::KwProp,
                     "Type" => TokenKind::KwType,
@@ -625,6 +627,10 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
         let source_begin = at.source;
 
         let mut kind = match at.kind {
+            TokenKind::Hole => {
+                LevelKind::Hole
+            }
+
             TokenKind::Ident(v) => {
                 if v == "max" || v == "imax" {
                     self.expect(TokenKind::LParen)?;
@@ -642,7 +648,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                     else { unreachable!() }
                 }
                 else {
-                    LevelKind::Var(v)
+                    LevelKind::Ident(v)
                 }
             }
 
@@ -685,9 +691,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
     }
 
     fn parse_binder(&mut self) -> Option<Binder<'a>> {
-        let name = self.parse_ident()?;
-
-        let name = Some(name).filter(|name| *name != "_");
+        let name = self.parse_ident_or_hole()?;
 
         let mut ty = None;
         if self.tokens.consume_if(|at| at.kind == TokenKind::Colon) {
@@ -705,6 +709,19 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
             return Some(ident);
         }
         self.error_expect(at.source, "ident");
+        return None;
+    }
+
+    #[inline(always)]
+    fn parse_ident_or_hole(&mut self) -> Option<Option<&'a str>> {
+        let at = self.tokens.next_ref()?;
+        if let TokenKind::Ident(ident) = at.kind {
+            return Some(Some(ident));
+        }
+        if let TokenKind::Hole = at.kind {
+            return Some(None);
+        }
+        self.error_expect(at.source, "ident | '_'");
         return None;
     }
 
