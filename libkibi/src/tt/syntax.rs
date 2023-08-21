@@ -2,6 +2,7 @@ use sti::arena::Arena;
 use sti::vec::Vec;
 
 pub use super::local_ctx::LocalId;
+pub use super::infer_ctx::{LevelVarId, TermVarId};
 pub use crate::env::SymbolId;
 
 
@@ -22,6 +23,7 @@ pub enum LevelKind<'a> {
     Max(level::Pair<'a>),
     IMax(level::Pair<'a>),
     Param(level::Param<'a>),
+    Var(LevelVarId),
 
     // sync: `Level::syntax_eq`
 }
@@ -57,9 +59,10 @@ pub struct Term<'a> {
 pub enum TermKind<'a> {
     Sort(LevelRef<'a>),
 
-    BVar(BVar),
+    Bound(BVar),
     Local(LocalId),
     Global(term::Global<'a>),
+    Var(TermVarId),
 
     Forall(term::Binder<'a>),
     Lambda(term::Binder<'a>),
@@ -77,7 +80,6 @@ pub enum TermKind<'a> {
     // sync:
     // - `Term::syntax_eq`.
     // - @pp_needs_parens.
-    // - replace & friends.
 }
 
 
@@ -118,7 +120,7 @@ pub trait TTArena {
     fn mkl_nat<'a>(&'a self, n: u32) -> LevelRef<'a>;
 
     fn mkt_sort<'a>(&'a self, level: LevelRef<'a>) -> TermRef<'a>;
-    fn mkt_bvar<'a>(&'a self, bvar: BVar) -> TermRef<'a>;
+    fn mkt_bound<'a>(&'a self, bvar: BVar) -> TermRef<'a>;
     fn mkt_local<'a>(&'a self, id: LocalId) -> TermRef<'a>;
     fn mkt_global<'a>(&'a self, id: SymbolId, levels: LevelList<'a>) -> TermRef<'a>;
     fn mkt_forall_b<'a>(&'a self, binder: term::Binder<'a>) -> TermRef<'a>;
@@ -194,8 +196,8 @@ impl TTArena for Arena {
     }
 
     #[inline(always)]
-    fn mkt_bvar<'a>(&'a self, bvar: BVar) -> TermRef<'a> {
-        self.alloc_new(Term::mk_bvar(bvar))
+    fn mkt_bound<'a>(&'a self, bvar: BVar) -> TermRef<'a> {
+        self.alloc_new(Term::mk_bound(bvar))
     }
 
     #[inline(always)]
@@ -279,7 +281,7 @@ impl TTArena for Arena {
         self.mkt_forall(0,
             // M(0)
             self.mkt_apply(
-                self.mkt_bvar(BVar(0)),
+                self.mkt_bound(BVar(0)),
                 Term::NAT_ZERO),
         self.mkt_forall(0,
             // Π(n, ih) => M(n.succ())
@@ -289,18 +291,18 @@ impl TTArena for Arena {
             self.mkt_forall(0,
                 // ih: M(n)
                 self.mkt_apply(
-                    self.mkt_bvar(BVar(2)),
-                    self.mkt_bvar(BVar(0))),
+                    self.mkt_bound(BVar(2)),
+                    self.mkt_bound(BVar(0))),
                 // -> M(n.succ())
                 self.mkt_apply(
-                    self.mkt_bvar(BVar(3)),
+                    self.mkt_bound(BVar(3)),
                     self.mkt_apply(
                         Term::NAT_SUCC,
-                        self.mkt_bvar(BVar(1)))))),
+                        self.mkt_bound(BVar(1)))))),
             // -> M(n)
             self.mkt_apply(
-                self.mkt_bvar(BVar(2)),
-                self.mkt_bvar(BVar(3)))))))
+                self.mkt_bound(BVar(2)),
+                self.mkt_bound(BVar(3)))))))
     }
 
     fn mkt_nat_val<'a>(&'a self, n: u32) -> TermRef<'a> {
@@ -333,10 +335,10 @@ impl TTArena for Arena {
             self.mkt_sort(l),
         self.mkt_forall(0,
             // a: T
-            self.mkt_bvar(BVar(0)),
+            self.mkt_bound(BVar(0)),
         self.mkt_forall(0,
             // b: T
-            self.mkt_bvar(BVar(1)),
+            self.mkt_bound(BVar(1)),
             // -> Prop
             self.mkt_sort(self.mkl_zero()))))
     }
@@ -347,12 +349,12 @@ impl TTArena for Arena {
             self.mkt_sort(l),
         self.mkt_forall(0,
             // a: T
-            self.mkt_bvar(BVar(0)),
+            self.mkt_bound(BVar(0)),
             // -> Eq(T, a, a)
             self.mkt_apps(self.mkt_eq(l), &[
-                self.mkt_bvar(BVar(1)),
-                self.mkt_bvar(BVar(0)),
-                self.mkt_bvar(BVar(0)),
+                self.mkt_bound(BVar(1)),
+                self.mkt_bound(BVar(0)),
+                self.mkt_bound(BVar(0)),
             ])))
     }
 
@@ -362,31 +364,31 @@ impl TTArena for Arena {
             self.mkt_sort(l),
         self.mkt_forall(0,
             // a: T
-            self.mkt_bvar(BVar(0)),
+            self.mkt_bound(BVar(0)),
         self.mkt_forall(0,
             // b: T
-            self.mkt_bvar(BVar(1)),
+            self.mkt_bound(BVar(1)),
         self.mkt_forall(0,
             // n: Eq(T, a, b)
             self.mkt_apps(self.mkt_eq(l), &[
-                self.mkt_bvar(BVar(2)),
-                self.mkt_bvar(BVar(1)),
-                self.mkt_bvar(BVar(0)),
+                self.mkt_bound(BVar(2)),
+                self.mkt_bound(BVar(1)),
+                self.mkt_bound(BVar(0)),
             ]),
         self.mkt_forall(0,
             // M: Π(b: T) -> Sort(r)
             self.mkt_forall(0,
-                self.mkt_bvar(BVar(3)),
+                self.mkt_bound(BVar(3)),
                 self.mkt_sort(r)),
         self.mkt_forall(0,
             // mr: M(a)
             self.mkt_apply(
-                self.mkt_bvar(BVar(0)),
-                self.mkt_bvar(BVar(3))),
+                self.mkt_bound(BVar(0)),
+                self.mkt_bound(BVar(3))),
             // -> M(b)
             self.mkt_apply(
-                self.mkt_bvar(BVar(1)),
-                self.mkt_bvar(BVar(3)))))))))
+                self.mkt_bound(BVar(1)),
+                self.mkt_bound(BVar(3)))))))))
     }
 }
 
@@ -446,6 +448,8 @@ impl<'a> Level<'a> {
 
             (Param(a), Param(b)) => a.index == b.index,
 
+            (Var(v1), Var(v2)) => v1 == v2,
+
             _ => false
         }
     }
@@ -478,11 +482,12 @@ impl<'a> Level<'a> {
 
     pub fn non_zero(&self) -> bool {
         match self.kind {
-            LevelKind::Zero    => false,
-            LevelKind::Succ(_) => true,
-            LevelKind::Max(p)  => p.lhs.non_zero() || p.rhs.non_zero(),
-            LevelKind::IMax(p) => p.rhs.non_zero(),
+            LevelKind::Zero     => false,
+            LevelKind::Succ(_)  => true,
+            LevelKind::Max(p)   => p.lhs.non_zero() || p.rhs.non_zero(),
+            LevelKind::IMax(p)  => p.rhs.non_zero(),
             LevelKind::Param(_) => false,
+            LevelKind::Var(_)   => false,
         }
     }
 
@@ -583,6 +588,8 @@ impl<'a> Level<'a> {
             }
 
             LevelKind::Param(_) => self,
+
+            LevelKind::Var(_) => self,
         }
     }
 
@@ -633,8 +640,8 @@ impl<'a> Term<'a> {
     }
 
     #[inline(always)]
-    pub const fn mk_bvar(bvar: BVar) -> Self {
-        Self { kind: TermKind::BVar(bvar) }
+    pub const fn mk_bound(bvar: BVar) -> Self {
+        Self { kind: TermKind::Bound(bvar) }
     }
 
     #[inline(always)]
@@ -717,7 +724,7 @@ impl<'a> Term<'a> {
     pub fn is_sort(&self) -> bool { matches!(self.kind, TermKind::Sort(_)) }
 
     #[inline(always)]
-    pub fn is_bvar(&self) -> bool { matches!(self.kind, TermKind::BVar(_)) }
+    pub fn is_bvar(&self) -> bool { matches!(self.kind, TermKind::Bound(_)) }
 
     #[inline(always)]
     pub fn is_local(&self) -> bool { matches!(self.kind, TermKind::Local(_)) }
@@ -750,12 +757,14 @@ impl<'a> Term<'a> {
         match (self.kind, other.kind) {
             (Sort(l1), Sort(l2)) => l1.syntax_eq(l2),
 
-            (BVar(b1), BVar(b2)) => b1 == b2,
+            (Bound(b1), Bound(b2)) => b1 == b2,
 
             (Local(l1), Local(l2)) => l1 == l2,
 
             (Global(g1), Global(g2)) =>
                 g1.id == g2.id && Level::list_syntax_eq(g1.levels, g2.levels),
+
+            (Var(v1), Var(v2)) => v1 == v2,
 
             (Forall(b1), Forall(b2)) |
             (Lambda(b1), Lambda(b2)) =>
@@ -780,7 +789,7 @@ impl<'a> Term<'a> {
 
     pub fn closed(&self) -> bool {
         self.find(|at, offset| {
-            if let TermKind::BVar(BVar(i)) = at.kind {
+            if let TermKind::Bound(BVar(i)) = at.kind {
                 return Some(i > offset);
             }
             None
@@ -803,9 +812,10 @@ impl<'a> Term<'a> {
 
         match self.kind {
             TermKind::Sort(_) |
-            TermKind::BVar(_) |
+            TermKind::Bound(_) |
             TermKind::Local(_) |
-            TermKind::Global(_) => None,
+            TermKind::Global(_) |
+            TermKind::Var(_) => None,
 
             TermKind::Forall(b) |
             TermKind::Lambda(b) => {
@@ -844,9 +854,10 @@ impl<'a> Term<'a> {
 
         match self.kind {
             TermKind::Sort(_) |
-            TermKind::BVar(_) |
+            TermKind::Bound(_) |
             TermKind::Local(_) |
-            TermKind::Global(_) => self,
+            TermKind::Global(_) |
+            TermKind::Var(_) => self,
 
             TermKind::Forall(b) |
             TermKind::Lambda(b) => {
@@ -888,7 +899,7 @@ impl<'a> Term<'a> {
         self.replace(alloc, |at, offset, alloc| {
             if let TermKind::Local(l) = at.kind {
                 if l == id {
-                    return Some(alloc.mkt_bvar(BVar(offset)));
+                    return Some(alloc.mkt_bound(BVar(offset)));
                 }
             }
             None
@@ -898,7 +909,7 @@ impl<'a> Term<'a> {
     pub fn instantiate(&'a self, subst: TermRef<'a>, alloc: &'a Arena) -> TermRef<'a> {
         // @speed: max_bvar.
         self.replace(alloc, |at, offset, _| {
-            if let TermKind::BVar(b) = at.kind {
+            if let TermKind::Bound(b) = at.kind {
                 if b.0 == offset {
                     return Some(subst);
                 }

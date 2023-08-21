@@ -17,6 +17,8 @@ pub struct Elab<'me, 'err, 'a> {
     lctx: LocalCtx<'a>,
     locals: Vec<(&'a str, LocalId)>,
     level_vars: Vec<&'a str>,
+
+    ictx: InferCtx<'a>,
 }
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
@@ -30,6 +32,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             lctx: LocalCtx::new(alloc),
             locals: Vec::new(),
             level_vars: Vec::new(),
+            ictx: InferCtx::new(),
         }
     }
 
@@ -463,7 +466,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
     #[inline(always)]
     pub fn tc<'l>(&mut self) -> TyCtx<'_, 'a> {
-        TyCtx::new(&mut self.lctx, self.env, self.alloc)
+        TyCtx::new(&mut self.lctx, Some(&mut self.ictx), self.env, self.alloc)
     }
 
 

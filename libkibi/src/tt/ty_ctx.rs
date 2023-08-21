@@ -4,6 +4,7 @@ use crate::env::*;
 
 use super::syntax::*;
 use super::LocalCtx;
+use super::infer_ctx::InferCtx;
 
 
 pub struct TyCtx<'me, 'a> {
@@ -11,11 +12,13 @@ pub struct TyCtx<'me, 'a> {
     pub env: &'me Env<'a>,
 
     pub lctx: &'me mut LocalCtx<'a>,
+
+    pub ictx: Option<&'me mut InferCtx<'a>>,
 }
 
 impl<'me, 'a> TyCtx<'me, 'a> {
-    pub fn new(lctx: &'me mut LocalCtx<'a>, env: &'me Env<'a>, alloc: &'a Arena) -> Self {
-        Self { alloc, env, lctx }
+    pub fn new(lctx: &'me mut LocalCtx<'a>, ictx: Option<&'me mut InferCtx<'a>>, env: &'me Env<'a>, alloc: &'a Arena) -> Self {
+        Self { alloc, env, lctx, ictx }
     }
 
 
@@ -40,7 +43,7 @@ impl<'me, 'a> TyCtx<'me, 'a> {
                 self.alloc.mkt_sort(l.succ(self.alloc))
             }
 
-            TermKind::BVar (_) => {
+            TermKind::Bound (_) => {
                 unreachable!()
             }
 
@@ -104,6 +107,11 @@ impl<'me, 'a> TyCtx<'me, 'a> {
                         d.ty
                     }
                 }
+            }
+
+            TermKind::Var(var) => {
+                let ictx = self.ictx.as_mut().unwrap();
+                ictx.term_var(var).ty
             }
 
             TermKind::Lambda (b) => {
@@ -190,7 +198,7 @@ impl<'me, 'a> TyCtx<'me, 'a> {
             TermKind::Sort (_) =>
                 (e, true),
 
-            TermKind::BVar (_) =>
+            TermKind::Bound (_) =>
                 unreachable!(),
 
             TermKind::Local (id) => {
@@ -204,6 +212,10 @@ impl<'me, 'a> TyCtx<'me, 'a> {
             TermKind::Global (_) => {
                 // @temp: reject axioms & opaque defs.
                 (e, false)
+            }
+
+            TermKind::Var(_) => {
+                unimplemented!()
             }
 
             TermKind::Lambda (_) |
@@ -234,7 +246,7 @@ impl<'me, 'a> TyCtx<'me, 'a> {
         // eta (λ x, f x)
         if let TermKind::Lambda(binder) = e.kind {
             if let TermKind::Apply(app) = binder.val.kind {
-                if let TermKind::BVar(i) = app.arg.kind {
+                if let TermKind::Bound(i) = app.arg.kind {
                     if i.0 == 0 && app.fun.closed() {
                         return self.whnf_no_unfold(app.fun);
                     }
@@ -370,9 +382,10 @@ impl<'me, 'a> TyCtx<'me, 'a> {
 
         let result = match result.kind {
             TermKind::Sort(_) |
-            TermKind::BVar(_) |
+            TermKind::Bound(_) |
             TermKind::Local(_) |
-            TermKind::Global(_) => result,
+            TermKind::Global(_) |
+            TermKind::Var(_) => result,
 
             TermKind::Forall(b) |
             TermKind::Lambda(b) => {

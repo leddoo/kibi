@@ -10,16 +10,24 @@
     - macros.
 
 - todo:
-    - robustness:
-        - type correct checks (`infer_type.unwrap(): Sort(l)`)
-        - debug mode consistency checks
-          (check well types & type is sort).
+    - inference todo:
+        - `_` as distinct token + hole level/expr.
+        - create level vars for hole levels or no levels.
+        - create term vars for hole exprs.
+        - impl var `def_eq`.
 
-    - inference:
-        - levels.
-        - terms in types.
-        - implicit params.
-        - motives.
+    - implicit params.
+        - binder rework.
+
+    - motive inference.
+
+    - inference robustness:
+        - do term vars need a lctx?
+        - occurs check.
+
+    - type checking:
+        - review tt rules & validate in `infer_type`.
+        - run before insert into env.
 
     - `Compiler`.
         - and immutability.

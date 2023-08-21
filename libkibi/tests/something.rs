@@ -13,9 +13,9 @@ fn nat_add_elab() {
         alloc.mkt_lambda(0, Term::NAT,
         alloc.mkt_lambda(1, Term::NAT,
             alloc.mkt_apps(alloc.mkt_nat_rec(Level::L1), &[
-                alloc.mkt_bvar(BVar(0)),
+                alloc.mkt_bound(BVar(0)),
                 alloc.mkt_lambda(2, Term::NAT, Term::NAT),
-                alloc.mkt_bvar(BVar(1)),
+                alloc.mkt_bound(BVar(1)),
                 alloc.mkt_lambda(
                     3,
                     Term::NAT,
@@ -24,7 +24,7 @@ fn nat_add_elab() {
                         Term::NAT,
                         alloc.mkt_apply(
                             Term::NAT_SUCC,
-                            alloc.mkt_bvar(BVar(0))))),
+                            alloc.mkt_bound(BVar(0))))),
             ])));
 
     let mut env = Env::new();
@@ -57,7 +57,7 @@ fn nat_add_elab() {
     let n3_add = alloc.mkt_apps(nat_add, &[n1, n2]);
 
     let mut lctx = LocalCtx::new(&alloc);
-    let mut tc = TyCtx::new(&mut lctx, &env, &alloc);
+    let mut tc = TyCtx::new(&mut lctx, None, &env, &alloc);
 
     assert!(tc.reduce(n3_add).syntax_eq(n3));
 

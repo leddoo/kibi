@@ -46,10 +46,8 @@ impl<'me, 'a> TermPP<'me, 'a> {
                     ])),
 
                     if offset != 0 {
-                        self.pp.cat(
-                            self.pp.text("+ "),
-                            // @temp: sti string module.
-                            self.pp.text(self.pp.alloc_str(&format!("{offset}"))))
+                        // @temp: sti string module.
+                        self.pp.text(self.pp.alloc_str(&format!("+ {offset}")))
                     }
                     else { self.pp.nil() },
                 ]))
@@ -57,6 +55,11 @@ impl<'me, 'a> TermPP<'me, 'a> {
 
             LevelKind::Param(p) => {
                 self.pp.text(self.pp.alloc_str(p.name))
+            }
+
+            LevelKind::Var(var) => {
+                // @temp: sti string module.
+                self.pp.text(self.pp.alloc_str(&format!("?{}", var.value())))
             }
         }
     }
@@ -80,7 +83,7 @@ impl<'me, 'a> TermPP<'me, 'a> {
                 }
             }
 
-            TermKind::BVar(BVar(i)) => {
+            TermKind::Bound(BVar(i)) => {
                 // @temp: sti string module.
                 self.pp.text(self.pp.alloc_str(&format!("${i}")))
             }
@@ -110,6 +113,11 @@ impl<'me, 'a> TermPP<'me, 'a> {
                         self.pp.text(".{tbd}"))
                 }
                 else { name }
+            }
+
+            TermKind::Var(var) => {
+                // @temp: sti string module.
+                self.pp.text(self.pp.alloc_str(&format!("?{}", var.value())))
             }
 
             TermKind::Forall(b) => {
