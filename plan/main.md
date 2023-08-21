@@ -11,7 +11,6 @@
 
 - todo:
     - robustness:
-        - fix kernel bugs: all rules must fail.
         - closed checks.
         - type correct checks (`infer_type.unwrap(): Sort(l)`)
         - debug mode consistency checks

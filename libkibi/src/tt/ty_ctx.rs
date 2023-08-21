@@ -511,8 +511,8 @@ impl<'me, 'a> TyCtx<'me, 'a> {
             }
 
             (Global(g1), Global(g2)) => {
-                if g1.id == g2.id {
-                    return Some(self.level_list_def_eq(g1.levels, g2.levels));
+                if g1.id == g2.id && self.level_list_def_eq(g1.levels, g2.levels) {
+                    return Some(true);
                 }
                 None
             }
@@ -559,6 +559,8 @@ impl<'me, 'a> TyCtx<'me, 'a> {
 
     /// - assumes `a` and `b` are well typed.
     pub fn def_eq(&mut self, a: TermRef<'a>, b: TermRef<'a>) -> bool {
+        // @todo: optimize. (eg: unfold def w/ higher depth)
+
         // basic checks.
         if let Some(result) = self.def_eq_basic(a, b) {
             return result;
@@ -577,7 +579,6 @@ impl<'me, 'a> TyCtx<'me, 'a> {
         }
 
         // unfold defs & retry on change.
-        // TODO: unfold def(s) with highest depth.
         if let Some(a) = self.unfold(a) {
             return self.def_eq(a, b);
         }
@@ -589,21 +590,7 @@ impl<'me, 'a> TyCtx<'me, 'a> {
         let (fun1, num_args1) = a.app_fun();
         let (fun2, num_args2) = b.app_fun();
 
-        // @todo(speed): shouldn't we try these before
-        // unfolding all the way?
-        // something like whnf_no_unfold'ing args &
-        // running def_eq_basic.
-
-        // app with same global.
-        if let (TermKind::Global(g1), TermKind::Global(g2)) = (fun1.kind, fun2.kind) {
-            if g1.id == g2.id {
-                return num_args1 == num_args2
-                    && self.level_list_def_eq(g1.levels, g2.levels)
-                    && self.app_args_def_eq(a, b);
-            }
-        }
-
-        // regular app.
+        // app.
         if num_args1 > 0 && num_args1 == num_args2 {
             if self.def_eq(fun1, fun2) && self.app_args_def_eq(a, b) {
                 return true;
