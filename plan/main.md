@@ -14,11 +14,6 @@
         - namespace == symbol.
             - so we can always derive a unique name.
             - ig hidden namespaces (symbols in fn bodies) need special names then.
-        - `tt::Alloc`.
-            - arena extension trait instead?
-            - proper allocator abstraction might be better -> tracing.
-        - `sti::String`
-        - `@temp`s.
     - robustness:
         - fix kernel bugs: all rules must fail.
         - closed checks.
@@ -26,13 +21,14 @@
         - debug mode consistency checks
           (check well types & type is sort).
 
-    - `Compiler`.
-
     - inference:
         - levels.
         - terms in types.
-        - motives.
         - implicit params.
+        - motives.
+
+    - `Compiler`.
+        - and immutability.
 
     - pp opt.
 

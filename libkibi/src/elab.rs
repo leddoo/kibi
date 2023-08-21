@@ -8,7 +8,7 @@ use crate::env::*;
 
 
 pub struct Elab<'me, 'err, 'a> {
-    pub alloc: tt::Alloc<'a>,
+    pub alloc: &'a Arena,
     pub errors: &'me ErrorCtx<'err>,
     pub env: &'me mut Env<'a>,
 
@@ -21,8 +21,7 @@ pub struct Elab<'me, 'err, 'a> {
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     #[inline(always)]
-    pub fn new(env: &'me mut Env<'a>, ns: NamespaceId, errors: &'me ErrorCtx<'err>, arena: &'a Arena) -> Self {
-        let alloc = tt::Alloc::new(arena);
+    pub fn new(env: &'me mut Env<'a>, ns: NamespaceId, errors: &'me ErrorCtx<'err>, alloc: &'a Arena) -> Self {
         Self {
             alloc,
             errors,
@@ -454,7 +453,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     return None;
                 }
 
-                let mut ls = Vec::with_cap_in(levels.len(), self.alloc.arena);
+                let mut ls = Vec::with_cap_in(levels.len(), self.alloc);
                 for l in levels {
                     ls.push(self.elab_level(l)?);
                 }

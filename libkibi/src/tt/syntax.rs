@@ -1,3 +1,4 @@
+use sti::arena::Arena;
 use sti::vec::Vec;
 
 pub use super::local_ctx::LocalId;
@@ -104,6 +105,288 @@ pub mod term {
     pub struct Apply<'a> {
         pub fun: TermRef<'a>,
         pub arg: TermRef<'a>,
+    }
+}
+
+
+pub trait TTArena {
+    fn mkl_zero<'a>(&'a self) -> LevelRef<'a>;
+    fn mkl_succ<'a>(&'a self, of: LevelRef<'a>) -> LevelRef<'a>;
+    fn mkl_max<'a>(&'a self, lhs: LevelRef<'a>, rhs: LevelRef<'a>) -> LevelRef<'a>;
+    fn mkl_imax<'a>(&'a self, lhs: LevelRef<'a>, rhs: LevelRef<'a>) -> LevelRef<'a>;
+    fn mkl_param<'a>(&'a self, name: &'a str, index: u32) -> LevelRef<'a>;
+    fn mkl_nat<'a>(&'a self, n: u32) -> LevelRef<'a>;
+
+    fn mkt_sort<'a>(&'a self, level: LevelRef<'a>) -> TermRef<'a>;
+    fn mkt_bvar<'a>(&'a self, bvar: BVar) -> TermRef<'a>;
+    fn mkt_local<'a>(&'a self, id: LocalId) -> TermRef<'a>;
+    fn mkt_global<'a>(&'a self, id: SymbolId, levels: LevelList<'a>) -> TermRef<'a>;
+    fn mkt_forall_b<'a>(&'a self, binder: term::Binder<'a>) -> TermRef<'a>;
+    fn mkt_forall<'a>(&'a self, name: u32, ty: TermRef<'a>, ret: TermRef<'a>) -> TermRef<'a>;
+    fn mkt_lambda_b<'a>(&'a self, binder: term::Binder<'a>) -> TermRef<'a>;
+    fn mkt_lambda<'a>(&'a self, name: u32, ty: TermRef<'a>, val: TermRef<'a>) -> TermRef<'a>;
+    fn mkt_apply_a<'a>(&'a self, apply: term::Apply<'a>) -> TermRef<'a>;
+    fn mkt_apply<'a>(&'a self, fun: TermRef<'a>, arg: TermRef<'a>) -> TermRef<'a>;
+    fn mkt_apps<'a>(&'a self, fun: TermRef<'a>, args: &[TermRef<'a>]) -> TermRef<'a>;
+
+    fn mkt_nat<'a>(&'a self) -> TermRef<'a>;
+    fn mkt_nat_zero<'a>(&'a self) -> TermRef<'a>;
+    fn mkt_nat_succ<'a>(&'a self) -> TermRef<'a>;
+    fn mkt_nat_rec<'a>(&'a self, r: LevelRef<'a>) -> TermRef<'a>;
+    fn mkt_nat_rec_ty<'a>(&'a self, r: LevelRef<'a>) -> TermRef<'a>;
+    fn mkt_nat_val<'a>(&'a self, n: u32) -> TermRef<'a>;
+
+
+    fn mkt_eq<'a>(&'a self, l: LevelRef<'a>) -> TermRef<'a>;
+    fn mkt_eq_refl<'a>(&'a self, l: LevelRef<'a>) -> TermRef<'a>;
+    fn mkt_eq_rec<'a>(&'a self, l: LevelRef<'a>, r: LevelRef<'a>) -> TermRef<'a>;
+    fn mkt_eq_ty<'a>(&'a self, l: LevelRef<'a>) -> TermRef<'a>;
+    fn mkt_eq_refl_ty<'a>(&'a self, l: LevelRef<'a>) -> TermRef<'a>;
+    fn mkt_eq_rec_ty<'a>(&'a self, l: LevelRef<'a>, r: LevelRef<'a>) -> TermRef<'a>;
+}
+
+impl TTArena for Arena {
+    #[inline(always)]
+    fn mkl_zero<'a>(&'a self) -> LevelRef<'a> {
+        Level::L0
+    }
+
+    #[inline(always)]
+    fn mkl_succ<'a>(&'a self, of: LevelRef<'a>) -> LevelRef<'a> {
+        self.alloc_new(Level::mk_succ(of))
+    }
+
+    #[inline(always)]
+    fn mkl_max<'a>(&'a self, lhs: LevelRef<'a>, rhs: LevelRef<'a>) -> LevelRef<'a> {
+        self.alloc_new(Level::mk_max(lhs, rhs))
+    }
+
+    #[inline(always)]
+    fn mkl_imax<'a>(&'a self, lhs: LevelRef<'a>, rhs: LevelRef<'a>) -> LevelRef<'a> {
+        self.alloc_new(Level::mk_imax(lhs, rhs))
+    }
+
+    #[inline(always)]
+    fn mkl_param<'a>(&'a self, name: &'a str, index: u32) -> LevelRef<'a> {
+        self.alloc_new(Level::mk_param(name, index))
+    }
+
+    fn mkl_nat<'a>(&'a self, n: u32) -> LevelRef<'a> {
+        match n {
+            0 => Level::L0,
+            1 => Level::L1,
+            2 => Level::L2,
+            3 => Level::L3,
+            _ => {
+                let mut result = Level::L3;
+                for _ in 3..n {
+                    result = self.mkl_succ(result);
+                }
+                result
+            }
+        }
+    }
+
+
+    #[inline(always)]
+    fn mkt_sort<'a>(&'a self, level: LevelRef<'a>) -> TermRef<'a> {
+        self.alloc_new(Term::mk_sort(level))
+    }
+
+    #[inline(always)]
+    fn mkt_bvar<'a>(&'a self, bvar: BVar) -> TermRef<'a> {
+        self.alloc_new(Term::mk_bvar(bvar))
+    }
+
+    #[inline(always)]
+    fn mkt_local<'a>(&'a self, id: LocalId) -> TermRef<'a> {
+        self.alloc_new(Term::mk_local(id))
+    }
+
+    #[inline(always)]
+    fn mkt_global<'a>(&'a self, id: SymbolId, levels: LevelList<'a>) -> TermRef<'a> {
+        self.alloc_new(Term::mk_global(id, levels))
+    }
+
+    #[inline(always)]
+    fn mkt_forall_b<'a>(&'a self, binder: term::Binder<'a>) -> TermRef<'a> {
+        self.alloc_new(Term::mk_forall_b(binder))
+    }
+
+    #[inline(always)]
+    fn mkt_forall<'a>(&'a self, name: u32, ty: TermRef<'a>, ret: TermRef<'a>) -> TermRef<'a> {
+        self.alloc_new(Term::mk_forall(name, ty, ret))
+    }
+
+    #[inline(always)]
+    fn mkt_lambda_b<'a>(&'a self, binder: term::Binder<'a>) -> TermRef<'a> {
+        self.alloc_new(Term::mk_lambda_b(binder))
+    }
+
+    #[inline(always)]
+    fn mkt_lambda<'a>(&'a self, name: u32, ty: TermRef<'a>, val: TermRef<'a>) -> TermRef<'a> {
+        self.alloc_new(Term::mk_lambda(name, ty, val))
+    }
+
+    #[inline(always)]
+    fn mkt_apply_a<'a>(&'a self, apply: term::Apply<'a>) -> TermRef<'a> {
+        self.alloc_new(Term::mk_apply_a(apply))
+    }
+
+    #[inline(always)]
+    fn mkt_apply<'a>(&'a self, fun: TermRef<'a>, arg: TermRef<'a>) -> TermRef<'a> {
+        self.alloc_new(Term::mk_apply(fun, arg))
+    }
+
+    #[inline(always)]
+    fn mkt_apps<'a>(&'a self, fun: TermRef<'a>, args: &[TermRef<'a>]) -> TermRef<'a> {
+        let mut result = fun;
+        for arg in args {
+            result = self.mkt_apply(result, arg);
+        }
+        return result;
+    }
+
+    #[inline(always)]
+    fn mkt_nat<'a>(&'a self) -> TermRef<'a> {
+        self.alloc_new(Term::mk_nat())
+    }
+
+    #[inline(always)]
+    fn mkt_nat_zero<'a>(&'a self) -> TermRef<'a> {
+        self.alloc_new(Term::mk_nat_zero())
+    }
+
+    #[inline(always)]
+    fn mkt_nat_succ<'a>(&'a self) -> TermRef<'a> {
+        self.alloc_new(Term::mk_nat_succ())
+    }
+
+    #[inline(always)]
+    fn mkt_nat_rec<'a>(&'a self, r: LevelRef<'a>) -> TermRef<'a> {
+        self.alloc_new(Term::mk_nat_rec(r))
+    }
+
+    fn mkt_nat_rec_ty<'a>(&'a self, r: LevelRef<'a>) -> TermRef<'a> {
+        self.mkt_forall(0,
+            // n: Nat
+            Term::NAT,
+        self.mkt_forall(0,
+            // M: Nat -> Sort(r)
+            self.mkt_forall(0,
+                Term::NAT,
+                self.mkt_sort(r)),
+        self.mkt_forall(0,
+            // M(0)
+            self.mkt_apply(
+                self.mkt_bvar(BVar(0)),
+                Term::NAT_ZERO),
+        self.mkt_forall(0,
+            // Π(n, ih) => M(n.succ())
+            self.mkt_forall(0,
+                // n: Nat
+                Term::NAT,
+            self.mkt_forall(0,
+                // ih: M(n)
+                self.mkt_apply(
+                    self.mkt_bvar(BVar(2)),
+                    self.mkt_bvar(BVar(0))),
+                // -> M(n.succ())
+                self.mkt_apply(
+                    self.mkt_bvar(BVar(3)),
+                    self.mkt_apply(
+                        Term::NAT_SUCC,
+                        self.mkt_bvar(BVar(1)))))),
+            // -> M(n)
+            self.mkt_apply(
+                self.mkt_bvar(BVar(2)),
+                self.mkt_bvar(BVar(3)))))))
+    }
+
+    fn mkt_nat_val<'a>(&'a self, n: u32) -> TermRef<'a> {
+        let mut result = Term::NAT_ZERO;
+        for _ in 0..n {
+            result = self.mkt_apply(Term::NAT_SUCC, result);
+        }
+        return result;
+    }
+
+
+    #[inline(always)]
+    fn mkt_eq<'a>(&'a self, l: LevelRef<'a>) -> TermRef<'a> {
+        self.alloc_new(Term::mk_eq(l))
+    }
+
+    #[inline(always)]
+    fn mkt_eq_refl<'a>(&'a self, l: LevelRef<'a>) -> TermRef<'a> {
+        self.alloc_new(Term::mk_eq_refl(l))
+    }
+
+    #[inline(always)]
+    fn mkt_eq_rec<'a>(&'a self, l: LevelRef<'a>, r: LevelRef<'a>) -> TermRef<'a> {
+        self.alloc_new(Term::mk_eq_rec(l, r))
+    }
+
+    fn mkt_eq_ty<'a>(&'a self, l: LevelRef<'a>) -> TermRef<'a> {
+        self.mkt_forall(0,
+            // T: Sort(l)
+            self.mkt_sort(l),
+        self.mkt_forall(0,
+            // a: T
+            self.mkt_bvar(BVar(0)),
+        self.mkt_forall(0,
+            // b: T
+            self.mkt_bvar(BVar(1)),
+            // -> Prop
+            self.mkt_sort(self.mkl_zero()))))
+    }
+
+    fn mkt_eq_refl_ty<'a>(&'a self, l: LevelRef<'a>) -> TermRef<'a> {
+        self.mkt_forall(0,
+            // T: Sort(l)
+            self.mkt_sort(l),
+        self.mkt_forall(0,
+            // a: T
+            self.mkt_bvar(BVar(0)),
+            // -> Eq(T, a, a)
+            self.mkt_apps(self.mkt_eq(l), &[
+                self.mkt_bvar(BVar(1)),
+                self.mkt_bvar(BVar(0)),
+                self.mkt_bvar(BVar(0)),
+            ])))
+    }
+
+    fn mkt_eq_rec_ty<'a>(&'a self, l: LevelRef<'a>, r: LevelRef<'a>) -> TermRef<'a> {
+        self.mkt_forall(0,
+            // T: Sort(l)
+            self.mkt_sort(l),
+        self.mkt_forall(0,
+            // a: T
+            self.mkt_bvar(BVar(0)),
+        self.mkt_forall(0,
+            // b: T
+            self.mkt_bvar(BVar(1)),
+        self.mkt_forall(0,
+            // n: Eq(T, a, b)
+            self.mkt_apps(self.mkt_eq(l), &[
+                self.mkt_bvar(BVar(2)),
+                self.mkt_bvar(BVar(1)),
+                self.mkt_bvar(BVar(0)),
+            ]),
+        self.mkt_forall(0,
+            // M: Π(b: T) -> Sort(r)
+            self.mkt_forall(0,
+                self.mkt_bvar(BVar(3)),
+                self.mkt_sort(r)),
+        self.mkt_forall(0,
+            // mr: M(a)
+            self.mkt_apply(
+                self.mkt_bvar(BVar(0)),
+                self.mkt_bvar(BVar(3))),
+            // -> M(b)
+            self.mkt_apply(
+                self.mkt_bvar(BVar(1)),
+                self.mkt_bvar(BVar(3)))))))))
     }
 }
 
@@ -223,12 +506,12 @@ impl<'a> Level<'a> {
 
 
     #[inline(always)]
-    pub fn succ(&'a self, alloc: super::Alloc<'a>) -> LevelRef<'a> {
+    pub fn succ(&'a self, alloc: &'a Arena) -> LevelRef<'a> {
         alloc.mkl_succ(self)
     }
 
     #[inline(always)]
-    pub fn offset(&'a self, n: u32, alloc: super::Alloc<'a>) -> LevelRef<'a> {
+    pub fn offset(&'a self, n: u32, alloc: &'a Arena) -> LevelRef<'a> {
         let mut result = self;
         for _ in 0..n {
             result = result.succ(alloc)
@@ -237,13 +520,13 @@ impl<'a> Level<'a> {
     }
 
     #[inline(always)]
-    pub fn max(&'a self, other: LevelRef<'a>, alloc: super::Alloc<'a>) -> LevelRef<'a> {
+    pub fn max(&'a self, other: LevelRef<'a>, alloc: &'a Arena) -> LevelRef<'a> {
         // @temp: proper impl.
         alloc.mkl_max(self, other)
     }
 
     #[inline(always)]
-    pub fn imax(&'a self, other: LevelRef<'a>, alloc: super::Alloc<'a>) -> LevelRef<'a> {
+    pub fn imax(&'a self, other: LevelRef<'a>, alloc: &'a Arena) -> LevelRef<'a> {
         let (a, b) = (self, other);
 
         // imax(a 0) = 0
@@ -264,14 +547,14 @@ impl<'a> Level<'a> {
 
 
 
-    pub fn replace<F: Fn(LevelRef<'a>, super::Alloc<'a>) -> Option<LevelRef<'a>>>
-        (&'a self, alloc: super::Alloc<'a>, f: F) -> LevelRef<'a>
+    pub fn replace<F: Fn(LevelRef<'a>, &'a Arena) -> Option<LevelRef<'a>>>
+        (&'a self, alloc: &'a Arena, f: F) -> LevelRef<'a>
     {
         self.replace_ex(alloc, &f)
     }
 
-    pub fn replace_ex<F: Fn(LevelRef<'a>, super::Alloc<'a>) -> Option<LevelRef<'a>>>
-        (&'a self, alloc: super::Alloc<'a>, f: &F) -> LevelRef<'a>
+    pub fn replace_ex<F: Fn(LevelRef<'a>, &'a Arena) -> Option<LevelRef<'a>>>
+        (&'a self, alloc: &'a Arena, f: &F) -> LevelRef<'a>
     {
         if let Some(new) = f(self, alloc) {
             return new;
@@ -303,7 +586,7 @@ impl<'a> Level<'a> {
         }
     }
 
-    pub fn instantiate(&'a self, subst: LevelList<'a>, alloc: super::Alloc<'a>) -> Option<LevelRef<'a>> {
+    pub fn instantiate(&'a self, subst: LevelList<'a>, alloc: &'a Arena) -> Option<LevelRef<'a>> {
         // @speed: has_param.
         let result = self.replace(alloc, |at, _| {
             if let LevelKind::Param(p) = at.kind {
@@ -546,14 +829,14 @@ impl<'a> Term<'a> {
     }
 
 
-    pub fn replace<F: Fn(TermRef<'a>, u32, super::Alloc<'a>) -> Option<TermRef<'a>>>
-        (&'a self, alloc: super::Alloc<'a>, f: F) -> TermRef<'a>
+    pub fn replace<F: Fn(TermRef<'a>, u32, &'a Arena) -> Option<TermRef<'a>>>
+        (&'a self, alloc: &'a Arena, f: F) -> TermRef<'a>
     {
         self.replace_ex(0, alloc, &f)
     }
 
-    pub fn replace_ex<F: Fn(TermRef<'a>, u32, super::Alloc<'a>) -> Option<TermRef<'a>>>
-        (&'a self, offset: u32, alloc: super::Alloc<'a>, f: &F) -> TermRef<'a>
+    pub fn replace_ex<F: Fn(TermRef<'a>, u32, &'a Arena) -> Option<TermRef<'a>>>
+        (&'a self, offset: u32, alloc: &'a Arena, f: &F) -> TermRef<'a>
     {
         if let Some(new) = f(self, offset, alloc) {
             return new;
@@ -600,7 +883,7 @@ impl<'a> Term<'a> {
     }
 
 
-    pub fn abstracc(&'a self, id: LocalId, alloc: super::Alloc<'a>) -> TermRef<'a> {
+    pub fn abstracc(&'a self, id: LocalId, alloc: &'a Arena) -> TermRef<'a> {
         // @speed: has_local. or even max_local?
         self.replace(alloc, |at, offset, alloc| {
             if let TermKind::Local(l) = at.kind {
@@ -612,7 +895,7 @@ impl<'a> Term<'a> {
         })
     }
 
-    pub fn instantiate(&'a self, subst: TermRef<'a>, alloc: super::Alloc<'a>) -> TermRef<'a> {
+    pub fn instantiate(&'a self, subst: TermRef<'a>, alloc: &'a Arena) -> TermRef<'a> {
         // @speed: max_bvar.
         self.replace(alloc, |at, offset, _| {
             if let TermKind::BVar(b) = at.kind {
@@ -624,7 +907,7 @@ impl<'a> Term<'a> {
         })
     }
 
-    pub fn instantiate_levels(&'a self, subst: LevelList<'a>, alloc: super::Alloc<'a>) -> TermRef<'a> {
+    pub fn instantiate_levels(&'a self, subst: LevelList<'a>, alloc: &'a Arena) -> TermRef<'a> {
         if subst.len() == 0 {
             return self;
         }
@@ -639,7 +922,7 @@ impl<'a> Term<'a> {
                 }
 
                 TermKind::Global(g) => {
-                    let mut new_levels = Vec::new_in(alloc.arena);
+                    let mut new_levels = Vec::new_in(alloc);
 
                     for (i, l) in g.levels.iter().enumerate() {
                         if let Some(l) = l.instantiate(subst, alloc) {
@@ -730,7 +1013,7 @@ impl<'a> Term<'a> {
 
 
     // doesn't check for `ptr_eq` of old `app_fun`.
-    pub fn replace_app_fun(&self, new_fun: TermRef<'a>, alloc: super::Alloc<'a>) -> TermRef<'a> {
+    pub fn replace_app_fun(&self, new_fun: TermRef<'a>, alloc: &'a Arena) -> TermRef<'a> {
         if let TermKind::Apply(app) = self.kind {
             let fun = app.fun.replace_app_fun(new_fun, alloc);
             return alloc.mkt_apply(fun, app.arg);

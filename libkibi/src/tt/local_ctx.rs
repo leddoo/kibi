@@ -1,3 +1,4 @@
+use sti::arena::Arena;
 use sti::vec::Vec;
 use sti::keyed::Key;
 
@@ -10,7 +11,7 @@ sti::define_key!(u32, pub LocalId);
 
 #[derive(Clone)]
 pub struct LocalCtx<'a> {
-    alloc: super::Alloc<'a>,
+    alloc: &'a Arena,
     entries: Vec<Entry<'a>>,
 }
 
@@ -26,7 +27,7 @@ pub struct SavePoint(usize);
 
 impl<'a> LocalCtx<'a> {
     #[inline(always)]
-    pub fn new(alloc: super::Alloc<'a>) -> Self {
+    pub fn new(alloc: &'a Arena) -> Self {
         Self { alloc, entries: Vec::new() }
     }
 

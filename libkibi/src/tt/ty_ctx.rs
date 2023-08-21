@@ -1,3 +1,5 @@
+use sti::arena::Arena;
+
 use crate::env::*;
 
 use super::syntax::*;
@@ -5,14 +7,14 @@ use super::LocalCtx;
 
 
 pub struct TyCtx<'me, 'a> {
-    pub alloc: super::Alloc<'a>,
+    pub alloc: &'a Arena,
     pub env: &'me Env<'a>,
 
     pub lctx: &'me mut LocalCtx<'a>,
 }
 
 impl<'me, 'a> TyCtx<'me, 'a> {
-    pub fn new(lctx: &'me mut LocalCtx<'a>, env: &'me Env<'a>, alloc: super::Alloc<'a>) -> Self {
+    pub fn new(lctx: &'me mut LocalCtx<'a>, env: &'me Env<'a>, alloc: &'a Arena) -> Self {
         Self { alloc, env, lctx }
     }
 
