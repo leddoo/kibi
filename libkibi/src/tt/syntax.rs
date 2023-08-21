@@ -117,6 +117,7 @@ pub trait TTArena {
     fn mkl_max<'a>(&'a self, lhs: LevelRef<'a>, rhs: LevelRef<'a>) -> LevelRef<'a>;
     fn mkl_imax<'a>(&'a self, lhs: LevelRef<'a>, rhs: LevelRef<'a>) -> LevelRef<'a>;
     fn mkl_param<'a>(&'a self, name: &'a str, index: u32) -> LevelRef<'a>;
+    fn mkl_var<'a>(&'a self, id: LevelVarId) -> LevelRef<'a>;
     fn mkl_nat<'a>(&'a self, n: u32) -> LevelRef<'a>;
 
     fn mkt_sort<'a>(&'a self, level: LevelRef<'a>) -> TermRef<'a>;
@@ -171,6 +172,11 @@ impl TTArena for Arena {
     #[inline(always)]
     fn mkl_param<'a>(&'a self, name: &'a str, index: u32) -> LevelRef<'a> {
         self.alloc_new(Level::mk_param(name, index))
+    }
+
+    #[inline(always)]
+    fn mkl_var<'a>(&'a self, id: LevelVarId) -> LevelRef<'a> {
+        self.alloc_new(Level::mk_var(id))
     }
 
     fn mkl_nat<'a>(&'a self, n: u32) -> LevelRef<'a> {
@@ -422,6 +428,11 @@ impl<'a> Level<'a> {
     #[inline(always)]
     pub const fn mk_param(name: &'a str, index: u32) -> Self {
         Self { kind: LevelKind::Param(level::Param { name, index }) }
+    }
+
+    #[inline(always)]
+    pub const fn mk_var(id: LevelVarId) -> Self {
+        Self { kind: LevelKind::Var(id) }
     }
 
 

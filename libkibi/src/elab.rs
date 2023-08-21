@@ -36,10 +36,24 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
     }
 
+    // @temp: `Compiler` rework.
+    pub fn check_no_unassigned_variables(&self) -> Option<()> {
+        for var in self.ictx.level_ids() {
+            self.ictx.level_value(var)?;
+        }
+
+        for var in self.ictx.term_ids() {
+            self.ictx.term_value(var)?;
+        }
+
+        Some(())
+    }
+
     pub fn elab_level(&mut self, level: &ast::Level<'a>) -> Option<tt::LevelRef<'a>> {
         Some(match &level.kind {
             ast::LevelKind::Hole => {
-                unimplemented!()
+                self.alloc.mkl_var(
+                    self.ictx.new_level_var())
             }
 
             ast::LevelKind::Ident(name) => {
@@ -393,54 +407,75 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     }
 
                     symbol::BuiltIn::NatRec => {
-                        if levels.len() != 1 {
-                            self.error(source, |_|
-                                ElabError::LevelMismatch {
-                                    expected: 1, found: levels.len() as u32 });
-                            return None;
+                        let r = if levels.len() == 0 {
+                            self.alloc.mkl_var(self.ictx.new_level_var())
                         }
+                        else {
+                            if levels.len() != 1 {
+                                self.error(source, |_|
+                                    ElabError::LevelMismatch {
+                                        expected: 1, found: levels.len() as u32 });
+                                return None;
+                            }
+                            self.elab_level(&levels[0])?
+                        };
 
-                        let l = self.elab_level(&levels[0])?;
-                        (self.alloc.mkt_nat_rec(l),
-                         self.alloc.mkt_nat_rec_ty(l))
+                        (self.alloc.mkt_nat_rec(r),
+                         self.alloc.mkt_nat_rec_ty(r))
                     }
 
                     symbol::BuiltIn::Eq => {
-                        if levels.len() != 1 {
-                            self.error(source, |_|
-                                ElabError::LevelMismatch {
-                                    expected: 1, found: levels.len() as u32 });
-                            return None;
+                        let l = if levels.len() == 0 {
+                            self.alloc.mkl_var(self.ictx.new_level_var())
                         }
+                        else {
+                            if levels.len() != 1 {
+                                self.error(source, |_|
+                                    ElabError::LevelMismatch {
+                                        expected: 1, found: levels.len() as u32 });
+                                return None;
+                            }
+                            self.elab_level(&levels[0])?
+                        };
 
-                        let l = self.elab_level(&levels[0])?;
                         (self.alloc.mkt_eq(l),
                          self.alloc.mkt_eq_ty(l))
                     }
 
                     symbol::BuiltIn::EqRefl => {
-                        if levels.len() != 1 {
-                            self.error(source, |_|
-                                ElabError::LevelMismatch {
-                                    expected: 1, found: levels.len() as u32 });
-                            return None;
+                        let l = if levels.len() == 0 {
+                            self.alloc.mkl_var(self.ictx.new_level_var())
                         }
+                        else {
+                            if levels.len() != 1 {
+                                self.error(source, |_|
+                                    ElabError::LevelMismatch {
+                                        expected: 1, found: levels.len() as u32 });
+                                return None;
+                            }
+                            self.elab_level(&levels[0])?
+                        };
 
-                        let l = self.elab_level(&levels[0])?;
                         (self.alloc.mkt_eq_refl(l),
                          self.alloc.mkt_eq_refl_ty(l))
                     }
 
                     symbol::BuiltIn::EqRec => {
-                        if levels.len() != 2 {
-                            self.error(source, |_|
-                                ElabError::LevelMismatch {
-                                    expected: 2, found: levels.len() as u32 });
-                            return None;
+                        let (l, r) = if levels.len() == 0 {
+                            (self.alloc.mkl_var(self.ictx.new_level_var()),
+                             self.alloc.mkl_var(self.ictx.new_level_var()))
                         }
+                        else {
+                            if levels.len() != 2 {
+                                self.error(source, |_|
+                                    ElabError::LevelMismatch {
+                                        expected: 2, found: levels.len() as u32 });
+                                return None;
+                            }
+                            (self.elab_level(&levels[0])?,
+                             self.elab_level(&levels[1])?)
+                        };
 
-                        let l = self.elab_level(&levels[0])?;
-                        let r = self.elab_level(&levels[1])?;
                         (self.alloc.mkt_eq_rec(l, r),
                          self.alloc.mkt_eq_rec_ty(l, r))
                     }
@@ -448,18 +483,29 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
 
             SymbolKind::Def(def) => {
-                if levels.len() != def.num_levels as usize {
-                    self.error(source, |_|
-                        ElabError::LevelMismatch {
-                            expected: def.num_levels, found: levels.len() as u32 });
-                    return None;
-                }
+                let num_levels = def.num_levels as usize;
 
-                let mut ls = Vec::with_cap_in(levels.len(), self.alloc);
-                for l in levels {
-                    ls.push(self.elab_level(l)?);
+                let levels = if levels.len() == 0 {
+                    let mut ls = Vec::with_cap_in(num_levels, self.alloc);
+                    for _ in 0..num_levels {
+                        ls.push(self.alloc.mkl_var(self.ictx.new_level_var()));
+                    }
+                    ls.leak()
                 }
-                let levels = ls.leak();
+                else {
+                    if levels.len() != num_levels {
+                        self.error(source, |_|
+                            ElabError::LevelMismatch {
+                                expected: def.num_levels, found: levels.len() as u32 });
+                        return None;
+                    }
+
+                    let mut ls = Vec::with_cap_in(levels.len(), self.alloc);
+                    for l in levels {
+                        ls.push(self.elab_level(l)?);
+                    }
+                    ls.leak()
+                };
 
                 (self.alloc.mkt_global(id, levels),
                  def.ty.instantiate_levels(levels, self.alloc))

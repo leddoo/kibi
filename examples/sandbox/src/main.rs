@@ -20,7 +20,7 @@ reduce (λ(a: Nat, b: Nat) =>
     )(1, 2)
 
 def Nat::add (a: Nat, b: Nat): Nat :=
-    Nat::rec.{1}(
+    Nat::rec(
         b,
         λ(_: Nat) => Nat,
         a,
@@ -45,8 +45,6 @@ reduce Nat::add(1, 2)
 
     let errors = ErrorCtx::new(&arena);
 
-    let mut elab = kibi::elab::Elab::new(&mut env, SymbolId::ROOT, &errors, &arena);
-
     let mut work_dt = std::time::Duration::ZERO;
 
     let mut parser = kibi::parser::Parser::new(&tokens, &errors, &arena);
@@ -54,6 +52,8 @@ reduce Nat::add(1, 2)
         let t0 = std::time::Instant::now();
 
         let Some(item) = parser.parse_item() else { break };
+
+        let mut elab = kibi::elab::Elab::new(&mut env, SymbolId::ROOT, &errors, &arena);
 
         match &item.kind {
             ItemKind::Def(def) => {
@@ -78,6 +78,8 @@ reduce Nat::add(1, 2)
                 println!("{:?}", dt);
             }
         }
+
+        elab.check_no_unassigned_variables().unwrap();
     }
 
     let p1 = arena.alloc_ptr::<u8>().as_ptr() as usize;

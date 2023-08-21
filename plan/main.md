@@ -11,10 +11,9 @@
 
 - todo:
     - inference todo:
-        - `_` as distinct token + hole level/expr.
-        - create level vars for hole levels or no levels.
+        - impl level var `def_eq`.
         - create term vars for hole exprs.
-        - impl var `def_eq`.
+        - impl term var `def_eq`.
 
     - implicit params.
         - binder rework.

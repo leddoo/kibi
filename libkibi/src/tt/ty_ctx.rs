@@ -111,7 +111,7 @@ impl<'me, 'a> TyCtx<'me, 'a> {
 
             TermKind::Var(var) => {
                 let ictx = self.ictx.as_mut().unwrap();
-                ictx.term_var(var).ty
+                ictx.term_type(var)
             }
 
             TermKind::Lambda (b) => {

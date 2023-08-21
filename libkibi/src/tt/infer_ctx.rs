@@ -1,4 +1,4 @@
-use sti::keyed::KVec;
+use sti::keyed::{KVec, KRange};
 
 use super::syntax::*;
 
@@ -12,13 +12,13 @@ pub struct InferCtx<'a> {
     term_vars:  KVec<TermVarId,  TermVar<'a>>,
 }
 
-pub struct LevelVar<'a> {
-    pub value: Option<LevelRef<'a>>,
+struct LevelVar<'a> {
+    value: Option<LevelRef<'a>>,
 }
 
-pub struct TermVar<'a> {
-    pub value: Option<TermRef<'a>>,
-    pub ty: TermRef<'a>,
+struct TermVar<'a> {
+    value: Option<TermRef<'a>>,
+    ty: TermRef<'a>,
 }
 
 impl<'a> InferCtx<'a> {
@@ -28,17 +28,6 @@ impl<'a> InferCtx<'a> {
             term_vars:  KVec::new(),
         }
     }
-
-    #[inline(always)]
-    pub fn level_var(&self, id: LevelVarId) -> &LevelVar<'a> {
-        &self.level_vars[id]
-    }
-
-    #[inline(always)]
-    pub fn term_var(&self, id: TermVarId) -> &TermVar<'a> {
-        &self.term_vars[id]
-    }
-
 
     pub fn new_level_var(&mut self) -> LevelVarId {
         self.level_vars.push(LevelVar {
@@ -54,9 +43,36 @@ impl<'a> InferCtx<'a> {
     }
 
 
+    #[inline(always)]
+    pub fn level_ids(&self) -> KRange<LevelVarId> {
+        self.level_vars.range()
+    }
+
+    #[inline(always)]
+    pub fn term_ids(&self) -> KRange<TermVarId> {
+        self.term_vars.range()
+    }
+
+
+    #[inline(always)]
+    pub fn level_value(&self, id: LevelVarId) -> Option<LevelRef<'a>> {
+        self.level_vars[id].value
+    }
+
+    #[inline(always)]
+    pub fn term_value(&self, id: TermVarId) -> Option<TermRef<'a>> {
+        self.term_vars[id].value
+    }
+
+    #[inline(always)]
+    pub fn term_type(&self, id: TermVarId) -> TermRef<'a> {
+        self.term_vars[id].ty
+    }
+
+
     #[track_caller]
     #[inline(always)]
-    pub fn assign_level_var(&mut self, id: LevelVarId, value: LevelRef<'a>) {
+    pub fn assign_level(&mut self, id: LevelVarId, value: LevelRef<'a>) {
         let entry = &mut self.level_vars[id];
         assert!(entry.value.is_none());
         entry.value = Some(value);
@@ -64,7 +80,7 @@ impl<'a> InferCtx<'a> {
 
     #[track_caller]
     #[inline(always)]
-    pub fn assign_term_var(&mut self, id: TermVarId, value: TermRef<'a>) {
+    pub fn assign_term(&mut self, id: TermVarId, value: TermRef<'a>) {
         let entry = &mut self.term_vars[id];
         assert!(entry.value.is_none());
         entry.value = Some(value);
