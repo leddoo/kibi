@@ -11,8 +11,6 @@
 
 - todo:
     - robustness:
-        - check for invalid locals after pop.
-        - occurs check for levels -> `TyCtx::assign_level`.
         - var = term: check locals in term var's lctx.
         - var = var: check lctx is prefix & constrain.
     - infer locals:

@@ -453,18 +453,15 @@ impl<'me, 'a> TyCtx<'me, 'a> {
                     return true;
                 }
 
-                self.ictx.assign_level(i1, b);
-                true
+                self.assign_level(i1, b)
             }
 
             (IVar(id), _) => {
-                self.ictx.assign_level(id, b);
-                true
+                self.assign_level(id, b)
             }
 
             (_, IVar(id)) => {
-                self.ictx.assign_level(id, a);
-                true
+                self.assign_level(id, a)
             }
 
             _ => false,
@@ -669,7 +666,27 @@ impl<'me, 'a> TyCtx<'me, 'a> {
     }
 
     #[must_use]
+    fn assign_level(&mut self, var: LevelVarId, value: LevelRef<'a>) -> bool {
+        let value = self.ictx.instantiate_level(value);
+
+        // occurs check.
+        if value.find(|at| {
+            if let LevelKind::IVar(id) = at.kind {
+                return Some(id == var);
+            }
+            None
+        }).is_some() {
+            return false;
+        }
+
+        self.ictx.assign_level(var, value);
+        return true;
+    }
+
+    #[must_use]
     fn assign_term(&mut self, var: TermVarId, value: TermRef<'a>) -> bool {
+        let value = self.ictx.instantiate_term(value);
+
         // occurs check.
         if value.find(|at, _| {
             if let TermKind::IVar(id) = at.kind {
