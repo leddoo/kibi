@@ -57,7 +57,7 @@ impl<'me, 'a> TermPP<'me, 'a> {
                 self.pp.text(self.pp.alloc_str(p.name))
             }
 
-            LevelKind::Var(var) => {
+            LevelKind::IVar(var) => {
                 // @temp: sti string module.
                 self.pp.text(self.pp.alloc_str(&format!("?{}", var.value())))
             }
@@ -115,7 +115,7 @@ impl<'me, 'a> TermPP<'me, 'a> {
                 else { name }
             }
 
-            TermKind::Var(var) => {
+            TermKind::IVar(var) => {
                 // @temp: sti string module.
                 self.pp.text(self.pp.alloc_str(&format!("?{}", var.value())))
             }

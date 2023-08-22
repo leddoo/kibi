@@ -62,7 +62,7 @@ impl<'a> InferCtx<'a> {
 
     pub fn new_level_var(&mut self) -> LevelRef<'a> {
         let id = self.new_level_var_id();
-        self.alloc.mkl_var(id)
+        self.alloc.mkl_ivar(id)
     }
 
 
@@ -81,7 +81,7 @@ impl<'a> InferCtx<'a> {
 
     pub fn instantiate_level(&self, l: LevelRef<'a>) -> LevelRef<'a> {
         l.replace(self.alloc, |at, _| {
-            if let LevelKind::Var(id) = at.kind {
+            if let LevelKind::IVar(id) = at.kind {
                 return self.level_value(id);
             }
             None
@@ -101,7 +101,7 @@ impl<'a> InferCtx<'a> {
 
     pub fn new_term_var(&mut self, ty: TermRef<'a>, scope: OptScopeId) -> TermRef<'a> {
         let id = self.new_term_var_id(ty, scope);
-        self.alloc.mkt_var(id)
+        self.alloc.mkt_ivar(id)
     }
 
     #[inline(always)]
@@ -124,7 +124,7 @@ impl<'a> InferCtx<'a> {
 
     pub fn instantiate_term(&self, t: TermRef<'a>) -> TermRef<'a> {
         t.replace(self.alloc, |at, _, alloc| {
-            if let TermKind::Var(id) = at.kind {
+            if let TermKind::IVar(id) = at.kind {
                 return self.term_value(id);
             }
 

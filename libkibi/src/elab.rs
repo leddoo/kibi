@@ -354,7 +354,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         assert!(!ty.has_locals());
         assert!(!val.has_locals());
 
-        if ty.has_vars() || val.has_vars() {
+        if ty.has_ivars() || val.has_ivars() {
             println!("unresolved inference variables");
             let mut pp = TermPP::new(self.env, self.alloc);
             let ty  = pp.pp_term(self.ictx.instantiate_term(ty));

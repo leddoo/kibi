@@ -23,7 +23,7 @@ pub enum LevelKind<'a> {
     Max(level::Pair<'a>),
     IMax(level::Pair<'a>),
     Param(level::Param<'a>),
-    Var(LevelVarId),
+    IVar(LevelVarId),
 
     // sync: `Level::syntax_eq`
 }
@@ -62,7 +62,7 @@ pub enum TermKind<'a> {
     Bound(BVar),
     Local(ScopeId),
     Global(term::Global<'a>),
-    Var(TermVarId),
+    IVar(TermVarId),
 
     Forall(term::Binder<'a>),
     Lambda(term::Binder<'a>),
@@ -117,14 +117,14 @@ pub trait TTArena {
     fn mkl_max<'a>(&'a self, lhs: LevelRef<'a>, rhs: LevelRef<'a>) -> LevelRef<'a>;
     fn mkl_imax<'a>(&'a self, lhs: LevelRef<'a>, rhs: LevelRef<'a>) -> LevelRef<'a>;
     fn mkl_param<'a>(&'a self, name: &'a str, index: u32) -> LevelRef<'a>;
-    fn mkl_var<'a>(&'a self, id: LevelVarId) -> LevelRef<'a>;
+    fn mkl_ivar<'a>(&'a self, id: LevelVarId) -> LevelRef<'a>;
     fn mkl_nat<'a>(&'a self, n: u32) -> LevelRef<'a>;
 
     fn mkt_sort<'a>(&'a self, level: LevelRef<'a>) -> TermRef<'a>;
     fn mkt_bound<'a>(&'a self, bvar: BVar) -> TermRef<'a>;
     fn mkt_local<'a>(&'a self, id: ScopeId) -> TermRef<'a>;
     fn mkt_global<'a>(&'a self, id: SymbolId, levels: LevelList<'a>) -> TermRef<'a>;
-    fn mkt_var<'a>(&'a self, id: TermVarId) -> TermRef<'a>;
+    fn mkt_ivar<'a>(&'a self, id: TermVarId) -> TermRef<'a>;
     fn mkt_forall_b<'a>(&'a self, binder: term::Binder<'a>) -> TermRef<'a>;
     fn mkt_forall<'a>(&'a self, name: u32, ty: TermRef<'a>, ret: TermRef<'a>) -> TermRef<'a>;
     fn mkt_lambda_b<'a>(&'a self, binder: term::Binder<'a>) -> TermRef<'a>;
@@ -176,8 +176,8 @@ impl TTArena for Arena {
     }
 
     #[inline(always)]
-    fn mkl_var<'a>(&'a self, id: LevelVarId) -> LevelRef<'a> {
-        self.alloc_new(Level::mk_var(id))
+    fn mkl_ivar<'a>(&'a self, id: LevelVarId) -> LevelRef<'a> {
+        self.alloc_new(Level::mk_ivar(id))
     }
 
     fn mkl_nat<'a>(&'a self, n: u32) -> LevelRef<'a> {
@@ -218,8 +218,8 @@ impl TTArena for Arena {
     }
 
     #[inline(always)]
-    fn mkt_var<'a>(&'a self, id: TermVarId) -> TermRef<'a> {
-        self.alloc_new(Term::mk_var(id))
+    fn mkt_ivar<'a>(&'a self, id: TermVarId) -> TermRef<'a> {
+        self.alloc_new(Term::mk_ivar(id))
     }
 
     #[inline(always)]
@@ -437,8 +437,8 @@ impl<'a> Level<'a> {
     }
 
     #[inline(always)]
-    pub const fn mk_var(id: LevelVarId) -> Self {
-        Self { kind: LevelKind::Var(id) }
+    pub const fn mk_ivar(id: LevelVarId) -> Self {
+        Self { kind: LevelKind::IVar(id) }
     }
 
 
@@ -465,7 +465,7 @@ impl<'a> Level<'a> {
 
             (Param(a), Param(b)) => a.index == b.index,
 
-            (Var(v1), Var(v2)) => v1 == v2,
+            (IVar(v1), IVar(v2)) => v1 == v2,
 
             _ => false
         }
@@ -485,8 +485,8 @@ impl<'a> Level<'a> {
     }
 
 
-    pub fn has_vars(&self) -> bool {
-        self.find(|at| { Some(at.is_var()) }).is_some()
+    pub fn has_ivars(&self) -> bool {
+        self.find(|at| { Some(at.is_ivar()) }).is_some()
     }
 
 
@@ -506,7 +506,7 @@ impl<'a> Level<'a> {
     pub const fn is_param(&self) -> bool { matches!(self.kind, LevelKind::Param(_)) }
 
     #[inline(always)]
-    pub const fn is_var(&self) -> bool { matches!(self.kind, LevelKind::Var(_)) }
+    pub const fn is_ivar(&self) -> bool { matches!(self.kind, LevelKind::IVar(_)) }
 
     pub fn non_zero(&self) -> bool {
         match self.kind {
@@ -515,7 +515,7 @@ impl<'a> Level<'a> {
             LevelKind::Max(p)   => p.lhs.non_zero() || p.rhs.non_zero(),
             LevelKind::IMax(p)  => p.rhs.non_zero(),
             LevelKind::Param(_) => false,
-            LevelKind::Var(_)   => false,
+            LevelKind::IVar(_)   => false,
         }
     }
 
@@ -605,7 +605,7 @@ impl<'a> Level<'a> {
             }
 
             LevelKind::Param(_) |
-            LevelKind::Var(_) => None,
+            LevelKind::IVar(_) => None,
         }
     }
 
@@ -647,7 +647,7 @@ impl<'a> Level<'a> {
 
             LevelKind::Param(_) => self,
 
-            LevelKind::Var(_) => self,
+            LevelKind::IVar(_) => self,
         }
     }
 
@@ -713,8 +713,8 @@ impl<'a> Term<'a> {
     }
 
     #[inline(always)]
-    pub const fn mk_var(id: TermVarId) -> Self {
-        Self { kind: TermKind::Var(id) }
+    pub const fn mk_ivar(id: TermVarId) -> Self {
+        Self { kind: TermKind::IVar(id) }
     }
 
     #[inline(always)]
@@ -827,7 +827,7 @@ impl<'a> Term<'a> {
             (Global(g1), Global(g2)) =>
                 g1.id == g2.id && Level::list_syntax_eq(g1.levels, g2.levels),
 
-            (Var(v1), Var(v2)) => v1 == v2,
+            (IVar(v1), IVar(v2)) => v1 == v2,
 
             (Forall(b1), Forall(b2)) |
             (Lambda(b1), Lambda(b2)) =>
@@ -865,27 +865,27 @@ impl<'a> Term<'a> {
         }).is_some()
     }
 
-    pub fn has_vars(&self) -> bool {
+    pub fn has_ivars(&self) -> bool {
         self.find(|at, _| {
             Some(match at.kind {
-                TermKind::Sort(l) => l.has_vars(),
+                TermKind::Sort(l) => l.has_ivars(),
 
                 TermKind::Global(g) => {
-                    let mut has_vars = false;
+                    let mut has_ivars = false;
                     for l in g.levels.iter() {
-                        has_vars |= l.has_vars();
+                        has_ivars |= l.has_ivars();
                     }
-                    has_vars
+                    has_ivars
                 }
 
-                TermKind::Var(_) => true,
+                TermKind::IVar(_) => true,
 
                 TermKind::NatRec(l) |
                 TermKind::Eq(l) |
-                TermKind::EqRefl(l) => l.has_vars(),
+                TermKind::EqRefl(l) => l.has_ivars(),
 
                 TermKind::EqRec(l, r) =>
-                    l.has_vars() || r.has_vars(),
+                    l.has_ivars() || r.has_ivars(),
 
                 _ => return None,
             })
@@ -911,7 +911,7 @@ impl<'a> Term<'a> {
             TermKind::Bound(_) |
             TermKind::Local(_) |
             TermKind::Global(_) |
-            TermKind::Var(_) => None,
+            TermKind::IVar(_) => None,
 
             TermKind::Forall(b) |
             TermKind::Lambda(b) => {
@@ -953,7 +953,7 @@ impl<'a> Term<'a> {
             TermKind::Bound(_) |
             TermKind::Local(_) |
             TermKind::Global(_) |
-            TermKind::Var(_) => self,
+            TermKind::IVar(_) => self,
 
             TermKind::Forall(b) |
             TermKind::Lambda(b) => {
