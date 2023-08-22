@@ -181,6 +181,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
 
             ExprKind::Lambda(it) => {
+                let mut expected_ty = expected_ty;
+
                 // @cleanup: elab_binders.
                 let locals_begin = self.locals.len();
                 for param in it.binders.iter() {
@@ -188,10 +190,23 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     let id = self.lctx.push(ty, None);
                     let name = param.name.unwrap_or("");
                     self.locals.push((name, id));
+
+                    if let Some(expected) = expected_ty {
+                        let mut tc = self.tc();
+                        if let Some(b) = tc.whnf_forall(expected) {
+                            if tc.def_eq(ty, b.ty) {
+                                expected_ty = Some(
+                                    b.ty.instantiate(
+                                        self.alloc.mkt_local(id), self.alloc));
+                            }
+                            else { expected_ty = None }
+                        }
+                        else { expected_ty = None }
+                    }
                 }
                 let locals_end = self.locals.len();
 
-                let (mut result, mut result_ty) = self.elab_expr(it.value)?;
+                let (mut result, mut result_ty) = self.elab_expr_ex(it.value, expected_ty)?;
 
                 assert_eq!(self.locals.len(), locals_end);
                 for i in (locals_begin..locals_end).rev() {

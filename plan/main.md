@@ -10,7 +10,6 @@
     - macros.
 
 - todo:
-    - expected type propagation.
     - constant approx.
     - motive inference.
         - put major premise back at the end.
@@ -32,6 +31,8 @@
     - inference robustness:
         - do term vars need a lctx?
         - occurs check.
+
+    - more expected type propagation?
 
     - document inference.
 

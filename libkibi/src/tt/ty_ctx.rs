@@ -367,6 +367,13 @@ impl<'me, 'a> TyCtx<'me, 'a> {
         return t;
     }
 
+    pub fn whnf_forall(&mut self, t: TermRef<'a>) -> Option<&'a term::Binder<'a>> {
+        if let TermKind::Forall(b) = &self.whnf(t).kind {
+            return Some(b);
+        }
+        return None;
+    }
+
 
     pub fn reduce(&mut self, t: TermRef<'a>) -> TermRef<'a> {
         self.reduce_ex(t, true)
