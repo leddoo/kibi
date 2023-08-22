@@ -10,11 +10,24 @@
     - macros.
 
 - todo:
-    - robustness: check for invalid locals after pop.
-    - infer locals:
-        - check locals in term var's lctx.
+    - robustness:
+        - check for invalid locals after pop.
+        - occurs check for levels -> `TyCtx::assign_level`.
+        - var = term: check locals in term var's lctx.
         - var = var: check lctx is prefix & constrain.
-        - abstract locals out of term vars on pop or something.
+    - infer locals:
+        - when popping `x`, `?n -> ?m(x)`.
+        - what invariants do we actually care about?
+            - we wanna make sure, the popped local can't re-appear.
+            - that's kinda it, i think.
+            - for the returned term, instantiate it, so the local gets abstracted.
+            - then we need to make sure there are no unassigned term vars,
+              that have the local in their scope -> `?n -> ?m(x)`.
+                - for now, we can just walk the entire ictx.
+                - maybe we can be smarter about that somehow.
+            - immutable lctx does have the advantage that we can't accidentally
+              abstract a local later, cause ids are unique.
+              -> docs, cause important. incl "temp locals" in tyctx.
 
     - implicit params.
         - binder rework.
@@ -24,6 +37,8 @@
     - inference robustness:
         - do term vars need a lctx?
         - occurs check.
+
+    - document inference.
 
     - type checking:
         - review tt rules & validate in `infer_type`.

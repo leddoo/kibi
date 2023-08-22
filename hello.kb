@@ -15,8 +15,8 @@ def quick_maffs: Eq(_, Nat::add(2, 2), 4) := Eq::refl(_, 4)
 
 def congr_arg.{a, b} (A: Sort(a), B: Sort(b), f: Pi(_: A) -> B, x1: A, x2: A)
     : Pi (_: Eq(_, x1, x2)) -> Eq(_, f(x1), f(x2))
-    := lam(heq: Eq(_, x1, x2)) =>
-        Eq::rec(_, x1, x2, heq,
+    := lam(heq: _) =>
+        Eq::rec(_, _, _, heq,
             lam(x2: _) => Eq(_, f(x1), f(x2)),
             Eq::refl(_, f(x1)))
 

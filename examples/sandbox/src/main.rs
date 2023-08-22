@@ -38,7 +38,6 @@ reduce Nat::add(1, 2)
         else { input }
     };
 
-    let p0 = arena.alloc_ptr::<u8>().as_ptr() as usize;
     let tokens = kibi::parser::Tokenizer::tokenize(input, 0, &arena);
 
     let mut env = Env::new();
@@ -85,8 +84,10 @@ reduce Nat::add(1, 2)
         };
     }
 
-    let p1 = arena.alloc_ptr::<u8>().as_ptr() as usize;
-    println!("total: {:?}", p1 - p0 - 16);
+    let stats = arena.stats();
+    println!("allocated: {}, blocks: {}",
+        stats.total_allocated - arena.current_block_size() + arena.current_block_used(),
+        stats.num_blocks);
     println!("{:?}", work_dt);
 
     errors.with(|errors| {

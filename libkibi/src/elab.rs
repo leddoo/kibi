@@ -171,6 +171,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
                 assert_eq!(self.locals.len(), locals_end);
                 for i in (locals_begin..locals_end).rev() {
+                    result = self.ictx.instantiate_term(result);
+
                     let (_, id) = self.locals[i];
                     result = self.lctx.abstract_forall(result, id);
                     self.lctx.pop(id);
@@ -198,6 +200,9 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
                 assert_eq!(self.locals.len(), locals_end);
                 for i in (locals_begin..locals_end).rev() {
+                    result    = self.ictx.instantiate_term(result);
+                    result_ty = self.ictx.instantiate_term(result_ty);
+
                     let (_, id) = self.locals[i];
                     result    = self.lctx.abstract_lambda(result, id);
                     result_ty = self.lctx.abstract_forall(result_ty, id);
@@ -302,19 +307,27 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             self.locals.push((name, id));
         }
 
+        // type.
         let mut ty = None;
         if let Some(t) = &def.ty {
             ty = Some(self.elab_expr_as_type(&t)?.0);
         }
 
+        // value.
         let (mut val, val_ty) = self.elab_expr_checking_type(&def.value, ty)?;
         assert_eq!(self.locals.len(), def.params.len());
 
         let mut ty = ty.unwrap_or(val_ty);
+
         for (_, id) in self.locals.iter().copied().rev() {
+            ty  = self.ictx.instantiate_term(ty);
+            val = self.ictx.instantiate_term(val);
+
             ty  = self.lctx.abstract_forall(ty,  id);
             val = self.lctx.abstract_lambda(val, id);
         }
+        ty  = self.ictx.instantiate_term(ty);
+        val = self.ictx.instantiate_term(val);
 
         let (parent, name) = match &def.name {
             IdentOrPath::Ident(name) => (self.root_symbol, *name),
@@ -326,9 +339,6 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 (parent, *name)
             }
         };
-
-        let ty  = self.ictx.instantiate_term(ty);
-        let val = self.ictx.instantiate_term(val);
 
         if !ty.closed() || !val.closed() || ty.has_locals() || val.has_locals() {
             let mut pp = TermPP::new(self.env, self.alloc);
