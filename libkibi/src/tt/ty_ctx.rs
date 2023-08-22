@@ -374,11 +374,7 @@ impl<'me, 'a> TyCtx<'me, 'a> {
         let result = self.whnf(t);
 
         let result = match result.kind {
-            TermKind::Sort(_) |
-            TermKind::Bound(_) |
-            TermKind::Local(_) |
-            TermKind::Global(_) |
-            TermKind::IVar(_) => result,
+            TermKind::Bound(_) => unreachable!(),
 
             TermKind::Forall(b) |
             TermKind::Lambda(b) => {
@@ -394,31 +390,19 @@ impl<'me, 'a> TyCtx<'me, 'a> {
 
                 self.lctx.restore(save);
 
-                if let Some(b) = b.update(new_ty, new_val) {
-                    if result.is_forall() { self.alloc.mkt_forall_b(b) }
-                    else                  { self.alloc.mkt_lambda_b(b) }
-                }
-                else { result }
+                b.update(result, self.alloc, new_ty, new_val)
             }
 
-            TermKind::Apply(a) => {
-                let new_a = a.update(
+            TermKind::Apply(a) =>
+                a.update(result, self.alloc,
                     self.reduce(a.fun),
-                    self.reduce(a.arg));
+                    self.reduce(a.arg)),
 
-                if let Some(a) = new_a {
-                    self.alloc.mkt_apply_a(a)
-                }
-                else { result }
-            }
-
-            TermKind::Nat |
-            TermKind::NatZero |
-            TermKind::NatSucc |
-            TermKind::NatRec(_) |
-            TermKind::Eq(_) |
-            TermKind::EqRefl(_) |
-            TermKind::EqRec(_, _) => result,
+            TermKind::Sort(_)   | TermKind::Local(_)  | TermKind::Global(_) |
+            TermKind::IVar(_)   | TermKind::Nat       | TermKind::NatZero   |
+            TermKind::NatSucc   | TermKind::NatRec(_) | TermKind::Eq(_)     |
+            TermKind::EqRefl(_) | TermKind::EqRec(_, _) =>
+                result,
         };
         assert!(result.closed());
 
@@ -513,8 +497,21 @@ impl<'me, 'a> TyCtx<'me, 'a> {
             }
         }
 
+        // handles same ivar.
         if a.syntax_eq(b) {
             return Some(true);
+        }
+
+        if let Some((var, args)) = a.try_ivar_app() {
+            if let Some(result) = self.assign_term(var, &args, b) {
+                return Some(result);
+            }
+        }
+
+        if let Some((var, args)) = b.try_ivar_app() {
+            if let Some(result) = self.assign_term(var, &args, a) {
+                return Some(result);
+            }
         }
 
         use TermKind::*;
@@ -557,22 +554,6 @@ impl<'me, 'a> TyCtx<'me, 'a> {
 
             (EqRec(l1, r1), EqRec(l2, r2)) => {
                 Some(self.level_def_eq(l1, l2) && self.level_def_eq(r1, r2))
-            }
-
-            (IVar(i1), IVar(i2)) => {
-                if i1 == i2 {
-                    return Some(true);
-                }
-
-                Some(self.assign_term(i1, b))
-            }
-
-            (IVar(id), _) => {
-                Some(self.assign_term(id, b))
-            }
-
-            (_, IVar(id)) => {
-                Some(self.assign_term(id, a))
             }
 
             _ => None,
@@ -683,79 +664,91 @@ impl<'me, 'a> TyCtx<'me, 'a> {
         return true;
     }
 
+    // process `var(args) := value`
     #[must_use]
-    fn assign_term(&mut self, var: TermVarId, value: TermRef<'a>) -> bool {
-        let value = self.ictx.instantiate_term(value);
+    fn assign_term(&mut self, var: TermVarId, args: &[ScopeId], mut value: TermRef<'a>) -> Option<bool> {
+        //println!("{:?}({:?}) := {:?}", var, args, value);
 
-        // special case: `var := var`
-        if let TermKind::IVar(other) = value.kind {
-            // occurs check.
-            if var == other {
-                println!("occurs check failed");
-                return false;
-            }
-
-            // scope check.
-            let scope_1 = self.ictx.term_scope(var);
-            let scope_2 = self.ictx.term_scope(other);
-            let min_scope =
-                if      self.lctx.scope_is_prefix(scope_1, scope_2) { scope_1 }
-                else if self.lctx.scope_is_prefix(scope_2, scope_1) { scope_2 }
-                else {
-                    println!("scope check failed");
-                    return false;
-                };
-
-            // type check.
-            let var_ty = self.ictx.term_type(var);
-            let other_ty = self.ictx.term_type(other);
-            if !self.def_eq(var_ty, other_ty) {
-                println!("type check failed");
-                return false;
-            }
-
-            unsafe {
-                self.ictx.assign_term(var, value);
-                self.ictx.set_term_scope(other, min_scope);
-            }
-            return true;
+        // abstract out `args`.
+        for arg in args {
+            value = self.lctx.abstract_lambda(value, *arg);
         }
-        else {
-            let scope = self.ictx.term_scope(var);
 
-            // occurs check.
-            if value.find(|at, _| {
-                if let TermKind::IVar(id) = at.kind {
-                    return Some(id == var);
-                }
-                None
-            }).is_some() {
-                println!("occurs check failed");
-                return false;
-            }
+        let Some(value) = self.check_value_for_assign(value, var) else {
+            return (args.len() == 0).then_some(false);
+        };
 
-            // scope check.
-            if value.find(|at, _| {
-                if let TermKind::Local(id) = at.kind {
-                    return Some(!self.lctx.scope_contains(scope, id));
-                }
-                None
-            }).is_some() {
-                println!("scope check failed");
-                return false;
-            }
-
-            // type check.
-            let var_ty = self.ictx.term_type(var);
-            let value_ty = self.infer_type(value).unwrap();
-            if !self.def_eq(var_ty, value_ty) {
-                println!("type check failed");
-                return false;
-            }
-
-            unsafe { self.ictx.assign_term(var, value) }
-            return true;
+        if args.len() > 0 {
+            // type correct check.
+            println!("@todo: check lambda type correct");
         }
+
+        // type check.
+        let var_ty = self.ictx.term_type(var);
+        let value_ty = self.infer_type(value).unwrap();
+        if !self.def_eq(var_ty, value_ty) {
+            println!("type check failed");
+            return Some(false);
+        }
+
+        unsafe { self.ictx.assign_term(var, value) }
+        return Some(true);
+    }
+
+    fn check_value_for_assign(&mut self, value: TermRef<'a>, var: TermVarId) -> Option<TermRef<'a>> {
+        Some(match value.kind {
+            TermKind::Local(id) => {
+                // scope check.
+                let scope = self.ictx.term_scope(var);
+                if !self.lctx.scope_contains(scope, id) {
+                    println!("scope check failed (for local)");
+                    return None;
+                }
+
+                value
+            }
+
+            TermKind::IVar(other) => {
+                // instantiate:
+                if let Some(value) = self.ictx.term_value(other) {
+                    return self.check_value_for_assign(value, var);
+                }
+
+                // occurs check.
+                if other == var {
+                    println!("occurs check failed");
+                    return None;
+                }
+
+                // scope check.
+                let var_scope   = self.ictx.term_scope(var);
+                let other_scope = self.ictx.term_scope(other);
+                if !self.lctx.scope_is_prefix(other_scope, var_scope) {
+                    // scope approx.
+                    println!("scope check failed (for ivar)");
+                    println!("@todo");
+                }
+
+                value
+            }
+
+            TermKind::Forall(b) |
+            TermKind::Lambda(b) =>
+                b.update(value, self.alloc,
+                    self.check_value_for_assign(b.ty,  var)?,
+                    self.check_value_for_assign(b.val, var)?),
+
+            TermKind::Apply(a) =>
+                a.update(value, self.alloc,
+                    self.check_value_for_assign(a.fun, var)?,
+                    self.check_value_for_assign(a.arg, var)?),
+
+            TermKind::Sort(_)   | TermKind::Bound(_) | TermKind::Global(_) |
+            TermKind::Nat       | TermKind::NatZero  | TermKind::NatSucc   |
+            TermKind::NatRec(_) | TermKind::Eq(_)    | TermKind::EqRefl(_) |
+            TermKind::EqRec(_, _) =>
+                value,
+        })
     }
 }
 

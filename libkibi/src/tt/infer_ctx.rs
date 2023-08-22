@@ -127,11 +127,6 @@ impl<'a> InferCtx<'a> {
         entry.value = Some(value);
     }
 
-    #[inline(always)]
-    pub unsafe fn set_term_scope(&mut self, id: TermVarId, scope: OptScopeId) {
-        self.term_vars[id].scope = scope;
-    }
-
     pub fn instantiate_term(&self, t: TermRef<'a>) -> TermRef<'a> {
         t.replace(self.alloc, |at, _, alloc| {
             if let TermKind::IVar(id) = at.kind {

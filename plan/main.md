@@ -10,31 +10,23 @@
     - macros.
 
 - todo:
-    - infer locals:
-        - when popping `x`, `?n -> ?m(x)`.
-            - but where?
-        - what invariants do we actually care about?
-            - we wanna make sure, the popped local can't re-appear.
-            - that's kinda it, i think.
-            - for the returned term, instantiate it, so the local gets abstracted.
-            - then we need to make sure there are no unassigned term vars,
-              that have the local in their scope -> `?n -> ?m(x)`.
-                - for now, we can just walk the entire ictx.
-                - maybe we can be smarter about that somehow.
-            - immutable lctx does have the advantage that we can't accidentally
-              abstract a local later, cause ids are unique.
-              -> docs, cause important. incl "temp locals" in tyctx.
-    - lambda inference.
-        - `?n(xs) =?= t` -> `?n =?= lam(xs) => t[xs]`
-
-    - cleanup:
-        - `InferCtx::abstract_*`.
-        - put ivar assignment logic into `InferCtx`.
+    - eliminate locals:
+        - when popping, in term & type: `x`, `?n -> ?m(x)`.
+    - motive inference.
 
     - implicit params.
         - binder rework.
 
-    - motive inference.
+    - assign term robustness:
+        - lambda type check.
+        - scope approx.
+            - use common ancestor.
+            - recursively check `other.ty` -> `ty`.
+            - create fresh term var of `ty`.
+            - assign to `other`.
+
+    - cleanup:
+        - `InferCtx::abstract_*`.
 
     - inference robustness:
         - do term vars need a lctx?

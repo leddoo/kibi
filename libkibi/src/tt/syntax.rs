@@ -665,20 +665,27 @@ impl<'a> Level<'a> {
 
 
 impl<'a> term::Binder<'a> {
-    pub fn update(&self, new_ty: TermRef<'a>, new_val: TermRef<'a>) -> Option<Self> {
-        if new_ty.ptr_eq(self.ty) && new_val.ptr_eq(self.val) {
-            return None;
+    pub fn update(&self, t: TermRef<'a>, alloc: &'a Arena, new_ty: TermRef<'a>, new_val: TermRef<'a>) -> TermRef<'a> {
+        debug_assert!(t.is_forall() || t.is_lambda());
+
+        if !new_ty.ptr_eq(self.ty) || !new_val.ptr_eq(self.val) {
+            let b = Self { name: self.name, ty: new_ty, val: new_val };
+
+            if t.is_forall() { alloc.mkt_forall_b(b) }
+            else             { alloc.mkt_lambda_b(b) }
         }
-        Some(Self { name: self.name, ty: new_ty, val: new_val })
+        else { t }
     }
 }
 
 impl<'a> term::Apply<'a> {
-    pub fn update(&self, new_fun: TermRef<'a>, new_arg: TermRef<'a>) -> Option<Self> {
-        if new_fun.ptr_eq(self.fun) && new_arg.ptr_eq(self.arg) {
-            return None;
+    pub fn update(&self, t: TermRef<'a>, alloc: &'a Arena, new_fun: TermRef<'a>, new_arg: TermRef<'a>) -> TermRef<'a> {
+        debug_assert!(t.is_apply());
+
+        if !new_fun.ptr_eq(self.fun) || !new_arg.ptr_eq(self.arg) {
+            alloc.mkt_apply_a(Self { fun: new_fun, arg: new_arg })
         }
-        Some(Self { fun: new_fun, arg: new_arg })
+        else { t }
     }
 }
 
@@ -957,26 +964,15 @@ impl<'a> Term<'a> {
 
             TermKind::Forall(b) |
             TermKind::Lambda(b) => {
-                let new_b = b.update(
+                b.update(self, alloc,
                     b.ty.replace_ex(offset, alloc, f),
-                    b.val.replace_ex(offset + 1, alloc, f));
-
-                if let Some(b) = new_b {
-                    if self.is_forall() { alloc.mkt_forall_b(b) }
-                    else                { alloc.mkt_lambda_b(b) }
-                }
-                else { self }
+                    b.val.replace_ex(offset + 1, alloc, f))
             }
 
             TermKind::Apply(a) => {
-                let new_a = a.update(
+                a.update(self, alloc,
                     a.fun.replace_ex(offset, alloc, f),
-                    a.arg.replace_ex(offset, alloc, f));
-
-                if let Some(a) = new_a {
-                    alloc.mkt_apply_a(a)
-                }
-                else { self }
+                    a.arg.replace_ex(offset, alloc, f))
             }
 
             TermKind::Nat |
@@ -1124,6 +1120,30 @@ impl<'a> Term<'a> {
         args.reverse();
         return (f, args);
     }
+
+
+    // @speed: arena.
+    pub fn try_ivar_app(&self) -> Option<(TermVarId, Vec<ScopeId>)> {
+        let mut args = Vec::new();
+        let var = rec(self, 0, &mut args)?;
+        return Some((var, args));
+
+        fn rec(at: TermRef, num_args: usize, result: &mut Vec<ScopeId>) -> Option<TermVarId> {
+            if let TermKind::Apply(app) = at.kind {
+                let TermKind::Local(local) = app.arg.kind else { return None };
+
+                let var = rec(app.fun, num_args + 1, result)?;
+                result.push(local);
+                Some(var)
+            }
+            else if let TermKind::IVar(var) = at.kind {
+                result.reserve_exact(num_args);
+                Some(var)
+            }
+            else { None }
+        }
+    }
+
 
 
     // doesn't check for `ptr_eq` of old `app_fun`.
