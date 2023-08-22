@@ -171,16 +171,11 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
                 assert_eq!(self.locals.len(), locals_end);
                 for i in (locals_begin..locals_end).rev() {
-                    result = self.ictx.instantiate_term(result);
-
                     let (_, id) = self.locals[i];
-                    result = self.lctx.abstract_forall(result, id);
+                    result = self.ictx.mk_binder(result, id, true, &self.lctx);
                     self.lctx.pop(id);
                 }
                 self.locals.truncate(locals_begin);
-
-                // @temp: ictx.abstract_forall.
-                result = self.ictx.instantiate_term(result);
 
                 (result, self.alloc.mkt_sort(level))
             }
@@ -200,19 +195,12 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
                 assert_eq!(self.locals.len(), locals_end);
                 for i in (locals_begin..locals_end).rev() {
-                    result    = self.ictx.instantiate_term(result);
-                    result_ty = self.ictx.instantiate_term(result_ty);
-
                     let (_, id) = self.locals[i];
-                    result    = self.lctx.abstract_lambda(result, id);
-                    result_ty = self.lctx.abstract_forall(result_ty, id);
+                    result    = self.ictx.mk_binder(result,    id, false, &self.lctx);
+                    result_ty = self.ictx.mk_binder(result_ty, id, true,  &self.lctx);
                     self.lctx.pop(id);
                 }
                 self.locals.truncate(locals_begin);
-
-                // @temp: ictx.abstract_forall.
-                result    = self.ictx.instantiate_term(result);
-                result_ty = self.ictx.instantiate_term(result_ty);
 
                 (result, result_ty)
             }
@@ -256,6 +244,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         if let Some(expected) = expected_ty {
             let mut tc = self.tc();
             if !tc.def_eq(ty, expected) {
+                let expected = tc.reduce_ex(expected, false);
+                let ty       = tc.reduce_ex(ty, false);
                 self.error(expr.source, |alloc| {
                     let mut pp = TermPP::new(self.env, alloc);
                     let expected = pp.pp_term(self.ictx.instantiate_term(expected));
@@ -320,14 +310,17 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let mut ty = ty.unwrap_or(val_ty);
 
         for (_, id) in self.locals.iter().copied().rev() {
+            ty  = self.ictx.mk_binder(ty,  id, true,  &self.lctx);
+            val = self.ictx.mk_binder(val, id, false, &self.lctx);
+        }
+
+        if self.locals.len() == 0 {
             ty  = self.ictx.instantiate_term(ty);
             val = self.ictx.instantiate_term(val);
-
-            ty  = self.lctx.abstract_forall(ty,  id);
-            val = self.lctx.abstract_lambda(val, id);
         }
-        ty  = self.ictx.instantiate_term(ty);
-        val = self.ictx.instantiate_term(val);
+
+        debug_assert!(ty.syntax_eq(self.ictx.instantiate_term(ty)));
+        debug_assert!(val.syntax_eq(self.ictx.instantiate_term(val)));
 
         let (parent, name) = match &def.name {
             IdentOrPath::Ident(name) => (self.root_symbol, *name),
@@ -357,8 +350,10 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         if ty.has_ivars() || val.has_ivars() {
             println!("unresolved inference variables");
             let mut pp = TermPP::new(self.env, self.alloc);
-            let ty  = pp.pp_term(self.ictx.instantiate_term(ty));
-            let val = pp.pp_term(self.ictx.instantiate_term(val));
+            let ty  = self.ictx.instantiate_term(ty);
+            let val = self.ictx.instantiate_term(val);
+            let ty  = pp.pp_term(ty);
+            let val = pp.pp_term(val);
             println!("{}", pp.render(ty,  50).layout_string());
             println!("{}", pp.render(val, 50).layout_string());
             return None;

@@ -2,7 +2,7 @@ use sti::arena::Arena;
 use sti::keyed::{KVec, KRange};
 
 use super::syntax::*;
-use super::local_ctx::OptScopeId;
+use super::local_ctx::{LocalCtx, OptScopeId};
 
 
 sti::define_key!(u32, pub LevelVarId);
@@ -82,7 +82,9 @@ impl<'a> InferCtx<'a> {
     pub fn instantiate_level(&self, l: LevelRef<'a>) -> LevelRef<'a> {
         l.replace(self.alloc, |at, _| {
             if let LevelKind::IVar(id) = at.kind {
-                return self.level_value(id);
+                if let Some(value) = self.level_value(id) {
+                    return Some(self.instantiate_level(value));
+                }
             }
             None
         })
@@ -130,7 +132,9 @@ impl<'a> InferCtx<'a> {
     pub fn instantiate_term(&self, t: TermRef<'a>) -> TermRef<'a> {
         t.replace(self.alloc, |at, _, alloc| {
             if let TermKind::IVar(id) = at.kind {
-                return self.term_value(id);
+                if let Some(value) = self.term_vars[id].value {
+                    return Some(self.instantiate_term(value));
+                }
             }
 
             at.replace_levels_flat(alloc, |l, _| {
@@ -138,6 +142,58 @@ impl<'a> InferCtx<'a> {
                 (!new_l.ptr_eq(l)).then_some(new_l)
             })
         })
+    }
+
+
+    pub fn abstracc(&mut self, t: TermRef<'a>, id: ScopeId, lctx: &LocalCtx<'a>) -> TermRef<'a> {
+        t.replace(self.alloc, |at, offset, alloc| {
+            if let TermKind::Local(l) = at.kind {
+                if l == id {
+                    return Some(alloc.mkt_bound(BVar(offset)));
+                }
+            }
+
+            if let TermKind::IVar(var) = at.kind {
+                if let Some(value) = self.term_vars[var].value {
+                    return Some(self.abstracc(value, id, lctx));
+                }
+
+                // elim locals:
+                // `(?n[id]: T) := (?m(id): (ty(id) -> t[id]))
+                if self.term_vars[var].scope == id.some() {
+                    // @temp: see if constant approx fixes this.
+                    /*
+                    let ty = self.term_vars[var].ty;
+                    let m_ty = self.mk_binder(ty, id, true, lctx);
+
+                    let m_scope = lctx.lookup(id).parent;
+                    let m = self.new_term_var(m_ty, m_scope);
+
+                    let val = self.alloc.mkt_apply(m, alloc.mkt_bound(BVar(offset)));
+                    unsafe { self.assign_term(var, val) }
+
+                    return Some(val);
+                    */
+                }
+            }
+
+            at.replace_levels_flat(alloc, |l, _| {
+                let new_l = self.instantiate_level(l);
+                (!new_l.ptr_eq(l)).then_some(new_l)
+            })
+        })
+    }
+
+    pub fn mk_binder(&mut self, val: TermRef<'a>, id: ScopeId, is_forall: bool, lctx: &LocalCtx<'a>) -> TermRef<'a> {
+        let val = self.abstracc(val, id, lctx);
+
+        // instantiate type after val, cause abstracc may
+        // assign ivars (elim locals).
+        let ty = self.instantiate_term(lctx.lookup(id).ty);
+
+        // @temp: name.
+        if is_forall { self.alloc.mkt_forall(0, ty, val) }
+        else         { self.alloc.mkt_lambda(0, ty, val) }
     }
 }
 

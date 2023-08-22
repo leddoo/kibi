@@ -10,9 +10,10 @@
     - macros.
 
 - todo:
-    - eliminate locals:
-        - when popping, in term & type: `x`, `?n -> ?m(x)`.
+    - expected type propagation.
+    - constant approx.
     - motive inference.
+        - put major premise back at the end.
 
     - implicit params.
         - binder rework.

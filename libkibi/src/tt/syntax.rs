@@ -942,14 +942,14 @@ impl<'a> Term<'a> {
     }
 
 
-    pub fn replace<F: Fn(TermRef<'a>, u32, &'a Arena) -> Option<TermRef<'a>>>
-        (&'a self, alloc: &'a Arena, f: F) -> TermRef<'a>
+    pub fn replace<F: FnMut(TermRef<'a>, u32, &'a Arena) -> Option<TermRef<'a>>>
+        (&'a self, alloc: &'a Arena, mut f: F) -> TermRef<'a>
     {
-        self.replace_ex(0, alloc, &f)
+        self.replace_ex(0, alloc, &mut f)
     }
 
-    pub fn replace_ex<F: Fn(TermRef<'a>, u32, &'a Arena) -> Option<TermRef<'a>>>
-        (&'a self, offset: u32, alloc: &'a Arena, f: &F) -> TermRef<'a>
+    pub fn replace_ex<F: FnMut(TermRef<'a>, u32, &'a Arena) -> Option<TermRef<'a>>>
+        (&'a self, offset: u32, alloc: &'a Arena, f: &mut F) -> TermRef<'a>
     {
         if let Some(new) = f(self, offset, alloc) {
             return new;

@@ -369,23 +369,28 @@ impl<'me, 'a> TyCtx<'me, 'a> {
 
 
     pub fn reduce(&mut self, t: TermRef<'a>) -> TermRef<'a> {
+        self.reduce_ex(t, true)
+    }
+
+    pub fn reduce_ex(&mut self, t: TermRef<'a>, unfold: bool) -> TermRef<'a> {
         assert!(t.closed());
 
-        let result = self.whnf(t);
+        let result = if unfold { self.whnf(t) } else { self.whnf_no_unfold(t).0 };
 
         let result = match result.kind {
             TermKind::Bound(_) => unreachable!(),
 
             TermKind::Forall(b) |
             TermKind::Lambda(b) => {
-                let new_ty = self.reduce(b.ty);
+                let new_ty = self.reduce_ex(b.ty, unfold);
 
                 let save = self.lctx.save();
 
                 let id = self.lctx.push(b.ty, None);
                 let val = b.val.instantiate(self.alloc.mkt_local(id), self.alloc);
 
-                let new_val = self.reduce(val);
+                let new_val = self.reduce_ex(val, unfold);
+                let new_val = new_val.abstracc(id, self.alloc);
                 let new_val = if new_val.ptr_eq(val) { b.val } else { new_val };
 
                 self.lctx.restore(save);
@@ -395,8 +400,8 @@ impl<'me, 'a> TyCtx<'me, 'a> {
 
             TermKind::Apply(a) =>
                 a.update(result, self.alloc,
-                    self.reduce(a.fun),
-                    self.reduce(a.arg)),
+                    self.reduce_ex(a.fun, unfold),
+                    self.reduce_ex(a.arg, unfold)),
 
             TermKind::Sort(_)   | TermKind::Local(_)  | TermKind::Global(_) |
             TermKind::IVar(_)   | TermKind::Nat       | TermKind::NatZero   |
