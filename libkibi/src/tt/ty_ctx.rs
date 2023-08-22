@@ -679,7 +679,7 @@ impl<'me, 'a> TyCtx<'me, 'a> {
             return false;
         }
 
-        self.ictx.assign_level(var, value);
+        unsafe { self.ictx.assign_level(var, value) }
         return true;
     }
 
@@ -687,25 +687,75 @@ impl<'me, 'a> TyCtx<'me, 'a> {
     fn assign_term(&mut self, var: TermVarId, value: TermRef<'a>) -> bool {
         let value = self.ictx.instantiate_term(value);
 
-        // occurs check.
-        if value.find(|at, _| {
-            if let TermKind::IVar(id) = at.kind {
-                return Some(id == var);
+        // special case: `var := var`
+        if let TermKind::IVar(other) = value.kind {
+            // occurs check.
+            if var == other {
+                println!("occurs check failed");
+                return false;
             }
-            None
-        }).is_some() {
-            return false;
-        }
 
-        // type check.
-        let var_ty = self.ictx.term_type(var);
-        let value_ty = self.infer_type(value).unwrap();
-        if !self.def_eq(var_ty, value_ty) {
-            return false;
-        }
+            // scope check.
+            let scope_1 = self.ictx.term_scope(var);
+            let scope_2 = self.ictx.term_scope(other);
+            let min_scope =
+                if      self.lctx.scope_is_prefix(scope_1, scope_2) { scope_1 }
+                else if self.lctx.scope_is_prefix(scope_2, scope_1) { scope_2 }
+                else {
+                    println!("scope check failed");
+                    return false;
+                };
 
-        self.ictx.assign_term(var, value);
-        return true;
+            // type check.
+            let var_ty = self.ictx.term_type(var);
+            let other_ty = self.ictx.term_type(other);
+            if !self.def_eq(var_ty, other_ty) {
+                println!("type check failed");
+                return false;
+            }
+
+            unsafe {
+                self.ictx.assign_term(var, value);
+                self.ictx.set_term_scope(other, min_scope);
+            }
+            return true;
+        }
+        else {
+            let scope = self.ictx.term_scope(var);
+
+            // occurs check.
+            if value.find(|at, _| {
+                if let TermKind::IVar(id) = at.kind {
+                    return Some(id == var);
+                }
+                None
+            }).is_some() {
+                println!("occurs check failed");
+                return false;
+            }
+
+            // scope check.
+            if value.find(|at, _| {
+                if let TermKind::Local(id) = at.kind {
+                    return Some(!self.lctx.scope_contains(scope, id));
+                }
+                None
+            }).is_some() {
+                println!("scope check failed");
+                return false;
+            }
+
+            // type check.
+            let var_ty = self.ictx.term_type(var);
+            let value_ty = self.infer_type(value).unwrap();
+            if !self.def_eq(var_ty, value_ty) {
+                println!("type check failed");
+                return false;
+            }
+
+            unsafe { self.ictx.assign_term(var, value) }
+            return true;
+        }
     }
 }
 

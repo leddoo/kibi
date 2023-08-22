@@ -70,6 +70,34 @@ impl<'a> LocalCtx<'a> {
     }
 
 
+    pub fn scope_is_prefix(&self, prefix: OptScopeId, of: OptScopeId) -> bool {
+        let mut curr = of;
+        loop {
+            if curr == prefix {
+                return true;
+            }
+
+            if let Some(at) = curr.to_option() {
+                curr = self.scopes[at].parent;
+            }
+            else {
+                return false;
+            }
+        }
+    }
+
+    pub fn scope_contains(&self, scope: OptScopeId, local: ScopeId) -> bool {
+        let mut curr = scope;
+        while let Some(at) = curr.to_option() {
+            if at == local {
+                return true;
+            }
+            curr = self.scopes[at].parent;
+        }
+        return false;
+    }
+
+
     #[track_caller]
     #[inline(always)]
     pub fn abstract_forall(&self, ret: TermRef<'a>, id: ScopeId) -> TermRef<'a> {

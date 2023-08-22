@@ -17,7 +17,7 @@ def congr_arg.{a, b} (A: Sort(a), B: Sort(b), f: Pi(_: A) -> B, x1: A, x2: A)
     : Pi (_: Eq(_, x1, x2)) -> Eq(_, f(x1), f(x2))
     := lam(heq: _) =>
         Eq::rec(_, _, _, heq,
-            lam(x2: _) => Eq(_, f(x1), f(x2)),
+            lam(x2: _) => Eq(_, _, f(x2)),
             Eq::refl(_, f(x1)))
 
 
@@ -29,7 +29,7 @@ def Nat::zero_add (n: Nat): Eq(_, Nat::add(0, n), n) :=
         lam(n: _) => Eq(_, Nat::add(0, n), n),
         Eq::refl(Nat, 0),
         lam(n: Nat, ih: Eq(_, Nat::add(0, n), n)) =>
-            congr_arg(_, _, _, Nat::add(0, n), n, ih))
+            congr_arg(_, _, _, _, _, ih))
 
 
 -- yeah, don't uncomment that...

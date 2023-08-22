@@ -73,7 +73,7 @@ impl<'a> InferCtx<'a> {
 
     #[track_caller]
     #[inline(always)]
-    pub fn assign_level(&mut self, id: LevelVarId, value: LevelRef<'a>) {
+    pub unsafe fn assign_level(&mut self, id: LevelVarId, value: LevelRef<'a>) {
         let entry = &mut self.level_vars[id];
         assert!(entry.value.is_none());
         entry.value = Some(value);
@@ -105,6 +105,11 @@ impl<'a> InferCtx<'a> {
     }
 
     #[inline(always)]
+    pub fn term_scope(&self, id: TermVarId) -> OptScopeId {
+        self.term_vars[id].scope
+    }
+
+    #[inline(always)]
     pub fn term_value(&self, id: TermVarId) -> Option<TermRef<'a>> {
         self.term_vars[id].value
     }
@@ -116,10 +121,15 @@ impl<'a> InferCtx<'a> {
 
     #[track_caller]
     #[inline(always)]
-    pub fn assign_term(&mut self, id: TermVarId, value: TermRef<'a>) {
+    pub unsafe fn assign_term(&mut self, id: TermVarId, value: TermRef<'a>) {
         let entry = &mut self.term_vars[id];
         assert!(entry.value.is_none());
         entry.value = Some(value);
+    }
+
+    #[inline(always)]
+    pub unsafe fn set_term_scope(&mut self, id: TermVarId, scope: OptScopeId) {
+        self.term_vars[id].scope = scope;
     }
 
     pub fn instantiate_term(&self, t: TermRef<'a>) -> TermRef<'a> {

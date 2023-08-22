@@ -10,11 +10,9 @@
     - macros.
 
 - todo:
-    - robustness:
-        - var = term: check locals in term var's lctx.
-        - var = var: check lctx is prefix & constrain.
     - infer locals:
         - when popping `x`, `?n -> ?m(x)`.
+            - but where?
         - what invariants do we actually care about?
             - we wanna make sure, the popped local can't re-appear.
             - that's kinda it, i think.
@@ -26,6 +24,12 @@
             - immutable lctx does have the advantage that we can't accidentally
               abstract a local later, cause ids are unique.
               -> docs, cause important. incl "temp locals" in tyctx.
+    - lambda inference.
+        - `?n(xs) =?= t` -> `?n =?= lam(xs) => t[xs]`
+
+    - cleanup:
+        - `InferCtx::abstract_*`.
+        - put ivar assignment logic into `InferCtx`.
 
     - implicit params.
         - binder rework.
