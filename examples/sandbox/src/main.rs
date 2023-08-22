@@ -13,18 +13,18 @@ fn main() {
     let input = "
 reduce (λ(a: Nat, b: Nat) =>
     Nat::rec(
-        b,
         λ(_: _) => _,
         a,
-        λ(_: _, r: _) => Nat::succ(r))
+        λ(_: _, r: _) => Nat::succ(r),
+        b)
     )(1, 2)
 
 def Nat::add (a: Nat, b: Nat): Nat :=
     Nat::rec(
-        b,
         λ(_: _) => _,
         a,
-        λ(_: _, r: _) => Nat::succ(r))
+        λ(_: _, r: _) => Nat::succ(r),
+        b)
 
 reduce Nat::add(1, 2)
 ".as_bytes();

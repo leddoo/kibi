@@ -10,9 +10,8 @@
     - macros.
 
 - todo:
-    - constant approx.
     - motive inference.
-        - put major premise back at the end.
+    - constant approx.
 
     - implicit params.
         - binder rework.

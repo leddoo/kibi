@@ -482,6 +482,8 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                     args,
                 });
                 result = Expr { source, kind };
+
+                continue;
             }
 
             break;

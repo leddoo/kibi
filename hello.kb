@@ -1,8 +1,9 @@
 def Nat::add (a: Nat, b: Nat): Nat :=
-    Nat::rec(b,
+    Nat::rec(
         lam(_: _) => _,
         a,
-        lam(_: _, r: _) => Nat::succ(r))
+        lam(_: _, r: _) => Nat::succ(r),
+        b)
 
 reduce Nat::add(1, 2)
 
@@ -13,23 +14,25 @@ def quick_maffs: Eq(_, Nat::add(2, 2), 4) := Eq::refl(_, 4)
 -- axiom ax_sorry.{l} (T: Sort(l)): T
 
 
-def congr_arg.{a, b} (A: Sort(a), B: Sort(b), f: Pi(_: A) -> B, x1: A, x2: A)
-    : Pi (_: Eq(_, x1, x2)) -> Eq(_, f(x1), f(x2))
+def congr_arg.{a, b} (A: Sort(a), B: Sort(b), a1: A, a2: A, f: Pi(_: A) -> B)
+    : Pi (_: Eq(_, a1, a2)) -> Eq(_, f(a1), f(a2))
     := lam(heq: _) =>
-        Eq::rec(_, _, _, heq,
-            lam(x2: _) => Eq(_, _, f(x2)),
-            Eq::refl(_, f(x1)))
+        Eq::rec(_, _,
+            lam(a2: _) => Eq(_, _, f(a2)),
+            Eq::refl(_, f(a1)),
+            _, heq)
 
 
 def Nat::add_zero (n: Nat): Eq(_, Nat::add(n, 0), n) :=
     Eq::refl(_, n)
 
 def Nat::zero_add (n: Nat): Eq(_, Nat::add(0, n), n) :=
-    Nat::rec(n,
+    Nat::rec(
         lam(n: _) => Eq(_, Nat::add(0, n), n),
         Eq::refl(Nat, 0),
         lam(n: Nat, ih: Eq(_, Nat::add(0, n), n)) =>
-            congr_arg(_, _, _, _, _, ih))
+            congr_arg(_, _, _, _, _, ih),
+        n)
 
 
 -- yeah, don't uncomment that...

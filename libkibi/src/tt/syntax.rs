@@ -283,9 +283,6 @@ impl TTArena for Arena {
 
     fn mkt_nat_rec_ty<'a>(&'a self, r: LevelRef<'a>) -> TermRef<'a> {
         self.mkt_forall(0,
-            // n: Nat
-            Term::NAT,
-        self.mkt_forall(0,
             // M: Nat -> Sort(r)
             self.mkt_forall(0,
                 Term::NAT,
@@ -311,10 +308,13 @@ impl TTArena for Arena {
                     self.mkt_apply(
                         Term::NAT_SUCC,
                         self.mkt_bound(BVar(1)))))),
+        self.mkt_forall(0,
+            // n: Nat
+            Term::NAT,
             // -> M(n)
             self.mkt_apply(
-                self.mkt_bound(BVar(2)),
-                self.mkt_bound(BVar(3)))))))
+                self.mkt_bound(BVar(3)),
+                self.mkt_bound(BVar(0)))))))
     }
 
     fn mkt_nat_val<'a>(&'a self, n: u32) -> TermRef<'a> {
@@ -378,29 +378,29 @@ impl TTArena for Arena {
             // a: T
             self.mkt_bound(BVar(0)),
         self.mkt_forall(0,
-            // b: T
-            self.mkt_bound(BVar(1)),
-        self.mkt_forall(0,
-            // n: Eq(T, a, b)
-            self.mkt_apps(self.mkt_eq(l), &[
-                self.mkt_bound(BVar(2)),
-                self.mkt_bound(BVar(1)),
-                self.mkt_bound(BVar(0)),
-            ]),
-        self.mkt_forall(0,
             // M: Π(b: T) -> Sort(r)
             self.mkt_forall(0,
-                self.mkt_bound(BVar(3)),
+                self.mkt_bound(BVar(1)),
                 self.mkt_sort(r)),
         self.mkt_forall(0,
             // mr: M(a)
             self.mkt_apply(
                 self.mkt_bound(BVar(0)),
-                self.mkt_bound(BVar(3))),
+                self.mkt_bound(BVar(1))),
+        self.mkt_forall(0,
+            // b: T
+            self.mkt_bound(BVar(3)),
+        self.mkt_forall(0,
+            // n: Eq(T, a, b)
+            self.mkt_apps(self.mkt_eq(l), &[
+                self.mkt_bound(BVar(4)),
+                self.mkt_bound(BVar(3)),
+                self.mkt_bound(BVar(0)),
+            ]),
             // -> M(b)
             self.mkt_apply(
-                self.mkt_bound(BVar(1)),
-                self.mkt_bound(BVar(3)))))))))
+                self.mkt_bound(BVar(3)),
+                self.mkt_bound(BVar(1)))))))))
     }
 }
 
