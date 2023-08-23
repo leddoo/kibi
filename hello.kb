@@ -1,6 +1,5 @@
 def Nat::add (a: Nat, b: Nat): Nat :=
-    Nat::rec(
-        lam(_: _) => _,
+    Nat::rec(_,
         a,
         lam(_: _, r: _) => Nat::succ(r),
         b)
@@ -17,21 +16,16 @@ def quick_maffs: Eq(_, Nat::add(2, 2), 4) := Eq::refl(_, 4)
 def congr_arg.{a, b} (A: Sort(a), B: Sort(b), a1: A, a2: A, f: Pi(_: A) -> B)
     : Pi (_: Eq(_, a1, a2)) -> Eq(_, f(a1), f(a2))
     := lam(heq: _) =>
-        Eq::rec(_, _,
-            lam(a2: _) => Eq(_, _, f(a2)),
-            Eq::refl(_, f(a1)),
-            _, heq)
+        Eq::rec(_, _, _, Eq::refl(_, _), a2, heq)
 
 
 def Nat::add_zero (n: Nat): Eq(_, Nat::add(n, 0), n) :=
     Eq::refl(_, n)
 
 def Nat::zero_add (n: Nat): Eq(_, Nat::add(0, n), n) :=
-    Nat::rec(
-        lam(n: _) => Eq(_, Nat::add(0, n), n),
-        Eq::refl(Nat, 0),
-        lam(n: Nat, ih: Eq(_, Nat::add(0, n), n)) =>
-            congr_arg(_, _, _, _, _, ih),
+    Nat::rec(_,
+        Eq::refl(_, _),
+        lam(n: _, ih: _) => congr_arg(_, _, _, _, _, ih),
         n)
 
 

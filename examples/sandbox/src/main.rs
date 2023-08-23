@@ -21,7 +21,7 @@ reduce (λ(a: Nat, b: Nat) =>
 
 def Nat::add (a: Nat, b: Nat): Nat :=
     Nat::rec(
-        λ(_: _) => _,
+        _,
         a,
         λ(_: _, r: _) => Nat::succ(r),
         b)

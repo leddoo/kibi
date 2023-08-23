@@ -242,7 +242,7 @@ impl<'me, 'a> TermPP<'me, 'a> {
                 let l = self.pp_level(l);
                 let r = self.pp_level(r);
                 self.pp.cats(&[
-                    self.pp.text("Eq::refl.{"),
+                    self.pp.text("Eq::rec.{"),
                     l,
                     self.pp.text(", "),
                     r,

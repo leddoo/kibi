@@ -11,8 +11,8 @@ sti::define_key!(u32, pub ScopeId, opt: pub OptScopeId);
 pub struct LocalCtx<'a> {
     alloc: &'a Arena,
 
-    scopes:  KVec<ScopeId, Scope<'a>>,
-    current: OptScopeId,
+    scopes: KVec<ScopeId, Scope<'a>>,
+    pub current: OptScopeId,
 }
 
 pub struct Scope<'a> {

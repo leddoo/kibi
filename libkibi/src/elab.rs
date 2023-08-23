@@ -196,7 +196,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                         if let Some(b) = tc.whnf_forall(expected) {
                             if tc.def_eq(ty, b.ty) {
                                 expected_ty = Some(
-                                    b.ty.instantiate(
+                                    b.val.instantiate(
                                         self.alloc.mkt_local(id), self.alloc));
                             }
                             else { expected_ty = None }
@@ -225,16 +225,26 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
 
             ExprKind::Call(it) => {
-                let (mut result, mut result_ty) = self.elab_expr(it.func)?;
+                let (func, func_ty) = self.elab_expr(it.func)?;
 
+                if let Some(expected_ty) = expected_ty {
+                    if let Some(result) = self.try_elab_as_elim(func, func_ty, it.args, expected_ty).0 {
+                        return result;
+                    }
+                }
+
+                let mut result    = func;
+                let mut result_ty = func_ty;
                 for arg in it.args.iter() {
                     let expr::CallArg::Positional(arg) = arg else { unimplemented!() };
 
-                    let TermKind::Forall(b) = result_ty.kind else { return None };
+                    let Some(b) = self.tc().whnf_forall(result_ty) else {
+                        return None;
+                    };
 
                     let (arg, _) = self.elab_expr_checking_type(arg, Some(b.ty))?;
 
-                    result = self.alloc.mkt_apply(result, arg);
+                    result    = self.alloc.mkt_apply(result, arg);
                     result_ty = b.val.instantiate(arg, self.alloc);
                 }
 
@@ -572,6 +582,10 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
 
+    fn new_term_var_of_type(&mut self, ty: TermRef<'a>) -> TermRef<'a> {
+        self.ictx.new_term_var(ty, self.lctx.current())
+    }
+
     fn new_term_var(&mut self) -> (TermRef<'a>, TermRef<'a>) {
         let l = self.ictx.new_level_var();
         let tyty = self.alloc.mkt_sort(l);
@@ -596,6 +610,165 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         self.errors.with(|errors| {
             errors.report(Error { source, kind: ErrorKind::Elab(f(errors.alloc)) });
         });
+    }
+}
+
+
+struct ElimInfo<'a> {
+    motive:  u32,
+    targets: &'a [u32],
+}
+
+impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
+    fn elim_info(&self, func: TermRef<'a>) -> Option<ElimInfo<'static>> {
+        if let TermKind::NatRec(_) = func.kind {
+            return Some(ElimInfo {
+                motive:  0,
+                targets: &[3],
+            });
+        }
+
+        if let TermKind::EqRec(_, _) = func.kind {
+            return Some(ElimInfo {
+                motive:  2,
+                targets: &[4],
+            });
+        }
+
+        None
+    }
+
+    fn try_elab_as_elim(&mut self,
+        func: TermRef<'a>,
+        func_ty: TermRef<'a>,
+        args: &[expr::CallArg<'a>],
+        expected_ty: TermRef<'a>
+    ) -> (Option<Option<(TermRef<'a>, TermRef<'a>)>>,)
+    {
+        let Some(info) = self.elim_info(func) else { return (None,) };
+
+        let motive_arg = &args[info.motive as usize];
+        let expr::CallArg::Positional(motive_arg) = motive_arg else { unimplemented!() };
+        let ExprKind::Hole = motive_arg.kind else { return (None,) };
+
+        //println!("!!! elab as elim");
+
+        let mut motive = None;
+
+        let mut arg_terms = Vec::with_cap(args.len());
+
+        let mut postponed = Vec::with_cap(args.len() - 1 - info.targets.len());
+
+        // apply args to func.
+        // create vars for motive and non-target args.
+        let mut result    = func;
+        let mut result_ty = func_ty;
+        for (i, arg) in args.iter().enumerate() {
+            let i = i as u32;
+
+            let TermKind::Forall(b) = result_ty.kind else {
+                break;
+            };
+
+            let expr::CallArg::Positional(arg) = arg else { unimplemented!() };
+
+            let arg =
+                if i == info.motive {
+                    let var = self.new_term_var_of_type(b.ty);
+                    motive = Some(var);
+                    var
+                }
+                else if info.targets.contains(&i) {
+                    let Some((arg, _)) = self.elab_expr_checking_type(arg, Some(b.ty)) else {
+                        return (Some(None),);
+                    };
+                    arg
+                }
+                else {
+                    let var = self.new_term_var_of_type(b.ty);
+                    postponed.push((arg, var, b.ty));
+                    var
+                };
+            arg_terms.push(arg);
+
+            result    = self.alloc.mkt_apply(result, arg);
+            result_ty = b.val.instantiate(arg, self.alloc);
+        }
+
+        let Some(motive) = motive else {
+            return (Some(None),);
+        };
+
+        // adjust expected_ty.
+        let mut expected_ty = expected_ty;
+
+        // under applied.
+        if let TermKind::Forall(_) = result_ty.kind {
+            println!("under applied");
+            debug_assert!(arg_terms.len() == args.len());
+
+            let old_scope = self.lctx.current;
+
+            while let TermKind::Forall(b) = result_ty.kind {
+                let Some(ex_b) = self.tc().whnf_forall(expected_ty) else {
+                    return (Some(None),);
+                };
+
+                let id = self.lctx.push(b.ty, None);
+                expected_ty = ex_b.val.instantiate(
+                    self.alloc.mkt_local(id), self.alloc);
+            }
+
+            self.lctx.current = old_scope;
+        }
+        // over applied.
+        else if arg_terms.len() < args.len() {
+            println!("over applied");
+            // elab and add remaining args.
+            // revert result & expected_ty.
+            unimplemented!()
+        }
+
+        //println!("expected: {:?}", expected_ty);
+
+        // create motive.
+        let mut motive_val = expected_ty;
+        let mut tc = self.tc();
+        for target in info.targets {
+            let target    = arg_terms[*target as usize];
+            let target_ty = tc.infer_type(target).unwrap();
+            //println!("abstract out {:?}", target);
+            let val = tc.abstract_eq(motive_val, target);
+            motive_val = tc.alloc.mkt_lambda(0, target_ty, val);
+        }
+
+        // assign.
+        if !tc.def_eq(motive, motive_val) {
+            println!("motive failed");
+            return (Some(None),);
+        }
+
+        //println!("motive: {:?}", self.ictx.instantiate_term(motive_val));
+
+        if arg_terms.len() != args.len() {
+            unimplemented!()
+        }
+
+        // elab remaining args.
+        for (arg, var, expected_ty) in postponed.iter().copied() {
+            let Some((arg, _)) = self.elab_expr_checking_type(arg, Some(expected_ty)) else {
+                return (Some(None),);
+            };
+
+            if !self.tc().def_eq(var, arg) {
+                println!("arg failed");
+                return (Some(None),);
+            }
+        }
+
+        //println!("{:?}", self.ictx.instantiate_term(result));
+
+        (Some(Some((result, result_ty))),)
     }
 }
 
