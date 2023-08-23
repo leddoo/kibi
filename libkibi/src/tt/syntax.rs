@@ -860,7 +860,7 @@ impl<'a> Term<'a> {
     pub fn closed(&self) -> bool {
         self.find(|at, offset| {
             if let TermKind::Bound(BVar(i)) = at.kind {
-                return Some(i > offset);
+                return Some(i >= offset);
             }
             None
         }).is_none()

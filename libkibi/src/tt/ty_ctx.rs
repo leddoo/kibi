@@ -515,12 +515,22 @@ impl<'me, 'a> TyCtx<'me, 'a> {
         }
 
         if let Some((var, args)) = a.try_ivar_app() {
+            // @mega@temp
+            if let Some(value) = self.ictx.term_value(var) {
+                let a = a.replace_app_fun(value, self.alloc);
+                return self.def_eq_basic(a, b);
+            }
             if let Some(result) = self.assign_term(var, &args, b) {
                 return Some(result);
             }
         }
 
         if let Some((var, args)) = b.try_ivar_app() {
+            // @mega@temp
+            if let Some(value) = self.ictx.term_value(var) {
+                let b = b.replace_app_fun(value, self.alloc);
+                return self.def_eq_basic(a, b);
+            }
             if let Some(result) = self.assign_term(var, &args, a) {
                 return Some(result);
             }

@@ -147,18 +147,8 @@ well, let's just do the simple thing, assigning, and put an assert to catch mult
 
 ```
 
-- investigate `ih: _` crash.
-    - `closed` is broken.
-    - assert `closed` in assign.
-    - propagate `offset` in `InferCtx::abstracc`
-    - need ivar scope approx to prevent infinite recursion.
-    - return `BVar`, assign `Local`.
-    - instantiate `IVar`s in `def_eq_basic`.
-    - else debug assert not in scope.
-
 
 - todo:
-    - fix `ih: _` bugs and create todos. keep ivar elim disabled.
     - implement motive inference.
 
     - constant approx.

@@ -124,6 +124,8 @@ impl<'a> InferCtx<'a> {
     #[track_caller]
     #[inline(always)]
     pub unsafe fn assign_term(&mut self, id: TermVarId, value: TermRef<'a>) {
+        assert!(value.closed());
+
         let entry = &mut self.term_vars[id];
         assert!(entry.value.is_none());
         entry.value = Some(value);
@@ -146,7 +148,11 @@ impl<'a> InferCtx<'a> {
 
 
     pub fn abstracc(&mut self, t: TermRef<'a>, id: ScopeId, lctx: &LocalCtx<'a>) -> TermRef<'a> {
-        t.replace(self.alloc, |at, offset, alloc| {
+        self.abstracc_ex(t, id, 0, lctx)
+    }
+
+    pub fn abstracc_ex(&mut self, t: TermRef<'a>, id: ScopeId, offset: u32, lctx: &LocalCtx<'a>) -> TermRef<'a> {
+        t.replace_ex(offset, self.alloc, &mut |at, offset, alloc| {
             if let TermKind::Local(l) = at.kind {
                 if l == id {
                     return Some(alloc.mkt_bound(BVar(offset)));
@@ -155,12 +161,13 @@ impl<'a> InferCtx<'a> {
 
             if let TermKind::IVar(var) = at.kind {
                 if let Some(value) = self.term_vars[var].value {
-                    return Some(self.abstracc(value, id, lctx));
+                    return Some(self.abstracc_ex(value, id, offset, lctx));
                 }
 
-                // elim locals:
-                // `(?n[id]: T) := (?m(id): (ty(id) -> t[id]))
+                // elim ivar if `id` in scope.
                 if self.term_vars[var].scope == id.some() {
+                    // `(?n[id]: T) := (?m(id): (ty(id) -> t[id]))
+
                     // @temp: see if constant approx fixes this.
                     /*
                     let ty = self.term_vars[var].ty;
@@ -169,10 +176,14 @@ impl<'a> InferCtx<'a> {
                     let m_scope = lctx.lookup(id).parent;
                     let m = self.new_term_var(m_ty, m_scope);
 
-                    let val = self.alloc.mkt_apply(m, alloc.mkt_bound(BVar(offset)));
+                    let val = self.alloc.mkt_apply(m, alloc.mkt_local(id));
                     unsafe { self.assign_term(var, val) }
 
+                    let val = self.alloc.mkt_apply(m, alloc.mkt_bound(BVar(offset)));
                     return Some(val);
+                }
+                else {
+                    debug_assert!(!lctx.scope_contains(self.term_vars[var].scope, id));
                     */
                 }
             }
