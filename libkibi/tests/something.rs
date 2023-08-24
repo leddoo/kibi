@@ -8,12 +8,11 @@ use kibi::env::*;
 fn nat_add_elab() {
     let alloc = sti::arena::Arena::new();
 
-    // λ a b, Nat.rec(b, (λ _, Nat), a, (λ _ r, Nat.succ(r)))
+    // λ a b, Nat.rec((λ _, Nat), a, (λ _ r, Nat.succ(r)), b)
     let nat_add = &*
         alloc.mkt_lambda(0, Term::NAT,
         alloc.mkt_lambda(1, Term::NAT,
             alloc.mkt_apps(alloc.mkt_nat_rec(Level::L1), &[
-                alloc.mkt_bound(BVar(0)),
                 alloc.mkt_lambda(2, Term::NAT, Term::NAT),
                 alloc.mkt_bound(BVar(1)),
                 alloc.mkt_lambda(
@@ -25,6 +24,7 @@ fn nat_add_elab() {
                         alloc.mkt_apply(
                             Term::NAT_SUCC,
                             alloc.mkt_bound(BVar(0))))),
+                alloc.mkt_bound(BVar(0)),
             ])));
 
     let mut env = Env::new();
@@ -33,7 +33,7 @@ fn nat_add_elab() {
 
     let nat_add = {
         let input = "λ(a: Nat, b: Nat) =>
-            Nat::rec(b, λ(_: _) => _, a, λ(_: _, r: _) => Nat::succ(r))";
+            Nat::rec(λ(_: _) => _, a, λ(_: _, r: _) => Nat::succ(r), b)";
 
         let tokens = kibi::parser::Tokenizer::tokenize(input.as_bytes(), 0, &alloc);
 
@@ -44,9 +44,9 @@ fn nat_add_elab() {
         let (term, _) = elab.elab_expr(&ast).unwrap();
 
         let term = elab.tc().ictx.instantiate_term(term);
-
         assert!(elab.check_no_unassigned_variables().is_some());
 
+        let term = elab.tc().reduce_ex(term, false);
         assert!(term.syntax_eq(nat_add));
 
         term

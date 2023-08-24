@@ -11,31 +11,34 @@
 
 
 - todo:
-    - motive inference.
-        - extra args: if their type contains locals that are args to the motive.
-
-    - constant approx.
-
-    - implicit params.
-        - binder rework.
+    - everything on elab.
 
     - assign term robustness:
-        - lambda type check.
         - scope approx.
             - use common ancestor.
             - recursively check `other.ty` -> `ty`.
             - create fresh term var of `ty`.
             - assign to `other`.
+        - lambda type check.
 
-    - cleanup:
-        - `InferCtx::abstract_*`.
+    - motive inference.
+        - extra args: if their type contains locals that are args to the motive.
+        - overapplied.
+        - proper `abstract_def_eq`.
+
+    - major gc:
         - consider only returning term from elab.
+        - it's not great, what else could be improved?
+            - `Compiler`.
+            - term pp ergonomics.
+            - trace debugging.
 
-    - inference robustness:
-        - do term vars need a lctx?
-        - occurs check.
+    - implicit params.
+        - binder rework.
 
     - more expected type propagation?
+
+    - constant approx.
 
     - document inference.
 

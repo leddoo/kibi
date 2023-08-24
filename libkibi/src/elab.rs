@@ -614,24 +614,44 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 }
 
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ElimArgKind {
+    Motive,
+    Target,
+    Extra,
+    Postpone,
+}
+
 struct ElimInfo<'a> {
-    motive:  u32,
-    targets: &'a [u32],
+    motive: usize,
+    args: &'a [ElimArgKind],
 }
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     fn elim_info(&self, func: TermRef<'a>) -> Option<ElimInfo<'static>> {
         if let TermKind::NatRec(_) = func.kind {
             return Some(ElimInfo {
-                motive:  0,
-                targets: &[3],
+                motive: 0,
+                args: &[
+                    ElimArgKind::Motive,   // M
+                    ElimArgKind::Postpone, // m_zero
+                    ElimArgKind::Postpone, // m_succ
+                    ElimArgKind::Target,   // n
+                ],
             });
         }
 
         if let TermKind::EqRec(_, _) = func.kind {
             return Some(ElimInfo {
-                motive:  2,
-                targets: &[4],
+                motive: 2,
+                args: &[
+                    ElimArgKind::Postpone, // T
+                    ElimArgKind::Postpone, // a
+                    ElimArgKind::Motive,   // M
+                    ElimArgKind::Postpone, // m_refl
+                    ElimArgKind::Target,   // b
+                    ElimArgKind::Extra,    // mp
+                ],
             });
         }
 
@@ -647,7 +667,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     {
         let Some(info) = self.elim_info(func) else { return (None,) };
 
-        let motive_arg = &args[info.motive as usize];
+        let motive_arg = &args[info.motive];
         let expr::CallArg::Positional(motive_arg) = motive_arg else { unimplemented!() };
         let ExprKind::Hole = motive_arg.kind else { return (None,) };
 
@@ -657,38 +677,39 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         let mut arg_terms = Vec::with_cap(args.len());
 
-        let mut postponed = Vec::with_cap(args.len() - 1 - info.targets.len());
+        let mut postponed = Vec::with_cap(args.len());
 
         // apply args to func.
         // create vars for motive and non-target args.
         let mut result    = func;
         let mut result_ty = func_ty;
         for (i, arg) in args.iter().enumerate() {
-            let i = i as u32;
-
             let TermKind::Forall(b) = result_ty.kind else {
                 break;
             };
 
             let expr::CallArg::Positional(arg) = arg else { unimplemented!() };
 
-            let arg =
-                if i == info.motive {
+            let arg = match info.args[i] {
+                ElimArgKind::Motive => {
                     let var = self.new_term_var_of_type(b.ty);
                     motive = Some(var);
                     var
                 }
-                else if info.targets.contains(&i) {
+
+                ElimArgKind::Target | ElimArgKind::Extra => {
                     let Some((arg, _)) = self.elab_expr_checking_type(arg, Some(b.ty)) else {
                         return (Some(None),);
                     };
                     arg
                 }
-                else {
+
+                ElimArgKind::Postpone => {
                     let var = self.new_term_var_of_type(b.ty);
                     postponed.push((arg, var, b.ty));
                     var
-                };
+                }
+            };
             arg_terms.push(arg);
 
             result    = self.alloc.mkt_apply(result, arg);
@@ -734,12 +755,13 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         // create motive.
         let mut motive_val = expected_ty;
         let mut tc = self.tc();
-        for target in info.targets {
-            let target    = arg_terms[*target as usize];
-            let target_ty = tc.infer_type(target).unwrap();
-            //println!("abstract out {:?}", target);
-            let val = tc.abstract_eq(motive_val, target);
-            motive_val = tc.alloc.mkt_lambda(0, target_ty, val);
+        for (i, target) in arg_terms.iter().enumerate() {
+            if info.args[i] == ElimArgKind::Target {
+                let target_ty = tc.infer_type(target).unwrap();
+                //println!("abstract out {:?}", target);
+                let val = tc.abstract_eq(motive_val, target);
+                motive_val = tc.alloc.mkt_lambda(0, target_ty, val);
+            }
         }
 
         // assign.
