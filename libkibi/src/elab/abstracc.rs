@@ -17,12 +17,12 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
 
             if let TermKind::IVar(var) = at.kind {
-                if let Some(value) = self.term_value(var) {
+                if let Some(value) = var.value(self) {
                     return Some(self.abstracc_ex(value, id, offset));
                 }
 
                 // elim ivar if `id` in scope.
-                if self.term_scope(var) == id.some() {
+                if var.scope(self) == id.some() {
                     // `(?n[id]: T) := (?m(id): (ty(id) -> t[id]))
 
                     // @temp: see if constant approx fixes this.
@@ -34,7 +34,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     let m = self.new_term_var(m_ty, m_scope);
 
                     let val = self.alloc.mkt_apply(m, alloc.mkt_local(id));
-                    unsafe { self.assign_term(var, val) }
+                    unsafe { var.assign_core(val, self) }
 
                     let val = self.alloc.mkt_apply(m, alloc.mkt_bound(BVar(offset)));
                     return Some(val);

@@ -59,7 +59,7 @@ impl<'me, 'a> TermPP<'me, 'a> {
 
             LevelKind::IVar(var) => {
                 // @temp: sti string module.
-                self.pp.text(self.pp.alloc_str(&format!("?{}", var.value())))
+                self.pp.text(self.pp.alloc_str(&format!("?{}", var.inner())))
             }
         }
     }
@@ -90,7 +90,7 @@ impl<'me, 'a> TermPP<'me, 'a> {
 
             TermKind::Local(i) => {
                 // @temp: sti string module.
-                self.pp.text(self.pp.alloc_str(&format!("%{}", i.value())))
+                self.pp.text(self.pp.alloc_str(&format!("%{}", i.inner())))
             }
 
             TermKind::Global(g) => {
@@ -117,7 +117,7 @@ impl<'me, 'a> TermPP<'me, 'a> {
 
             TermKind::IVar(var) => {
                 // @temp: sti string module.
-                self.pp.text(self.pp.alloc_str(&format!("?{}", var.value())))
+                self.pp.text(self.pp.alloc_str(&format!("?{}", var.inner())))
             }
 
             TermKind::Forall(b) => {

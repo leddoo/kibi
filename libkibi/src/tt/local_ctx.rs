@@ -86,7 +86,7 @@ impl<'a> LocalCtx<'a> {
         }
     }
 
-    pub fn scope_contains(&self, scope: OptScopeId, local: ScopeId) -> bool {
+    pub fn local_in_scope(&self, local: ScopeId, scope: OptScopeId) -> bool {
         let mut curr = scope;
         while let Some(at) = curr.to_option() {
             if at == local {
@@ -95,6 +95,15 @@ impl<'a> LocalCtx<'a> {
             curr = self.scopes[at].parent;
         }
         return false;
+    }
+
+    pub fn all_locals_in_scope(&self, t: TermRef<'a>, scope: OptScopeId) -> bool {
+        t.find(|at, _| {
+            if let TermKind::Local(id) = at.kind {
+                return Some(!self.local_in_scope(id, scope));
+            }
+            None
+        }).is_none()
     }
 
 

@@ -9,13 +9,13 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         assert!(b.closed());
 
         // instantiate inference vars.
-        if let TermKind::IVar(id) = a.kind {
-            if let Some(a) = self.term_value(id) {
+        if let TermKind::IVar(var) = a.kind {
+            if let Some(a) = var.value(self) {
                 return self.def_eq_basic(a, b);
             }
         }
-        if let TermKind::IVar(id) = b.kind {
-            if let Some(b) = self.term_value(id) {
+        if let TermKind::IVar(var) = b.kind {
+            if let Some(b) = var.value(self) {
                 return self.def_eq_basic(a, b);
             }
         }
@@ -27,22 +27,22 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         if let Some((var, args)) = a.try_ivar_app() {
             // @mega@temp
-            if let Some(value) = self.term_value(var) {
+            if let Some(value) = var.value(self) {
                 let a = a.replace_app_fun(value, self.alloc);
                 return self.def_eq_basic(a, b);
             }
-            if let Some(result) = self.assign_term(var, &args, b) {
+            if let Some(result) = var.assign(&args, b, self) {
                 return Some(result);
             }
         }
 
         if let Some((var, args)) = b.try_ivar_app() {
             // @mega@temp
-            if let Some(value) = self.term_value(var) {
+            if let Some(value) = var.value(self) {
                 let b = b.replace_app_fun(value, self.alloc);
                 return self.def_eq_basic(a, b);
             }
-            if let Some(result) = self.assign_term(var, &args, a) {
+            if let Some(result) = var.assign(&args, a, self) {
                 return Some(result);
             }
         }

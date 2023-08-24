@@ -12,7 +12,6 @@
 
 - todo:
     - everything on elab.
-        - put var queries on var id types.
         - general naming cleanup pass.
 
     - assign term robustness:

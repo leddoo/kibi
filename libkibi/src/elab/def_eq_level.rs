@@ -5,7 +5,7 @@ use super::*;
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     pub fn level_def_eq(&mut self, a: LevelRef<'a>, b: LevelRef<'a>) -> bool {
-        if self.has_level_vars() {
+        if self.level_vars.len() > 0 {
             // we currently don't implement the proper level equivalence test.
             // instead we just do syntax eq + var assignment.
             // but that means, we need to instantiate all level vars first.
@@ -43,15 +43,15 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     return true;
                 }
 
-                self.assign_level(i1, b)
+                i1.assign(b, self)
             }
 
-            (IVar(id), _) => {
-                self.assign_level(id, b)
+            (IVar(i1), _) => {
+                i1.assign(b, self)
             }
 
-            (_, IVar(id)) => {
-                self.assign_level(id, a)
+            (_, IVar(i2)) => {
+                i2.assign(a, self)
             }
 
             _ => false,

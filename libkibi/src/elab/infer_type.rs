@@ -80,7 +80,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
 
             TermKind::IVar(var) => {
-                self.term_type(var)
+                var.ty(self)
             }
 
             TermKind::Lambda (b) => {

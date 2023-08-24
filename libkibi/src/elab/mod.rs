@@ -68,15 +68,15 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
     // @temp: `Compiler` rework.
     pub fn check_no_unassigned_variables(&self) -> Option<()> {
-        for var in self.level_var_ids() {
-            if self.level_value(var).is_none() {
+        for var in self.level_vars.range() {
+            if var.value(self).is_none() {
                 println!("{:?} unassigned", var);
                 return None;
             }
         }
 
-        for var in self.term_var_ids() {
-            if self.term_value(var).is_none() {
+        for var in self.term_vars.range() {
+            if var.value(self).is_none() {
                 println!("{:?} unassigned", var);
                 return None;
             }

@@ -51,8 +51,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 (e, false)
             }
 
-            TermKind::IVar(id) => {
-                if let Some(value) = self.term_value(id) {
+            TermKind::IVar(var) => {
+                if let Some(value) = var.value(self) {
                     self.whnf_basic(value)
                 }
                 else { (e, false) } // could get assigned, ig.

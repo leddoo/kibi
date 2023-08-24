@@ -1,5 +1,3 @@
-use sti::keyed::KRange;
-
 use crate::tt::*;
 use local_ctx::OptScopeId;
 
@@ -7,11 +5,13 @@ use super::*;
 
 
 sti::define_key!(u32, pub LevelVarId);
-sti::define_key!(u32, pub TermVarId);
 
 pub struct LevelVar<'a> {
     value: Option<LevelRef<'a>>,
 }
+
+
+sti::define_key!(u32, pub TermVarId);
 
 pub struct TermVar<'a> {
     scope: OptScopeId,
@@ -21,25 +21,6 @@ pub struct TermVar<'a> {
 
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
-    #[inline(always)]
-    pub fn level_var_ids(&self) -> KRange<LevelVarId> { self.level_vars.range() }
-
-    #[inline(always)]
-    pub fn term_var_ids(&self) -> KRange<TermVarId> { self.term_vars.range() }
-
-
-    #[inline(always)]
-    pub fn has_level_vars(&self) -> bool { self.level_vars.len() > 0 }
-
-    #[inline(always)]
-    pub fn has_term_vars(&self) -> bool { self.term_vars.len() > 0 }
-
-    #[inline(always)]
-    pub fn has_any_vars(&self) -> bool { self.has_level_vars() || self.has_term_vars() }
-
-
-    // levels.
-
     pub fn new_level_var_id(&mut self) -> LevelVarId {
         self.level_vars.push(LevelVar {
             value: None,
@@ -52,23 +33,6 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
 
-    #[inline(always)]
-    pub fn level_value(&self, id: LevelVarId) -> Option<LevelRef<'a>> {
-        self.level_vars[id].value
-    }
-
-    #[track_caller]
-    #[inline(always)]
-    pub unsafe fn assign_level_core(&mut self, id: LevelVarId, value: LevelRef<'a>) {
-        let entry = &mut self.level_vars[id];
-        assert!(entry.value.is_none());
-        entry.value = Some(value);
-    }
-
-
-
-    // terms.
-
     pub fn new_term_var_id(&mut self, ty: TermRef<'a>, scope: OptScopeId) -> TermVarId {
         self.term_vars.push(TermVar {
             scope,
@@ -80,31 +44,6 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     pub fn new_term_var_core(&mut self, ty: TermRef<'a>, scope: OptScopeId) -> TermRef<'a> {
         let id = self.new_term_var_id(ty, scope);
         self.alloc.mkt_ivar(id)
-    }
-
-    #[inline(always)]
-    pub fn term_scope(&self, id: TermVarId) -> OptScopeId {
-        self.term_vars[id].scope
-    }
-
-    #[inline(always)]
-    pub fn term_value(&self, id: TermVarId) -> Option<TermRef<'a>> {
-        self.term_vars[id].value
-    }
-
-    #[inline(always)]
-    pub fn term_type(&self, id: TermVarId) -> TermRef<'a> {
-        self.term_vars[id].ty
-    }
-
-    #[track_caller]
-    #[inline(always)]
-    pub unsafe fn assign_term_core(&mut self, id: TermVarId, value: TermRef<'a>) {
-        assert!(value.closed());
-
-        let entry = &mut self.term_vars[id];
-        assert!(entry.value.is_none());
-        entry.value = Some(value);
     }
 
     pub fn new_term_var_of_type(&mut self, ty: TermRef<'a>) -> TermRef<'a> {
@@ -123,36 +62,81 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let ty = self.alloc.mkt_sort(l);
         (self.new_term_var_core(ty, self.lctx.current()), l)
     }
+}
 
+
+impl LevelVarId {
+    #[inline(always)]
+    pub fn value<'a>(self, elab: &Elab<'_, '_, 'a>) -> Option<LevelRef<'a>> {
+        elab.level_vars[self].value
+    }
+
+
+    #[track_caller]
+    pub unsafe fn assign_core<'a>(self, value: LevelRef<'a>, elab: &mut Elab<'_, '_, 'a>) {
+        debug_assert!(self.value(elab).is_none());
+        elab.level_vars[self].value = Some(value);
+    }
+
+    #[track_caller]
     #[must_use]
-    pub fn assign_level(&mut self, var: LevelVarId, value: LevelRef<'a>) -> bool {
-        let value = self.instantiate_level(value);
+    pub fn assign<'a>(self, value: LevelRef<'a>, elab: &mut Elab<'_, '_, 'a>) -> bool {
+        let value = elab.instantiate_level(value);
 
         // occurs check.
         if value.find(|at| {
             if let LevelKind::IVar(id) = at.kind {
-                return Some(id == var);
+                return Some(id == self);
             }
             None
         }).is_some() {
             return false;
         }
 
-        unsafe { self.assign_level_core(var, value) }
+        unsafe { self.assign_core(value, elab) }
         return true;
+    }
+
+}
+
+impl TermVarId {
+    #[inline(always)]
+    pub fn scope(self, elab: &Elab) -> OptScopeId {
+        elab.term_vars[self].scope
+    }
+
+    #[inline(always)]
+    pub fn ty<'a>(self, elab: &Elab<'_, '_, 'a>) -> TermRef<'a> {
+        elab.term_vars[self].ty
+    }
+
+    #[inline(always)]
+    pub fn value<'a>(self, elab: &Elab<'_, '_, 'a>) -> Option<TermRef<'a>> {
+        elab.term_vars[self].value
+    }
+
+
+    #[track_caller]
+    #[inline(always)]
+    pub unsafe fn assign_core<'a>(self, value: TermRef<'a>, elab: &mut Elab<'_, '_, 'a>) {
+        debug_assert!(self.value(elab).is_none());
+        debug_assert!(value.closed());
+        debug_assert!(elab.lctx.all_locals_in_scope(value, self.scope(elab)));
+        debug_assert!(elab.all_term_vars_in_scope(value, self.scope(elab)));
+        elab.term_vars[self].value = Some(value);
     }
 
     // process `var(args) := value`
     #[must_use]
-    pub fn assign_term(&mut self, var: TermVarId, args: &[ScopeId], mut value: TermRef<'a>) -> Option<bool> {
+    pub fn assign<'a>(self, args: &[ScopeId], mut value: TermRef<'a>, elab: &mut Elab<'_, '_, 'a>) -> Option<bool> {
         //println!("{:?}({:?}) := {:?}", var, args, value);
 
         // abstract out `args`.
         for arg in args {
-            value = self.lctx.abstract_lambda(value, *arg);
+            value = elab.lctx.abstract_lambda(value, *arg);
         }
 
-        let Some(value) = self.check_value_for_assign(value, var) else {
+        let Some(value) = elab.check_value_for_assign(value, self) else {
             return (args.len() == 0).then_some(false);
         };
 
@@ -162,25 +146,41 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
 
         // type check.
-        let var_ty = self.term_type(var);
-        let value_ty = self.infer_type(value).unwrap();
-        if !self.def_eq(var_ty, value_ty) {
+        let var_ty = self.ty(elab);
+        let value_ty = elab.infer_type(value).unwrap();
+        if !elab.def_eq(var_ty, value_ty) {
             println!("type check failed");
             println!("{:?}", var_ty);
             println!("{:?}", value_ty);
             return Some(false);
         }
 
-        unsafe { self.assign_term_core(var, value) }
+        unsafe { self.assign_core(value, elab) }
         return Some(true);
+    }
+}
+
+
+impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
+    pub fn term_var_in_scope(&self, var: TermVarId, scope: OptScopeId) -> bool {
+        self.lctx.scope_is_prefix(scope, var.scope(self))
+    }
+
+    pub fn all_term_vars_in_scope(&self, t: TermRef<'a>, scope: OptScopeId) -> bool {
+        t.find(|at, _| {
+            if let TermKind::IVar(id) = at.kind {
+                return Some(!self.term_var_in_scope(id, scope));
+            }
+            None
+        }).is_none()
     }
 
     fn check_value_for_assign(&mut self, value: TermRef<'a>, var: TermVarId) -> Option<TermRef<'a>> {
         Some(match value.kind {
             TermKind::Local(id) => {
                 // scope check.
-                let scope = self.term_scope(var);
-                if !self.lctx.scope_contains(scope, id) {
+                let scope = var.scope(self);
+                if !self.lctx.local_in_scope(id, scope) {
                     println!("scope check failed (for local)");
                     return None;
                 }
@@ -190,7 +190,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
             TermKind::IVar(other) => {
                 // instantiate:
-                if let Some(value) = self.term_value(other) {
+                if let Some(value) = other.value(self) {
                     return self.check_value_for_assign(value, var);
                 }
 
@@ -201,8 +201,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 }
 
                 // scope check.
-                let var_scope   = self.term_scope(var);
-                let other_scope = self.term_scope(other);
+                let var_scope   = var.scope(self);
+                let other_scope = var.scope(self);
                 if !self.lctx.scope_is_prefix(other_scope, var_scope) {
                     // scope approx.
                     println!("scope check failed (for ivar)");
