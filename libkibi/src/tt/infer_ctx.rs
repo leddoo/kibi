@@ -146,6 +146,11 @@ impl<'a> InferCtx<'a> {
         })
     }
 
+    // @cleanup: put these in `elab/abstracc.rs`
+    // and ig instantiate goes into `elab/instantiate.rs`.
+    // ig then there's no reason to keep this struct around.
+    // esp cause most logic just doesn't live in here.
+    // it's not a thing!
 
     pub fn abstracc(&mut self, t: TermRef<'a>, id: ScopeId, lctx: &LocalCtx<'a>) -> TermRef<'a> {
         self.abstracc_ex(t, id, 0, lctx)
