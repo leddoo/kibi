@@ -9,10 +9,20 @@
     - user types.
     - macros.
 
+- backlog stuff:
+    - symbol table.
+    - trace debugging.
+    - interactivity.
+    - very basic tactics.
+    - mutual inductive.
+    - executable code.
+
 
 - todo:
-    - everything on elab.
-        - general naming cleanup pass.
+    - finish chores:
+
+    - motive inference.
+        - over/under-applied. just use some silly example.
 
     - assign term robustness:
         - scope approx.
@@ -22,36 +32,41 @@
             - assign to `other`.
         - lambda type check.
 
-    - motive inference.
-        - extra args: if their type contains locals that are args to the motive.
-        - overapplied.
-        - proper `abstract_def_eq`.
+    - binder names.
+        - `&str` on binders and in lctx. will be replaced by symbol table.
+        - use in term pp.
 
+    - syntax stuff:
+        - binder rework - nicer `lam`/`pi` syntax.
+        - `+`, `=`, `->`.
+
+    - axioms.
+
+    - named & implicit params.
+
+    - new milestone.
+
+
+- cleanup backlog;
     - major gc:
         - consider only returning term from elab.
+            - kinda sucks cause of repeated `infer_type`.
         - it's not great, what else could be improved?
             - `Compiler`.
             - term pp ergonomics.
             - trace debugging.
-
-    - implicit params.
-        - binder rework.
-
+    - proper `abstract_def_eq`.
+    - how to handle that lambda motive issue?
+        - does lean fail, if you set it up with that expected type?
     - more expected type propagation?
-
     - constant approx.
-
     - document inference.
-
     - type checking:
         - review tt rules & validate in `infer_type`.
         - run before insert into env.
-
     - `Compiler`.
         - and immutability.
-
     - pp opt.
-
     - `fib_iter`.
         - parse it.
         - elab it.

@@ -139,6 +139,10 @@ reduce Nat::add(1, 2)
                             ElabError::TypeExpected {..} => {
                                 println!("type expected.");
                             }
+
+                            ElabError::TooManyArgs => {
+                                println!("too many args.");
+                            }
                         }
                     }
                 }
@@ -230,6 +234,8 @@ reduce Nat::add(1, 2)
                                     println!("       {}", line);
                                 }
                             }
+
+                            ElabError::TooManyArgs => (),
                         }
                     }
                 }

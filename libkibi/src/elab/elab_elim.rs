@@ -29,9 +29,12 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         let motive_arg = &args[info.motive];
         let expr::CallArg::Positional(motive_arg) = motive_arg else { unimplemented!() };
-        let ExprKind::Hole = motive_arg.kind else { return (None,) };
+        let ExprKind::Hole = motive_arg.kind else {
+            //println!("motive not hole");
+            return (None,) 
+        };
 
-        //println!("!!! elab as elim");
+        //println!("!!! elab as elim {:?}", func);
 
         let mut motive = None;
 
@@ -77,6 +80,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
 
         let Some(motive) = motive else {
+            println!("no motive");
             return (Some(None),);
         };
 
@@ -92,6 +96,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
             while let TermKind::Forall(b) = result_ty.kind {
                 let Some(ex_b) = self.whnf_forall(expected_ty) else {
+                    println!("error");
                     return (Some(None),);
                 };
 
@@ -123,7 +128,14 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
         }
 
-        //println!("motive: {:?}", self.ictx.instantiate_term(motive_val));
+        if 0==1 {
+            let val = self.instantiate_term(motive_val);
+            let mut pp = TermPP::new(&self.env, self.alloc);
+            let val = pp.pp_term(val);
+            let val = pp.render(val, 50);
+            let val = val.layout_string();
+            println!("motive: {}", val);
+        }
 
         // assign.
         if !self.def_eq(motive, motive_val) {

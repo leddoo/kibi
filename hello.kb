@@ -13,10 +13,15 @@ def quick_maffs: Eq(_, Nat::add(2, 2), 4) := Eq::refl(_, 4)
 -- axiom ax_sorry.{l} (T: Sort(l)): T
 
 
+def Eq::symm.{t} (T: Sort(t), a: T, b: T): Pi(_: Eq(_, a, b)) -> Eq(_, b, a) :=
+    lam(heq: _) => Eq::rec(_, _, _, Eq::refl(_, _), _, heq)
+
+
 def congr_arg.{a, b} (A: Sort(a), B: Sort(b), a1: A, a2: A, f: Pi(_: A) -> B)
     : Pi (_: Eq(_, a1, a2)) -> Eq(_, f(a1), f(a2))
     := lam(heq: _) =>
         Eq::rec(_, _, _, Eq::refl(_, _), _, heq)
+
 
 
 def Nat::add_zero (n: Nat): Eq(_, Nat::add(n, 0), n) :=
@@ -27,6 +32,35 @@ def Nat::zero_add (n: Nat): Eq(_, Nat::add(0, n), n) :=
         Eq::refl(_, _),
         lam(n: _, ih: _) => congr_arg(_, _, _, _, _, ih),
         n)
+
+-- a.succ + b = (a + b).succ
+def Nat::succ_add (a: Nat, b: Nat)
+    : Eq(_, Nat::add(Nat::succ(a), b), Nat::succ(Nat::add(a, b)))
+    := Nat::rec(_,
+        Eq::refl(_, _),
+        lam(b: _, ih: _) => congr_arg(_, _, _, _, _, ih),
+        b)
+
+def Nat::add_comm (a: Nat, b: Nat): Eq(_, Nat::add(a, b), Nat::add(b, a)) :=
+    Nat::rec(_,
+        Eq::symm(_, _, _, Nat::zero_add(a)),
+        lam(b: _, ih: _) =>
+            -- expected type is app(lam, b.succ), which abstract_eq can't handle.
+            -- not sure how to deal with that.
+            (lam(x: Eq(_, Nat::add(a, Nat::succ(b)), Nat::add(Nat::succ(b), a))) => x)(
+                Eq::rec(_, _, _,
+                    congr_arg(_, _, _, _, Nat::succ, ih),
+                    _,
+                    Eq::symm(_, _, _, Nat::succ_add(b, a)))
+            ),
+        b)
+
+def Nat::add_assoc (a: Nat, b: Nat, c: Nat)
+    : Eq(_, Nat::add(Nat::add(a, b), c), Nat::add(a, Nat::add(b, c)))
+    := Nat::rec(_,
+        Eq::refl(_, _),
+        lam(c: _, ih: _) => congr_arg(_, _, _, _, Nat::succ, ih),
+        c)
 
 
 -- yeah, don't uncomment that...

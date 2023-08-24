@@ -73,6 +73,7 @@ impl LevelVarId {
 
 
     #[track_caller]
+    #[inline]
     pub unsafe fn assign_core<'a>(self, value: LevelRef<'a>, elab: &mut Elab<'_, '_, 'a>) {
         debug_assert!(self.value(elab).is_none());
         elab.level_vars[self].value = Some(value);
@@ -117,7 +118,7 @@ impl TermVarId {
 
 
     #[track_caller]
-    #[inline(always)]
+    #[inline]
     pub unsafe fn assign_core<'a>(self, value: TermRef<'a>, elab: &mut Elab<'_, '_, 'a>) {
         debug_assert!(self.value(elab).is_none());
         debug_assert!(value.closed());

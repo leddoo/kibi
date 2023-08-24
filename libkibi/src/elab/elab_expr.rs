@@ -15,12 +15,14 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         if let Some(expected) = expected_ty {
             if !self.def_eq(ty, expected) {
+                let expected = self.instantiate_term(expected);
+                let ty       = self.instantiate_term(ty);
                 let expected = self.reduce_ex(expected, false);
                 let ty       = self.reduce_ex(ty, false);
                 self.error(expr.source, |alloc| {
                     let mut pp = TermPP::new(self.env, alloc);
-                    let expected = pp.pp_term(self.instantiate_term(expected));
-                    let found    = pp.pp_term(self.instantiate_term(ty));
+                    let expected = pp.pp_term(expected);
+                    let found    = pp.pp_term(ty);
                     ElabError::TypeMismatch { expected, found }
                 });
                 return None;
@@ -190,6 +192,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     let expr::CallArg::Positional(arg) = arg else { unimplemented!() };
 
                     let Some(b) = self.whnf_forall(result_ty) else {
+                        self.error(expr.source, |_| { ElabError::TooManyArgs });
                         return None;
                     };
 

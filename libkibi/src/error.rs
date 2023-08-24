@@ -44,6 +44,7 @@ pub enum ElabError<'a> {
     LevelMismatch { expected: u32, found: u32 },
     TypeMismatch { expected: DocRef<'a>, found: DocRef<'a> },
     TypeExpected { found: DocRef<'a> },
+    TooManyArgs,
 }
 
 
