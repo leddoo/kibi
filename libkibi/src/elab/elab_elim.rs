@@ -1,3 +1,6 @@
+use crate::ast::*;
+use crate::tt::*;
+
 use super::*;
 
 
@@ -88,7 +91,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             let old_scope = self.lctx.current;
 
             while let TermKind::Forall(b) = result_ty.kind {
-                let Some(ex_b) = self.tc().whnf_forall(expected_ty) else {
+                let Some(ex_b) = self.whnf_forall(expected_ty) else {
                     return (Some(None),);
                 };
 
@@ -111,23 +114,22 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         // create motive.
         let mut motive_val = expected_ty;
-        let mut tc = self.tc();
         for (i, target) in arg_terms.iter().enumerate() {
             if info.args[i] == ElimArgKind::Target {
-                let target_ty = tc.infer_type(target).unwrap();
+                let target_ty = self.infer_type(target).unwrap();
                 //println!("abstract out {:?}", target);
-                let val = tc.abstract_eq(motive_val, target);
-                motive_val = tc.alloc.mkt_lambda(0, target_ty, val);
+                let val = self.abstract_eq(motive_val, target);
+                motive_val = self.alloc.mkt_lambda(0, target_ty, val);
             }
         }
 
+        //println!("motive: {:?}", self.ictx.instantiate_term(motive_val));
+
         // assign.
-        if !tc.def_eq(motive, motive_val) {
+        if !self.def_eq(motive, motive_val) {
             println!("motive failed");
             return (Some(None),);
         }
-
-        //println!("motive: {:?}", self.ictx.instantiate_term(motive_val));
 
         if arg_terms.len() != args.len() {
             unimplemented!()
@@ -139,7 +141,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 return (Some(None),);
             };
 
-            if !self.tc().def_eq(var, arg) {
+            if !self.def_eq(var, arg) {
                 println!("arg failed");
                 return (Some(None),);
             }

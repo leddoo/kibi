@@ -2,8 +2,8 @@ use sti::arena::Arena;
 use sti::vec::Vec;
 
 use crate::error::*;
-use crate::ast::{self, *};
-use crate::tt::{self, *};
+use crate::ast::SourceRange;
+use crate::tt::{ScopeId, LocalCtx, InferCtx};
 use crate::env::*;
 
 
@@ -14,17 +14,23 @@ pub struct Elab<'me, 'err, 'a> {
 
     root_symbol: SymbolId,
 
-    lctx: LocalCtx<'a>,
-    locals: Vec<(&'a str, ScopeId)>,
     level_vars: Vec<&'a str>,
 
-    ictx: InferCtx<'a>,
+    lctx: LocalCtx<'a>,
+    locals: Vec<(&'a str, ScopeId)>,
+
+    // @temp
+    pub ictx: InferCtx<'a>,
 }
 
 
 mod ivars;
+mod abstracc;
+mod instantiate;
+mod whnf;
 mod infer_type;
-mod def_eq;
+mod def_eq_level;
+mod def_eq_term;
 mod elab_symbol;
 mod elab_level;
 mod elab_expr;
@@ -53,11 +59,6 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
     // @mega@temp below this line.
-
-    #[inline(always)]
-    pub fn tc(&mut self) -> TyCtx<'_, 'a> {
-        TyCtx::new(&mut self.lctx, &mut self.ictx, self.env, self.alloc)
-    }
 
     // @temp: `Compiler` rework.
     pub fn check_no_unassigned_variables(&self) -> Option<()> {

@@ -43,10 +43,10 @@ fn nat_add_elab() {
         let mut elab = kibi::elab::Elab::new(&mut env, SymbolId::ROOT, &errors, &alloc);
         let (term, _) = elab.elab_expr(&ast).unwrap();
 
-        let term = elab.tc().ictx.instantiate_term(term);
+        let term = elab.ictx.instantiate_term(term);
         assert!(elab.check_no_unassigned_variables().is_some());
 
-        let term = elab.tc().reduce_ex(term, false);
+        let term = elab.reduce_ex(term, false);
         assert!(term.syntax_eq(nat_add));
 
         term
@@ -60,13 +60,10 @@ fn nat_add_elab() {
 
     let n3_add = alloc.mkt_apps(nat_add, &[n1, n2]);
 
-    let mut lctx = LocalCtx::new(&alloc);
-    let mut ictx = InferCtx::new(&alloc);
-    let mut tc = TyCtx::new(&mut lctx, &mut ictx, &env, &alloc);
+    let mut elab = kibi::elab::Elab::new(&mut env, SymbolId::ROOT, &errors, &alloc);
+    assert!(elab.reduce(n3_add).syntax_eq(n3));
 
-    assert!(tc.reduce(n3_add).syntax_eq(n3));
-
-    let n3_ty = tc.infer_type(n3_add).unwrap();
-    assert!(tc.whnf(n3_ty).syntax_eq(Term::NAT));
+    let n3_ty = elab.infer_type(n3_add).unwrap();
+    assert!(elab.whnf(n3_ty).syntax_eq(Term::NAT));
 }
 

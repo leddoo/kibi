@@ -63,7 +63,7 @@ reduce Nat::add(1, 2)
 
             ItemKind::Reduce(expr) => {
                 let Some((term, _)) = elab.elab_expr(expr) else { break };
-                let r = elab.tc().reduce(term);
+                let r = elab.reduce(term);
                 work_dt += t0.elapsed();
 
                 let mut pp = TermPP::new(&elab.env, &arena);

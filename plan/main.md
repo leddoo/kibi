@@ -12,6 +12,7 @@
 
 - todo:
     - everything on elab.
+        - completely remove `InferCtx`.
 
     - assign term robustness:
         - scope approx.

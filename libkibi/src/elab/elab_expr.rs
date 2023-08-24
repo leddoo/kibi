@@ -1,3 +1,6 @@
+use crate::ast::*;
+use crate::tt::{self, *};
+
 use super::*;
 
 
@@ -11,10 +14,9 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let (term, ty) = self.elab_expr_ex(expr, expected_ty)?;
 
         if let Some(expected) = expected_ty {
-            let mut tc = self.tc();
-            if !tc.def_eq(ty, expected) {
-                let expected = tc.reduce_ex(expected, false);
-                let ty       = tc.reduce_ex(ty, false);
+            if !self.def_eq(ty, expected) {
+                let expected = self.reduce_ex(expected, false);
+                let ty       = self.reduce_ex(ty, false);
                 self.error(expr.source, |alloc| {
                     let mut pp = TermPP::new(self.env, alloc);
                     let expected = pp.pp_term(self.ictx.instantiate_term(expected));
@@ -31,13 +33,13 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     pub fn elab_expr_as_type(&mut self, expr: &Expr<'a>) -> Option<(TermRef<'a>, tt::LevelRef<'a>)> {
         let (term, ty) = self.elab_expr_ex(expr, None)?;
 
-        let ty = self.tc().whnf(ty);
+        let ty = self.whnf(ty);
         if let TermKind::Sort(l) = ty.kind {
             return Some((term, l));
         }
 
         let (ty_var, l) = self.new_ty_var();
-        if self.tc().def_eq(term, ty_var) {
+        if self.def_eq(term, ty_var) {
             return Some((ty_var, l));
         }
 
@@ -142,9 +144,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     self.locals.push((name, id));
 
                     if let Some(expected) = expected_ty {
-                        let mut tc = self.tc();
-                        if let Some(b) = tc.whnf_forall(expected) {
-                            if tc.def_eq(ty, b.ty) {
+                        if let Some(b) = self.whnf_forall(expected) {
+                            if self.def_eq(ty, b.ty) {
                                 expected_ty = Some(
                                     b.val.instantiate(
                                         self.alloc.mkt_local(id), self.alloc));
@@ -188,7 +189,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 for arg in it.args.iter() {
                     let expr::CallArg::Positional(arg) = arg else { unimplemented!() };
 
-                    let Some(b) = self.tc().whnf_forall(result_ty) else {
+                    let Some(b) = self.whnf_forall(result_ty) else {
                         return None;
                     };
 
