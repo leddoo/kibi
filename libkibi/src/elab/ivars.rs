@@ -163,13 +163,13 @@ impl TermVarId {
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     pub fn term_var_in_scope(&self, var: TermVarId, scope: OptScopeId) -> bool {
-        self.lctx.scope_is_prefix(scope, var.scope(self))
+        self.lctx.scope_is_prefix(var.scope(self), scope)
     }
 
     pub fn all_term_vars_in_scope(&self, t: TermRef<'a>, scope: OptScopeId) -> bool {
         t.find(|at, _| {
-            if let TermKind::IVar(id) = at.kind {
-                return Some(!self.term_var_in_scope(id, scope));
+            if let TermKind::IVar(var) = at.kind {
+                return Some(!self.term_var_in_scope(var, scope));
             }
             None
         }).is_none()
@@ -201,9 +201,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 }
 
                 // scope check.
-                let var_scope   = var.scope(self);
-                let other_scope = var.scope(self);
-                if !self.lctx.scope_is_prefix(other_scope, var_scope) {
+                if !self.term_var_in_scope(other, var.scope(self)) {
                     // scope approx.
                     println!("scope check failed (for ivar)");
                     println!("@todo");
