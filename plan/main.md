@@ -12,7 +12,8 @@
 
 - todo:
     - everything on elab.
-        - completely remove `InferCtx`.
+        - put var queries on var id types.
+        - general naming cleanup pass.
 
     - assign term robustness:
         - scope approx.

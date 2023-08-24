@@ -86,7 +86,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
                     symbol::BuiltIn::NatRec => {
                         let r = if levels.len() == 0 {
-                            self.ictx.new_level_var()
+                            self.new_level_var()
                         }
                         else {
                             if levels.len() != 1 {
@@ -104,7 +104,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
                     symbol::BuiltIn::Eq => {
                         let l = if levels.len() == 0 {
-                            self.ictx.new_level_var()
+                            self.new_level_var()
                         }
                         else {
                             if levels.len() != 1 {
@@ -122,7 +122,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
                     symbol::BuiltIn::EqRefl => {
                         let l = if levels.len() == 0 {
-                            self.ictx.new_level_var()
+                            self.new_level_var()
                         }
                         else {
                             if levels.len() != 1 {
@@ -140,8 +140,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
                     symbol::BuiltIn::EqRec => {
                         let (l, r) = if levels.len() == 0 {
-                            (self.ictx.new_level_var(),
-                             self.ictx.new_level_var())
+                            (self.new_level_var(),
+                             self.new_level_var())
                         }
                         else {
                             if levels.len() != 2 {
@@ -166,7 +166,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 let levels = if levels.len() == 0 {
                     let mut ls = Vec::with_cap_in(num_levels, self.alloc);
                     for _ in 0..num_levels {
-                        ls.push(self.ictx.new_level_var());
+                        ls.push(self.new_level_var());
                     }
                     ls.leak()
                 }

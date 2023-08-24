@@ -1,9 +1,10 @@
 use sti::arena::Arena;
 use sti::vec::Vec;
+use sti::keyed::KVec;
 
 use crate::error::*;
 use crate::ast::SourceRange;
-use crate::tt::{ScopeId, LocalCtx, InferCtx};
+use crate::tt::{ScopeId, LocalCtx};
 use crate::env::*;
 
 
@@ -14,13 +15,13 @@ pub struct Elab<'me, 'err, 'a> {
 
     root_symbol: SymbolId,
 
-    level_vars: Vec<&'a str>,
+    level_params: Vec<&'a str>,
 
     lctx: LocalCtx<'a>,
     locals: Vec<(&'a str, ScopeId)>,
 
-    // @temp
-    pub ictx: InferCtx<'a>,
+    level_vars: KVec<LevelVarId, ivars::LevelVar<'a>>,
+    term_vars:  KVec<TermVarId,  ivars::TermVar<'a>>,
 }
 
 
@@ -31,11 +32,15 @@ mod whnf;
 mod infer_type;
 mod def_eq_level;
 mod def_eq_term;
+mod abstracc_eq;
 mod elab_symbol;
 mod elab_level;
 mod elab_expr;
 mod elab_elim;
 mod elab_def;
+
+
+pub use ivars::{LevelVarId, TermVarId};
 
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
@@ -47,8 +52,9 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             root_symbol,
             lctx: LocalCtx::new(alloc),
             locals: Vec::new(),
-            level_vars: Vec::new(),
-            ictx: InferCtx::new(alloc),
+            level_params: Vec::new(),
+            level_vars: KVec::new(),
+            term_vars: KVec::new(),
         }
     }
 
@@ -62,15 +68,15 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
     // @temp: `Compiler` rework.
     pub fn check_no_unassigned_variables(&self) -> Option<()> {
-        for var in self.ictx.level_ids() {
-            if self.ictx.level_value(var).is_none() {
+        for var in self.level_var_ids() {
+            if self.level_value(var).is_none() {
                 println!("{:?} unassigned", var);
                 return None;
             }
         }
 
-        for var in self.ictx.term_ids() {
-            if self.ictx.term_value(var).is_none() {
+        for var in self.term_var_ids() {
+            if self.term_value(var).is_none() {
                 println!("{:?} unassigned", var);
                 return None;
             }

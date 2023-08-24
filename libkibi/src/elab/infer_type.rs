@@ -80,7 +80,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
 
             TermKind::IVar(var) => {
-                self.ictx.term_type(var)
+                self.term_type(var)
             }
 
             TermKind::Lambda (b) => {

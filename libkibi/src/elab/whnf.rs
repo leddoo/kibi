@@ -52,7 +52,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
 
             TermKind::IVar(id) => {
-                if let Some(value) = self.ictx.term_value(id) {
+                if let Some(value) = self.term_value(id) {
                     self.whnf_basic(value)
                 }
                 else { (e, false) } // could get assigned, ig.

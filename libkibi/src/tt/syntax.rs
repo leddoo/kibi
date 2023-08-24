@@ -1,9 +1,10 @@
 use sti::arena::Arena;
 use sti::vec::Vec;
 
-pub use super::local_ctx::ScopeId;
-pub use super::infer_ctx::{LevelVarId, TermVarId};
+pub use crate::elab::{LevelVarId, TermVarId};
 pub use crate::env::SymbolId;
+
+pub use super::local_ctx::ScopeId;
 
 
 pub type LevelRef<'a> = &'a Level<'a>;

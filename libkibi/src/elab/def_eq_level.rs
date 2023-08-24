@@ -5,14 +5,14 @@ use super::*;
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     pub fn level_def_eq(&mut self, a: LevelRef<'a>, b: LevelRef<'a>) -> bool {
-        if self.ictx.has_level_vars() {
+        if self.has_level_vars() {
             // we currently don't implement the proper level equivalence test.
             // instead we just do syntax eq + var assignment.
             // but that means, we need to instantiate all level vars first.
             // eg: `max(?v, 0) =?= 0` fails even if `?v = 0`,
             // because `max` and `0` are not syntactically equal.
-            let a = self.ictx.instantiate_level(a);
-            let b = self.ictx.instantiate_level(b);
+            let a = self.instantiate_level(a);
+            let b = self.instantiate_level(b);
             self.level_def_eq_basic(a, b)
         }
         else {

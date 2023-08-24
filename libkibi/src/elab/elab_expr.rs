@@ -19,8 +19,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 let ty       = self.reduce_ex(ty, false);
                 self.error(expr.source, |alloc| {
                     let mut pp = TermPP::new(self.env, alloc);
-                    let expected = pp.pp_term(self.ictx.instantiate_term(expected));
-                    let found    = pp.pp_term(self.ictx.instantiate_term(ty));
+                    let expected = pp.pp_term(self.instantiate_term(expected));
+                    let found    = pp.pp_term(self.instantiate_term(ty));
                     ElabError::TypeMismatch { expected, found }
                 });
                 return None;
@@ -124,7 +124,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 assert_eq!(self.locals.len(), locals_end);
                 for i in (locals_begin..locals_end).rev() {
                     let (_, id) = self.locals[i];
-                    result = self.ictx.mk_binder(result, id, true, &self.lctx);
+                    result = self.mk_binder(result, id, true);
                     self.lctx.pop(id);
                 }
                 self.locals.truncate(locals_begin);
@@ -162,8 +162,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 assert_eq!(self.locals.len(), locals_end);
                 for i in (locals_begin..locals_end).rev() {
                     let (_, id) = self.locals[i];
-                    result    = self.ictx.mk_binder(result,    id, false, &self.lctx);
-                    result_ty = self.ictx.mk_binder(result_ty, id, true,  &self.lctx);
+                    result    = self.mk_binder(result,    id, false);
+                    result_ty = self.mk_binder(result_ty, id, true);
                     self.lctx.pop(id);
                 }
                 self.locals.truncate(locals_begin);

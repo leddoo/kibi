@@ -10,12 +10,12 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         // instantiate inference vars.
         if let TermKind::IVar(id) = a.kind {
-            if let Some(a) = self.ictx.term_value(id) {
+            if let Some(a) = self.term_value(id) {
                 return self.def_eq_basic(a, b);
             }
         }
         if let TermKind::IVar(id) = b.kind {
-            if let Some(b) = self.ictx.term_value(id) {
+            if let Some(b) = self.term_value(id) {
                 return self.def_eq_basic(a, b);
             }
         }
@@ -27,7 +27,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         if let Some((var, args)) = a.try_ivar_app() {
             // @mega@temp
-            if let Some(value) = self.ictx.term_value(var) {
+            if let Some(value) = self.term_value(var) {
                 let a = a.replace_app_fun(value, self.alloc);
                 return self.def_eq_basic(a, b);
             }
@@ -38,7 +38,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         if let Some((var, args)) = b.try_ivar_app() {
             // @mega@temp
-            if let Some(value) = self.ictx.term_value(var) {
+            if let Some(value) = self.term_value(var) {
                 let b = b.replace_app_fun(value, self.alloc);
                 return self.def_eq_basic(a, b);
             }

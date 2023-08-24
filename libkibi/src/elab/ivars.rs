@@ -1,29 +1,132 @@
+use sti::keyed::KRange;
+
 use crate::tt::*;
+use local_ctx::OptScopeId;
 
 use super::*;
 
 
+sti::define_key!(u32, pub LevelVarId);
+sti::define_key!(u32, pub TermVarId);
+
+pub struct LevelVar<'a> {
+    value: Option<LevelRef<'a>>,
+}
+
+pub struct TermVar<'a> {
+    scope: OptScopeId,
+    ty: TermRef<'a>,
+    value: Option<TermRef<'a>>,
+}
+
+
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
+    #[inline(always)]
+    pub fn level_var_ids(&self) -> KRange<LevelVarId> { self.level_vars.range() }
+
+    #[inline(always)]
+    pub fn term_var_ids(&self) -> KRange<TermVarId> { self.term_vars.range() }
+
+
+    #[inline(always)]
+    pub fn has_level_vars(&self) -> bool { self.level_vars.len() > 0 }
+
+    #[inline(always)]
+    pub fn has_term_vars(&self) -> bool { self.term_vars.len() > 0 }
+
+    #[inline(always)]
+    pub fn has_any_vars(&self) -> bool { self.has_level_vars() || self.has_term_vars() }
+
+
+    // levels.
+
+    pub fn new_level_var_id(&mut self) -> LevelVarId {
+        self.level_vars.push(LevelVar {
+            value: None,
+        })
+    }
+
+    pub fn new_level_var(&mut self) -> LevelRef<'a> {
+        let id = self.new_level_var_id();
+        self.alloc.mkl_ivar(id)
+    }
+
+
+    #[inline(always)]
+    pub fn level_value(&self, id: LevelVarId) -> Option<LevelRef<'a>> {
+        self.level_vars[id].value
+    }
+
+    #[track_caller]
+    #[inline(always)]
+    pub unsafe fn assign_level_core(&mut self, id: LevelVarId, value: LevelRef<'a>) {
+        let entry = &mut self.level_vars[id];
+        assert!(entry.value.is_none());
+        entry.value = Some(value);
+    }
+
+
+
+    // terms.
+
+    pub fn new_term_var_id(&mut self, ty: TermRef<'a>, scope: OptScopeId) -> TermVarId {
+        self.term_vars.push(TermVar {
+            scope,
+            ty,
+            value: None,
+        })
+    }
+
+    pub fn new_term_var_core(&mut self, ty: TermRef<'a>, scope: OptScopeId) -> TermRef<'a> {
+        let id = self.new_term_var_id(ty, scope);
+        self.alloc.mkt_ivar(id)
+    }
+
+    #[inline(always)]
+    pub fn term_scope(&self, id: TermVarId) -> OptScopeId {
+        self.term_vars[id].scope
+    }
+
+    #[inline(always)]
+    pub fn term_value(&self, id: TermVarId) -> Option<TermRef<'a>> {
+        self.term_vars[id].value
+    }
+
+    #[inline(always)]
+    pub fn term_type(&self, id: TermVarId) -> TermRef<'a> {
+        self.term_vars[id].ty
+    }
+
+    #[track_caller]
+    #[inline(always)]
+    pub unsafe fn assign_term_core(&mut self, id: TermVarId, value: TermRef<'a>) {
+        assert!(value.closed());
+
+        let entry = &mut self.term_vars[id];
+        assert!(entry.value.is_none());
+        entry.value = Some(value);
+    }
+
     pub fn new_term_var_of_type(&mut self, ty: TermRef<'a>) -> TermRef<'a> {
-        self.ictx.new_term_var(ty, self.lctx.current())
+        self.new_term_var_core(ty, self.lctx.current())
     }
 
     pub fn new_term_var(&mut self) -> (TermRef<'a>, TermRef<'a>) {
-        let l = self.ictx.new_level_var();
+        let l = self.new_level_var();
         let tyty = self.alloc.mkt_sort(l);
-        let ty = self.ictx.new_term_var(tyty, self.lctx.current());
-        (self.ictx.new_term_var(ty, self.lctx.current()), ty)
+        let ty = self.new_term_var_core(tyty, self.lctx.current());
+        (self.new_term_var_core(ty, self.lctx.current()), ty)
     }
 
     pub fn new_ty_var(&mut self) -> (TermRef<'a>, LevelRef<'a>) {
-        let l = self.ictx.new_level_var();
+        let l = self.new_level_var();
         let ty = self.alloc.mkt_sort(l);
-        (self.ictx.new_term_var(ty, self.lctx.current()), l)
+        (self.new_term_var_core(ty, self.lctx.current()), l)
     }
 
     #[must_use]
     pub fn assign_level(&mut self, var: LevelVarId, value: LevelRef<'a>) -> bool {
-        let value = self.ictx.instantiate_level(value);
+        let value = self.instantiate_level(value);
 
         // occurs check.
         if value.find(|at| {
@@ -35,7 +138,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             return false;
         }
 
-        unsafe { self.ictx.assign_level(var, value) }
+        unsafe { self.assign_level_core(var, value) }
         return true;
     }
 
@@ -59,7 +162,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
 
         // type check.
-        let var_ty = self.ictx.term_type(var);
+        let var_ty = self.term_type(var);
         let value_ty = self.infer_type(value).unwrap();
         if !self.def_eq(var_ty, value_ty) {
             println!("type check failed");
@@ -68,7 +171,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             return Some(false);
         }
 
-        unsafe { self.ictx.assign_term(var, value) }
+        unsafe { self.assign_term_core(var, value) }
         return Some(true);
     }
 
@@ -76,7 +179,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         Some(match value.kind {
             TermKind::Local(id) => {
                 // scope check.
-                let scope = self.ictx.term_scope(var);
+                let scope = self.term_scope(var);
                 if !self.lctx.scope_contains(scope, id) {
                     println!("scope check failed (for local)");
                     return None;
@@ -87,7 +190,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
             TermKind::IVar(other) => {
                 // instantiate:
-                if let Some(value) = self.ictx.term_value(other) {
+                if let Some(value) = self.term_value(other) {
                     return self.check_value_for_assign(value, var);
                 }
 
@@ -98,8 +201,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 }
 
                 // scope check.
-                let var_scope   = self.ictx.term_scope(var);
-                let other_scope = self.ictx.term_scope(other);
+                let var_scope   = self.term_scope(var);
+                let other_scope = self.term_scope(other);
                 if !self.lctx.scope_is_prefix(other_scope, var_scope) {
                     // scope approx.
                     println!("scope check failed (for ivar)");
@@ -127,6 +230,5 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 value,
         })
     }
-
 }
 

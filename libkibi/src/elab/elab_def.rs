@@ -7,10 +7,10 @@ use super::*;
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     pub fn elab_def(&mut self, def: &item::Def<'a>) -> Option<SymbolId> {
         assert_eq!(self.locals.len(), 0);
-        assert_eq!(self.level_vars.len(), 0);
+        assert_eq!(self.level_params.len(), 0);
 
         for level in def.levels {
-            self.level_vars.push(level);
+            self.level_params.push(level);
         }
 
         // @cleanup: elab_binders.
@@ -34,17 +34,17 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let mut ty = ty.unwrap_or(val_ty);
 
         for (_, id) in self.locals.iter().copied().rev() {
-            ty  = self.ictx.mk_binder(ty,  id, true,  &self.lctx);
-            val = self.ictx.mk_binder(val, id, false, &self.lctx);
+            ty  = self.mk_binder(ty,  id, true);
+            val = self.mk_binder(val, id, false);
         }
 
         if self.locals.len() == 0 {
-            ty  = self.ictx.instantiate_term(ty);
-            val = self.ictx.instantiate_term(val);
+            ty  = self.instantiate_term(ty);
+            val = self.instantiate_term(val);
         }
 
-        debug_assert!(ty.syntax_eq(self.ictx.instantiate_term(ty)));
-        debug_assert!(val.syntax_eq(self.ictx.instantiate_term(val)));
+        debug_assert!(ty.syntax_eq(self.instantiate_term(ty)));
+        debug_assert!(val.syntax_eq(self.instantiate_term(val)));
 
         let (parent, name) = match &def.name {
             IdentOrPath::Ident(name) => (self.root_symbol, *name),
@@ -59,8 +59,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         if !ty.closed() || !val.closed() || ty.has_locals() || val.has_locals() {
             let mut pp = TermPP::new(self.env, self.alloc);
-            let ty  = pp.pp_term(self.ictx.instantiate_term(ty));
-            let val = pp.pp_term(self.ictx.instantiate_term(val));
+            let ty  = pp.pp_term(self.instantiate_term(ty));
+            let val = pp.pp_term(self.instantiate_term(val));
             println!("{}", pp.render(ty,  50).layout_string());
             println!("{}", pp.render(val, 50).layout_string());
         }
@@ -74,8 +74,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         if ty.has_ivars() || val.has_ivars() {
             println!("unresolved inference variables");
             let mut pp = TermPP::new(self.env, self.alloc);
-            let ty  = self.ictx.instantiate_term(ty);
-            let val = self.ictx.instantiate_term(val);
+            let ty  = self.instantiate_term(ty);
+            let val = self.instantiate_term(val);
             let ty  = pp.pp_term(ty);
             let val = pp.pp_term(val);
             println!("{}", pp.render(ty,  50).layout_string());
