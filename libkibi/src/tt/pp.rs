@@ -25,10 +25,10 @@ impl<'me, 'a> TermPP<'me, 'a> {
         self.pp.alloc_str(&self.strings[atom])
     }
 
-    pub fn pp_level(&mut self, l: LevelRef) -> DocRef<'a> {
+    pub fn pp_level(&mut self, l: Level) -> DocRef<'a> {
         let (l, offset) = l.to_offset();
 
-        match l.data {
+        match l.data() {
             LevelData::Zero => {
                 // @temp: sti string module.
                 self.pp.text(self.pp.alloc_str(&format!("{offset}")))

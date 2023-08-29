@@ -4,7 +4,7 @@ use super::*;
 
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
-    pub fn level_def_eq(&mut self, a: LevelRef<'a>, b: LevelRef<'a>) -> bool {
+    pub fn level_def_eq(&mut self, a: Level<'a>, b: Level<'a>) -> bool {
         if self.level_vars.len() > 0 {
             // we currently don't implement the proper level equivalence test.
             // instead we just do syntax eq + var assignment.
@@ -20,13 +20,13 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
     }
 
-    pub fn level_def_eq_basic(&mut self, a: LevelRef<'a>, b: LevelRef<'a>) -> bool {
+    pub fn level_def_eq_basic(&mut self, a: Level<'a>, b: Level<'a>) -> bool {
         if a.syntax_eq(b) {
             return true;
         }
 
         use LevelData::*;
-        match (a.data, b.data) {
+        match (a.data(), b.data()) {
             (Zero, Zero) =>
                 true,
 
@@ -63,7 +63,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             return false;
         }
         for i in 0..a.len() {
-            if !self.level_def_eq(&a[i], &b[i]) {
+            if !self.level_def_eq(a[i], b[i]) {
                 return false;
             }
         }

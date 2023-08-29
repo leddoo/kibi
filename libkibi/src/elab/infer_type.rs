@@ -44,26 +44,26 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
                             symbol::BuiltIn::NatRec => {
                                 debug_assert_eq!(g.levels.len(), 1);
-                                let r = &g.levels[0];
+                                let r = g.levels[0];
                                 self.alloc.mkt_nat_rec_ty(r)
                             }
 
                             symbol::BuiltIn::Eq => {
                                 debug_assert_eq!(g.levels.len(), 1);
-                                let l = &g.levels[0];
+                                let l = g.levels[0];
                                 self.alloc.mkt_eq_ty(l)
                             }
 
                             symbol::BuiltIn::EqRefl => {
                                 debug_assert_eq!(g.levels.len(), 1);
-                                let l = &g.levels[0];
+                                let l = g.levels[0];
                                 self.alloc.mkt_eq_refl_ty(l)
                             }
 
                             symbol::BuiltIn::EqRec => {
                                 debug_assert_eq!(g.levels.len(), 2);
-                                let l = &g.levels[0];
-                                let r = &g.levels[1];
+                                let l = g.levels[0];
+                                let r = g.levels[1];
                                 self.alloc.mkt_eq_rec_ty(l, r)
                             }
                         }
@@ -137,7 +137,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         Some(result)
     }
 
-    pub fn infer_type_as_sort(&mut self, t: TermRef<'a>) -> Option<LevelRef<'a>> {
+    pub fn infer_type_as_sort(&mut self, t: TermRef<'a>) -> Option<Level<'a>> {
         let ty = self.infer_type(t)?;
         let ty = self.whnf(ty);
         if let TermData::Sort(l) = ty.data {

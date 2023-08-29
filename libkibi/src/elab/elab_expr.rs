@@ -33,7 +33,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         Some((term, ty))
     }
 
-    pub fn elab_expr_as_type(&mut self, expr: &Expr<'a>) -> Option<(TermRef<'a>, tt::LevelRef<'a>)> {
+    pub fn elab_expr_as_type(&mut self, expr: &Expr<'a>) -> Option<(TermRef<'a>, tt::Level<'a>)> {
         let (term, ty) = self.elab_expr_ex(expr, None)?;
 
         let ty = self.whnf(ty);

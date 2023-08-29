@@ -7,7 +7,7 @@ use super::*;
 sti::define_key!(u32, pub LevelVarId);
 
 pub struct LevelVar<'a> {
-    value: Option<LevelRef<'a>>,
+    value: Option<Level<'a>>,
 }
 
 
@@ -27,7 +27,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         })
     }
 
-    pub fn new_level_var(&mut self) -> LevelRef<'a> {
+    pub fn new_level_var(&mut self) -> Level<'a> {
         let id = self.new_level_var_id();
         self.alloc.mkl_ivar(id)
     }
@@ -57,7 +57,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         (self.new_term_var_core(ty, self.lctx.current()), ty)
     }
 
-    pub fn new_ty_var(&mut self) -> (TermRef<'a>, LevelRef<'a>) {
+    pub fn new_ty_var(&mut self) -> (TermRef<'a>, Level<'a>) {
         let l = self.new_level_var();
         let ty = self.alloc.mkt_sort(l);
         (self.new_term_var_core(ty, self.lctx.current()), l)
@@ -67,26 +67,26 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
 impl LevelVarId {
     #[inline(always)]
-    pub fn value<'a>(self, elab: &Elab<'_, '_, 'a>) -> Option<LevelRef<'a>> {
+    pub fn value<'a>(self, elab: &Elab<'_, '_, 'a>) -> Option<Level<'a>> {
         elab.level_vars[self].value
     }
 
 
     #[track_caller]
     #[inline]
-    pub unsafe fn assign_core<'a>(self, value: LevelRef<'a>, elab: &mut Elab<'_, '_, 'a>) {
+    pub unsafe fn assign_core<'a>(self, value: Level<'a>, elab: &mut Elab<'_, '_, 'a>) {
         debug_assert!(self.value(elab).is_none());
         elab.level_vars[self].value = Some(value);
     }
 
     #[track_caller]
     #[must_use]
-    pub fn assign<'a>(self, value: LevelRef<'a>, elab: &mut Elab<'_, '_, 'a>) -> bool {
+    pub fn assign<'a>(self, value: Level<'a>, elab: &mut Elab<'_, '_, 'a>) -> bool {
         let value = elab.instantiate_level_vars(value);
 
         // occurs check.
         if value.find(|at| {
-            if let LevelData::IVar(id) = at.data {
+            if let LevelData::IVar(id) = at.data() {
                 return Some(id == self);
             }
             None

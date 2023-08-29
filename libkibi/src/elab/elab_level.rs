@@ -5,7 +5,7 @@ use super::*;
 
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
-    pub fn elab_level(&mut self, level: &ast::Level<'a>) -> Option<tt::LevelRef<'a>> {
+    pub fn elab_level(&mut self, level: &ast::Level<'a>) -> Option<tt::Level<'a>> {
         Some(match &level.kind {
             ast::LevelKind::Hole => {
                 self.new_level_var()

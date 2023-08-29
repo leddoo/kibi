@@ -19,7 +19,7 @@ pub struct Term<'a> {
 
 #[derive(Clone, Copy, Debug)]
 pub enum TermData<'a> {
-    Sort(LevelRef<'a>),
+    Sort(Level<'a>),
 
     Bound(BVar),
     Local(ScopeId),
@@ -33,11 +33,11 @@ pub enum TermData<'a> {
     Nat,
     NatZero,
     NatSucc,
-    NatRec(LevelRef<'a>),
+    NatRec(Level<'a>),
 
-    Eq(LevelRef<'a>),
-    EqRefl(LevelRef<'a>),
-    EqRec(LevelRef<'a>, LevelRef<'a>),
+    Eq(Level<'a>),
+    EqRefl(Level<'a>),
+    EqRec(Level<'a>, Level<'a>),
 
     // sync:
     // - `Term::syntax_eq`.
@@ -107,7 +107,7 @@ impl<'a> Term<'a> {
     pub const NAT_SUCC_TY: TermRef<'static> = &Term::mk_forall(Atom::NULL, Self::NAT, Self::NAT);
 
     #[inline(always)]
-    pub const fn mk_sort(level: LevelRef<'a>) -> Self {
+    pub const fn mk_sort(level: Level<'a>) -> Self {
         Self { data: TermData::Sort(level) }
     }
 
@@ -177,22 +177,22 @@ impl<'a> Term<'a> {
     }
 
     #[inline(always)]
-    pub const fn mk_nat_rec(r: LevelRef<'a>) -> Self {
+    pub const fn mk_nat_rec(r: Level<'a>) -> Self {
         Self { data: TermData::NatRec(r) }
     }
 
     #[inline(always)]
-    pub const fn mk_eq(l: LevelRef<'a>) -> Self {
+    pub const fn mk_eq(l: Level<'a>) -> Self {
         Self { data: TermData::Eq(l) }
     }
 
     #[inline(always)]
-    pub const fn mk_eq_refl(l: LevelRef<'a>) -> Self {
+    pub const fn mk_eq_refl(l: Level<'a>) -> Self {
         Self { data: TermData::EqRefl(l) }
     }
 
     #[inline(always)]
-    pub const fn mk_eq_rec(l: LevelRef<'a>, r: LevelRef<'a>) -> Self {
+    pub const fn mk_eq_rec(l: Level<'a>, r: Level<'a>) -> Self {
         Self { data: TermData::EqRec(l, r) }
     }
 
@@ -420,7 +420,7 @@ impl<'a> Term<'a> {
         })
     }
 
-    pub fn replace_levels_flat<F: Fn(LevelRef<'a>, &'a Arena) -> Option<LevelRef<'a>>>
+    pub fn replace_levels_flat<F: Fn(Level<'a>, &'a Arena) -> Option<Level<'a>>>
         (&self, alloc: &'a Arena, f: F) -> Option<TermRef<'a>>
     {
         match self.data {
@@ -433,7 +433,7 @@ impl<'a> Term<'a> {
             TermData::Global(g) => {
                 let mut new_levels = Vec::new_in(alloc);
 
-                for (i, l) in g.levels.iter().enumerate() {
+                for (i, l) in g.levels.iter().copied().enumerate() {
                     if let Some(l) = f(l, alloc) {
                         if new_levels.len() == 0 {
                             new_levels.reserve_exact(g.levels.len());
@@ -569,7 +569,7 @@ impl<'a> Term<'a> {
 
 
 pub trait TermAlloc {
-    fn mkt_sort<'a>(&'a self, level: LevelRef<'a>) -> TermRef<'a>;
+    fn mkt_sort<'a>(&'a self, level: Level<'a>) -> TermRef<'a>;
     fn mkt_bound<'a>(&'a self, bvar: BVar) -> TermRef<'a>;
     fn mkt_local<'a>(&'a self, id: ScopeId) -> TermRef<'a>;
     fn mkt_global<'a>(&'a self, id: SymbolId, levels: LevelList<'a>) -> TermRef<'a>;
@@ -585,17 +585,17 @@ pub trait TermAlloc {
     fn mkt_nat<'a>(&'a self) -> TermRef<'a>;
     fn mkt_nat_zero<'a>(&'a self) -> TermRef<'a>;
     fn mkt_nat_succ<'a>(&'a self) -> TermRef<'a>;
-    fn mkt_nat_rec<'a>(&'a self, r: LevelRef<'a>) -> TermRef<'a>;
-    fn mkt_nat_rec_ty<'a>(&'a self, r: LevelRef<'a>) -> TermRef<'a>;
+    fn mkt_nat_rec<'a>(&'a self, r: Level<'a>) -> TermRef<'a>;
+    fn mkt_nat_rec_ty<'a>(&'a self, r: Level<'a>) -> TermRef<'a>;
     fn mkt_nat_val<'a>(&'a self, n: u32) -> TermRef<'a>;
 
 
-    fn mkt_eq<'a>(&'a self, l: LevelRef<'a>) -> TermRef<'a>;
-    fn mkt_eq_refl<'a>(&'a self, l: LevelRef<'a>) -> TermRef<'a>;
-    fn mkt_eq_rec<'a>(&'a self, l: LevelRef<'a>, r: LevelRef<'a>) -> TermRef<'a>;
-    fn mkt_eq_ty<'a>(&'a self, l: LevelRef<'a>) -> TermRef<'a>;
-    fn mkt_eq_refl_ty<'a>(&'a self, l: LevelRef<'a>) -> TermRef<'a>;
-    fn mkt_eq_rec_ty<'a>(&'a self, l: LevelRef<'a>, r: LevelRef<'a>) -> TermRef<'a>;
+    fn mkt_eq<'a>(&'a self, l: Level<'a>) -> TermRef<'a>;
+    fn mkt_eq_refl<'a>(&'a self, l: Level<'a>) -> TermRef<'a>;
+    fn mkt_eq_rec<'a>(&'a self, l: Level<'a>, r: Level<'a>) -> TermRef<'a>;
+    fn mkt_eq_ty<'a>(&'a self, l: Level<'a>) -> TermRef<'a>;
+    fn mkt_eq_refl_ty<'a>(&'a self, l: Level<'a>) -> TermRef<'a>;
+    fn mkt_eq_rec_ty<'a>(&'a self, l: Level<'a>, r: Level<'a>) -> TermRef<'a>;
 }
 
 
@@ -604,7 +604,7 @@ mod impel {
 
     impl TermAlloc for Arena {
         #[inline(always)]
-        fn mkt_sort<'a>(&'a self, level: LevelRef<'a>) -> TermRef<'a> {
+        fn mkt_sort<'a>(&'a self, level: Level<'a>) -> TermRef<'a> {
             self.alloc_new(Term::mk_sort(level))
         }
 
@@ -683,11 +683,11 @@ mod impel {
         }
 
         #[inline(always)]
-        fn mkt_nat_rec<'a>(&'a self, r: LevelRef<'a>) -> TermRef<'a> {
+        fn mkt_nat_rec<'a>(&'a self, r: Level<'a>) -> TermRef<'a> {
             self.alloc_new(Term::mk_nat_rec(r))
         }
 
-        fn mkt_nat_rec_ty<'a>(&'a self, r: LevelRef<'a>) -> TermRef<'a> {
+        fn mkt_nat_rec_ty<'a>(&'a self, r: Level<'a>) -> TermRef<'a> {
             self.mkt_forall(atoms::M,
                 // M: Nat -> Sort(r)
                 self.mkt_forall(atoms::Nat,
@@ -733,21 +733,21 @@ mod impel {
 
 
         #[inline(always)]
-        fn mkt_eq<'a>(&'a self, l: LevelRef<'a>) -> TermRef<'a> {
+        fn mkt_eq<'a>(&'a self, l: Level<'a>) -> TermRef<'a> {
             self.alloc_new(Term::mk_eq(l))
         }
 
         #[inline(always)]
-        fn mkt_eq_refl<'a>(&'a self, l: LevelRef<'a>) -> TermRef<'a> {
+        fn mkt_eq_refl<'a>(&'a self, l: Level<'a>) -> TermRef<'a> {
             self.alloc_new(Term::mk_eq_refl(l))
         }
 
         #[inline(always)]
-        fn mkt_eq_rec<'a>(&'a self, l: LevelRef<'a>, r: LevelRef<'a>) -> TermRef<'a> {
+        fn mkt_eq_rec<'a>(&'a self, l: Level<'a>, r: Level<'a>) -> TermRef<'a> {
             self.alloc_new(Term::mk_eq_rec(l, r))
         }
 
-        fn mkt_eq_ty<'a>(&'a self, l: LevelRef<'a>) -> TermRef<'a> {
+        fn mkt_eq_ty<'a>(&'a self, l: Level<'a>) -> TermRef<'a> {
             self.mkt_forall(atoms::T,
                 // T: Sort(l)
                 self.mkt_sort(l),
@@ -761,7 +761,7 @@ mod impel {
                 self.mkt_sort(self.mkl_zero()))))
         }
 
-        fn mkt_eq_refl_ty<'a>(&'a self, l: LevelRef<'a>) -> TermRef<'a> {
+        fn mkt_eq_refl_ty<'a>(&'a self, l: Level<'a>) -> TermRef<'a> {
             self.mkt_forall(atoms::T,
                 // T: Sort(l)
                 self.mkt_sort(l),
@@ -776,7 +776,7 @@ mod impel {
                 ])))
         }
 
-        fn mkt_eq_rec_ty<'a>(&'a self, l: LevelRef<'a>, r: LevelRef<'a>) -> TermRef<'a> {
+        fn mkt_eq_rec_ty<'a>(&'a self, l: Level<'a>, r: Level<'a>) -> TermRef<'a> {
             self.mkt_forall(atoms::T,
                 // T: Sort(l)
                 self.mkt_sort(l),

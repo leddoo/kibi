@@ -5,20 +5,25 @@ pub use crate::string_table::Atom;
 pub use crate::elab::LevelVarId;
 
 
-pub type LevelRef<'a> = &'a Level<'a>;
+pub type Level<'a> = impel::Level<'a>;
 
-pub type LevelList<'a> = &'a [LevelRef<'a>];
+pub type LevelList<'a> = &'a [Level<'a>];
 
 
-#[derive(Clone, Debug)]
-pub struct Level<'a> {
-    pub data: LevelData<'a>,
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum LevelKind {
+    Zero,
+    Succ,
+    Max,
+    IMax,
+    Param,
+    IVar,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub enum LevelData<'a> {
     Zero,
-    Succ(LevelRef<'a>),
+    Succ(Level<'a>),
     Max(Pair<'a>),
     IMax(Pair<'a>),
     Param(Param),
@@ -30,8 +35,8 @@ pub enum LevelData<'a> {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Pair<'a> {
-    pub lhs: LevelRef<'a>,
-    pub rhs: LevelRef<'a>,
+    pub lhs: Level<'a>,
+    pub rhs: Level<'a>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -42,124 +47,45 @@ pub struct Param {
 
 
 impl<'a> Level<'a> {
-    pub const L0: LevelRef<'static> = &Level::mk_zero();
-    pub const L1: LevelRef<'static> = &Level::mk_succ(Level::L0);
-    pub const L2: LevelRef<'static> = &Level::mk_succ(Level::L1);
-    pub const L3: LevelRef<'static> = &Level::mk_succ(Level::L2);
+    #[inline(always)]
+    pub fn is_zero(self) -> bool { self.kind() == LevelKind::Zero }
 
     #[inline(always)]
-    pub const fn mk_zero() -> Self {
-        Self { data: LevelData::Zero }
-    }
+    pub fn is_succ(self) -> bool { self.kind() == LevelKind::Succ }
 
     #[inline(always)]
-    pub const fn mk_succ(of: LevelRef<'a>) -> Self {
-        Self { data: LevelData::Succ(of) }
-    }
+    pub fn is_max(self) -> bool { self.kind() == LevelKind::Max }
 
     #[inline(always)]
-    pub const fn mk_max(lhs: LevelRef<'a>, rhs: LevelRef<'a>) -> Self {
-        Self { data: LevelData::Max(Pair { lhs, rhs }) }
-    }
+    pub fn is_imax(self) -> bool { self.kind() == LevelKind::IMax }
 
     #[inline(always)]
-    pub const fn mk_imax(lhs: LevelRef<'a>, rhs: LevelRef<'a>) -> Self {
-        Self { data: LevelData::IMax(Pair { lhs, rhs }) }
-    }
+    pub fn is_param(self) -> bool { self.kind() == LevelKind::Param }
 
     #[inline(always)]
-    pub const fn mk_param(name: Atom, index: u32) -> Self {
-        Self { data: LevelData::Param(Param { name, index }) }
-    }
-
-    #[inline(always)]
-    pub const fn mk_ivar(id: LevelVarId) -> Self {
-        Self { data: LevelData::IVar(id) }
-    }
+    pub fn is_ivar(self) -> bool { self.kind() == LevelKind::IVar }
 
 
-    #[inline(always)]
-    pub fn ptr_eq(&self, other: &Level) -> bool {
-        core::ptr::eq(self, other)
-    }
-
-    #[inline(always)]
-    pub fn syntax_eq(&self, other: &Level) -> bool {
-        if self.ptr_eq(other) {
-            return true;
-        }
-
-        use LevelData::*;
-        match (self.data, other.data) {
-            (Zero, Zero) => true,
-
-            (Succ(a), Succ(b)) => a.syntax_eq(b),
-
-            (Max(a),  Max(b)) |
-            (IMax(a), IMax(b)) =>
-                a.lhs.syntax_eq(b.lhs) && a.rhs.syntax_eq(b.rhs),
-
-            (Param(a), Param(b)) => a.index == b.index,
-
-            (IVar(v1), IVar(v2)) => v1 == v2,
-
-            _ => false
+    pub fn non_zero(&self) -> bool {
+        match self.data() {
+            LevelData::Zero     => false,
+            LevelData::Succ(_)  => true,
+            LevelData::Max(p)   => p.lhs.non_zero() || p.rhs.non_zero(),
+            LevelData::IMax(p)  => p.rhs.non_zero(),
+            LevelData::Param(_) => false,
+            LevelData::IVar(_)  => false,
         }
     }
-
-    #[inline(always)]
-    pub fn list_syntax_eq(a: &[LevelRef], b: &[LevelRef]) -> bool {
-        if a.len() != b.len() {
-            return false;
-        }
-        for i in 0..a.len() {
-            if !a[i].syntax_eq(b[i]) {
-                return false;
-            }
-        }
-        true
-    }
-
 
     pub fn has_ivars(&self) -> bool {
         self.find(|at| { Some(at.is_ivar()) }).is_some()
     }
 
 
-    #[inline(always)]
-    pub const fn is_zero(&self) -> bool { matches!(self.data, LevelData::Zero) }
-
-    #[inline(always)]
-    pub const fn is_succ(&self) -> bool { matches!(self.data, LevelData::Succ(_)) }
-
-    #[inline(always)]
-    pub const fn is_max(&self) -> bool { matches!(self.data, LevelData::Max(_)) }
-
-    #[inline(always)]
-    pub const fn is_imax(&self) -> bool { matches!(self.data, LevelData::IMax(_)) }
-
-    #[inline(always)]
-    pub const fn is_param(&self) -> bool { matches!(self.data, LevelData::Param(_)) }
-
-    #[inline(always)]
-    pub const fn is_ivar(&self) -> bool { matches!(self.data, LevelData::IVar(_)) }
-
-    pub fn non_zero(&self) -> bool {
-        match self.data {
-            LevelData::Zero     => false,
-            LevelData::Succ(_)  => true,
-            LevelData::Max(p)   => p.lhs.non_zero() || p.rhs.non_zero(),
-            LevelData::IMax(p)  => p.rhs.non_zero(),
-            LevelData::Param(_) => false,
-            LevelData::IVar(_)   => false,
-        }
-    }
-
-
-    pub fn to_offset(&'a self) -> (LevelRef<'a>, u32) {
+    pub fn to_offset(self) -> (Level<'a>, u32) {
         let mut at = self;
         let mut offset = 0;
-        while let LevelData::Succ(l) = at.data {
+        while let LevelData::Succ(l) = at.data() {
             offset += 1;
             at = l;
         }
@@ -173,14 +99,13 @@ impl<'a> Level<'a> {
     }
 
 
-
     #[inline(always)]
-    pub fn succ(&'a self, alloc: &'a Arena) -> LevelRef<'a> {
+    pub fn succ(self, alloc: &'a Arena) -> Level<'a> {
         alloc.mkl_succ(self)
     }
 
     #[inline(always)]
-    pub fn offset(&'a self, n: u32, alloc: &'a Arena) -> LevelRef<'a> {
+    pub fn offset(self, n: u32, alloc: &'a Arena) -> Level<'a> {
         let mut result = self;
         for _ in 0..n {
             result = result.succ(alloc)
@@ -189,13 +114,13 @@ impl<'a> Level<'a> {
     }
 
     #[inline(always)]
-    pub fn max(&'a self, other: LevelRef<'a>, alloc: &'a Arena) -> LevelRef<'a> {
+    pub fn max(self, other: Level<'a>, alloc: &'a Arena) -> Level<'a> {
         // @temp: proper impl.
         alloc.mkl_max(self, other)
     }
 
     #[inline(always)]
-    pub fn imax(&'a self, other: LevelRef<'a>, alloc: &'a Arena) -> LevelRef<'a> {
+    pub fn imax(self, other: Level<'a>, alloc: &'a Arena) -> Level<'a> {
         let (a, b) = (self, other);
 
         // imax(a 0) = 0
@@ -215,21 +140,56 @@ impl<'a> Level<'a> {
     }
 
 
+    #[inline(always)]
+    pub fn syntax_eq(self, other: Level) -> bool {
+        if self.ptr_eq(other) {
+            return true;
+        }
 
-    pub fn find<F: Fn(LevelRef<'a>) -> Option<bool>>
-        (&'a self, f: F) -> Option<LevelRef<'a>>
-    {
+        use LevelData::*;
+        match (self.data(), other.data()) {
+            (Zero, Zero) => true,
+
+            (Succ(a), Succ(b)) => a.syntax_eq(b),
+
+            (Max(a),  Max(b)) |
+            (IMax(a), IMax(b)) =>
+                a.lhs.syntax_eq(b.lhs) && a.rhs.syntax_eq(b.rhs),
+
+            (Param(a), Param(b)) => a.index == b.index,
+
+            (IVar(v1), IVar(v2)) => v1 == v2,
+
+            _ => false
+        }
+    }
+
+    #[inline(always)]
+    pub fn list_syntax_eq(a: &[Level], b: &[Level]) -> bool {
+        if a.len() != b.len() {
+            return false;
+        }
+        for i in 0..a.len() {
+            if !a[i].syntax_eq(b[i]) {
+                return false;
+            }
+        }
+        true
+    }
+
+
+    pub fn find<F>(&'a self, f: F) -> Option<Level<'a>>
+    where F: Fn(Level<'a>) -> Option<bool> {
         self.find_ex(&f)
     }
 
-    pub fn find_ex<F: Fn(LevelRef<'a>) -> Option<bool>>
-        (&'a self, f: &F) -> Option<LevelRef<'a>>
-    {
+    pub fn find_ex<F>(self, f: &F) -> Option<Level<'a>>
+    where F: Fn(Level<'a>) -> Option<bool> {
         if let Some(true) = f(self) {
             return Some(self);
         }
 
-        match self.data {
+        match self.data() {
             LevelData::Zero => None,
 
             LevelData::Succ(l) => l.find_ex(f),
@@ -246,20 +206,18 @@ impl<'a> Level<'a> {
     }
 
 
-    pub fn replace<F: Fn(LevelRef<'a>, &'a Arena) -> Option<LevelRef<'a>>>
-        (&'a self, alloc: &'a Arena, f: F) -> LevelRef<'a>
-    {
+    pub fn replace<F>(self, alloc: &'a Arena, f: F) -> Level<'a>
+    where F: Fn(Level<'a>, &'a Arena) -> Option<Level<'a>> {
         self.replace_ex(alloc, &f)
     }
 
-    pub fn replace_ex<F: Fn(LevelRef<'a>, &'a Arena) -> Option<LevelRef<'a>>>
-        (&'a self, alloc: &'a Arena, f: &F) -> LevelRef<'a>
-    {
+    pub fn replace_ex<F>(self, alloc: &'a Arena, f: &F) -> Level<'a>
+    where F: Fn(Level<'a>, &'a Arena) -> Option<Level<'a>> {
         if let Some(new) = f(self, alloc) {
             return new;
         }
 
-        match self.data {
+        match self.data() {
             LevelData::Zero => self,
 
             LevelData::Succ(of) => {
@@ -287,11 +245,11 @@ impl<'a> Level<'a> {
         }
     }
 
-    pub fn instantiate_params(&'a self, subst: LevelList<'a>, alloc: &'a Arena) -> Option<LevelRef<'a>> {
+    pub fn instantiate_params(self, subst: LevelList<'a>, alloc: &'a Arena) -> Option<Level<'a>> {
         // @speed: has_param.
         let result = self.replace(alloc, |at, _| {
-            if let LevelData::Param(p) = at.data {
-                return Some(&subst[p.index as usize]);
+            if let LevelData::Param(p) = at.data() {
+                return Some(subst[p.index as usize]);
             }
             None
         });
@@ -300,16 +258,14 @@ impl<'a> Level<'a> {
 }
 
 
-
-
 pub trait LevelAlloc {
-    fn mkl_zero<'a>(&'a self) -> LevelRef<'a>;
-    fn mkl_succ<'a>(&'a self, of: LevelRef<'a>) -> LevelRef<'a>;
-    fn mkl_max<'a>(&'a self, lhs: LevelRef<'a>, rhs: LevelRef<'a>) -> LevelRef<'a>;
-    fn mkl_imax<'a>(&'a self, lhs: LevelRef<'a>, rhs: LevelRef<'a>) -> LevelRef<'a>;
-    fn mkl_param<'a>(&'a self, name: Atom, index: u32) -> LevelRef<'a>;
-    fn mkl_ivar<'a>(&'a self, id: LevelVarId) -> LevelRef<'a>;
-    fn mkl_nat<'a>(&'a self, n: u32) -> LevelRef<'a>;
+    fn mkl_zero<'a>(&'a self) -> Level<'a>;
+    fn mkl_succ<'a>(&'a self, of: Level<'a>) -> Level<'a>;
+    fn mkl_max<'a>(&'a self, lhs: Level<'a>, rhs: Level<'a>) -> Level<'a>;
+    fn mkl_imax<'a>(&'a self, lhs: Level<'a>, rhs: Level<'a>) -> Level<'a>;
+    fn mkl_param<'a>(&'a self, name: Atom, index: u32) -> Level<'a>;
+    fn mkl_ivar<'a>(&'a self, id: LevelVarId) -> Level<'a>;
+    fn mkl_nat<'a>(&'a self, n: u32) -> Level<'a>;
 }
 
 
@@ -317,38 +273,72 @@ pub trait LevelAlloc {
 mod impel {
     use super::*;
 
+    #[derive(Clone, Copy, Debug)]
+    pub struct Level<'a>(&'a LevelData<'a>);
+
+    impl<'a> Level<'a> {
+        pub const L0: Level<'static> = Level(&LevelData::Zero);
+        pub const L1: Level<'static> = Level(&LevelData::Succ(Level::L0));
+        pub const L2: Level<'static> = Level(&LevelData::Succ(Level::L1));
+        pub const L3: Level<'static> = Level(&LevelData::Succ(Level::L2));
+
+
+        #[inline(always)]
+        pub fn kind(self) -> LevelKind {
+            match self.0 {
+                LevelData::Zero     => LevelKind::Zero,
+                LevelData::Succ(_)  => LevelKind::Succ,
+                LevelData::Max(_)   => LevelKind::Max,
+                LevelData::IMax(_)  => LevelKind::IMax,
+                LevelData::Param(_) => LevelKind::Param,
+                LevelData::IVar(_)  => LevelKind::IVar,
+            }
+        }
+
+        #[inline(always)]
+        pub fn data(self) -> LevelData<'a> {
+            *self.0
+        }
+
+        #[inline(always)]
+        pub fn ptr_eq(self, other: Level) -> bool {
+            core::ptr::eq(self.0, other.0)
+        }
+    }
+
+
     impl LevelAlloc for Arena {
         #[inline(always)]
-        fn mkl_zero<'a>(&'a self) -> LevelRef<'a> {
+        fn mkl_zero<'a>(&'a self) -> Level<'a> {
             Level::L0
         }
 
         #[inline(always)]
-        fn mkl_succ<'a>(&'a self, of: LevelRef<'a>) -> LevelRef<'a> {
-            self.alloc_new(Level::mk_succ(of))
+        fn mkl_succ<'a>(&'a self, of: Level<'a>) -> Level<'a> {
+            Level(self.alloc_new(LevelData::Succ(of)))
         }
 
         #[inline(always)]
-        fn mkl_max<'a>(&'a self, lhs: LevelRef<'a>, rhs: LevelRef<'a>) -> LevelRef<'a> {
-            self.alloc_new(Level::mk_max(lhs, rhs))
+        fn mkl_max<'a>(&'a self, lhs: Level<'a>, rhs: Level<'a>) -> Level<'a> {
+            Level(self.alloc_new(LevelData::Max(Pair { lhs, rhs })))
         }
 
         #[inline(always)]
-        fn mkl_imax<'a>(&'a self, lhs: LevelRef<'a>, rhs: LevelRef<'a>) -> LevelRef<'a> {
-            self.alloc_new(Level::mk_imax(lhs, rhs))
+        fn mkl_imax<'a>(&'a self, lhs: Level<'a>, rhs: Level<'a>) -> Level<'a> {
+            Level(self.alloc_new(LevelData::IMax(Pair { lhs, rhs })))
         }
 
         #[inline(always)]
-        fn mkl_param<'a>(&'a self, name: Atom, index: u32) -> LevelRef<'a> {
-            self.alloc_new(Level::mk_param(name, index))
+        fn mkl_param<'a>(&'a self, name: Atom, index: u32) -> Level<'a> {
+            Level(self.alloc_new(LevelData::Param(Param { name, index })))
         }
 
         #[inline(always)]
-        fn mkl_ivar<'a>(&'a self, id: LevelVarId) -> LevelRef<'a> {
-            self.alloc_new(Level::mk_ivar(id))
+        fn mkl_ivar<'a>(&'a self, id: LevelVarId) -> Level<'a> {
+            Level(self.alloc_new(LevelData::IVar(id)))
         }
 
-        fn mkl_nat<'a>(&'a self, n: u32) -> LevelRef<'a> {
+        fn mkl_nat<'a>(&'a self, n: u32) -> Level<'a> {
             match n {
                 0 => Level::L0,
                 1 => Level::L1,
