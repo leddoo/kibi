@@ -1,7 +1,7 @@
 use sti::arena::Arena;
 
 use crate::pp::*;
-use crate::string_table::{Atom, StringTable};
+use crate::string_table::{Atom, StringTable, atoms};
 use crate::env::{Env, SymbolId};
 use super::*;
 
@@ -128,12 +128,14 @@ impl<'me, 'a> TermPP<'me, 'a> {
             }
 
             TermKind::Forall(b) => {
+                let name = if b.name == Atom::NULL { atoms::_hole } else { b.name };
                 let ty  = self.pp_term(b.ty);
                 let val = self.pp_term(b.val);
                 self.pp.group(self.pp.cats(&[
                     self.pp.text("Π("),
                     self.pp.group(self.pp.indent(2, self.pp.cats(&[
-                        self.pp.text("_: "),
+                        self.pp.text(self.alloc_atom(name)),
+                        self.pp.text(": "),
                         self.pp.line(),
                         ty,
                     ]))),
@@ -146,12 +148,14 @@ impl<'me, 'a> TermPP<'me, 'a> {
             }
 
             TermKind::Lambda(b) => {
+                let name = if b.name == Atom::NULL { atoms::_hole } else { b.name };
                 let ty  = self.pp_term(b.ty);
                 let val = self.pp_term(b.val);
                 self.pp.group(self.pp.cats(&[
                     self.pp.text("λ("),
                     self.pp.group(self.pp.indent(2, self.pp.cats(&[
-                        self.pp.text("_: "),
+                        self.pp.text(self.alloc_atom(name)),
+                        self.pp.text(": "),
                         self.pp.line(),
                         ty,
                     ]))),

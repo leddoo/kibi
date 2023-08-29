@@ -1,7 +1,7 @@
 use sti::keyed::KVec;
 use sti::hash::HashMap;
 
-use crate::string_table::{Atom, StringTable};
+use crate::string_table::{Atom, atoms};
 use crate::tt::*;
 
 
@@ -58,7 +58,7 @@ pub mod symbol {
 
 
 impl<'a> Env<'a> {
-    pub fn new(strings: &mut StringTable) -> Env<'static> {
+    pub fn new() -> Env<'static> {
         let mut symbols = KVec::new();
         let root = symbols.push(Symbol {
             parent: SymbolId::ROOT,
@@ -68,33 +68,31 @@ impl<'a> Env<'a> {
         });
         assert_eq!(root, SymbolId::ROOT);
 
-        let mut env = Env {
-            symbols,
-        };
+        let mut env = Env { symbols };
 
 
         // @temp: how to handle built-ins, if we have any?
         {
-            let nat = env.new_symbol(SymbolId::ROOT, strings.insert("Nat"),
+            let nat = env.new_symbol(SymbolId::ROOT, atoms::Nat,
                 SymbolKind::BuiltIn(symbol::BuiltIn::Nat)).unwrap();
 
-            env.new_symbol(nat, strings.insert("zero"),
+            env.new_symbol(nat, atoms::zero,
                 SymbolKind::BuiltIn(symbol::BuiltIn::NatZero)).unwrap();
 
-            env.new_symbol(nat, strings.insert("succ"),
+            env.new_symbol(nat, atoms::succ,
                 SymbolKind::BuiltIn(symbol::BuiltIn::NatSucc)).unwrap();
 
-            env.new_symbol(nat, strings.insert("rec"),
+            env.new_symbol(nat, atoms::rec,
                 SymbolKind::BuiltIn(symbol::BuiltIn::NatRec)).unwrap();
 
 
-            let eq = env.new_symbol(SymbolId::ROOT, strings.insert("Eq"),
+            let eq = env.new_symbol(SymbolId::ROOT, atoms::Eq,
                 SymbolKind::BuiltIn(symbol::BuiltIn::Eq)).unwrap();
 
-            env.new_symbol(eq, strings.insert("refl"),
+            env.new_symbol(eq, atoms::refl,
                 SymbolKind::BuiltIn(symbol::BuiltIn::EqRefl)).unwrap();
 
-            env.new_symbol(eq, strings.insert("rec"),
+            env.new_symbol(eq, atoms::rec,
                 SymbolKind::BuiltIn(symbol::BuiltIn::EqRec)).unwrap();
         }
 

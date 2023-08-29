@@ -67,7 +67,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     return Some(false);
                 }
 
-                let id = self.lctx.push(b1.ty, None);
+                let id = self.lctx.push(b1.name, b1.ty, None);
                 let local = self.alloc.mkt_local(id);
 
                 // value eq.

@@ -1,7 +1,7 @@
 use sti::arena::Arena;
 use sti::vec::Vec;
 
-use crate::string_table::Atom;
+use crate::string_table::{Atom, atoms};
 
 pub use crate::elab::{LevelVarId, TermVarId};
 pub use crate::env::SymbolId;
@@ -101,7 +101,7 @@ pub mod term {
 
     #[derive(Clone, Copy, Debug)]
     pub struct Binder<'a> {
-        pub name: u32,
+        pub name: Atom,
         pub ty:  TermRef<'a>,
         pub val: TermRef<'a>,
     }
@@ -129,9 +129,9 @@ pub trait TTArena {
     fn mkt_global<'a>(&'a self, id: SymbolId, levels: LevelList<'a>) -> TermRef<'a>;
     fn mkt_ivar<'a>(&'a self, id: TermVarId) -> TermRef<'a>;
     fn mkt_forall_b<'a>(&'a self, binder: term::Binder<'a>) -> TermRef<'a>;
-    fn mkt_forall<'a>(&'a self, name: u32, ty: TermRef<'a>, ret: TermRef<'a>) -> TermRef<'a>;
+    fn mkt_forall<'a>(&'a self, name: Atom, ty: TermRef<'a>, ret: TermRef<'a>) -> TermRef<'a>;
     fn mkt_lambda_b<'a>(&'a self, binder: term::Binder<'a>) -> TermRef<'a>;
-    fn mkt_lambda<'a>(&'a self, name: u32, ty: TermRef<'a>, val: TermRef<'a>) -> TermRef<'a>;
+    fn mkt_lambda<'a>(&'a self, name: Atom, ty: TermRef<'a>, val: TermRef<'a>) -> TermRef<'a>;
     fn mkt_apply_a<'a>(&'a self, apply: term::Apply<'a>) -> TermRef<'a>;
     fn mkt_apply<'a>(&'a self, fun: TermRef<'a>, arg: TermRef<'a>) -> TermRef<'a>;
     fn mkt_apps<'a>(&'a self, fun: TermRef<'a>, args: &[TermRef<'a>]) -> TermRef<'a>;
@@ -231,7 +231,7 @@ impl TTArena for Arena {
     }
 
     #[inline(always)]
-    fn mkt_forall<'a>(&'a self, name: u32, ty: TermRef<'a>, ret: TermRef<'a>) -> TermRef<'a> {
+    fn mkt_forall<'a>(&'a self, name: Atom, ty: TermRef<'a>, ret: TermRef<'a>) -> TermRef<'a> {
         self.alloc_new(Term::mk_forall(name, ty, ret))
     }
 
@@ -241,7 +241,7 @@ impl TTArena for Arena {
     }
 
     #[inline(always)]
-    fn mkt_lambda<'a>(&'a self, name: u32, ty: TermRef<'a>, val: TermRef<'a>) -> TermRef<'a> {
+    fn mkt_lambda<'a>(&'a self, name: Atom, ty: TermRef<'a>, val: TermRef<'a>) -> TermRef<'a> {
         self.alloc_new(Term::mk_lambda(name, ty, val))
     }
 
@@ -285,22 +285,22 @@ impl TTArena for Arena {
     }
 
     fn mkt_nat_rec_ty<'a>(&'a self, r: LevelRef<'a>) -> TermRef<'a> {
-        self.mkt_forall(0,
+        self.mkt_forall(atoms::M,
             // M: Nat -> Sort(r)
-            self.mkt_forall(0,
+            self.mkt_forall(atoms::Nat,
                 Term::NAT,
                 self.mkt_sort(r)),
-        self.mkt_forall(0,
-            // M(0)
+        self.mkt_forall(atoms::m_zero,
+            // m_zero: M(0)
             self.mkt_apply(
                 self.mkt_bound(BVar(0)),
                 Term::NAT_ZERO),
-        self.mkt_forall(0,
-            // Π(n, ih) => M(n.succ())
-            self.mkt_forall(0,
+        self.mkt_forall(atoms::m_succ,
+            // m_succ: Π(n, ih) => M(n.succ())
+            self.mkt_forall(atoms::n,
                 // n: Nat
                 Term::NAT,
-            self.mkt_forall(0,
+            self.mkt_forall(atoms::ih,
                 // ih: M(n)
                 self.mkt_apply(
                     self.mkt_bound(BVar(2)),
@@ -311,10 +311,10 @@ impl TTArena for Arena {
                     self.mkt_apply(
                         Term::NAT_SUCC,
                         self.mkt_bound(BVar(1)))))),
-        self.mkt_forall(0,
-            // n: Nat
+        self.mkt_forall(atoms::mp,
+            // mp: Nat
             Term::NAT,
-            // -> M(n)
+            // -> M(mp)
             self.mkt_apply(
                 self.mkt_bound(BVar(3)),
                 self.mkt_bound(BVar(0)))))))
@@ -345,13 +345,13 @@ impl TTArena for Arena {
     }
 
     fn mkt_eq_ty<'a>(&'a self, l: LevelRef<'a>) -> TermRef<'a> {
-        self.mkt_forall(0,
+        self.mkt_forall(atoms::T,
             // T: Sort(l)
             self.mkt_sort(l),
-        self.mkt_forall(0,
+        self.mkt_forall(atoms::a,
             // a: T
             self.mkt_bound(BVar(0)),
-        self.mkt_forall(0,
+        self.mkt_forall(atoms::b,
             // b: T
             self.mkt_bound(BVar(1)),
             // -> Prop
@@ -359,10 +359,10 @@ impl TTArena for Arena {
     }
 
     fn mkt_eq_refl_ty<'a>(&'a self, l: LevelRef<'a>) -> TermRef<'a> {
-        self.mkt_forall(0,
+        self.mkt_forall(atoms::T,
             // T: Sort(l)
             self.mkt_sort(l),
-        self.mkt_forall(0,
+        self.mkt_forall(atoms::a,
             // a: T
             self.mkt_bound(BVar(0)),
             // -> Eq(T, a, a)
@@ -374,27 +374,27 @@ impl TTArena for Arena {
     }
 
     fn mkt_eq_rec_ty<'a>(&'a self, l: LevelRef<'a>, r: LevelRef<'a>) -> TermRef<'a> {
-        self.mkt_forall(0,
+        self.mkt_forall(atoms::T,
             // T: Sort(l)
             self.mkt_sort(l),
-        self.mkt_forall(0,
+        self.mkt_forall(atoms::a,
             // a: T
             self.mkt_bound(BVar(0)),
-        self.mkt_forall(0,
+        self.mkt_forall(atoms::M,
             // M: Π(b: T) -> Sort(r)
-            self.mkt_forall(0,
+            self.mkt_forall(atoms::b,
                 self.mkt_bound(BVar(1)),
                 self.mkt_sort(r)),
-        self.mkt_forall(0,
-            // mr: M(a)
+        self.mkt_forall(atoms::m_refl,
+            // m_refl: M(a)
             self.mkt_apply(
                 self.mkt_bound(BVar(0)),
                 self.mkt_bound(BVar(1))),
-        self.mkt_forall(0,
+        self.mkt_forall(atoms::b,
             // b: T
             self.mkt_bound(BVar(3)),
-        self.mkt_forall(0,
-            // n: Eq(T, a, b)
+        self.mkt_forall(atoms::mp,
+            // mp: Eq(T, a, b)
             self.mkt_apps(self.mkt_eq(l), &[
                 self.mkt_bound(BVar(4)),
                 self.mkt_bound(BVar(3)),
@@ -700,7 +700,7 @@ impl<'a> Term<'a> {
     pub const NAT: TermRef<'static> = &Term::mk_nat();
     pub const NAT_ZERO: TermRef<'static> = &Term::mk_nat_zero();
     pub const NAT_SUCC: TermRef<'static> = &Term::mk_nat_succ();
-    pub const NAT_SUCC_TY: TermRef<'static> = &Term::mk_forall(0, Self::NAT, Self::NAT);
+    pub const NAT_SUCC_TY: TermRef<'static> = &Term::mk_forall(Atom::NULL, Self::NAT, Self::NAT);
 
     #[inline(always)]
     pub const fn mk_sort(level: LevelRef<'a>) -> Self {
@@ -733,7 +733,7 @@ impl<'a> Term<'a> {
     }
 
     #[inline(always)]
-    pub const fn mk_forall(name: u32, ty: TermRef<'a>, ret: TermRef<'a>) -> Self {
+    pub const fn mk_forall(name: Atom, ty: TermRef<'a>, ret: TermRef<'a>) -> Self {
         Self::mk_forall_b(term::Binder { name, ty, val: ret })
     }
 
@@ -743,7 +743,7 @@ impl<'a> Term<'a> {
     }
 
     #[inline(always)]
-    pub const fn mk_lambda(name: u32, ty: TermRef<'a>, val: TermRef<'a>) -> Self {
+    pub const fn mk_lambda(name: Atom, ty: TermRef<'a>, val: TermRef<'a>) -> Self {
         Self::mk_lambda_b(term::Binder { name, ty, val })
     }
 

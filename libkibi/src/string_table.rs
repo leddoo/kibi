@@ -26,8 +26,21 @@ impl<'a> StringTable<'a> {
             table: HashMapF::fnew(),
         };
 
-        let null = result.insert("");
-        assert_eq!(null, Atom::NULL);
+        let init = &[
+            (Atom::NULL, ""), (atoms::_hole, "_"),
+            (atoms::max, "max"), (atoms::imax, "imax"), (atoms::reduce, "reduce"),
+            (atoms::Nat, "Nat"), (atoms::zero, "zero"), (atoms::succ, "succ"),
+            (atoms::rec, "rec"), (atoms::Eq, "Eq"), (atoms::refl, "refl"),
+            (atoms::M, "M"), (atoms::m_zero, "m_zero"), (atoms::m_succ, "m_succ"),
+            (atoms::n, "n"), (atoms::ih, "ih"), (atoms::mp, "mp"),
+            (atoms::T, "T"), (atoms::a, "a"), (atoms::b, "b"),
+            (atoms::m_refl, "m_refl"),
+        ];
+
+        for (atom, string) in init.iter().copied() {
+            let a = result.insert(string);
+            assert_eq!(a, atom);
+        }
 
         return result;
     }
@@ -50,6 +63,34 @@ impl<'a> core::ops::Index<Atom> for StringTable<'a> {
         self.strings[atom].as_str()
     }
 }
+
+
+#[allow(non_upper_case_globals)]
+pub mod atoms {
+    use super::Atom;
+
+    pub const _hole:    Atom = Atom(1);
+    pub const max:      Atom = Atom(2);
+    pub const imax:     Atom = Atom(3);
+    pub const reduce:   Atom = Atom(4);
+    pub const Nat:      Atom = Atom(5);
+    pub const zero:     Atom = Atom(6);
+    pub const succ:     Atom = Atom(7);
+    pub const rec:      Atom = Atom(8);
+    pub const Eq:       Atom = Atom(9);
+    pub const refl:     Atom = Atom(10);
+    pub const M:        Atom = Atom(11);
+    pub const m_zero:   Atom = Atom(12);
+    pub const m_succ:   Atom = Atom(13);
+    pub const n:        Atom = Atom(14);
+    pub const ih:       Atom = Atom(15);
+    pub const mp:       Atom = Atom(16);
+    pub const T:        Atom = Atom(17);
+    pub const a:        Atom = Atom(18);
+    pub const b:        Atom = Atom(19);
+    pub const m_refl:   Atom = Atom(20);
+}
+
 
 
 #[derive(Clone, Copy)]

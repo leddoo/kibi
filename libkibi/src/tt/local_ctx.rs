@@ -1,6 +1,8 @@
 use sti::arena::Arena;
 use sti::keyed::KVec;
 
+use crate::string_table::Atom;
+
 use super::syntax::*;
 
 
@@ -17,6 +19,7 @@ pub struct LocalCtx<'a> {
 
 pub struct Scope<'a> {
     pub parent: OptScopeId,
+    pub name:   Atom,
     pub ty:    TermRef<'a>,
     pub value: Option<TermRef<'a>>,
 }
@@ -40,12 +43,12 @@ impl<'a> LocalCtx<'a> {
 
 
     #[track_caller]
-    pub fn push(&mut self, ty: TermRef<'a>, value: Option<TermRef<'a>>) -> ScopeId {
+    pub fn push(&mut self, name: Atom, ty: TermRef<'a>, value: Option<TermRef<'a>>) -> ScopeId {
         assert!(ty.closed());
         if let Some(v) = value { assert!(v.closed()); }
 
         let parent = self.current;
-        let id = self.scopes.push(Scope { parent, ty, value });
+        let id = self.scopes.push(Scope { parent, name, ty, value });
         self.current = id.some();
         id
     }
@@ -110,19 +113,17 @@ impl<'a> LocalCtx<'a> {
     #[track_caller]
     #[inline(always)]
     pub fn abstract_forall(&self, ret: TermRef<'a>, id: ScopeId) -> TermRef<'a> {
-        // @temp: binder name.
         let entry = self.lookup(id);
         let ret = ret.abstracc(id, self.alloc);
-        self.alloc.mkt_forall(0, entry.ty, ret)
+        self.alloc.mkt_forall(entry.name, entry.ty, ret)
     }
 
     #[track_caller]
     #[inline(always)]
     pub fn abstract_lambda(&self, value: TermRef<'a>, id: ScopeId) -> TermRef<'a> {
-        // @temp: binder name.
         let entry = self.lookup(id);
         let value = value.abstracc(id, self.alloc);
-        self.alloc.mkt_lambda(0, entry.ty, value)
+        self.alloc.mkt_lambda(entry.name, entry.ty, value)
     }
 
 

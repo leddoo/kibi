@@ -7,13 +7,13 @@ use crate::string_table::Atom;
 
 pub use crate::source_map::SourceRange;
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Path<'a> {
     pub local: bool,
     pub parts: &'a [Atom],
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum IdentOrPath<'a> {
     Ident(Atom),
     Path(Path<'a>),

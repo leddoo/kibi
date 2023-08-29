@@ -3,7 +3,7 @@ use sti::arena::Arena;
 use sti::vec::Vec;
 use sti::reader::Reader;
 
-use crate::string_table::{StringTable, Atom};
+use crate::string_table::{Atom, StringTable, atoms};
 use crate::error::*;
 use crate::ast::*;
 
@@ -371,7 +371,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 ItemKind::Def(item::Def { name, levels, params, ty, value })
             }
 
-            TokenKind::Ident(a) if &self.strings[a] == "reduce" => {
+            TokenKind::Ident(atoms::reduce) => {
                 let expr = self.arena.alloc_new(self.parse_expr()?);
                 ItemKind::Reduce(expr)
             }
@@ -650,17 +650,17 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
             }
 
             TokenKind::Ident(v) => {
-                if &self.strings[v] == "max" || &self.strings[v] == "imax" {
+                if v == atoms::max || v == atoms::imax {
                     self.expect(TokenKind::LParen)?;
                     let lhs = self.arena.alloc_new(self.parse_level()?);
                     self.expect(TokenKind::Comma)?;
                     let rhs = self.arena.alloc_new(self.parse_level()?);
                     self.expect(TokenKind::RParen)?;
 
-                    if &self.strings[v] == "max" {
+                    if v == atoms::max {
                         LevelKind::Max((lhs, rhs))
                     }
-                    else if &self.strings[v] == "imax" {
+                    else if v == atoms::imax {
                         LevelKind::IMax((lhs, rhs))
                     }
                     else { unreachable!() }

@@ -21,14 +21,14 @@
 - todo:
     - finish chores:
 
-    - binder names.
-        - use in term pp.
+    - pp locals.
 
     - syntax stuff:
         - binder rework - nicer `lam`/`pi` syntax.
         - `+`, `=`, `->`.
 
     - axioms.
+    - check.
 
     - scope approx.
         - use common ancestor.

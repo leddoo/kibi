@@ -100,7 +100,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     return (Some(None),);
                 };
 
-                let id = self.lctx.push(b.ty, None);
+                let id = self.lctx.push(b.name, b.ty, None);
                 expected_ty = ex_b.val.instantiate(
                     self.alloc.mkt_local(id), self.alloc);
             }
@@ -124,7 +124,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 let target_ty = self.infer_type(target).unwrap();
                 //println!("abstract out {:?}", target);
                 let val = self.abstract_eq(motive_val, target);
-                motive_val = self.alloc.mkt_lambda(0, target_ty, val);
+                // @todo: use motive binder names.
+                motive_val = self.alloc.mkt_lambda(Atom::NULL, target_ty, val);
             }
         }
 

@@ -42,7 +42,7 @@ reduce Nat::add(1, 2)
 
     let tokens = kibi::parser::Tokenizer::tokenize(input, 0, &mut strings, &arena);
 
-    let mut env = Env::new(&mut strings);
+    let mut env = Env::new();
 
     let errors = ErrorCtx::new(&arena);
 
@@ -60,7 +60,26 @@ reduce Nat::add(1, 2)
             ItemKind::Def(def) => {
                 let Some(_) = elab.elab_def(def) else { break };
                 work_dt += t0.elapsed();
-                println!("def {:?}", def.name);
+
+                print!("def ");
+                match def.name {
+                    IdentOrPath::Ident(name) => {
+                        println!("{}", &strings[name]);
+                    }
+
+                    IdentOrPath::Path(path) => {
+                        print!("{}", &strings[path.parts[0]]);
+                        for part in path.parts[1..].iter().copied() {
+                            print!("::{}", &strings[part]);
+                        }
+                        println!();
+                    }
+                }
+
+                let Some(()) = elab.check_no_unassigned_variables() else {
+                    println!("error: unassigned inference variables");
+                    break;
+                };
             }
 
             ItemKind::Reduce(expr) => {
@@ -79,11 +98,6 @@ reduce Nat::add(1, 2)
                 println!("{:?}", dt);
             }
         }
-
-        let Some(()) = elab.check_no_unassigned_variables() else {
-            println!("error: unassigned inference variables");
-            break;
-        };
     }
 
     let stats = arena.stats();

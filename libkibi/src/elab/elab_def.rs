@@ -15,9 +15,9 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         // @cleanup: elab_binders.
         for param in def.params.iter() {
-            let (ty, _) = self.elab_expr_as_type(param.ty.as_ref()?)?;
-            let id = self.lctx.push(ty, None);
             let name = param.name.unwrap_or(Atom::NULL);
+            let (ty, _) = self.elab_expr_as_type(param.ty.as_ref()?)?;
+            let id = self.lctx.push(name, ty, None);
             self.locals.push((name, id));
         }
 

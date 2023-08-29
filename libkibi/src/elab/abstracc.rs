@@ -57,11 +57,11 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         // instantiate type after val, cause abstracc may
         // assign ivars (elim locals).
-        let ty = self.instantiate_term(self.lctx.lookup(id).ty);
+        let entry = self.lctx.lookup(id);
+        let ty = self.instantiate_term(entry.ty);
 
-        // @temp: name.
-        if is_forall { self.alloc.mkt_forall(0, ty, val) }
-        else         { self.alloc.mkt_lambda(0, ty, val) }
+        if is_forall { self.alloc.mkt_forall(entry.name, ty, val) }
+        else         { self.alloc.mkt_lambda(entry.name, ty, val) }
     }
 }
 
