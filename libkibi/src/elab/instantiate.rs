@@ -6,12 +6,9 @@ use super::*;
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     pub fn instantiate_level_vars(&self, l: Level<'a>) -> Level<'a> {
         l.replace(self.alloc, |at, _| {
-            if let LevelData::IVar(var) = at.data() {
-                if let Some(value) = var.value(self) {
-                    return Some(self.instantiate_level_vars(value));
-                }
-            }
-            None
+            let var = at.try_ivar()?;
+            let value = var.value(self)?;
+            return Some(self.instantiate_level_vars(value));
         })
     }
 

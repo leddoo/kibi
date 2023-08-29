@@ -85,12 +85,7 @@ impl LevelVarId {
         let value = elab.instantiate_level_vars(value);
 
         // occurs check.
-        if value.find(|at| {
-            if let LevelData::IVar(id) = at.data() {
-                return Some(id == self);
-            }
-            None
-        }).is_some() {
+        if value.find(|at| Some(at.try_ivar()? == self)).is_some() {
             return false;
         }
 

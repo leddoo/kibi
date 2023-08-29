@@ -22,6 +22,7 @@
     - finish chores:
 
     - `union` rework.
+        - `try_*`.
 
     - syntax stuff:
         - binder rework - nicer `lam`/`pi` syntax.

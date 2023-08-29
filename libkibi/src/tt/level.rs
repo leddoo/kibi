@@ -85,9 +85,9 @@ impl<'a> Level<'a> {
     pub fn to_offset(self) -> (Level<'a>, u32) {
         let mut at = self;
         let mut offset = 0;
-        while let LevelData::Succ(l) = at.data() {
+        while let Some(pred) = at.try_succ() {
             offset += 1;
-            at = l;
+            at = pred;
         }
         return (at, offset);
     }
@@ -248,10 +248,8 @@ impl<'a> Level<'a> {
     pub fn instantiate_params(self, subst: LevelList<'a>, alloc: &'a Arena) -> Option<Level<'a>> {
         // @speed: has_param.
         let result = self.replace(alloc, |at, _| {
-            if let LevelData::Param(p) = at.data() {
-                return Some(subst[p.index as usize]);
-            }
-            None
+            let p = at.try_param()?;
+            return Some(subst[p.index as usize]);
         });
         (!result.ptr_eq(self)).then_some(result)
     }
@@ -296,9 +294,33 @@ mod impel {
         }
 
         #[inline(always)]
-        pub fn data(self) -> LevelData<'a> {
-            *self.0
+        pub fn data(self) -> LevelData<'a> { *self.0 }
+
+        #[inline(always)]
+        pub fn try_succ(self) -> Option<Level<'a>> {
+            if let LevelData::Succ(l) = *self.0 { Some(l) } else { None }
         }
+
+        #[inline(always)]
+        pub fn try_max(self) -> Option<Pair<'a>> {
+            if let LevelData::Max(p) = *self.0 { Some(p) } else { None }
+        }
+
+        #[inline(always)]
+        pub fn try_imax(self) -> Option<Pair<'a>> {
+            if let LevelData::IMax(p) = *self.0 { Some(p) } else { None }
+        }
+
+        #[inline(always)]
+        pub fn try_param(self) -> Option<Param> {
+            if let LevelData::Param(p) = *self.0 { Some(p) } else { None }
+        }
+
+        #[inline(always)]
+        pub fn try_ivar(self) -> Option<LevelVarId> {
+            if let LevelData::IVar(v) = *self.0 { Some(v) } else { None }
+        }
+
 
         #[inline(always)]
         pub fn ptr_eq(self, other: Level) -> bool {
