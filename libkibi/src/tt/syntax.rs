@@ -806,6 +806,9 @@ impl<'a> Term<'a> {
     pub fn is_global(&self) -> bool { matches!(self.kind, TermKind::Global(_)) }
 
     #[inline(always)]
+    pub fn is_ivar(&self) -> bool { matches!(self.kind, TermKind::IVar(_)) }
+
+    #[inline(always)]
     pub fn is_forall(&self) -> bool { matches!(self.kind, TermKind::Forall(_)) }
 
     #[inline(always)]

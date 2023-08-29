@@ -82,7 +82,7 @@ impl LevelVarId {
     #[track_caller]
     #[must_use]
     pub fn assign<'a>(self, value: LevelRef<'a>, elab: &mut Elab<'_, '_, 'a>) -> bool {
-        let value = elab.instantiate_level(value);
+        let value = elab.instantiate_level_vars(value);
 
         // occurs check.
         if value.find(|at| {
@@ -143,7 +143,7 @@ impl TermVarId {
 
         if args.len() > 0 {
             // type correct check.
-            println!("@todo: check lambda type correct");
+            //println!("@todo: check lambda type correct");
         }
 
         // type check.

@@ -46,7 +46,7 @@ fn nat_add_elab() {
         let mut elab = kibi::elab::Elab::new(&mut env, SymbolId::ROOT, &errors, &strings, &alloc);
         let (term, _) = elab.elab_expr(&ast).unwrap();
 
-        let term = elab.instantiate_term(term);
+        let term = elab.instantiate_term_vars(term);
         assert!(elab.check_no_unassigned_variables().is_some());
 
         let term = elab.reduce_ex(term, false);

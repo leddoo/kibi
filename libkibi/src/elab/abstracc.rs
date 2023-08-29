@@ -46,7 +46,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
 
             at.replace_levels_flat(alloc, |l, _| {
-                let new_l = self.instantiate_level(l);
+                let new_l = self.instantiate_level_vars(l);
                 (!new_l.ptr_eq(l)).then_some(new_l)
             })
         })
@@ -58,7 +58,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         // instantiate type after val, cause abstracc may
         // assign ivars (elim locals).
         let entry = self.lctx.lookup(id);
-        let ty = self.instantiate_term(entry.ty);
+        let ty = self.instantiate_term_vars(entry.ty);
 
         if is_forall { self.alloc.mkt_forall(entry.name, ty, val) }
         else         { self.alloc.mkt_lambda(entry.name, ty, val) }

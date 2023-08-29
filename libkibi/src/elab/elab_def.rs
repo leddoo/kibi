@@ -29,10 +29,10 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
 
         if self.locals.len() == 0 {
-            ty = self.instantiate_term(ty);
+            ty = self.instantiate_term_vars(ty);
         }
 
-        debug_assert!(ty.syntax_eq(self.instantiate_term(ty)));
+        debug_assert!(ty.syntax_eq(self.instantiate_term_vars(ty)));
 
         let (parent, name) = match &axiom.name {
             IdentOrPath::Ident(name) => (self.root_symbol, *name),
@@ -47,7 +47,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         if !ty.closed() || ty.has_locals() {
             let mut pp = TermPP::new(self.env, &self.strings, self.alloc);
-            let ty  = pp.pp_term(self.instantiate_term(ty));
+            let ty  = pp.pp_term(self.instantiate_term_vars(ty));
             println!("{}", pp.render(ty,  50).layout_string());
         }
 
@@ -58,7 +58,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         if ty.has_ivars() {
             println!("unresolved inference variables");
             let mut pp = TermPP::new(self.env, &self.strings, self.alloc);
-            let ty  = self.instantiate_term(ty);
+            let ty  = self.instantiate_term_vars(ty);
             let ty  = pp.pp_term(ty);
             println!("{}", pp.render(ty,  50).layout_string());
             return None;
@@ -109,12 +109,12 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
 
         if self.locals.len() == 0 {
-            ty  = self.instantiate_term(ty);
-            val = self.instantiate_term(val);
+            ty  = self.instantiate_term_vars(ty);
+            val = self.instantiate_term_vars(val);
         }
 
-        debug_assert!(ty.syntax_eq(self.instantiate_term(ty)));
-        debug_assert!(val.syntax_eq(self.instantiate_term(val)));
+        debug_assert!(ty.syntax_eq(self.instantiate_term_vars(ty)));
+        debug_assert!(val.syntax_eq(self.instantiate_term_vars(val)));
 
         let (parent, name) = match &def.name {
             IdentOrPath::Ident(name) => (self.root_symbol, *name),
@@ -129,8 +129,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         if !ty.closed() || !val.closed() || ty.has_locals() || val.has_locals() {
             let mut pp = TermPP::new(self.env, &self.strings, self.alloc);
-            let ty  = pp.pp_term(self.instantiate_term(ty));
-            let val = pp.pp_term(self.instantiate_term(val));
+            let ty  = pp.pp_term(self.instantiate_term_vars(ty));
+            let val = pp.pp_term(self.instantiate_term_vars(val));
             println!("{}", pp.render(ty,  50).layout_string());
             println!("{}", pp.render(val, 50).layout_string());
         }
@@ -144,8 +144,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         if ty.has_ivars() || val.has_ivars() {
             println!("unresolved inference variables");
             let mut pp = TermPP::new(self.env, &self.strings, self.alloc);
-            let ty  = self.instantiate_term(ty);
-            let val = self.instantiate_term(val);
+            let ty  = self.instantiate_term_vars(ty);
+            let val = self.instantiate_term_vars(val);
             let ty  = pp.pp_term(ty);
             let val = pp.pp_term(val);
             println!("{}", pp.render(ty,  50).layout_string());

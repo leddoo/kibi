@@ -130,7 +130,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
 
         if 0==1 {
-            let val = self.instantiate_term(motive_val);
+            let val = self.instantiate_term_vars(motive_val);
             let mut pp = TermPP::new(&self.env, &self.strings, self.alloc);
             let val = pp.pp_term(val);
             let val = pp.render(val, 50);
@@ -150,6 +150,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         // elab remaining args.
         for (arg, var, expected_ty) in postponed.iter().copied() {
+            let expected_ty = self.instantiate_term_vars(expected_ty);
             let Some((arg, _)) = self.elab_expr_checking_type(arg, Some(expected_ty)) else {
                 return (Some(None),);
             };

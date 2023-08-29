@@ -16,8 +16,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         if let Some(expected) = expected_ty {
             if !self.def_eq(ty, expected) {
-                let expected = self.instantiate_term(expected);
-                let ty       = self.instantiate_term(ty);
+                let expected = self.instantiate_term_vars(expected);
+                let ty       = self.instantiate_term_vars(ty);
                 let expected = self.reduce_ex(expected, false);
                 let ty       = self.reduce_ex(ty, false);
                 self.error(expr.source, |alloc| {
