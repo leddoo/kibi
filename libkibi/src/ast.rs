@@ -1,3 +1,4 @@
+use crate::string_table::Atom;
 
 
 //
@@ -9,19 +10,19 @@ pub use crate::source_map::SourceRange;
 #[derive(Debug)]
 pub struct Path<'a> {
     pub local: bool,
-    pub parts: &'a [&'a str],
+    pub parts: &'a [Atom],
 }
 
 #[derive(Debug)]
 pub enum IdentOrPath<'a> {
-    Ident(&'a str),
+    Ident(Atom),
     Path(Path<'a>),
 }
 
 
 #[derive(Debug)]
 pub struct Binder<'a> {
-    pub name:    Option<&'a str>,
+    pub name:    Option<Atom>,
     pub ty:      Option<ExprRef<'a>>,
     pub default: Option<ExprRef<'a>>,
 }
@@ -45,7 +46,7 @@ pub enum TokenKind<'a> {
     Error,
 
     Hole,
-    Ident(&'a str),
+    Ident(Atom),
 
     Bool(bool),
     Number(&'a str),
@@ -213,7 +214,7 @@ pub mod item {
     #[derive(Debug)]
     pub struct Def<'a> {
         pub name:   IdentOrPath<'a>,
-        pub levels: &'a [&'a str],
+        pub levels: &'a [Atom],
         pub params: BinderList<'a>,
         pub ty:     Option<Expr<'a>>,
         pub value:  Expr<'a>,
@@ -276,8 +277,8 @@ pub enum ExprKind<'a> {
     Error,
 
     Hole,
-    Ident(&'a str),
-    DotIdent(&'a str),
+    Ident(Atom),
+    DotIdent(Atom),
     Path(Path<'a>),
 
     Levels(expr::Levels<'a>),
@@ -389,7 +390,7 @@ pub mod expr {
     #[derive(Debug)]
     pub struct Field<'a> {
         pub base: ExprRef<'a>,
-        pub name: &'a str,
+        pub name: Atom,
     }
 
     #[derive(Debug)]
@@ -512,7 +513,7 @@ pub struct Level<'a> {
 #[derive(Debug)]
 pub enum LevelKind<'a> {
     Hole,
-    Ident(&'a str),
+    Ident(Atom),
 
     Nat(u32),
     Add((LevelRef<'a>, u32)),

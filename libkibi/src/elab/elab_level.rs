@@ -19,7 +19,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 }
                 self.error(level.source, |alloc|
                     ElabError::UnresolvedLevel(
-                        alloc.alloc_str(name)));
+                        alloc.alloc_str(&self.strings[*name])));
                 return None;
             }
 

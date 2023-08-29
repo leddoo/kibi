@@ -1,5 +1,6 @@
 use kibi::error::ErrorCtx;
 
+use kibi::string_table::StringTable;
 use kibi::tt::*;
 use kibi::env::*;
 
@@ -27,7 +28,9 @@ fn nat_add_elab() {
                 alloc.mkt_bound(BVar(0)),
             ])));
 
-    let mut env = Env::new();
+    let mut strings = StringTable::new(&alloc);
+
+    let mut env = Env::new(&mut strings);
 
     let errors = ErrorCtx::new(&alloc);
 
@@ -35,12 +38,12 @@ fn nat_add_elab() {
         let input = "λ(a: Nat, b: Nat) =>
             Nat::rec(λ(_: _) => _, a, λ(_: _, r: _) => Nat::succ(r), b)";
 
-        let tokens = kibi::parser::Tokenizer::tokenize(input.as_bytes(), 0, &alloc);
+        let tokens = kibi::parser::Tokenizer::tokenize(input.as_bytes(), 0, &mut strings, &alloc);
 
-        let mut parser = kibi::parser::Parser::new(&tokens, &errors, &alloc);
+        let mut parser = kibi::parser::Parser::new(&tokens, &errors, &strings, &alloc);
         let ast = parser.parse_expr().unwrap();
 
-        let mut elab = kibi::elab::Elab::new(&mut env, SymbolId::ROOT, &errors, &alloc);
+        let mut elab = kibi::elab::Elab::new(&mut env, SymbolId::ROOT, &errors, &strings, &alloc);
         let (term, _) = elab.elab_expr(&ast).unwrap();
 
         let term = elab.instantiate_term(term);
@@ -60,7 +63,7 @@ fn nat_add_elab() {
 
     let n3_add = alloc.mkt_apps(nat_add, &[n1, n2]);
 
-    let mut elab = kibi::elab::Elab::new(&mut env, SymbolId::ROOT, &errors, &alloc);
+    let mut elab = kibi::elab::Elab::new(&mut env, SymbolId::ROOT, &errors, &strings, &alloc);
     assert!(elab.reduce(n3_add).syntax_eq(n3));
 
     let n3_ty = elab.infer_type(n3_add).unwrap();

@@ -1,3 +1,4 @@
+use crate::string_table::Atom;
 use crate::ast;
 use crate::tt::*;
 use crate::env::*;
@@ -6,7 +7,7 @@ use super::*;
 
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
-    pub fn lookup_local(&self, name: &str) -> Option<ScopeId> {
+    pub fn lookup_local(&self, name: Atom) -> Option<ScopeId> {
         for (n, id) in self.locals.iter().rev().copied() {
             if n == name {
                 return Some(id);
@@ -15,24 +16,26 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         None
     }
 
-    pub fn lookup_symbol_ident(&self, source: SourceRange, name: &str) -> Option<SymbolId> {
+    pub fn lookup_symbol_ident(&self, source: SourceRange, name: Atom) -> Option<SymbolId> {
         let Some(symbol) = self.env.lookup(self.root_symbol, name) else {
             self.error(source, |alloc|
-                ElabError::UnresolvedName { base: "", name: alloc.alloc_str(name) });
+                ElabError::UnresolvedName { base: "",
+                    name: alloc.alloc_str(&self.strings[name]) });
             return None;
         };
         Some(symbol)
     }
 
-    pub fn lookup_symbol_path(&self, source: SourceRange, local: bool, parts: &[&str]) -> Option<SymbolId> {
+    pub fn lookup_symbol_path(&self, source: SourceRange, local: bool, parts: &[Atom]) -> Option<SymbolId> {
         if local {
             let mut result = self.lookup_symbol_ident(source, parts[0])?;
 
-            for part in &parts[1..] {
+            for part in parts[1..].iter().copied() {
                 let Some(symbol) = self.env.lookup(result, part) else {
                     // @todo: proper base.
                     self.error(source, |alloc|
-                        ElabError::UnresolvedName { base: "", name: alloc.alloc_str(part) });
+                        ElabError::UnresolvedName { base: "",
+                            name: alloc.alloc_str(&self.strings[part]) });
                     return None;
                 };
 

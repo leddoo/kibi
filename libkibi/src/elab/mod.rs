@@ -2,6 +2,7 @@ use sti::arena::Arena;
 use sti::vec::Vec;
 use sti::keyed::KVec;
 
+use crate::string_table::{StringTable, Atom};
 use crate::error::*;
 use crate::ast::SourceRange;
 use crate::tt::{ScopeId, LocalCtx};
@@ -10,15 +11,16 @@ use crate::env::*;
 
 pub struct Elab<'me, 'err, 'a> {
     pub alloc: &'a Arena,
+    pub strings: &'me StringTable<'a>,
     pub errors: &'me ErrorCtx<'err>,
     pub env: &'me mut Env<'a>,
 
     root_symbol: SymbolId,
 
-    level_params: Vec<&'a str>,
+    level_params: Vec<Atom>,
 
     lctx: LocalCtx<'a>,
-    locals: Vec<(&'a str, ScopeId)>,
+    locals: Vec<(Atom, ScopeId)>,
 
     level_vars: KVec<LevelVarId, ivars::LevelVar<'a>>,
     term_vars:  KVec<TermVarId,  ivars::TermVar<'a>>,
@@ -44,9 +46,10 @@ pub use ivars::{LevelVarId, TermVarId};
 
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
-    pub fn new(env: &'me mut Env<'a>, root_symbol: SymbolId, errors: &'me ErrorCtx<'err>, alloc: &'a Arena) -> Self {
+    pub fn new(env: &'me mut Env<'a>, root_symbol: SymbolId, errors: &'me ErrorCtx<'err>, strings: &'me StringTable<'a>, alloc: &'a Arena) -> Self {
         Self {
             alloc,
+            strings,
             errors,
             env,
             root_symbol,

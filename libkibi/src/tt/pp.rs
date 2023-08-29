@@ -1,21 +1,28 @@
 use sti::arena::Arena;
 
 use crate::pp::*;
+use crate::string_table::{Atom, StringTable};
 use crate::env::{Env, SymbolId};
 use super::*;
 
 
 pub struct TermPP<'me, 'a> {
+    pub strings: &'me StringTable<'me>,
     pub pp: PP<'a>,
     pub env: &'me Env<'me>,
 }
 
 impl<'me, 'a> TermPP<'me, 'a> {
-    pub fn new(env: &'me Env<'me>, arena: &'a Arena) -> Self {
+    pub fn new(env: &'me Env<'me>, strings: &'me StringTable<'me>, arena: &'a Arena) -> Self {
         Self {
+            strings,
             pp: PP::new(arena),
             env,
         }
+    }
+
+    pub fn alloc_atom(&self, atom: Atom) -> &'a str {
+        self.pp.alloc_str(&self.strings[atom])
     }
 
     pub fn pp_level(&mut self, l: LevelRef) -> DocRef<'a> {
@@ -54,7 +61,7 @@ impl<'me, 'a> TermPP<'me, 'a> {
             }
 
             LevelKind::Param(p) => {
-                self.pp.text(self.pp.alloc_str(p.name))
+                self.pp.text(self.alloc_atom(p.name))
             }
 
             LevelKind::IVar(var) => {
@@ -96,12 +103,12 @@ impl<'me, 'a> TermPP<'me, 'a> {
             TermKind::Global(g) => {
                 let symbol = self.env.symbol(g.id);
 
-                let mut name = self.pp.text(self.pp.alloc_str(symbol.name));
+                let mut name = self.pp.text(self.alloc_atom(symbol.name));
                 let mut at = symbol.parent;
                 while at != SymbolId::ROOT {
                     let symbol = self.env.symbol(at);
                     name = self.pp.cats(&[
-                        self.pp.text(self.pp.alloc_str(symbol.name)),
+                        self.pp.text(self.alloc_atom(symbol.name)),
                         self.pp.text("::"),
                         name]);
                     at = symbol.parent;

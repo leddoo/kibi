@@ -14,7 +14,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             println!("WARN: may not work");
             if 0==1 {
                 let val = self.instantiate_term(t);
-                let mut pp = TermPP::new(&self.env, self.alloc);
+                let mut pp = TermPP::new(&self.env, &self.strings, self.alloc);
                 let val = pp.pp_term(val);
                 let val = pp.render(val, 50);
                 let val = val.layout_string();
@@ -22,7 +22,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
             if 0==1 {
                 let val = self.instantiate_term(pat);
-                let mut pp = TermPP::new(&self.env, self.alloc);
+                let mut pp = TermPP::new(&self.env, &self.strings, self.alloc);
                 let val = pp.pp_term(val);
                 let val = pp.render(val, 50);
                 let val = val.layout_string();

@@ -3,29 +3,37 @@ use sti::arena::Arena;
 use sti::vec::Vec;
 use sti::reader::Reader;
 
+use crate::string_table::{StringTable, Atom};
 use crate::error::*;
 use crate::ast::*;
 
 
-pub struct Tokenizer<'a> {
+pub struct Tokenizer<'me, 'a> {
     #[allow(dead_code)]
     pub arena:  &'a Arena,
+    pub strings: &'me mut StringTable<'a>,
     pub source_offset: u32,
     pub reader: Reader<'a, u8>,
 }
 
-impl<'a> Tokenizer<'a> {
-    pub fn tokenize(input: &'a [u8], source_offset: u32, arena: &'a Arena) -> Vec<Token<'a>> {
-        Self::tokenize_in(input, source_offset, arena, GlobalAlloc)
+impl<'me, 'a> Tokenizer<'me, 'a> {
+    pub fn tokenize(input: &'a [u8], source_offset: u32,
+        strings: &'me mut StringTable<'a>, arena: &'a Arena,
+    ) -> Vec<Token<'a>> {
+        Self::tokenize_in(input, source_offset, strings, arena, GlobalAlloc)
     }
 
-    pub fn tokenize_in<A: Alloc>(input: &'a [u8], source_offset: u32, arena: &'a Arena, alloc: A) -> Vec<Token<'a>, A> {
-        Self::new(input, source_offset, arena).run_in(alloc)
+    pub fn tokenize_in<A: Alloc>(input: &'a [u8], source_offset: u32,
+        strings: &'me mut StringTable<'a>, arena: &'a Arena, alloc: A,
+    ) -> Vec<Token<'a>, A> {
+        Self::new(input, source_offset, strings, arena).run_in(alloc)
     }
 
 
-    pub fn new(input: &'a [u8], source_offset: u32, arena: &'a Arena) -> Self {
-        Self { arena, source_offset, reader: Reader::new(input) }
+    pub fn new(input: &'a [u8], source_offset: u32,
+        strings: &'me mut StringTable<'a>, arena: &'a Arena,
+    ) -> Self {
+        Self { arena, strings, source_offset, reader: Reader::new(input) }
     }
 
     pub fn run(&mut self) -> Vec<Token<'a>> {
@@ -234,7 +242,10 @@ impl<'a> Tokenizer<'a> {
                     "or"  => TokenKind::KwOr,
                     "not" => TokenKind::KwNot,
 
-                    _ => TokenKind::Ident(value),
+                    _ => {
+                        let atom = self.strings.insert(value);
+                        TokenKind::Ident(atom)
+                    }
                 }
             }
             // numbers.
@@ -315,13 +326,14 @@ impl Default for ParseExprFlags {
 
 pub struct Parser<'me, 'err, 'a> {
     pub arena:  &'a Arena,
+    pub strings: &'me StringTable<'a>,
     pub errors: &'me ErrorCtx<'err>,
     pub tokens: Reader<'me, Token<'a>>,
 }
 
 impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
-    pub fn new(tokens: &'me [Token<'a>], errors: &'me ErrorCtx<'err>, arena: &'a Arena) -> Self {
-        Self { arena, errors, tokens: Reader::new(tokens) }
+    pub fn new(tokens: &'me [Token<'a>], errors: &'me ErrorCtx<'err>, strings: &'me StringTable<'a>, arena: &'a Arena) -> Self {
+        Self { arena, strings, errors, tokens: Reader::new(tokens) }
     }
 
     pub fn parse_item(&mut self) -> Option<Item<'a>> {
@@ -359,7 +371,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 ItemKind::Def(item::Def { name, levels, params, ty, value })
             }
 
-            TokenKind::Ident("reduce") => {
+            TokenKind::Ident(a) if &self.strings[a] == "reduce" => {
                 let expr = self.arena.alloc_new(self.parse_expr()?);
                 ItemKind::Reduce(expr)
             }
@@ -638,17 +650,17 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
             }
 
             TokenKind::Ident(v) => {
-                if v == "max" || v == "imax" {
+                if &self.strings[v] == "max" || &self.strings[v] == "imax" {
                     self.expect(TokenKind::LParen)?;
                     let lhs = self.arena.alloc_new(self.parse_level()?);
                     self.expect(TokenKind::Comma)?;
                     let rhs = self.arena.alloc_new(self.parse_level()?);
                     self.expect(TokenKind::RParen)?;
 
-                    if v == "max" {
+                    if &self.strings[v] == "max" {
                         LevelKind::Max((lhs, rhs))
                     }
-                    else if v == "imax" {
+                    else if &self.strings[v] == "imax" {
                         LevelKind::IMax((lhs, rhs))
                     }
                     else { unreachable!() }
@@ -709,7 +721,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
     }
 
     #[inline(always)]
-    fn parse_ident(&mut self) -> Option<&'a str> {
+    fn parse_ident(&mut self) -> Option<Atom> {
         let at = self.tokens.next_ref()?;
         if let TokenKind::Ident(ident) = at.kind {
             return Some(ident);
@@ -719,7 +731,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
     }
 
     #[inline(always)]
-    fn parse_ident_or_hole(&mut self) -> Option<Option<&'a str>> {
+    fn parse_ident_or_hole(&mut self) -> Option<Option<Atom>> {
         let at = self.tokens.next_ref()?;
         if let TokenKind::Ident(ident) = at.kind {
             return Some(Some(ident));
@@ -731,7 +743,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
         return None;
     }
 
-    fn parse_ident_or_path(&mut self, start: &'a str) -> Option<IdentOrPath<'a>> {
+    fn parse_ident_or_path(&mut self, start: Atom) -> Option<IdentOrPath<'a>> {
         if self.tokens.consume_if(|at| at.kind == TokenKind::ColonColon) {
             let mut parts = Vec::with_cap_in(4, self.arena);
             parts.push(start);

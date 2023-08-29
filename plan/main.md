@@ -21,19 +21,7 @@
 - todo:
     - finish chores:
 
-    - motive inference.
-        - over/under-applied. just use some silly example.
-
-    - assign term robustness:
-        - scope approx.
-            - use common ancestor.
-            - recursively check `other.ty` -> `ty`.
-            - create fresh term var of `ty`.
-            - assign to `other`.
-        - lambda type check.
-
     - binder names.
-        - `&str` on binders and in lctx. will be replaced by symbol table.
         - use in term pp.
 
     - syntax stuff:
@@ -41,6 +29,17 @@
         - `+`, `=`, `->`.
 
     - axioms.
+
+    - scope approx.
+        - use common ancestor.
+        - recursively check `other.ty` -> `ty`.
+        - create fresh term var of `ty`.
+        - assign to `other`.
+
+    - motive inference.
+        - over/under-applied. just use some silly example.
+
+    - lambda type check.
 
     - named & implicit params.
 

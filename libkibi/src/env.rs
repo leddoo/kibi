@@ -1,6 +1,7 @@
-use sti::vec::Vec;
 use sti::keyed::KVec;
+use sti::hash::HashMap;
 
+use crate::string_table::{Atom, StringTable};
 use crate::tt::*;
 
 
@@ -14,14 +15,14 @@ sti::define_key!(u32, pub SymbolId, opt: OptSymbolId);
 impl SymbolId { pub const ROOT: SymbolId = SymbolId(0); }
 
 
-#[derive(Debug)]
+//#[derive(Debug)]
 pub struct Symbol<'a> {
     pub parent: SymbolId,
 
     pub kind: SymbolKind<'a>,
-    pub name: &'a str,
+    pub name: Atom,
 
-    pub children: Vec<(&'a str, SymbolId)>,
+    pub children: HashMap<Atom, SymbolId>,
 }
 
 #[derive(Debug)]
@@ -57,13 +58,13 @@ pub mod symbol {
 
 
 impl<'a> Env<'a> {
-    pub fn new() -> Env<'static> {
+    pub fn new(strings: &mut StringTable) -> Env<'static> {
         let mut symbols = KVec::new();
         let root = symbols.push(Symbol {
             parent: SymbolId::ROOT,
             kind: SymbolKind::Root,
-            name: "",
-            children: Vec::new(),
+            name: Atom::NULL,
+            children: HashMap::new(),
         });
         assert_eq!(root, SymbolId::ROOT);
 
@@ -74,26 +75,26 @@ impl<'a> Env<'a> {
 
         // @temp: how to handle built-ins, if we have any?
         {
-            let nat = env.new_symbol(SymbolId::ROOT, "Nat",
+            let nat = env.new_symbol(SymbolId::ROOT, strings.insert("Nat"),
                 SymbolKind::BuiltIn(symbol::BuiltIn::Nat)).unwrap();
 
-            env.new_symbol(nat, "zero",
+            env.new_symbol(nat, strings.insert("zero"),
                 SymbolKind::BuiltIn(symbol::BuiltIn::NatZero)).unwrap();
 
-            env.new_symbol(nat, "succ",
+            env.new_symbol(nat, strings.insert("succ"),
                 SymbolKind::BuiltIn(symbol::BuiltIn::NatSucc)).unwrap();
 
-            env.new_symbol(nat, "rec",
+            env.new_symbol(nat, strings.insert("rec"),
                 SymbolKind::BuiltIn(symbol::BuiltIn::NatRec)).unwrap();
 
 
-            let eq = env.new_symbol(SymbolId::ROOT, "Eq",
+            let eq = env.new_symbol(SymbolId::ROOT, strings.insert("Eq"),
                 SymbolKind::BuiltIn(symbol::BuiltIn::Eq)).unwrap();
 
-            env.new_symbol(eq, "refl",
+            env.new_symbol(eq, strings.insert("refl"),
                 SymbolKind::BuiltIn(symbol::BuiltIn::EqRefl)).unwrap();
 
-            env.new_symbol(eq, "rec",
+            env.new_symbol(eq, strings.insert("rec"),
                 SymbolKind::BuiltIn(symbol::BuiltIn::EqRec)).unwrap();
         }
 
@@ -102,7 +103,7 @@ impl<'a> Env<'a> {
 
 
     #[inline(always)]
-    pub fn new_symbol(&mut self, parent: SymbolId, name: &'a str, kind: SymbolKind<'a>) -> Option<SymbolId> {
+    pub fn new_symbol(&mut self, parent: SymbolId, name: Atom, kind: SymbolKind<'a>) -> Option<SymbolId> {
         if self.lookup(parent, name).is_some() {
             return None;
         }
@@ -113,11 +114,11 @@ impl<'a> Env<'a> {
             parent,
             kind,
             name,
-            children: Vec::new(),
+            children: HashMap::new(),
         });
         debug_assert_eq!(id, symbol);
 
-        self.symbols[parent].children.push((name, symbol));
+        self.symbols[parent].children.insert(name, symbol);
 
         return Some(symbol);
     }
@@ -128,14 +129,9 @@ impl<'a> Env<'a> {
     }
 
 
-    pub fn lookup(&self, parent: SymbolId, name: &str) -> Option<SymbolId> {
+    pub fn lookup(&self, parent: SymbolId, name: Atom) -> Option<SymbolId> {
         let p = &self.symbols[parent];
-        for (child_name, child) in p.children.iter().copied() {
-            if name == child_name {
-                return Some(child);
-            }
-        }
-        return None;
+        p.children.get(&name).copied()
     }
 }
 

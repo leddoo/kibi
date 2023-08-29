@@ -10,14 +10,14 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         assert_eq!(self.level_params.len(), 0);
 
         for level in def.levels {
-            self.level_params.push(level);
+            self.level_params.push(*level);
         }
 
         // @cleanup: elab_binders.
         for param in def.params.iter() {
             let (ty, _) = self.elab_expr_as_type(param.ty.as_ref()?)?;
             let id = self.lctx.push(ty, None);
-            let name = param.name.unwrap_or("");
+            let name = param.name.unwrap_or(Atom::NULL);
             self.locals.push((name, id));
         }
 
@@ -58,7 +58,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         };
 
         if !ty.closed() || !val.closed() || ty.has_locals() || val.has_locals() {
-            let mut pp = TermPP::new(self.env, self.alloc);
+            let mut pp = TermPP::new(self.env, &self.strings, self.alloc);
             let ty  = pp.pp_term(self.instantiate_term(ty));
             let val = pp.pp_term(self.instantiate_term(val));
             println!("{}", pp.render(ty,  50).layout_string());
@@ -73,7 +73,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         if ty.has_ivars() || val.has_ivars() {
             println!("unresolved inference variables");
-            let mut pp = TermPP::new(self.env, self.alloc);
+            let mut pp = TermPP::new(self.env, &self.strings, self.alloc);
             let ty  = self.instantiate_term(ty);
             let val = self.instantiate_term(val);
             let ty  = pp.pp_term(ty);

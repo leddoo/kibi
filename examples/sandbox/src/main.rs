@@ -38,21 +38,23 @@ reduce Nat::add(1, 2)
         else { input }
     };
 
-    let tokens = kibi::parser::Tokenizer::tokenize(input, 0, &arena);
+    let mut strings = kibi::string_table::StringTable::new(&arena);
 
-    let mut env = Env::new();
+    let tokens = kibi::parser::Tokenizer::tokenize(input, 0, &mut strings, &arena);
+
+    let mut env = Env::new(&mut strings);
 
     let errors = ErrorCtx::new(&arena);
 
     let mut work_dt = std::time::Duration::ZERO;
 
-    let mut parser = kibi::parser::Parser::new(&tokens, &errors, &arena);
+    let mut parser = kibi::parser::Parser::new(&tokens, &errors, &strings, &arena);
     while !parser.tokens.is_empty() {
         let t0 = std::time::Instant::now();
 
         let Some(item) = parser.parse_item() else { break };
 
-        let mut elab = kibi::elab::Elab::new(&mut env, SymbolId::ROOT, &errors, &arena);
+        let mut elab = kibi::elab::Elab::new(&mut env, SymbolId::ROOT, &errors, &strings, &arena);
 
         match &item.kind {
             ItemKind::Def(def) => {
@@ -66,7 +68,7 @@ reduce Nat::add(1, 2)
                 let r = elab.reduce(term);
                 work_dt += t0.elapsed();
 
-                let mut pp = TermPP::new(&elab.env, &arena);
+                let mut pp = TermPP::new(&elab.env, &strings, &arena);
                 let r = pp.pp_term(r);
                 let r = pp.indent(9, r);
                 let t0 = std::time::Instant::now();

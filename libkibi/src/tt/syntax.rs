@@ -1,6 +1,8 @@
 use sti::arena::Arena;
 use sti::vec::Vec;
 
+use crate::string_table::Atom;
+
 pub use crate::elab::{LevelVarId, TermVarId};
 pub use crate::env::SymbolId;
 
@@ -23,7 +25,7 @@ pub enum LevelKind<'a> {
     Succ(LevelRef<'a>),
     Max(level::Pair<'a>),
     IMax(level::Pair<'a>),
-    Param(level::Param<'a>),
+    Param(level::Param),
     IVar(LevelVarId),
 
     // sync: `Level::syntax_eq`
@@ -41,8 +43,8 @@ pub mod level {
     }
 
     #[derive(Clone, Copy, Debug)]
-    pub struct Param<'a> {
-        pub name: &'a str,
+    pub struct Param {
+        pub name: Atom,
         pub index: u32,
     }
 }
@@ -117,7 +119,7 @@ pub trait TTArena {
     fn mkl_succ<'a>(&'a self, of: LevelRef<'a>) -> LevelRef<'a>;
     fn mkl_max<'a>(&'a self, lhs: LevelRef<'a>, rhs: LevelRef<'a>) -> LevelRef<'a>;
     fn mkl_imax<'a>(&'a self, lhs: LevelRef<'a>, rhs: LevelRef<'a>) -> LevelRef<'a>;
-    fn mkl_param<'a>(&'a self, name: &'a str, index: u32) -> LevelRef<'a>;
+    fn mkl_param<'a>(&'a self, name: Atom, index: u32) -> LevelRef<'a>;
     fn mkl_ivar<'a>(&'a self, id: LevelVarId) -> LevelRef<'a>;
     fn mkl_nat<'a>(&'a self, n: u32) -> LevelRef<'a>;
 
@@ -172,7 +174,7 @@ impl TTArena for Arena {
     }
 
     #[inline(always)]
-    fn mkl_param<'a>(&'a self, name: &'a str, index: u32) -> LevelRef<'a> {
+    fn mkl_param<'a>(&'a self, name: Atom, index: u32) -> LevelRef<'a> {
         self.alloc_new(Level::mk_param(name, index))
     }
 
@@ -433,7 +435,7 @@ impl<'a> Level<'a> {
     }
 
     #[inline(always)]
-    pub const fn mk_param(name: &'a str, index: u32) -> Self {
+    pub const fn mk_param(name: Atom, index: u32) -> Self {
         Self { kind: LevelKind::Param(level::Param { name, index }) }
     }
 

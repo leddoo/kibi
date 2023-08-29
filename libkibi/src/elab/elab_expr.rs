@@ -1,3 +1,4 @@
+use crate::string_table::Atom;
 use crate::ast::*;
 use crate::tt::{self, *};
 
@@ -20,7 +21,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 let expected = self.reduce_ex(expected, false);
                 let ty       = self.reduce_ex(ty, false);
                 self.error(expr.source, |alloc| {
-                    let mut pp = TermPP::new(self.env, alloc);
+                    let mut pp = TermPP::new(self.env, &self.strings, alloc);
                     let expected = pp.pp_term(expected);
                     let found    = pp.pp_term(ty);
                     ElabError::TypeMismatch { expected, found }
@@ -46,7 +47,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
 
         self.error(expr.source, |alloc| {
-            let mut pp = TermPP::new(self.env, alloc);
+            let mut pp = TermPP::new(self.env, &self.strings, alloc);
             let found = pp.pp_term(ty);
             ElabError::TypeExpected { found }
         });
@@ -61,12 +62,12 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
 
             ExprKind::Ident(name) => {
-                if let Some(local) = self.lookup_local(name) {
+                if let Some(local) = self.lookup_local(*name) {
                     let ty = self.lctx.lookup(local).ty;
                     (self.alloc.mkt_local(local), ty)
                 }
                 else {
-                    let symbol = self.lookup_symbol_ident(expr.source, name)?;
+                    let symbol = self.lookup_symbol_ident(expr.source, *name)?;
                     self.elab_symbol(expr.source, symbol, &[])?
                 }
             }
@@ -82,7 +83,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                         if self.lookup_local(*name).is_some() {
                             self.error(expr.source, |alloc|
                                 ElabError::SymbolShadowedByLocal(
-                                    alloc.alloc_str(*name)));
+                                    alloc.alloc_str(&self.strings[*name])));
                         }
 
                         self.lookup_symbol_ident(expr.source, *name)?
@@ -111,7 +112,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 for param in it.binders.iter() {
                     let (ty, l) = self.elab_expr_as_type(param.ty.as_ref()?)?;
                     let id = self.lctx.push(ty, None);
-                    let name = param.name.unwrap_or("");
+                    let name = param.name.unwrap_or(Atom::NULL);
                     self.locals.push((name, id));
                     levels.push(l);
                 }
@@ -142,7 +143,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 for param in it.binders.iter() {
                     let (ty, _) = self.elab_expr_as_type(param.ty.as_ref()?)?;
                     let id = self.lctx.push(ty, None);
-                    let name = param.name.unwrap_or("");
+                    let name = param.name.unwrap_or(Atom::NULL);
                     self.locals.push((name, id));
 
                     if let Some(expected) = expected_ty {
