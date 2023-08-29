@@ -202,6 +202,7 @@ pub struct Item<'a> {
 
 #[derive(Debug)]
 pub enum ItemKind<'a> {
+    Axiom(item::Axiom<'a>),
     Def(item::Def<'a>),
     Reduce(ExprRef<'a>),
 }
@@ -210,6 +211,14 @@ pub enum ItemKind<'a> {
 pub mod item {
     use super::*;
 
+
+    #[derive(Debug)]
+    pub struct Axiom<'a> {
+        pub name:   IdentOrPath<'a>,
+        pub levels: &'a [Atom],
+        pub params: BinderList<'a>,
+        pub ty:     Expr<'a>,
+    }
 
     #[derive(Debug)]
     pub struct Def<'a> {

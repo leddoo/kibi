@@ -21,13 +21,17 @@
 - todo:
     - finish chores:
 
-    - pp locals.
+    - `union` rework.
 
     - syntax stuff:
         - binder rework - nicer `lam`/`pi` syntax.
         - `+`, `=`, `->`.
 
-    - axioms.
+    - type annotation.
+    - let.
+
+    - pp locals.
+
     - check.
 
     - scope approx.

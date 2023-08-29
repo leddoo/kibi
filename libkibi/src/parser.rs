@@ -340,6 +340,31 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
         let at = self.tokens.next_ref()?;
 
         let kind = match at.kind {
+            TokenKind::Ident(atoms::axiom) => {
+                let name = self.parse_ident()?;
+                let name = self.parse_ident_or_path(name)?;
+
+                let mut levels = &mut [][..];
+                if self.tokens.consume_if(|at| at.kind == TokenKind::Dot) {
+                    self.expect(TokenKind::LCurly)?;
+                    levels = self.sep_by(TokenKind::Comma, TokenKind::RCurly, |this| {
+                        this.parse_ident()
+                    })?;
+                }
+
+                let mut params = &mut [][..];
+                if self.tokens.consume_if(|at| at.kind == TokenKind::LParen) {
+                    params = self.sep_by(TokenKind::Comma, TokenKind::RParen, |this| {
+                        this.parse_binder()
+                    })?;
+                }
+
+                self.expect(TokenKind::Colon)?;
+                let ty = self.parse_expr()?;
+
+                ItemKind::Axiom(item::Axiom { name, levels, params, ty })
+            }
+
             TokenKind::KwDef => {
                 let name = self.parse_ident()?;
                 let name = self.parse_ident_or_path(name)?;

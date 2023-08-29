@@ -34,7 +34,7 @@ impl<'a> StringTable<'a> {
             (atoms::M, "M"), (atoms::m_zero, "m_zero"), (atoms::m_succ, "m_succ"),
             (atoms::n, "n"), (atoms::ih, "ih"), (atoms::mp, "mp"),
             (atoms::T, "T"), (atoms::a, "a"), (atoms::b, "b"),
-            (atoms::m_refl, "m_refl"),
+            (atoms::m_refl, "m_refl"), (atoms::axiom, "axiom"),
         ];
 
         for (atom, string) in init.iter().copied() {
@@ -89,6 +89,7 @@ pub mod atoms {
     pub const a:        Atom = Atom(18);
     pub const b:        Atom = Atom(19);
     pub const m_refl:   Atom = Atom(20);
+    pub const axiom:    Atom = Atom(21);
 }
 
 

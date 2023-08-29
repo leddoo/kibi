@@ -57,6 +57,31 @@ reduce Nat::add(1, 2)
         let mut elab = kibi::elab::Elab::new(&mut env, SymbolId::ROOT, &errors, &strings, &arena);
 
         match &item.kind {
+            ItemKind::Axiom(axiom) => {
+                let Some(_) = elab.elab_axiom(axiom) else { break };
+                work_dt += t0.elapsed();
+
+                print!("axiom ");
+                match axiom.name {
+                    IdentOrPath::Ident(name) => {
+                        println!("{}", &strings[name]);
+                    }
+
+                    IdentOrPath::Path(path) => {
+                        print!("{}", &strings[path.parts[0]]);
+                        for part in path.parts[1..].iter().copied() {
+                            print!("::{}", &strings[part]);
+                        }
+                        println!();
+                    }
+                }
+
+                let Some(()) = elab.check_no_unassigned_variables() else {
+                    println!("error: unassigned inference variables");
+                    break;
+                };
+            }
+
             ItemKind::Def(def) => {
                 let Some(_) = elab.elab_def(def) else { break };
                 work_dt += t0.elapsed();

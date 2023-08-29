@@ -9,18 +9,20 @@ use kibi::env::*;
 fn nat_add_elab() {
     let alloc = sti::arena::Arena::new();
 
+    let mut strings = StringTable::new(&alloc);
+
     // λ a b, Nat.rec((λ _, Nat), a, (λ _ r, Nat.succ(r)), b)
     let nat_add = &*
-        alloc.mkt_lambda(0, Term::NAT,
-        alloc.mkt_lambda(1, Term::NAT,
+        alloc.mkt_lambda(strings.insert("a"), Term::NAT,
+        alloc.mkt_lambda(strings.insert("b"), Term::NAT,
             alloc.mkt_apps(alloc.mkt_nat_rec(Level::L1), &[
-                alloc.mkt_lambda(2, Term::NAT, Term::NAT),
+                alloc.mkt_lambda(strings.insert(""), Term::NAT, Term::NAT),
                 alloc.mkt_bound(BVar(1)),
                 alloc.mkt_lambda(
-                    3,
+                    strings.insert("_"),
                     Term::NAT,
                     alloc.mkt_lambda(
-                        4,
+                        strings.insert("r"),
                         Term::NAT,
                         alloc.mkt_apply(
                             Term::NAT_SUCC,
@@ -28,9 +30,7 @@ fn nat_add_elab() {
                 alloc.mkt_bound(BVar(0)),
             ])));
 
-    let mut strings = StringTable::new(&alloc);
-
-    let mut env = Env::new(&mut strings);
+    let mut env = Env::new();
 
     let errors = ErrorCtx::new(&alloc);
 

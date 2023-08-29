@@ -212,8 +212,11 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
             SymbolKind::Def(d) => {
                 debug_assert_eq!(g.levels.len(), d.num_levels as usize);
-                let val = d.val.instantiate_level_params(g.levels, self.alloc);
-                Some(t.replace_app_fun(val, self.alloc))
+                if let Some(val) = d.val {
+                    let val = val.instantiate_level_params(g.levels, self.alloc);
+                    Some(t.replace_app_fun(val, self.alloc))
+                }
+                else { None }
             }
         }
     }

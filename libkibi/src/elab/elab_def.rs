@@ -5,6 +5,76 @@ use super::*;
 
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
+    pub fn elab_axiom(&mut self, axiom: &item::Axiom<'a>) -> Option<SymbolId> {
+        assert_eq!(self.locals.len(), 0);
+        assert_eq!(self.level_params.len(), 0);
+
+        for level in axiom.levels {
+            self.level_params.push(*level);
+        }
+
+        // @cleanup: elab_binders.
+        for param in axiom.params.iter() {
+            let name = param.name.unwrap_or(Atom::NULL);
+            let (ty, _) = self.elab_expr_as_type(param.ty.as_ref()?)?;
+            let id = self.lctx.push(name, ty, None);
+            self.locals.push((name, id));
+        }
+
+        // type.
+        let mut ty = self.elab_expr_as_type(&axiom.ty)?.0;
+
+        for (_, id) in self.locals.iter().copied().rev() {
+            ty = self.mk_binder(ty,  id, true);
+        }
+
+        if self.locals.len() == 0 {
+            ty = self.instantiate_term(ty);
+        }
+
+        debug_assert!(ty.syntax_eq(self.instantiate_term(ty)));
+
+        let (parent, name) = match &axiom.name {
+            IdentOrPath::Ident(name) => (self.root_symbol, *name),
+
+            IdentOrPath::Path(path) => {
+                let (name, parts) = path.parts.split_last().unwrap();
+                // @temp: missing source range.
+                let parent = self.lookup_symbol_path(SourceRange::UNKNOWN, path.local, parts)?;
+                (parent, *name)
+            }
+        };
+
+        if !ty.closed() || ty.has_locals() {
+            let mut pp = TermPP::new(self.env, &self.strings, self.alloc);
+            let ty  = pp.pp_term(self.instantiate_term(ty));
+            println!("{}", pp.render(ty,  50).layout_string());
+        }
+
+        assert!(ty.closed());
+
+        assert!(!ty.has_locals());
+
+        if ty.has_ivars() {
+            println!("unresolved inference variables");
+            let mut pp = TermPP::new(self.env, &self.strings, self.alloc);
+            let ty  = self.instantiate_term(ty);
+            let ty  = pp.pp_term(ty);
+            println!("{}", pp.render(ty,  50).layout_string());
+            return None;
+        }
+
+        let symbol = self.env.new_symbol(parent, name,
+            SymbolKind::Def(symbol::Def {
+                num_levels: axiom.levels.len() as u32,
+                ty,
+                val: None,
+            })
+        )?;
+
+        Some(symbol)
+    }
+
     pub fn elab_def(&mut self, def: &item::Def<'a>) -> Option<SymbolId> {
         assert_eq!(self.locals.len(), 0);
         assert_eq!(self.level_params.len(), 0);
@@ -87,7 +157,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             SymbolKind::Def(symbol::Def {
                 num_levels: def.levels.len() as u32,
                 ty,
-                val,
+                val: Some(val),
             })
         )?;
 
