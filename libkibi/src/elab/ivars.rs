@@ -86,7 +86,7 @@ impl LevelVarId {
 
         // occurs check.
         if value.find(|at| {
-            if let LevelKind::IVar(id) = at.kind {
+            if let LevelData::IVar(id) = at.data {
                 return Some(id == self);
             }
             None
@@ -169,7 +169,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
     pub fn all_term_vars_in_scope(&self, t: TermRef<'a>, scope: OptScopeId) -> bool {
         t.find(|at, _| {
-            if let TermKind::IVar(var) = at.kind {
+            if let TermData::IVar(var) = at.data {
                 return Some(!self.term_var_in_scope(var, scope));
             }
             None
@@ -177,8 +177,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
     fn check_value_for_assign(&mut self, value: TermRef<'a>, var: TermVarId) -> Option<TermRef<'a>> {
-        Some(match value.kind {
-            TermKind::Local(id) => {
+        Some(match value.data {
+            TermData::Local(id) => {
                 // scope check.
                 let scope = var.scope(self);
                 if !self.lctx.local_in_scope(id, scope) {
@@ -189,7 +189,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 value
             }
 
-            TermKind::IVar(other) => {
+            TermData::IVar(other) => {
                 // instantiate:
                 if let Some(value) = other.value(self) {
                     return self.check_value_for_assign(value, var);
@@ -211,21 +211,21 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 value
             }
 
-            TermKind::Forall(b) |
-            TermKind::Lambda(b) =>
+            TermData::Forall(b) |
+            TermData::Lambda(b) =>
                 b.update(value, self.alloc,
                     self.check_value_for_assign(b.ty,  var)?,
                     self.check_value_for_assign(b.val, var)?),
 
-            TermKind::Apply(a) =>
+            TermData::Apply(a) =>
                 a.update(value, self.alloc,
                     self.check_value_for_assign(a.fun, var)?,
                     self.check_value_for_assign(a.arg, var)?),
 
-            TermKind::Sort(_)   | TermKind::Bound(_) | TermKind::Global(_) |
-            TermKind::Nat       | TermKind::NatZero  | TermKind::NatSucc   |
-            TermKind::NatRec(_) | TermKind::Eq(_)    | TermKind::EqRefl(_) |
-            TermKind::EqRec(_, _) =>
+            TermData::Sort(_)   | TermData::Bound(_) | TermData::Global(_) |
+            TermData::Nat       | TermData::NatZero  | TermData::NatSucc   |
+            TermData::NatRec(_) | TermData::Eq(_)    | TermData::EqRefl(_) |
+            TermData::EqRec(_, _) =>
                 value,
         })
     }

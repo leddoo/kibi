@@ -25,8 +25,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             return true;
         }
 
-        use LevelKind::*;
-        match (a.kind, b.kind) {
+        use LevelData::*;
+        match (a.data, b.data) {
             (Zero, Zero) =>
                 true,
 

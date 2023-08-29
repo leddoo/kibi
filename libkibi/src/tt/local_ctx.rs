@@ -3,7 +3,7 @@ use sti::keyed::KVec;
 
 use crate::string_table::Atom;
 
-use super::syntax::*;
+use super::term::*;
 
 
 // @todo: debug version with (global) generational indices.
@@ -102,7 +102,7 @@ impl<'a> LocalCtx<'a> {
 
     pub fn all_locals_in_scope(&self, t: TermRef<'a>, scope: OptScopeId) -> bool {
         t.find(|at, _| {
-            if let TermKind::Local(id) = at.kind {
+            if let TermData::Local(id) = at.data {
                 return Some(!self.local_in_scope(id, scope));
             }
             None

@@ -7,20 +7,20 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     pub fn infer_type(&mut self, t: TermRef<'a>) -> Option<TermRef<'a>> {
         assert!(t.closed());
 
-        let result = match t.kind {
-            TermKind::Sort (l) => {
+        let result = match t.data {
+            TermData::Sort (l) => {
                 self.alloc.mkt_sort(l.succ(self.alloc))
             }
 
-            TermKind::Bound (_) => {
+            TermData::Bound (_) => {
                 unreachable!()
             }
 
-            TermKind::Local (id) => {
+            TermData::Local (id) => {
                 self.lctx.lookup(id).ty
             }
 
-            TermKind::Global (g) => {
+            TermData::Global (g) => {
                 let symbol = self.env.symbol(g.id);
                 match symbol.kind {
                     SymbolKind::Root => unreachable!(),
@@ -79,11 +79,11 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 }
             }
 
-            TermKind::IVar(var) => {
+            TermData::IVar(var) => {
                 var.ty(self)
             }
 
-            TermKind::Lambda (b) => {
+            TermData::Lambda (b) => {
                 self.infer_type_as_sort(b.ty)?;
 
                 let id = self.lctx.push(b.name, b.ty, None);
@@ -95,7 +95,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 self.alloc.mkt_forall(b.name, b.ty, value_ty.abstracc(id, self.alloc))
             }
 
-            TermKind::Forall (b) => {
+            TermData::Forall (b) => {
                 let param_level = self.infer_type_as_sort(b.ty)?;
 
                 let id = self.lctx.push(b.name, b.ty, None);
@@ -107,7 +107,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 self.alloc.mkt_sort(param_level.imax(value_level, self.alloc))
             }
 
-            TermKind::Apply (app) => {
+            TermData::Apply (app) => {
                 let fun_ty = self.infer_type_as_forall(app.fun)?;
                 /* @temp: type checking.
                 let arg_ty = self.infer_type(app.arg)?;
@@ -122,14 +122,14 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 fun_ty.val.instantiate(app.arg, self.alloc)
             }
 
-            TermKind::Nat => Term::SORT_1,
-            TermKind::NatZero => Term::NAT,
-            TermKind::NatSucc => Term::NAT_SUCC_TY,
-            TermKind::NatRec(r) => self.alloc.mkt_nat_rec_ty(r),
+            TermData::Nat => Term::SORT_1,
+            TermData::NatZero => Term::NAT,
+            TermData::NatSucc => Term::NAT_SUCC_TY,
+            TermData::NatRec(r) => self.alloc.mkt_nat_rec_ty(r),
 
-            TermKind::Eq(l) => self.alloc.mkt_eq_ty(l),
-            TermKind::EqRefl(l) => self.alloc.mkt_eq_refl_ty(l),
-            TermKind::EqRec(l, r) => self.alloc.mkt_eq_rec_ty(l, r),
+            TermData::Eq(l) => self.alloc.mkt_eq_ty(l),
+            TermData::EqRefl(l) => self.alloc.mkt_eq_refl_ty(l),
+            TermData::EqRec(l, r) => self.alloc.mkt_eq_rec_ty(l, r),
         };
         assert!(result.closed());
         // TODO: assert all locals are in current local context.
@@ -140,7 +140,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     pub fn infer_type_as_sort(&mut self, t: TermRef<'a>) -> Option<LevelRef<'a>> {
         let ty = self.infer_type(t)?;
         let ty = self.whnf(ty);
-        if let TermKind::Sort(l) = ty.kind {
+        if let TermData::Sort(l) = ty.data {
             return Some(l);
         }
         return None;
@@ -149,7 +149,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     pub fn infer_type_as_forall(&mut self, t: TermRef<'a>) -> Option<term::Binder<'a>> {
         let ty = self.infer_type(t)?;
         let ty = self.whnf(ty);
-        if let TermKind::Forall(b) = ty.kind {
+        if let TermData::Forall(b) = ty.data {
             return Some(b);
         }
         return None;

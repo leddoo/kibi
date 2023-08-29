@@ -47,7 +47,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let mut result    = func;
         let mut result_ty = func_ty;
         for (i, arg) in args.iter().enumerate() {
-            let TermKind::Forall(b) = result_ty.kind else {
+            let TermData::Forall(b) = result_ty.data else {
                 break;
             };
 
@@ -88,13 +88,13 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let mut expected_ty = expected_ty;
 
         // under applied.
-        if let TermKind::Forall(_) = result_ty.kind {
+        if let TermData::Forall(_) = result_ty.data {
             println!("under applied");
             debug_assert!(arg_terms.len() == args.len());
 
             let old_scope = self.lctx.current;
 
-            while let TermKind::Forall(b) = result_ty.kind {
+            while let TermData::Forall(b) = result_ty.data {
                 let Some(ex_b) = self.whnf_forall(expected_ty) else {
                     println!("error");
                     return (Some(None),);
@@ -167,7 +167,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
     fn elim_info(&self, func: TermRef<'a>) -> Option<ElimInfo<'static>> {
-        if let TermKind::NatRec(_) = func.kind {
+        if let TermData::NatRec(_) = func.data {
             return Some(ElimInfo {
                 motive: 0,
                 args: &[
@@ -179,7 +179,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             });
         }
 
-        if let TermKind::EqRec(_, _) = func.kind {
+        if let TermData::EqRec(_, _) = func.data {
             return Some(ElimInfo {
                 motive: 2,
                 args: &[

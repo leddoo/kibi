@@ -21,7 +21,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
     pub fn whnf_forall(&mut self, t: TermRef<'a>) -> Option<&'a term::Binder<'a>> {
-        if let TermKind::Forall(b) = &self.whnf(t).kind {
+        if let TermData::Forall(b) = &self.whnf(t).data {
             return Some(b);
         }
         return None;
@@ -31,14 +31,14 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     // reductions: local.
     // supports ptr_eq for change detection.
     pub fn whnf_basic(&self, e: TermRef<'a>) -> (TermRef<'a>, bool) {
-        match e.kind {
-            TermKind::Sort (_) =>
+        match e.data {
+            TermData::Sort (_) =>
                 (e, true),
 
-            TermKind::Bound (_) =>
+            TermData::Bound (_) =>
                 unreachable!(),
 
-            TermKind::Local (id) => {
+            TermData::Local (id) => {
                 let entry = self.lctx.lookup(id);
                 if let Some(value) = entry.value {
                     self.whnf_basic(value)
@@ -46,32 +46,32 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 else { (e, true) }
             }
 
-            TermKind::Global (_) => {
+            TermData::Global (_) => {
                 // @temp: reject axioms & opaque defs.
                 (e, false)
             }
 
-            TermKind::IVar(var) => {
+            TermData::IVar(var) => {
                 if let Some(value) = var.value(self) {
                     self.whnf_basic(value)
                 }
                 else { (e, false) } // could get assigned, ig.
             }
 
-            TermKind::Lambda (_) |
-            TermKind::Forall (_) =>
+            TermData::Lambda (_) |
+            TermData::Forall (_) =>
                 (e, true),
 
-            TermKind::Apply (_) =>
+            TermData::Apply (_) =>
                 (e, false),
 
-            TermKind::Nat |
-            TermKind::NatZero |
-            TermKind::NatSucc |
-            TermKind::NatRec(_) |
-            TermKind::Eq(_) |
-            TermKind::EqRefl(_) |
-            TermKind::EqRec(_, _) => (e, true)
+            TermData::Nat |
+            TermData::NatZero |
+            TermData::NatSucc |
+            TermData::NatRec(_) |
+            TermData::Eq(_) |
+            TermData::EqRefl(_) |
+            TermData::EqRec(_, _) => (e, true)
         }
     }
 
@@ -84,10 +84,10 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
 
         // eta (λ x, f x)
-        if let TermKind::Lambda(binder) = e.kind {
-            if let TermKind::Apply(app) = binder.val.kind {
-                if let TermKind::Bound(i) = app.arg.kind {
-                    if i.0 == 0 && app.fun.closed() {
+        if let TermData::Lambda(binder) = e.data {
+            if let TermData::Apply(app) = binder.val.data {
+                if let TermData::Bound(i) = app.arg.data {
+                    if i.offset == 0 && app.fun.closed() {
                         return self.whnf_no_unfold(app.fun);
                     }
                 }
@@ -119,7 +119,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
             let mut result = fun;
             let mut i = 0;
-            while let TermKind::Lambda(b) = result.kind {
+            while let TermData::Lambda(b) = result.data {
                 if i < args.len() {
                     result = b.val.instantiate(args[i], self.alloc);
                     i += 1;
@@ -149,7 +149,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     fn try_reduce_recursor(&mut self, t: TermRef<'a>, fun: TermRef<'a>, num_args: usize) -> Option<TermRef<'a>> {
         assert!(t.closed());
 
-        'next: { if let TermKind::NatRec(l) = fun.kind {
+        'next: { if let TermData::NatRec(l) = fun.data {
             if num_args < 4 { break 'next; }
 
             let (_, rec_args) = t.app_args();
@@ -159,13 +159,13 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
             let (ctor, ctor_args) = mp.app_args();
 
-            let result = match ctor.kind {
-                TermKind::NatZero => {
+            let result = match ctor.data {
+                TermData::NatZero => {
                     assert_eq!(ctor_args.len(), 0);
                     rec_args[1]
                 }
 
-                TermKind::NatSucc => {
+                TermData::NatSucc => {
                     assert_eq!(ctor_args.len(), 1);
 
                     // Nat.rec M mz ms (Nat.succ n)
@@ -202,7 +202,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     pub fn unfold(&self, t: TermRef<'a>) -> Option<TermRef<'a>> {
         let (fun, _) = t.app_fun();
 
-        let TermKind::Global(g) = fun.kind else { return None };
+        let TermData::Global(g) = fun.data else { return None };
 
         let symbol = self.env.symbol(g.id);
         match symbol.kind {
@@ -231,11 +231,11 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         let result = if unfold { self.whnf(t) } else { self.whnf_no_unfold(t).0 };
 
-        let result = match result.kind {
-            TermKind::Bound(_) => unreachable!(),
+        let result = match result.data {
+            TermData::Bound(_) => unreachable!(),
 
-            TermKind::Forall(b) |
-            TermKind::Lambda(b) => {
+            TermData::Forall(b) |
+            TermData::Lambda(b) => {
                 let new_ty = self.reduce_ex(b.ty, unfold);
 
                 let save = self.lctx.save();
@@ -252,15 +252,15 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 b.update(result, self.alloc, new_ty, new_val)
             }
 
-            TermKind::Apply(a) =>
+            TermData::Apply(a) =>
                 a.update(result, self.alloc,
                     self.reduce_ex(a.fun, unfold),
                     self.reduce_ex(a.arg, unfold)),
 
-            TermKind::Sort(_)   | TermKind::Local(_)  | TermKind::Global(_) |
-            TermKind::IVar(_)   | TermKind::Nat       | TermKind::NatZero   |
-            TermKind::NatSucc   | TermKind::NatRec(_) | TermKind::Eq(_)     |
-            TermKind::EqRefl(_) | TermKind::EqRec(_, _) =>
+            TermData::Sort(_)   | TermData::Local(_)  | TermData::Global(_) |
+            TermData::IVar(_)   | TermData::Nat       | TermData::NatZero   |
+            TermData::NatSucc   | TermData::NatRec(_) | TermData::Eq(_)     |
+            TermData::EqRefl(_) | TermData::EqRec(_, _) =>
                 result,
         };
         assert!(result.closed());

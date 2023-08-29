@@ -28,16 +28,16 @@ impl<'me, 'a> TermPP<'me, 'a> {
     pub fn pp_level(&mut self, l: LevelRef) -> DocRef<'a> {
         let (l, offset) = l.to_offset();
 
-        match l.kind {
-            LevelKind::Zero => {
+        match l.data {
+            LevelData::Zero => {
                 // @temp: sti string module.
                 self.pp.text(self.pp.alloc_str(&format!("{offset}")))
             }
 
-            LevelKind::Succ(_) => unreachable!(),
+            LevelData::Succ(_) => unreachable!(),
 
-            LevelKind::Max(p) |
-            LevelKind::IMax(p) => {
+            LevelData::Max(p) |
+            LevelData::IMax(p) => {
                 let lhs = self.pp_level(p.lhs);
                 let rhs = self.pp_level(p.rhs);
 
@@ -60,11 +60,11 @@ impl<'me, 'a> TermPP<'me, 'a> {
                 ]))
             }
 
-            LevelKind::Param(p) => {
+            LevelData::Param(p) => {
                 self.pp.text(self.alloc_atom(p.name))
             }
 
-            LevelKind::IVar(var) => {
+            LevelData::IVar(var) => {
                 // @temp: sti string module.
                 self.pp.text(self.pp.alloc_str(&format!("?{}", var.inner())))
             }
@@ -72,8 +72,8 @@ impl<'me, 'a> TermPP<'me, 'a> {
     }
 
     pub fn pp_term(&mut self, t: TermRef) -> DocRef<'a> {
-        match t.kind {
-            TermKind::Sort(l) => {
+        match t.data {
+            TermData::Sort(l) => {
                 if l.is_zero() {
                     self.pp.text("Prop")
                 }
@@ -90,17 +90,17 @@ impl<'me, 'a> TermPP<'me, 'a> {
                 }
             }
 
-            TermKind::Bound(BVar(i)) => {
+            TermData::Bound(BVar { offset }) => {
                 // @temp: sti string module.
-                self.pp.text(self.pp.alloc_str(&format!("${i}")))
+                self.pp.text(self.pp.alloc_str(&format!("${offset}")))
             }
 
-            TermKind::Local(i) => {
+            TermData::Local(i) => {
                 // @temp: sti string module.
                 self.pp.text(self.pp.alloc_str(&format!("%{}", i.inner())))
             }
 
-            TermKind::Global(g) => {
+            TermData::Global(g) => {
                 let symbol = self.env.symbol(g.id);
 
                 let mut name = self.pp.text(self.alloc_atom(symbol.name));
@@ -122,12 +122,12 @@ impl<'me, 'a> TermPP<'me, 'a> {
                 else { name }
             }
 
-            TermKind::IVar(var) => {
+            TermData::IVar(var) => {
                 // @temp: sti string module.
                 self.pp.text(self.pp.alloc_str(&format!("?{}", var.inner())))
             }
 
-            TermKind::Forall(b) => {
+            TermData::Forall(b) => {
                 let name = if b.name == Atom::NULL { atoms::_hole } else { b.name };
                 let ty  = self.pp_term(b.ty);
                 let val = self.pp_term(b.val);
@@ -147,7 +147,7 @@ impl<'me, 'a> TermPP<'me, 'a> {
                 ]))
             }
 
-            TermKind::Lambda(b) => {
+            TermData::Lambda(b) => {
                 let name = if b.name == Atom::NULL { atoms::_hole } else { b.name };
                 let ty  = self.pp_term(b.ty);
                 let val = self.pp_term(b.val);
@@ -167,18 +167,18 @@ impl<'me, 'a> TermPP<'me, 'a> {
                 ]))
             }
 
-            TermKind::Apply(app) => {
-                if let TermKind::NatSucc = app.fun.kind {
+            TermData::Apply(app) => {
+                if let TermData::NatSucc = app.fun.data {
                     let mut offset = 1;
                     let mut at = app.arg;
                     loop {
-                        let TermKind::Apply(app) = at.kind else { break };
-                        let TermKind::NatSucc = app.fun.kind else { break };
+                        let TermData::Apply(app) = at.data else { break };
+                        let TermData::NatSucc = app.fun.data else { break };
                         offset += 1;
                         at = app.arg;
                     }
 
-                    if let TermKind::NatZero = at.kind {
+                    if let TermData::NatZero = at.data {
                         return self.pp.text(self.pp.alloc_str(&format!("{offset}")))
                     }
                     else {
@@ -188,9 +188,9 @@ impl<'me, 'a> TermPP<'me, 'a> {
 
                 let (fun_term, fun, args) = self.pp_apply(&app);
 
-                let needs_parens = match fun_term.kind {
-                    TermKind::Forall(_) |
-                    TermKind::Lambda(_) => true,
+                let needs_parens = match fun_term.data {
+                    TermData::Forall(_) |
+                    TermData::Lambda(_) => true,
                     _ => false,
                     // @pp_needs_parens
                 };
@@ -216,13 +216,13 @@ impl<'me, 'a> TermPP<'me, 'a> {
                 ]))
             }
 
-            TermKind::Nat => self.pp.text("Nat"),
+            TermData::Nat => self.pp.text("Nat"),
 
-            TermKind::NatZero => self.pp.text("0"),
+            TermData::NatZero => self.pp.text("0"),
 
-            TermKind::NatSucc => self.pp.text("Nat::succ"),
+            TermData::NatSucc => self.pp.text("Nat::succ"),
 
-            TermKind::NatRec(l) => {
+            TermData::NatRec(l) => {
                 let l = self.pp_level(l);
                 self.pp.cats(&[
                     self.pp.text("Nat::rec.{"),
@@ -231,7 +231,7 @@ impl<'me, 'a> TermPP<'me, 'a> {
                 ])
             }
 
-            TermKind::Eq(l) => {
+            TermData::Eq(l) => {
                 let l = self.pp_level(l);
                 self.pp.cats(&[
                     self.pp.text("Eq.{"),
@@ -240,7 +240,7 @@ impl<'me, 'a> TermPP<'me, 'a> {
                 ])
             }
 
-            TermKind::EqRefl(l) => {
+            TermData::EqRefl(l) => {
                 let l = self.pp_level(l);
                 self.pp.cats(&[
                     self.pp.text("Eq::refl.{"),
@@ -249,7 +249,7 @@ impl<'me, 'a> TermPP<'me, 'a> {
                 ])
             }
 
-            TermKind::EqRec(l, r) => {
+            TermData::EqRec(l, r) => {
                 let l = self.pp_level(l);
                 let r = self.pp_level(r);
                 self.pp.cats(&[
@@ -264,7 +264,7 @@ impl<'me, 'a> TermPP<'me, 'a> {
     }
 
     fn pp_apply<'t>(&mut self, app: &term::Apply<'t>) -> (TermRef<'t>, DocRef<'a>, DocRef<'a>) {
-        if let TermKind::Apply(a) = &app.fun.kind {
+        if let TermData::Apply(a) = &app.fun.data {
             let (fun_term, fun, args) = self.pp_apply(a);
             let arg = self.pp_term(app.arg);
             let args = self.pp.cats(&[

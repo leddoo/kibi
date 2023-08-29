@@ -7,7 +7,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     pub fn abstract_eq(&mut self, t: TermRef<'a>, pat: TermRef<'a>) -> TermRef<'a> {
         let pat = self.instantiate_term_vars(pat);
 
-        if let TermKind::Local(id) = pat.kind {
+        if let TermData::Local(id) = pat.data {
             t.abstracc(id, self.alloc)
         }
         else {
@@ -35,7 +35,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     fn abstract_def_eq(&mut self, t: TermRef<'a>, pat: TermRef<'a>) -> TermRef<'a> {
         t.replace(self.alloc, |at, offset, alloc| {
             if at.syntax_eq(pat) {
-                return Some(alloc.mkt_bound(BVar(offset)));
+                return Some(alloc.mkt_bound(BVar { offset }));
             }
             None
         })

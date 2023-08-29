@@ -17,7 +17,7 @@ fn nat_add_elab() {
         alloc.mkt_lambda(strings.insert("b"), Term::NAT,
             alloc.mkt_apps(alloc.mkt_nat_rec(Level::L1), &[
                 alloc.mkt_lambda(strings.insert(""), Term::NAT, Term::NAT),
-                alloc.mkt_bound(BVar(1)),
+                alloc.mkt_bound(BVar { offset: 1 }),
                 alloc.mkt_lambda(
                     strings.insert("_"),
                     Term::NAT,
@@ -26,8 +26,8 @@ fn nat_add_elab() {
                         Term::NAT,
                         alloc.mkt_apply(
                             Term::NAT_SUCC,
-                            alloc.mkt_bound(BVar(0))))),
-                alloc.mkt_bound(BVar(0)),
+                            alloc.mkt_bound(BVar { offset: 0 })))),
+                alloc.mkt_bound(BVar { offset: 0 }),
             ])));
 
     let mut env = Env::new();

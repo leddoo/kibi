@@ -37,7 +37,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let (term, ty) = self.elab_expr_ex(expr, None)?;
 
         let ty = self.whnf(ty);
-        if let TermKind::Sort(l) = ty.kind {
+        if let TermData::Sort(l) = ty.data {
             return Some((term, l));
         }
 
