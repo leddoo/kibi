@@ -7,8 +7,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     pub fn abstract_eq(&mut self, t: Term<'a>, pat: Term<'a>) -> Term<'a> {
         let pat = self.instantiate_term_vars(pat);
 
-        if let TermData::Local(id) = pat.data() {
-            t.abstracc(id, self.alloc)
+        if let Some(local) = pat.try_local() {
+            t.abstracc(local, self.alloc)
         }
         else {
             //println!("WARN: may not work");

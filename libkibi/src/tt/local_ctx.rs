@@ -102,10 +102,8 @@ impl<'a> LocalCtx<'a> {
 
     pub fn all_locals_in_scope(&self, t: Term<'a>, scope: OptScopeId) -> bool {
         t.find(|at, _| {
-            if let TermData::Local(id) = at.data() {
-                return Some(!self.local_in_scope(id, scope));
-            }
-            None
+            let local = at.try_local()?;
+            return Some(!self.local_in_scope(local, scope));
         }).is_none()
     }
 

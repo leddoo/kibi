@@ -21,10 +21,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
     pub fn whnf_forall(&mut self, t: Term<'a>) -> Option<term::Binder<'a>> {
-        if let TermData::Forall(b) = self.whnf(t).data() {
-            return Some(b);
-        }
-        return None;
+        Some(self.whnf(t).try_forall()?)
     }
 
 
@@ -84,10 +81,10 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
 
         // eta (λ x, f x)
-        if let TermData::Lambda(binder) = e.data() {
-            if let TermData::Apply(app) = binder.val.data() {
-                if let TermData::Bound(i) = app.arg.data() {
-                    if i.offset == 0 && app.fun.closed() {
+        if let Some(binder) = e.try_lambda() {
+            if let Some(app) = binder.val.try_apply() {
+                if let Some(bvar) = app.arg.try_bvar() {
+                    if bvar.offset == 0 && app.fun.closed() {
                         return self.whnf_no_unfold(app.fun);
                     }
                 }
@@ -119,9 +116,9 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
             let mut result = fun;
             let mut i = 0;
-            while let TermData::Lambda(b) = result.data() {
+            while let Some(lam) = result.try_lambda() {
                 if i < args.len() {
-                    result = b.val.instantiate(args[i], self.alloc);
+                    result = lam.val.instantiate(args[i], self.alloc);
                     i += 1;
                 }
                 else { break }
@@ -149,7 +146,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     fn try_reduce_recursor(&mut self, t: Term<'a>, fun: Term<'a>, num_args: usize) -> Option<Term<'a>> {
         assert!(t.closed());
 
-        'next: { if let TermData::NatRec(l) = fun.data() {
+        'next: { if let Some(l) = fun.try_nat_rec() {
             if num_args < 4 { break 'next; }
 
             let (_, rec_args) = t.app_args();
@@ -202,7 +199,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     pub fn unfold(&self, t: Term<'a>) -> Option<Term<'a>> {
         let (fun, _) = t.app_fun();
 
-        let TermData::Global(g) = fun.data() else { return None };
+        let g = fun.try_global()?;
 
         let symbol = self.env.symbol(g.id);
         match symbol.kind {

@@ -47,36 +47,34 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let mut result    = func;
         let mut result_ty = func_ty;
         for (i, arg) in args.iter().enumerate() {
-            let TermData::Forall(b) = result_ty.data() else {
-                break;
-            };
+            let Some(pi) = result_ty.try_forall() else { break };
 
             let expr::CallArg::Positional(arg) = arg else { unimplemented!() };
 
             let arg = match info.args[i] {
                 ElimArgKind::Motive => {
-                    let var = self.new_term_var_of_type(b.ty);
+                    let var = self.new_term_var_of_type(pi.ty);
                     motive = Some(var);
                     var
                 }
 
                 ElimArgKind::Target | ElimArgKind::Extra => {
-                    let Some((arg, _)) = self.elab_expr_checking_type(arg, Some(b.ty)) else {
+                    let Some((arg, _)) = self.elab_expr_checking_type(arg, Some(pi.ty)) else {
                         return (Some(None),);
                     };
                     arg
                 }
 
                 ElimArgKind::Postpone => {
-                    let var = self.new_term_var_of_type(b.ty);
-                    postponed.push((arg, var, b.ty));
+                    let var = self.new_term_var_of_type(pi.ty);
+                    postponed.push((arg, var, pi.ty));
                     var
                 }
             };
             arg_terms.push(arg);
 
             result    = self.alloc.mkt_apply(result, arg);
-            result_ty = b.val.instantiate(arg, self.alloc);
+            result_ty = pi.val.instantiate(arg, self.alloc);
         }
 
         let Some(motive) = motive else {
@@ -88,20 +86,20 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let mut expected_ty = expected_ty;
 
         // under applied.
-        if let TermData::Forall(_) = result_ty.data() {
+        if result_ty.is_forall() {
             println!("under applied");
             debug_assert!(arg_terms.len() == args.len());
 
             let old_scope = self.lctx.current;
 
-            while let TermData::Forall(b) = result_ty.data() {
-                let Some(ex_b) = self.whnf_forall(expected_ty) else {
+            while let Some(pi) = result_ty.try_forall() {
+                let Some(ex_pi) = self.whnf_forall(expected_ty) else {
                     println!("error");
                     return (Some(None),);
                 };
 
-                let id = self.lctx.push(b.name, b.ty, None);
-                expected_ty = ex_b.val.instantiate(
+                let id = self.lctx.push(pi.name, pi.ty, None);
+                expected_ty = ex_pi.val.instantiate(
                     self.alloc.mkt_local(id), self.alloc);
             }
 
@@ -167,7 +165,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
     fn elim_info(&self, func: Term<'a>) -> Option<ElimInfo<'static>> {
-        if let TermData::NatRec(_) = func.data() {
+        if func.kind() == TermKind::NatRec {
             return Some(ElimInfo {
                 motive: 0,
                 args: &[
@@ -179,7 +177,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             });
         }
 
-        if let TermData::EqRec(_, _) = func.data() {
+        if func.kind() == TermKind::EqRec {
             return Some(ElimInfo {
                 motive: 2,
                 args: &[

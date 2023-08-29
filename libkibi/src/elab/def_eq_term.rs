@@ -9,12 +9,12 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         assert!(b.closed());
 
         // instantiate inference vars.
-        if let TermData::IVar(var) = a.data() {
+        if let Some(var) = a.try_ivar() {
             if let Some(a) = var.value(self) {
                 return self.def_eq_basic(a, b);
             }
         }
-        if let TermData::IVar(var) = b.data() {
+        if let Some(var) = b.try_ivar() {
             if let Some(b) = var.value(self) {
                 return self.def_eq_basic(a, b);
             }
@@ -150,8 +150,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
     /// - assumes: `a.num_args = b.num_args`.
     pub fn app_args_def_eq(&mut self, a: Term<'a>, b: Term<'a>) -> bool {
-        let TermData::Apply(a) = a.data() else { return true };
-        let TermData::Apply(b) = b.data() else { return true };
+        let Some(a) = a.try_apply() else { return true };
+        let Some(b) = b.try_apply() else { return true };
 
         if !self.def_eq(a.arg, b.arg) {
             return false;

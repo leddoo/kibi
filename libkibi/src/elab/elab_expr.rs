@@ -37,7 +37,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let (term, ty) = self.elab_expr_ex(expr, None)?;
 
         let ty = self.whnf(ty);
-        if let TermData::Sort(l) = ty.data() {
+        if let Some(l) = ty.try_sort() {
             return Some((term, l));
         }
 
@@ -147,10 +147,10 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     self.locals.push((name, id));
 
                     if let Some(expected) = expected_ty {
-                        if let Some(b) = self.whnf_forall(expected) {
-                            if self.def_eq(ty, b.ty) {
+                        if let Some(pi) = self.whnf_forall(expected) {
+                            if self.def_eq(ty, pi.ty) {
                                 expected_ty = Some(
-                                    b.val.instantiate(
+                                    pi.val.instantiate(
                                         self.alloc.mkt_local(id), self.alloc));
                             }
                             else { expected_ty = None }
@@ -192,15 +192,15 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 for arg in it.args.iter() {
                     let expr::CallArg::Positional(arg) = arg else { unimplemented!() };
 
-                    let Some(b) = self.whnf_forall(result_ty) else {
+                    let Some(pi) = self.whnf_forall(result_ty) else {
                         self.error(expr.source, |_| { ElabError::TooManyArgs });
                         return None;
                     };
 
-                    let (arg, _) = self.elab_expr_checking_type(arg, Some(b.ty))?;
+                    let (arg, _) = self.elab_expr_checking_type(arg, Some(pi.ty))?;
 
                     result    = self.alloc.mkt_apply(result, arg);
-                    result_ty = b.val.instantiate(arg, self.alloc);
+                    result_ty = pi.val.instantiate(arg, self.alloc);
                 }
 
                 (result, result_ty)

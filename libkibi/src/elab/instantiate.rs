@@ -14,21 +14,21 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
     pub fn instantiate_term_vars(&self, t: Term<'a>) -> Term<'a> {
         t.replace(self.alloc, |at, _, alloc| {
-            if let TermData::Apply(app) = at.data() {
+            if let Some(app) = at.try_apply() {
                 let was_ivar = app.fun.is_ivar();
 
                 let new_fun = self.instantiate_term_vars(app.fun);
                 let new_arg = self.instantiate_term_vars(app.arg);
 
                 if was_ivar {
-                    if let TermData::Lambda(b) = new_fun.data() {
-                        return Some(b.val.instantiate(new_arg, alloc));
+                    if let Some(lam) = new_fun.try_lambda() {
+                        return Some(lam.val.instantiate(new_arg, alloc));
                     }
                 }
                 return Some(app.update(at, alloc, new_fun, new_arg));
             }
 
-            if let TermData::IVar(var) = at.data() {
+            if let Some(var) = at.try_ivar() {
                 if let Some(value) = var.value(self) {
                     return Some(self.instantiate_term_vars(value));
                 }

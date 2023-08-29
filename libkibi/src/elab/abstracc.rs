@@ -10,13 +10,13 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
     pub fn abstracc_ex(&self, t: Term<'a>, id: ScopeId, offset: u32) -> Term<'a> {
         t.replace_ex(offset, self.alloc, &mut |at, offset, alloc| {
-            if let TermData::Local(l) = at.data() {
-                if l == id {
+            if let Some(local) = at.try_local() {
+                if local == id {
                     return Some(alloc.mkt_bound(BVar { offset }));
                 }
             }
 
-            if let TermData::IVar(var) = at.data() {
+            if let Some(var) = at.try_ivar() {
                 if let Some(value) = var.value(self) {
                     return Some(self.abstracc_ex(value, id, offset));
                 }

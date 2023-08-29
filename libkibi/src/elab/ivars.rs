@@ -164,10 +164,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
     pub fn all_term_vars_in_scope(&self, t: Term<'a>, scope: OptScopeId) -> bool {
         t.find(|at, _| {
-            if let TermData::IVar(var) = at.data() {
-                return Some(!self.term_var_in_scope(var, scope));
-            }
-            None
+            let var = at.try_ivar()?;
+            return Some(!self.term_var_in_scope(var, scope));
         }).is_none()
     }
 

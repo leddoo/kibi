@@ -298,27 +298,27 @@ mod impel {
 
         #[inline(always)]
         pub fn try_succ(self) -> Option<Level<'a>> {
-            if let LevelData::Succ(l) = *self.0 { Some(l) } else { None }
+            if let LevelData::Succ(x) = *self.0 { Some(x) } else { None }
         }
 
         #[inline(always)]
         pub fn try_max(self) -> Option<Pair<'a>> {
-            if let LevelData::Max(p) = *self.0 { Some(p) } else { None }
+            if let LevelData::Max(x) = *self.0 { Some(x) } else { None }
         }
 
         #[inline(always)]
         pub fn try_imax(self) -> Option<Pair<'a>> {
-            if let LevelData::IMax(p) = *self.0 { Some(p) } else { None }
+            if let LevelData::IMax(x) = *self.0 { Some(x) } else { None }
         }
 
         #[inline(always)]
         pub fn try_param(self) -> Option<Param> {
-            if let LevelData::Param(p) = *self.0 { Some(p) } else { None }
+            if let LevelData::Param(x) = *self.0 { Some(x) } else { None }
         }
 
         #[inline(always)]
         pub fn try_ivar(self) -> Option<LevelVarId> {
-            if let LevelData::IVar(v) = *self.0 { Some(v) } else { None }
+            if let LevelData::IVar(x) = *self.0 { Some(x) } else { None }
         }
 
 

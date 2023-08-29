@@ -183,12 +183,7 @@ impl<'a> Term<'a> {
 
 
     pub fn closed(self) -> bool {
-        self.find(|at, offset| {
-            if let TermData::Bound(BVar { offset: i }) = at.data() {
-                return Some(i >= offset);
-            }
-            None
-        }).is_none()
+        self.find(|at, offset| Some(at.try_bvar()?.offset >= offset)).is_none()
     }
 
     pub fn has_locals(self) -> bool {
@@ -310,24 +305,16 @@ impl<'a> Term<'a> {
     pub fn abstracc(self, id: ScopeId, alloc: &'a Arena) -> Term<'a> {
         // @speed: has_local. or even max_local?
         self.replace(alloc, |at, offset, alloc| {
-            if let TermData::Local(l) = at.data() {
-                if l == id {
-                    return Some(alloc.mkt_bound(BVar { offset }));
-                }
-            }
-            None
+            let local = at.try_local()?;
+            (local == id).then(|| alloc.mkt_bound(BVar { offset }))
         })
     }
 
     pub fn instantiate(self, subst: Term<'a>, alloc: &'a Arena) -> Term<'a> {
         // @speed: max_bvar.
         self.replace(alloc, |at, offset, _| {
-            if let TermData::Bound(b) = at.data() {
-                if b.offset == offset {
-                    return Some(subst);
-                }
-            }
-            None
+            let bvar = at.try_bvar()?;
+            (bvar.offset == offset).then_some(subst)
         })
     }
 
@@ -417,7 +404,7 @@ impl<'a> Term<'a> {
     pub fn app_fun(self) -> (Term<'a>, usize) {
         let mut f = self;
         let mut num_args = 0;
-        while let TermData::Apply(app) = f.data() {
+        while let Some(app) = f.try_apply() {
             f = app.fun;
             num_args += 1;
         }
@@ -428,7 +415,7 @@ impl<'a> Term<'a> {
     pub fn app_args_rev(self) -> (Term<'a>, Vec<Term<'a>>) {
         let mut f = self;
         let mut args = Vec::new();
-        while let TermData::Apply(app) = f.data() {
+        while let Some(app) = f.try_apply() {
             f = app.fun;
             args.push(app.arg);
         }
@@ -450,14 +437,14 @@ impl<'a> Term<'a> {
         return Some((var, args));
 
         fn rec(at: Term, num_args: usize, result: &mut Vec<ScopeId>) -> Option<TermVarId> {
-            if let TermData::Apply(app) = at.data() {
-                let TermData::Local(local) = app.arg.data() else { return None };
+            if let Some(app) = at.try_apply() {
+                let local = app.arg.try_local()?;
 
                 let var = rec(app.fun, num_args + 1, result)?;
                 result.push(local);
                 Some(var)
             }
-            else if let TermData::IVar(var) = at.data() {
+            else if let Some(var) = at.try_ivar() {
                 result.reserve_exact(num_args);
                 Some(var)
             }
@@ -469,7 +456,7 @@ impl<'a> Term<'a> {
 
     // doesn't check for `ptr_eq` of old `app_fun`.
     pub fn replace_app_fun(self, new_fun: Term<'a>, alloc: &'a Arena) -> Term<'a> {
-        if let TermData::Apply(app) = self.data() {
+        if let Some(app) = self.try_apply() {
             let fun = app.fun.replace_app_fun(new_fun, alloc);
             return alloc.mkt_apply(fun, app.arg);
         }
@@ -551,6 +538,67 @@ mod impel {
         pub fn data(self) -> TermData<'a> {
             *self.0
         }
+
+        #[inline(always)]
+        pub fn try_sort(self) -> Option<Level<'a>> {
+            if let TermData::Sort(x) = *self.0 { Some(x) } else { None }
+        }
+
+        #[inline(always)]
+        pub fn try_bvar(self) -> Option<BVar> {
+            if let TermData::Bound(x) = *self.0 { Some(x) } else { None }
+        }
+
+        #[inline(always)]
+        pub fn try_local(self) -> Option<ScopeId> {
+            if let TermData::Local(x) = *self.0 { Some(x) } else { None }
+        }
+
+        #[inline(always)]
+        pub fn try_global(self) -> Option<Global<'a>> {
+            if let TermData::Global(x) = *self.0 { Some(x) } else { None }
+        }
+
+        #[inline(always)]
+        pub fn try_ivar(self) -> Option<TermVarId> {
+            if let TermData::IVar(x) = *self.0 { Some(x) } else { None }
+        }
+
+        #[inline(always)]
+        pub fn try_forall(self) -> Option<Binder<'a>> {
+            if let TermData::Forall(x) = *self.0 { Some(x) } else { None }
+        }
+
+        #[inline(always)]
+        pub fn try_lambda(self) -> Option<Binder<'a>> {
+            if let TermData::Lambda(x) = *self.0 { Some(x) } else { None }
+        }
+
+        #[inline(always)]
+        pub fn try_apply(self) -> Option<Apply<'a>> {
+            if let TermData::Apply(x) = *self.0 { Some(x) } else { None }
+        }
+
+        #[inline(always)]
+        pub fn try_nat_rec(self) -> Option<Level<'a>> {
+            if let TermData::NatRec(x) = *self.0 { Some(x) } else { None }
+        }
+
+        #[inline(always)]
+        pub fn try_eq(self) -> Option<Level<'a>> {
+            if let TermData::Eq(x) = *self.0 { Some(x) } else { None }
+        }
+
+        #[inline(always)]
+        pub fn try_eq_refl(self) -> Option<Level<'a>> {
+            if let TermData::EqRefl(x) = *self.0 { Some(x) } else { None }
+        }
+
+        #[inline(always)]
+        pub fn try_eq_rec(self) -> Option<(Level<'a>, Level<'a>)> {
+            if let TermData::EqRec(x1, x2) = *self.0 { Some((x1, x2)) } else { None }
+        }
+
 
         #[inline(always)]
         pub fn ptr_eq(self, other: Term) -> bool {

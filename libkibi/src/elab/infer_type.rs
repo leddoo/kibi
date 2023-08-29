@@ -140,19 +140,13 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     pub fn infer_type_as_sort(&mut self, t: Term<'a>) -> Option<Level<'a>> {
         let ty = self.infer_type(t)?;
         let ty = self.whnf(ty);
-        if let TermData::Sort(l) = ty.data() {
-            return Some(l);
-        }
-        return None;
+        return Some(ty.try_sort()?);
     }
 
     pub fn infer_type_as_forall(&mut self, t: Term<'a>) -> Option<term::Binder<'a>> {
         let ty = self.infer_type(t)?;
         let ty = self.whnf(ty);
-        if let TermData::Forall(b) = ty.data() {
-            return Some(b);
-        }
-        return None;
+        return Some(ty.try_forall()?);
     }
 }
 
