@@ -4,10 +4,10 @@ use super::*;
 
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
-    pub fn infer_type(&mut self, t: TermRef<'a>) -> Option<TermRef<'a>> {
+    pub fn infer_type(&mut self, t: Term<'a>) -> Option<Term<'a>> {
         assert!(t.closed());
 
-        let result = match t.data {
+        let result = match t.data() {
             TermData::Sort (l) => {
                 self.alloc.mkt_sort(l.succ(self.alloc))
             }
@@ -137,19 +137,19 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         Some(result)
     }
 
-    pub fn infer_type_as_sort(&mut self, t: TermRef<'a>) -> Option<Level<'a>> {
+    pub fn infer_type_as_sort(&mut self, t: Term<'a>) -> Option<Level<'a>> {
         let ty = self.infer_type(t)?;
         let ty = self.whnf(ty);
-        if let TermData::Sort(l) = ty.data {
+        if let TermData::Sort(l) = ty.data() {
             return Some(l);
         }
         return None;
     }
 
-    pub fn infer_type_as_forall(&mut self, t: TermRef<'a>) -> Option<term::Binder<'a>> {
+    pub fn infer_type_as_forall(&mut self, t: Term<'a>) -> Option<term::Binder<'a>> {
         let ty = self.infer_type(t)?;
         let ty = self.whnf(ty);
-        if let TermData::Forall(b) = ty.data {
+        if let TermData::Forall(b) = ty.data() {
             return Some(b);
         }
         return None;

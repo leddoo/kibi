@@ -10,11 +10,30 @@ pub use super::local_ctx::ScopeId;
 use super::level::*;
 
 
-pub type TermRef<'a> = &'a Term<'a>;
+pub type Term<'a> = impel::Term<'a>;
 
-#[derive(Clone, Debug)]
-pub struct Term<'a> {
-    pub data: TermData<'a>
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TermKind {
+    Sort,
+
+    Bound,
+    Local,
+    Global,
+    IVar,
+
+    Forall,
+    Lambda,
+    Apply,
+
+    Nat,
+    NatZero,
+    NatSucc,
+    NatRec,
+
+    Eq,
+    EqRefl,
+    EqRec,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -60,19 +79,19 @@ pub struct Global<'a> {
 #[derive(Clone, Copy, Debug)]
 pub struct Binder<'a> {
     pub name: Atom,
-    pub ty:  TermRef<'a>,
-    pub val: TermRef<'a>,
+    pub ty:  Term<'a>,
+    pub val: Term<'a>,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct Apply<'a> {
-    pub fun: TermRef<'a>,
-    pub arg: TermRef<'a>,
+    pub fun: Term<'a>,
+    pub arg: Term<'a>,
 }
 
 
 impl<'a> Binder<'a> {
-    pub fn update(&self, t: TermRef<'a>, alloc: &'a Arena, new_ty: TermRef<'a>, new_val: TermRef<'a>) -> TermRef<'a> {
+    pub fn update(&self, t: Term<'a>, alloc: &'a Arena, new_ty: Term<'a>, new_val: Term<'a>) -> Term<'a> {
         debug_assert!(t.is_forall() || t.is_lambda());
 
         if !new_ty.ptr_eq(self.ty) || !new_val.ptr_eq(self.val) {
@@ -86,7 +105,7 @@ impl<'a> Binder<'a> {
 }
 
 impl<'a> Apply<'a> {
-    pub fn update(&self, t: TermRef<'a>, alloc: &'a Arena, new_fun: TermRef<'a>, new_arg: TermRef<'a>) -> TermRef<'a> {
+    pub fn update(&self, t: Term<'a>, alloc: &'a Arena, new_fun: Term<'a>, new_arg: Term<'a>) -> Term<'a> {
         debug_assert!(t.is_apply());
 
         if !new_fun.ptr_eq(self.fun) || !new_arg.ptr_eq(self.arg) {
@@ -98,143 +117,39 @@ impl<'a> Apply<'a> {
 
 
 impl<'a> Term<'a> {
-    pub const SORT_0: TermRef<'static> = &Term::mk_sort(Level::L0);
-    pub const SORT_1: TermRef<'static> = &Term::mk_sort(Level::L1);
-
-    pub const NAT: TermRef<'static> = &Term::mk_nat();
-    pub const NAT_ZERO: TermRef<'static> = &Term::mk_nat_zero();
-    pub const NAT_SUCC: TermRef<'static> = &Term::mk_nat_succ();
-    pub const NAT_SUCC_TY: TermRef<'static> = &Term::mk_forall(Atom::NULL, Self::NAT, Self::NAT);
+    #[inline(always)]
+    pub fn is_sort(self) -> bool { self.kind() == TermKind::Sort }
 
     #[inline(always)]
-    pub const fn mk_sort(level: Level<'a>) -> Self {
-        Self { data: TermData::Sort(level) }
-    }
+    pub fn is_bvar(self) -> bool { self.kind() == TermKind::Bound }
 
     #[inline(always)]
-    pub const fn mk_bound(bvar: BVar) -> Self {
-        Self { data: TermData::Bound(bvar) }
-    }
+    pub fn is_local(self) -> bool { self.kind() == TermKind::Local }
 
     #[inline(always)]
-    pub const fn mk_local(id: ScopeId) -> Self {
-        Self { data: TermData::Local(id) }
-    }
+    pub fn is_global(self) -> bool { self.kind() == TermKind::Global }
 
     #[inline(always)]
-    pub const fn mk_global(id: SymbolId, levels: LevelList<'a>) -> Self {
-        Self { data: TermData::Global(Global { id, levels }) }
-    }
+    pub fn is_ivar(self) -> bool { self.kind() == TermKind::IVar }
 
     #[inline(always)]
-    pub const fn mk_ivar(id: TermVarId) -> Self {
-        Self { data: TermData::IVar(id) }
-    }
+    pub fn is_forall(self) -> bool { self.kind() == TermKind::Forall }
 
     #[inline(always)]
-    pub const fn mk_forall_b(binder: Binder<'a>) -> Self {
-        Self { data: TermData::Forall(binder) }
-    }
+    pub fn is_lambda(self) -> bool { self.kind() == TermKind::Lambda }
 
     #[inline(always)]
-    pub const fn mk_forall(name: Atom, ty: TermRef<'a>, ret: TermRef<'a>) -> Self {
-        Self::mk_forall_b(Binder { name, ty, val: ret })
-    }
-
-    #[inline(always)]
-    pub const fn mk_lambda_b(binder: Binder<'a>) -> Self {
-        Self { data: TermData::Lambda(binder) }
-    }
-
-    #[inline(always)]
-    pub const fn mk_lambda(name: Atom, ty: TermRef<'a>, val: TermRef<'a>) -> Self {
-        Self::mk_lambda_b(Binder { name, ty, val })
-    }
-
-    #[inline(always)]
-    pub const fn mk_apply_a(apply: Apply<'a>) -> Self {
-        Self { data: TermData::Apply(apply) }
-    }
-
-    #[inline(always)]
-    pub const fn mk_apply(fun: TermRef<'a>, arg: TermRef<'a>) -> Self {
-        Self::mk_apply_a(Apply { fun, arg })
-    }
-
-    #[inline(always)]
-    pub const fn mk_nat() -> Self {
-        Self { data: TermData::Nat }
-    }
-
-    #[inline(always)]
-    pub const fn mk_nat_zero() -> Self {
-        Self { data: TermData::NatZero }
-    }
-
-    #[inline(always)]
-    pub const fn mk_nat_succ() -> Self {
-        Self { data: TermData::NatSucc }
-    }
-
-    #[inline(always)]
-    pub const fn mk_nat_rec(r: Level<'a>) -> Self {
-        Self { data: TermData::NatRec(r) }
-    }
-
-    #[inline(always)]
-    pub const fn mk_eq(l: Level<'a>) -> Self {
-        Self { data: TermData::Eq(l) }
-    }
-
-    #[inline(always)]
-    pub const fn mk_eq_refl(l: Level<'a>) -> Self {
-        Self { data: TermData::EqRefl(l) }
-    }
-
-    #[inline(always)]
-    pub const fn mk_eq_rec(l: Level<'a>, r: Level<'a>) -> Self {
-        Self { data: TermData::EqRec(l, r) }
-    }
+    pub fn is_apply(self) -> bool { self.kind() == TermKind::Apply }
 
 
     #[inline(always)]
-    pub fn is_sort(&self) -> bool { matches!(self.data, TermData::Sort(_)) }
-
-    #[inline(always)]
-    pub fn is_bvar(&self) -> bool { matches!(self.data, TermData::Bound(_)) }
-
-    #[inline(always)]
-    pub fn is_local(&self) -> bool { matches!(self.data, TermData::Local(_)) }
-
-    #[inline(always)]
-    pub fn is_global(&self) -> bool { matches!(self.data, TermData::Global(_)) }
-
-    #[inline(always)]
-    pub fn is_ivar(&self) -> bool { matches!(self.data, TermData::IVar(_)) }
-
-    #[inline(always)]
-    pub fn is_forall(&self) -> bool { matches!(self.data, TermData::Forall(_)) }
-
-    #[inline(always)]
-    pub fn is_lambda(&self) -> bool { matches!(self.data, TermData::Lambda(_)) }
-
-    #[inline(always)]
-    pub fn is_apply(&self) -> bool { matches!(self.data, TermData::Apply(_)) }
-
-
-    #[inline(always)]
-    pub fn ptr_eq(&self, other: &Term) -> bool {
-        core::ptr::eq(self, other)
-    }
-
-    #[inline(always)]
-    pub fn syntax_eq(&self, other: &Term) -> bool {
+    pub fn syntax_eq(self, other: Term) -> bool {
         if self.ptr_eq(other) {
             return true;
         }
 
         use TermData::*;
-        match (self.data, other.data) {
+        match (self.data(), other.data()) {
             (Sort(l1), Sort(l2)) => l1.syntax_eq(l2),
 
             (Bound(b1), Bound(b2)) => b1 == b2,
@@ -267,24 +182,24 @@ impl<'a> Term<'a> {
     }
 
 
-    pub fn closed(&self) -> bool {
+    pub fn closed(self) -> bool {
         self.find(|at, offset| {
-            if let TermData::Bound(BVar { offset: i }) = at.data {
+            if let TermData::Bound(BVar { offset: i }) = at.data() {
                 return Some(i >= offset);
             }
             None
         }).is_none()
     }
 
-    pub fn has_locals(&self) -> bool {
+    pub fn has_locals(self) -> bool {
         self.find(|at, _| {
             Some(at.is_local())
         }).is_some()
     }
 
-    pub fn has_ivars(&self) -> bool {
+    pub fn has_ivars(self) -> bool {
         self.find(|at, _| {
-            Some(match at.data {
+            Some(match at.data() {
                 TermData::Sort(l) => l.has_ivars(),
 
                 TermData::Global(g) => {
@@ -310,20 +225,18 @@ impl<'a> Term<'a> {
     }
 
 
-    pub fn find<F: Fn(TermRef<'a>, u32) -> Option<bool>>
-        (&'a self, f: F) -> Option<TermRef<'a>>
-    {
+    pub fn find<F>(self, f: F) -> Option<Term<'a>>
+    where F: Fn(Term<'a>, u32) -> Option<bool> {
         self.find_ex(0, &f)
     }
 
-    pub fn find_ex<F: Fn(TermRef<'a>, u32) -> Option<bool>>
-        (&'a self, offset: u32, f: &F) -> Option<TermRef<'a>>
-    {
+    pub fn find_ex<F>(self, offset: u32, f: &F) -> Option<Term<'a>>
+    where F: Fn(Term<'a>, u32) -> Option<bool> {
         if let Some(true) = f(self, offset) {
             return Some(self);
         }
 
-        match self.data {
+        match self.data() {
             TermData::Sort(_) |
             TermData::Bound(_) |
             TermData::Local(_) |
@@ -352,20 +265,18 @@ impl<'a> Term<'a> {
     }
 
 
-    pub fn replace<F: FnMut(TermRef<'a>, u32, &'a Arena) -> Option<TermRef<'a>>>
-        (&'a self, alloc: &'a Arena, mut f: F) -> TermRef<'a>
-    {
+    pub fn replace<F>(self, alloc: &'a Arena, mut f: F) -> Term<'a>
+    where F: FnMut(Term<'a>, u32, &'a Arena) -> Option<Term<'a>> {
         self.replace_ex(0, alloc, &mut f)
     }
 
-    pub fn replace_ex<F: FnMut(TermRef<'a>, u32, &'a Arena) -> Option<TermRef<'a>>>
-        (&'a self, offset: u32, alloc: &'a Arena, f: &mut F) -> TermRef<'a>
-    {
+    pub fn replace_ex<F>(self, offset: u32, alloc: &'a Arena, f: &mut F) -> Term<'a>
+    where F: FnMut(Term<'a>, u32, &'a Arena) -> Option<Term<'a>> {
         if let Some(new) = f(self, offset, alloc) {
             return new;
         }
 
-        match self.data {
+        match self.data() {
             TermData::Sort(_) |
             TermData::Bound(_) |
             TermData::Local(_) |
@@ -396,10 +307,10 @@ impl<'a> Term<'a> {
     }
 
 
-    pub fn abstracc(&'a self, id: ScopeId, alloc: &'a Arena) -> TermRef<'a> {
+    pub fn abstracc(self, id: ScopeId, alloc: &'a Arena) -> Term<'a> {
         // @speed: has_local. or even max_local?
         self.replace(alloc, |at, offset, alloc| {
-            if let TermData::Local(l) = at.data {
+            if let TermData::Local(l) = at.data() {
                 if l == id {
                     return Some(alloc.mkt_bound(BVar { offset }));
                 }
@@ -408,10 +319,10 @@ impl<'a> Term<'a> {
         })
     }
 
-    pub fn instantiate(&'a self, subst: TermRef<'a>, alloc: &'a Arena) -> TermRef<'a> {
+    pub fn instantiate(self, subst: Term<'a>, alloc: &'a Arena) -> Term<'a> {
         // @speed: max_bvar.
         self.replace(alloc, |at, offset, _| {
-            if let TermData::Bound(b) = at.data {
+            if let TermData::Bound(b) = at.data() {
                 if b.offset == offset {
                     return Some(subst);
                 }
@@ -421,9 +332,9 @@ impl<'a> Term<'a> {
     }
 
     pub fn replace_levels_flat<F: Fn(Level<'a>, &'a Arena) -> Option<Level<'a>>>
-        (&self, alloc: &'a Arena, f: F) -> Option<TermRef<'a>>
+        (self, alloc: &'a Arena, f: F) -> Option<Term<'a>>
     {
-        match self.data {
+        match self.data() {
             TermData::Sort(l) => {
                 if let Some(l) = f(l, alloc) {
                     return Some(alloc.mkt_sort(l));
@@ -489,7 +400,7 @@ impl<'a> Term<'a> {
         return None;
     }
 
-    pub fn instantiate_level_params(&'a self, subst: LevelList<'a>, alloc: &'a Arena) -> TermRef<'a> {
+    pub fn instantiate_level_params(self, subst: LevelList<'a>, alloc: &'a Arena) -> Term<'a> {
         if subst.len() == 0 {
             return self;
         }
@@ -503,10 +414,10 @@ impl<'a> Term<'a> {
 
 
     #[inline]
-    pub fn app_fun(&'a self) -> (TermRef<'a>, usize) {
+    pub fn app_fun(self) -> (Term<'a>, usize) {
         let mut f = self;
         let mut num_args = 0;
-        while let TermData::Apply(app) = f.data {
+        while let TermData::Apply(app) = f.data() {
             f = app.fun;
             num_args += 1;
         }
@@ -514,10 +425,10 @@ impl<'a> Term<'a> {
     }
 
     // @speed: arena.
-    pub fn app_args_rev(&'a self) -> (TermRef<'a>, Vec<TermRef<'a>>) {
+    pub fn app_args_rev(self) -> (Term<'a>, Vec<Term<'a>>) {
         let mut f = self;
         let mut args = Vec::new();
-        while let TermData::Apply(app) = f.data {
+        while let TermData::Apply(app) = f.data() {
             f = app.fun;
             args.push(app.arg);
         }
@@ -525,7 +436,7 @@ impl<'a> Term<'a> {
     }
 
     // @speed: arena.
-    pub fn app_args(&'a self) -> (TermRef<'a>, Vec<TermRef<'a>>) {
+    pub fn app_args(self) -> (Term<'a>, Vec<Term<'a>>) {
         let (f, mut args) = self.app_args_rev();
         args.reverse();
         return (f, args);
@@ -533,20 +444,20 @@ impl<'a> Term<'a> {
 
 
     // @speed: arena.
-    pub fn try_ivar_app(&self) -> Option<(TermVarId, Vec<ScopeId>)> {
+    pub fn try_ivar_app(self) -> Option<(TermVarId, Vec<ScopeId>)> {
         let mut args = Vec::new();
         let var = rec(self, 0, &mut args)?;
         return Some((var, args));
 
-        fn rec(at: TermRef, num_args: usize, result: &mut Vec<ScopeId>) -> Option<TermVarId> {
-            if let TermData::Apply(app) = at.data {
-                let TermData::Local(local) = app.arg.data else { return None };
+        fn rec(at: Term, num_args: usize, result: &mut Vec<ScopeId>) -> Option<TermVarId> {
+            if let TermData::Apply(app) = at.data() {
+                let TermData::Local(local) = app.arg.data() else { return None };
 
                 let var = rec(app.fun, num_args + 1, result)?;
                 result.push(local);
                 Some(var)
             }
-            else if let TermData::IVar(var) = at.data {
+            else if let TermData::IVar(var) = at.data() {
                 result.reserve_exact(num_args);
                 Some(var)
             }
@@ -557,8 +468,8 @@ impl<'a> Term<'a> {
 
 
     // doesn't check for `ptr_eq` of old `app_fun`.
-    pub fn replace_app_fun(&self, new_fun: TermRef<'a>, alloc: &'a Arena) -> TermRef<'a> {
-        if let TermData::Apply(app) = self.data {
+    pub fn replace_app_fun(self, new_fun: Term<'a>, alloc: &'a Arena) -> Term<'a> {
+        if let TermData::Apply(app) = self.data() {
             let fun = app.fun.replace_app_fun(new_fun, alloc);
             return alloc.mkt_apply(fun, app.arg);
         }
@@ -569,125 +480,171 @@ impl<'a> Term<'a> {
 
 
 pub trait TermAlloc {
-    fn mkt_sort<'a>(&'a self, level: Level<'a>) -> TermRef<'a>;
-    fn mkt_bound<'a>(&'a self, bvar: BVar) -> TermRef<'a>;
-    fn mkt_local<'a>(&'a self, id: ScopeId) -> TermRef<'a>;
-    fn mkt_global<'a>(&'a self, id: SymbolId, levels: LevelList<'a>) -> TermRef<'a>;
-    fn mkt_ivar<'a>(&'a self, id: TermVarId) -> TermRef<'a>;
-    fn mkt_forall_b<'a>(&'a self, binder: Binder<'a>) -> TermRef<'a>;
-    fn mkt_forall<'a>(&'a self, name: Atom, ty: TermRef<'a>, ret: TermRef<'a>) -> TermRef<'a>;
-    fn mkt_lambda_b<'a>(&'a self, binder: Binder<'a>) -> TermRef<'a>;
-    fn mkt_lambda<'a>(&'a self, name: Atom, ty: TermRef<'a>, val: TermRef<'a>) -> TermRef<'a>;
-    fn mkt_apply_a<'a>(&'a self, apply: Apply<'a>) -> TermRef<'a>;
-    fn mkt_apply<'a>(&'a self, fun: TermRef<'a>, arg: TermRef<'a>) -> TermRef<'a>;
-    fn mkt_apps<'a>(&'a self, fun: TermRef<'a>, args: &[TermRef<'a>]) -> TermRef<'a>;
+    fn mkt_sort<'a>(&'a self, level: Level<'a>) -> Term<'a>;
+    fn mkt_bound<'a>(&'a self, bvar: BVar) -> Term<'a>;
+    fn mkt_local<'a>(&'a self, id: ScopeId) -> Term<'a>;
+    fn mkt_global<'a>(&'a self, id: SymbolId, levels: LevelList<'a>) -> Term<'a>;
+    fn mkt_ivar<'a>(&'a self, id: TermVarId) -> Term<'a>;
+    fn mkt_forall_b<'a>(&'a self, binder: Binder<'a>) -> Term<'a>;
+    fn mkt_forall<'a>(&'a self, name: Atom, ty: Term<'a>, ret: Term<'a>) -> Term<'a>;
+    fn mkt_lambda_b<'a>(&'a self, binder: Binder<'a>) -> Term<'a>;
+    fn mkt_lambda<'a>(&'a self, name: Atom, ty: Term<'a>, val: Term<'a>) -> Term<'a>;
+    fn mkt_apply_a<'a>(&'a self, apply: Apply<'a>) -> Term<'a>;
+    fn mkt_apply<'a>(&'a self, fun: Term<'a>, arg: Term<'a>) -> Term<'a>;
+    fn mkt_apps<'a>(&'a self, fun: Term<'a>, args: &[Term<'a>]) -> Term<'a>;
 
-    fn mkt_nat<'a>(&'a self) -> TermRef<'a>;
-    fn mkt_nat_zero<'a>(&'a self) -> TermRef<'a>;
-    fn mkt_nat_succ<'a>(&'a self) -> TermRef<'a>;
-    fn mkt_nat_rec<'a>(&'a self, r: Level<'a>) -> TermRef<'a>;
-    fn mkt_nat_rec_ty<'a>(&'a self, r: Level<'a>) -> TermRef<'a>;
-    fn mkt_nat_val<'a>(&'a self, n: u32) -> TermRef<'a>;
+    fn mkt_nat<'a>(&'a self) -> Term<'a>;
+    fn mkt_nat_zero<'a>(&'a self) -> Term<'a>;
+    fn mkt_nat_succ<'a>(&'a self) -> Term<'a>;
+    fn mkt_nat_rec<'a>(&'a self, r: Level<'a>) -> Term<'a>;
+    fn mkt_nat_rec_ty<'a>(&'a self, r: Level<'a>) -> Term<'a>;
+    fn mkt_nat_val<'a>(&'a self, n: u32) -> Term<'a>;
 
 
-    fn mkt_eq<'a>(&'a self, l: Level<'a>) -> TermRef<'a>;
-    fn mkt_eq_refl<'a>(&'a self, l: Level<'a>) -> TermRef<'a>;
-    fn mkt_eq_rec<'a>(&'a self, l: Level<'a>, r: Level<'a>) -> TermRef<'a>;
-    fn mkt_eq_ty<'a>(&'a self, l: Level<'a>) -> TermRef<'a>;
-    fn mkt_eq_refl_ty<'a>(&'a self, l: Level<'a>) -> TermRef<'a>;
-    fn mkt_eq_rec_ty<'a>(&'a self, l: Level<'a>, r: Level<'a>) -> TermRef<'a>;
+    fn mkt_eq<'a>(&'a self, l: Level<'a>) -> Term<'a>;
+    fn mkt_eq_refl<'a>(&'a self, l: Level<'a>) -> Term<'a>;
+    fn mkt_eq_rec<'a>(&'a self, l: Level<'a>, r: Level<'a>) -> Term<'a>;
+    fn mkt_eq_ty<'a>(&'a self, l: Level<'a>) -> Term<'a>;
+    fn mkt_eq_refl_ty<'a>(&'a self, l: Level<'a>) -> Term<'a>;
+    fn mkt_eq_rec_ty<'a>(&'a self, l: Level<'a>, r: Level<'a>) -> Term<'a>;
 }
 
 
 mod impel {
     use super::*;
 
+    #[derive(Clone, Copy, Debug)]
+    pub struct Term<'a>(&'a TermData<'a>);
+
+    impl<'a> Term<'a> {
+        pub const SORT_0: Term<'static> = Term(&TermData::Sort(Level::L0));
+        pub const SORT_1: Term<'static> = Term(&TermData::Sort(Level::L1));
+
+        pub const NAT: Term<'static> = Term(&TermData::Nat);
+        pub const NAT_ZERO: Term<'static> = Term(&TermData::NatZero);
+        pub const NAT_SUCC: Term<'static> = Term(&TermData::NatSucc);
+        pub const NAT_SUCC_TY: Term<'static> = Term(&TermData::Forall(Binder{ name: Atom::NULL, ty: Self::NAT, val: Self::NAT }));
+
+
+        #[inline(always)]
+        pub fn kind(self) -> TermKind {
+            match self.0 {
+                TermData::Sort(_)       => TermKind::Sort,
+                TermData::Bound(_)      => TermKind::Bound,
+                TermData::Local(_)      => TermKind::Local,
+                TermData::Global(_)     => TermKind::Global,
+                TermData::IVar(_)       => TermKind::IVar,
+                TermData::Forall(_)     => TermKind::Forall,
+                TermData::Lambda(_)     => TermKind::Lambda,
+                TermData::Apply(_)      => TermKind::Apply,
+                TermData::Nat           => TermKind::Nat,
+                TermData::NatZero       => TermKind::NatZero,
+                TermData::NatSucc       => TermKind::NatSucc,
+                TermData::NatRec(_)     => TermKind::NatRec,
+                TermData::Eq(_)         => TermKind::Eq,
+                TermData::EqRefl(_)     => TermKind::EqRefl,
+                TermData::EqRec(_, _)   => TermKind::EqRec,
+            }
+        }
+
+        #[inline(always)]
+        pub fn data(self) -> TermData<'a> {
+            *self.0
+        }
+
+        #[inline(always)]
+        pub fn ptr_eq(self, other: Term) -> bool {
+            core::ptr::eq(self.0, other.0)
+        }
+    }
+
+
     impl TermAlloc for Arena {
         #[inline(always)]
-        fn mkt_sort<'a>(&'a self, level: Level<'a>) -> TermRef<'a> {
-            self.alloc_new(Term::mk_sort(level))
+        fn mkt_sort<'a>(&'a self, level: Level<'a>) -> Term<'a> {
+            Term(self.alloc_new(TermData::Sort(level)))
         }
 
         #[inline(always)]
-        fn mkt_bound<'a>(&'a self, bvar: BVar) -> TermRef<'a> {
-            self.alloc_new(Term::mk_bound(bvar))
+        fn mkt_bound<'a>(&'a self, bvar: BVar) -> Term<'a> {
+            Term(self.alloc_new(TermData::Bound(bvar)))
         }
 
         #[inline(always)]
-        fn mkt_local<'a>(&'a self, id: ScopeId) -> TermRef<'a> {
-            self.alloc_new(Term::mk_local(id))
+        fn mkt_local<'a>(&'a self, id: ScopeId) -> Term<'a> {
+            Term(self.alloc_new(TermData::Local(id)))
         }
 
         #[inline(always)]
-        fn mkt_global<'a>(&'a self, id: SymbolId, levels: LevelList<'a>) -> TermRef<'a> {
-            self.alloc_new(Term::mk_global(id, levels))
+        fn mkt_global<'a>(&'a self, id: SymbolId, levels: LevelList<'a>) -> Term<'a> {
+            Term(self.alloc_new(TermData::Global(Global { id, levels })))
         }
 
         #[inline(always)]
-        fn mkt_ivar<'a>(&'a self, id: TermVarId) -> TermRef<'a> {
-            self.alloc_new(Term::mk_ivar(id))
+        fn mkt_ivar<'a>(&'a self, id: TermVarId) -> Term<'a> {
+            Term(self.alloc_new(TermData::IVar(id)))
         }
 
         #[inline(always)]
-        fn mkt_forall_b<'a>(&'a self, binder: Binder<'a>) -> TermRef<'a> {
-            self.alloc_new(Term::mk_forall_b(binder))
+        fn mkt_forall_b<'a>(&'a self, binder: Binder<'a>) -> Term<'a> {
+            Term(self.alloc_new(TermData::Forall(binder)))
         }
 
         #[inline(always)]
-        fn mkt_forall<'a>(&'a self, name: Atom, ty: TermRef<'a>, ret: TermRef<'a>) -> TermRef<'a> {
-            self.alloc_new(Term::mk_forall(name, ty, ret))
+        fn mkt_forall<'a>(&'a self, name: Atom, ty: Term<'a>, ret: Term<'a>) -> Term<'a> {
+            Term(self.alloc_new(TermData::Forall(Binder { name, ty, val: ret })))
         }
 
         #[inline(always)]
-        fn mkt_lambda_b<'a>(&'a self, binder: Binder<'a>) -> TermRef<'a> {
-            self.alloc_new(Term::mk_lambda_b(binder))
+        fn mkt_lambda_b<'a>(&'a self, binder: Binder<'a>) -> Term<'a> {
+            Term(self.alloc_new(TermData::Lambda(binder)))
         }
 
         #[inline(always)]
-        fn mkt_lambda<'a>(&'a self, name: Atom, ty: TermRef<'a>, val: TermRef<'a>) -> TermRef<'a> {
-            self.alloc_new(Term::mk_lambda(name, ty, val))
+        fn mkt_lambda<'a>(&'a self, name: Atom, ty: Term<'a>, val: Term<'a>) -> Term<'a> {
+            Term(self.alloc_new(TermData::Lambda(Binder { name, ty, val })))
         }
 
         #[inline(always)]
-        fn mkt_apply_a<'a>(&'a self, apply: Apply<'a>) -> TermRef<'a> {
-            self.alloc_new(Term::mk_apply_a(apply))
+        fn mkt_apply_a<'a>(&'a self, apply: Apply<'a>) -> Term<'a> {
+            Term(self.alloc_new(TermData::Apply(apply)))
         }
 
         #[inline(always)]
-        fn mkt_apply<'a>(&'a self, fun: TermRef<'a>, arg: TermRef<'a>) -> TermRef<'a> {
-            self.alloc_new(Term::mk_apply(fun, arg))
+        fn mkt_apply<'a>(&'a self, fun: Term<'a>, arg: Term<'a>) -> Term<'a> {
+            Term(self.alloc_new(TermData::Apply(Apply { fun, arg })))
         }
 
         #[inline(always)]
-        fn mkt_apps<'a>(&'a self, fun: TermRef<'a>, args: &[TermRef<'a>]) -> TermRef<'a> {
+        fn mkt_apps<'a>(&'a self, fun: Term<'a>, args: &[Term<'a>]) -> Term<'a> {
             let mut result = fun;
-            for arg in args {
+            for arg in args.iter().copied() {
                 result = self.mkt_apply(result, arg);
             }
             return result;
         }
 
         #[inline(always)]
-        fn mkt_nat<'a>(&'a self) -> TermRef<'a> {
-            self.alloc_new(Term::mk_nat())
+        fn mkt_nat<'a>(&'a self) -> Term<'a> {
+            Term(self.alloc_new(TermData::Nat))
         }
 
         #[inline(always)]
-        fn mkt_nat_zero<'a>(&'a self) -> TermRef<'a> {
-            self.alloc_new(Term::mk_nat_zero())
+        fn mkt_nat_zero<'a>(&'a self) -> Term<'a> {
+            Term(self.alloc_new(TermData::NatZero))
         }
 
         #[inline(always)]
-        fn mkt_nat_succ<'a>(&'a self) -> TermRef<'a> {
-            self.alloc_new(Term::mk_nat_succ())
+        fn mkt_nat_succ<'a>(&'a self) -> Term<'a> {
+            Term(self.alloc_new(TermData::NatSucc))
         }
 
         #[inline(always)]
-        fn mkt_nat_rec<'a>(&'a self, r: Level<'a>) -> TermRef<'a> {
-            self.alloc_new(Term::mk_nat_rec(r))
+        fn mkt_nat_rec<'a>(&'a self, r: Level<'a>) -> Term<'a> {
+            Term(self.alloc_new(TermData::NatRec(r)))
         }
 
-        fn mkt_nat_rec_ty<'a>(&'a self, r: Level<'a>) -> TermRef<'a> {
+        fn mkt_nat_rec_ty<'a>(&'a self, r: Level<'a>) -> Term<'a> {
             self.mkt_forall(atoms::M,
                 // M: Nat -> Sort(r)
                 self.mkt_forall(atoms::Nat,
@@ -723,7 +680,7 @@ mod impel {
                     self.mkt_bound(BVar { offset: 0 }))))))
         }
 
-        fn mkt_nat_val<'a>(&'a self, n: u32) -> TermRef<'a> {
+        fn mkt_nat_val<'a>(&'a self, n: u32) -> Term<'a> {
             let mut result = Term::NAT_ZERO;
             for _ in 0..n {
                 result = self.mkt_apply(Term::NAT_SUCC, result);
@@ -733,21 +690,21 @@ mod impel {
 
 
         #[inline(always)]
-        fn mkt_eq<'a>(&'a self, l: Level<'a>) -> TermRef<'a> {
-            self.alloc_new(Term::mk_eq(l))
+        fn mkt_eq<'a>(&'a self, l: Level<'a>) -> Term<'a> {
+            Term(self.alloc_new(TermData::Eq(l)))
         }
 
         #[inline(always)]
-        fn mkt_eq_refl<'a>(&'a self, l: Level<'a>) -> TermRef<'a> {
-            self.alloc_new(Term::mk_eq_refl(l))
+        fn mkt_eq_refl<'a>(&'a self, l: Level<'a>) -> Term<'a> {
+            Term(self.alloc_new(TermData::EqRefl(l)))
         }
 
         #[inline(always)]
-        fn mkt_eq_rec<'a>(&'a self, l: Level<'a>, r: Level<'a>) -> TermRef<'a> {
-            self.alloc_new(Term::mk_eq_rec(l, r))
+        fn mkt_eq_rec<'a>(&'a self, l: Level<'a>, r: Level<'a>) -> Term<'a> {
+            Term(self.alloc_new(TermData::EqRec(l, r)))
         }
 
-        fn mkt_eq_ty<'a>(&'a self, l: Level<'a>) -> TermRef<'a> {
+        fn mkt_eq_ty<'a>(&'a self, l: Level<'a>) -> Term<'a> {
             self.mkt_forall(atoms::T,
                 // T: Sort(l)
                 self.mkt_sort(l),
@@ -761,7 +718,7 @@ mod impel {
                 self.mkt_sort(self.mkl_zero()))))
         }
 
-        fn mkt_eq_refl_ty<'a>(&'a self, l: Level<'a>) -> TermRef<'a> {
+        fn mkt_eq_refl_ty<'a>(&'a self, l: Level<'a>) -> Term<'a> {
             self.mkt_forall(atoms::T,
                 // T: Sort(l)
                 self.mkt_sort(l),
@@ -776,7 +733,7 @@ mod impel {
                 ])))
         }
 
-        fn mkt_eq_rec_ty<'a>(&'a self, l: Level<'a>, r: Level<'a>) -> TermRef<'a> {
+        fn mkt_eq_rec_ty<'a>(&'a self, l: Level<'a>, r: Level<'a>) -> Term<'a> {
             self.mkt_forall(atoms::T,
                 // T: Sort(l)
                 self.mkt_sort(l),

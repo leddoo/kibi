@@ -4,19 +4,19 @@ use super::*;
 
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
-    pub fn abstracc(&self, t: TermRef<'a>, id: ScopeId) -> TermRef<'a> {
+    pub fn abstracc(&self, t: Term<'a>, id: ScopeId) -> Term<'a> {
         self.abstracc_ex(t, id, 0)
     }
 
-    pub fn abstracc_ex(&self, t: TermRef<'a>, id: ScopeId, offset: u32) -> TermRef<'a> {
+    pub fn abstracc_ex(&self, t: Term<'a>, id: ScopeId, offset: u32) -> Term<'a> {
         t.replace_ex(offset, self.alloc, &mut |at, offset, alloc| {
-            if let TermData::Local(l) = at.data {
+            if let TermData::Local(l) = at.data() {
                 if l == id {
                     return Some(alloc.mkt_bound(BVar { offset }));
                 }
             }
 
-            if let TermData::IVar(var) = at.data {
+            if let TermData::IVar(var) = at.data() {
                 if let Some(value) = var.value(self) {
                     return Some(self.abstracc_ex(value, id, offset));
                 }
@@ -52,7 +52,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         })
     }
 
-    pub fn mk_binder(&self, val: TermRef<'a>, id: ScopeId, is_forall: bool) -> TermRef<'a> {
+    pub fn mk_binder(&self, val: Term<'a>, id: ScopeId, is_forall: bool) -> Term<'a> {
         let val = self.abstracc(val, id);
 
         // instantiate type after val, cause abstracc may

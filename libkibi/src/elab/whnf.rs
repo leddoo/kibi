@@ -5,7 +5,7 @@ use super::*;
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     // supports ptr_eq for change detection.
-    pub fn whnf(&mut self, t: TermRef<'a>) -> TermRef<'a> {
+    pub fn whnf(&mut self, t: Term<'a>) -> Term<'a> {
         assert!(t.closed());
 
         let (t, done) = self.whnf_no_unfold(t);
@@ -20,8 +20,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         return t;
     }
 
-    pub fn whnf_forall(&mut self, t: TermRef<'a>) -> Option<&'a term::Binder<'a>> {
-        if let TermData::Forall(b) = &self.whnf(t).data {
+    pub fn whnf_forall(&mut self, t: Term<'a>) -> Option<term::Binder<'a>> {
+        if let TermData::Forall(b) = self.whnf(t).data() {
             return Some(b);
         }
         return None;
@@ -30,8 +30,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
     // reductions: local.
     // supports ptr_eq for change detection.
-    pub fn whnf_basic(&self, e: TermRef<'a>) -> (TermRef<'a>, bool) {
-        match e.data {
+    pub fn whnf_basic(&self, e: Term<'a>) -> (Term<'a>, bool) {
+        match e.data() {
             TermData::Sort (_) =>
                 (e, true),
 
@@ -77,16 +77,16 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
     // reductions: eta, let, beta, recursor.
     // supports ptr_eq for change detection.
-    pub fn whnf_no_unfold(&mut self, e: TermRef<'a>) -> (TermRef<'a>, bool) {
+    pub fn whnf_no_unfold(&mut self, e: Term<'a>) -> (Term<'a>, bool) {
         let (e, done) = self.whnf_basic(e);
         if done {
             return (e, true);
         }
 
         // eta (λ x, f x)
-        if let TermData::Lambda(binder) = e.data {
-            if let TermData::Apply(app) = binder.val.data {
-                if let TermData::Bound(i) = app.arg.data {
+        if let TermData::Lambda(binder) = e.data() {
+            if let TermData::Apply(app) = binder.val.data() {
+                if let TermData::Bound(i) = app.arg.data() {
                     if i.offset == 0 && app.fun.closed() {
                         return self.whnf_no_unfold(app.fun);
                     }
@@ -119,7 +119,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
             let mut result = fun;
             let mut i = 0;
-            while let TermData::Lambda(b) = result.data {
+            while let TermData::Lambda(b) = result.data() {
                 if i < args.len() {
                     result = b.val.instantiate(args[i], self.alloc);
                     i += 1;
@@ -146,10 +146,10 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         return (e, false);
     }
 
-    fn try_reduce_recursor(&mut self, t: TermRef<'a>, fun: TermRef<'a>, num_args: usize) -> Option<TermRef<'a>> {
+    fn try_reduce_recursor(&mut self, t: Term<'a>, fun: Term<'a>, num_args: usize) -> Option<Term<'a>> {
         assert!(t.closed());
 
-        'next: { if let TermData::NatRec(l) = fun.data {
+        'next: { if let TermData::NatRec(l) = fun.data() {
             if num_args < 4 { break 'next; }
 
             let (_, rec_args) = t.app_args();
@@ -159,7 +159,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
             let (ctor, ctor_args) = mp.app_args();
 
-            let result = match ctor.data {
+            let result = match ctor.data() {
                 TermData::NatZero => {
                     assert_eq!(ctor_args.len(), 0);
                     rec_args[1]
@@ -199,10 +199,10 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
 
-    pub fn unfold(&self, t: TermRef<'a>) -> Option<TermRef<'a>> {
+    pub fn unfold(&self, t: Term<'a>) -> Option<Term<'a>> {
         let (fun, _) = t.app_fun();
 
-        let TermData::Global(g) = fun.data else { return None };
+        let TermData::Global(g) = fun.data() else { return None };
 
         let symbol = self.env.symbol(g.id);
         match symbol.kind {
@@ -222,16 +222,16 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
 
-    pub fn reduce(&mut self, t: TermRef<'a>) -> TermRef<'a> {
+    pub fn reduce(&mut self, t: Term<'a>) -> Term<'a> {
         self.reduce_ex(t, true)
     }
 
-    pub fn reduce_ex(&mut self, t: TermRef<'a>, unfold: bool) -> TermRef<'a> {
+    pub fn reduce_ex(&mut self, t: Term<'a>, unfold: bool) -> Term<'a> {
         assert!(t.closed());
 
         let result = if unfold { self.whnf(t) } else { self.whnf_no_unfold(t).0 };
 
-        let result = match result.data {
+        let result = match result.data() {
             TermData::Bound(_) => unreachable!(),
 
             TermData::Forall(b) |

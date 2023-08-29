@@ -19,11 +19,11 @@ struct ElimInfo<'a> {
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     pub fn try_elab_as_elim(&mut self,
-        func: TermRef<'a>,
-        func_ty: TermRef<'a>,
+        func: Term<'a>,
+        func_ty: Term<'a>,
         args: &[expr::CallArg<'a>],
-        expected_ty: TermRef<'a>
-    ) -> (Option<Option<(TermRef<'a>, TermRef<'a>)>>,)
+        expected_ty: Term<'a>
+    ) -> (Option<Option<(Term<'a>, Term<'a>)>>,)
     {
         let Some(info) = self.elim_info(func) else { return (None,) };
 
@@ -47,7 +47,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let mut result    = func;
         let mut result_ty = func_ty;
         for (i, arg) in args.iter().enumerate() {
-            let TermData::Forall(b) = result_ty.data else {
+            let TermData::Forall(b) = result_ty.data() else {
                 break;
             };
 
@@ -88,13 +88,13 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let mut expected_ty = expected_ty;
 
         // under applied.
-        if let TermData::Forall(_) = result_ty.data {
+        if let TermData::Forall(_) = result_ty.data() {
             println!("under applied");
             debug_assert!(arg_terms.len() == args.len());
 
             let old_scope = self.lctx.current;
 
-            while let TermData::Forall(b) = result_ty.data {
+            while let TermData::Forall(b) = result_ty.data() {
                 let Some(ex_b) = self.whnf_forall(expected_ty) else {
                     println!("error");
                     return (Some(None),);
@@ -119,7 +119,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         // create motive.
         let mut motive_val = expected_ty;
-        for (i, target) in arg_terms.iter().enumerate() {
+        for (i, target) in arg_terms.iter().copied().enumerate() {
             if info.args[i] == ElimArgKind::Target {
                 let target_ty = self.infer_type(target).unwrap();
                 //println!("abstract out {:?}", target);
@@ -166,8 +166,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         (Some(Some((result, result_ty))),)
     }
 
-    fn elim_info(&self, func: TermRef<'a>) -> Option<ElimInfo<'static>> {
-        if let TermData::NatRec(_) = func.data {
+    fn elim_info(&self, func: Term<'a>) -> Option<ElimInfo<'static>> {
+        if let TermData::NatRec(_) = func.data() {
             return Some(ElimInfo {
                 motive: 0,
                 args: &[
@@ -179,7 +179,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             });
         }
 
-        if let TermData::EqRec(_, _) = func.data {
+        if let TermData::EqRec(_, _) = func.data() {
             return Some(ElimInfo {
                 motive: 2,
                 args: &[

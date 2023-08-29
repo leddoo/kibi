@@ -50,8 +50,8 @@ pub mod symbol {
     #[derive(Clone, Copy, Debug)]
     pub struct Def<'a> {
         pub num_levels: u32,
-        pub ty:  TermRef<'a>,
-        pub val: Option<TermRef<'a>>,
+        pub ty:  Term<'a>,
+        pub val: Option<Term<'a>>,
     }
 }
 

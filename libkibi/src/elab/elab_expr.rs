@@ -6,12 +6,12 @@ use super::*;
 
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
-    pub fn elab_expr(&mut self, expr: &Expr<'a>) -> Option<(TermRef<'a>, TermRef<'a>)> {
+    pub fn elab_expr(&mut self, expr: &Expr<'a>) -> Option<(Term<'a>, Term<'a>)> {
         self.elab_expr_ex(expr, None)
     }
 
 
-    pub fn elab_expr_checking_type(&mut self, expr: &Expr<'a>, expected_ty: Option<TermRef<'a>>) -> Option<(TermRef<'a>, TermRef<'a>)> {
+    pub fn elab_expr_checking_type(&mut self, expr: &Expr<'a>, expected_ty: Option<Term<'a>>) -> Option<(Term<'a>, Term<'a>)> {
         let (term, ty) = self.elab_expr_ex(expr, expected_ty)?;
 
         if let Some(expected) = expected_ty {
@@ -33,11 +33,11 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         Some((term, ty))
     }
 
-    pub fn elab_expr_as_type(&mut self, expr: &Expr<'a>) -> Option<(TermRef<'a>, tt::Level<'a>)> {
+    pub fn elab_expr_as_type(&mut self, expr: &Expr<'a>) -> Option<(Term<'a>, tt::Level<'a>)> {
         let (term, ty) = self.elab_expr_ex(expr, None)?;
 
         let ty = self.whnf(ty);
-        if let TermData::Sort(l) = ty.data {
+        if let TermData::Sort(l) = ty.data() {
             return Some((term, l));
         }
 
@@ -55,7 +55,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
 
-    pub fn elab_expr_ex(&mut self, expr: &Expr<'a>, expected_ty: Option<TermRef<'a>>) -> Option<(TermRef<'a>, TermRef<'a>)> {
+    pub fn elab_expr_ex(&mut self, expr: &Expr<'a>, expected_ty: Option<Term<'a>>) -> Option<(Term<'a>, Term<'a>)> {
         Some(match &expr.kind {
             ExprKind::Hole => {
                 self.new_term_var()

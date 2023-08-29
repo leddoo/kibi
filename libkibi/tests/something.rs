@@ -12,7 +12,7 @@ fn nat_add_elab() {
     let mut strings = StringTable::new(&alloc);
 
     // λ a b, Nat.rec((λ _, Nat), a, (λ _ r, Nat.succ(r)), b)
-    let nat_add = &*
+    let nat_add =
         alloc.mkt_lambda(strings.insert("a"), Term::NAT,
         alloc.mkt_lambda(strings.insert("b"), Term::NAT,
             alloc.mkt_apps(alloc.mkt_nat_rec(Level::L1), &[

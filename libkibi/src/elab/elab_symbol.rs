@@ -50,7 +50,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
 
-    pub fn elab_symbol(&mut self, source: SourceRange, id: SymbolId, levels: &[ast::Level<'a>]) -> Option<(TermRef<'a>, TermRef<'a>)> {
+    pub fn elab_symbol(&mut self, source: SourceRange, id: SymbolId, levels: &[ast::Level<'a>]) -> Option<(Term<'a>, Term<'a>)> {
         let symbol = self.env.symbol(id);
         Some(match symbol.kind {
             SymbolKind::Root => unreachable!(),

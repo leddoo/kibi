@@ -20,8 +20,8 @@ pub struct LocalCtx<'a> {
 pub struct Scope<'a> {
     pub parent: OptScopeId,
     pub name:   Atom,
-    pub ty:    TermRef<'a>,
-    pub value: Option<TermRef<'a>>,
+    pub ty:    Term<'a>,
+    pub value: Option<Term<'a>>,
 }
 
 #[derive(Clone)]
@@ -43,7 +43,7 @@ impl<'a> LocalCtx<'a> {
 
 
     #[track_caller]
-    pub fn push(&mut self, name: Atom, ty: TermRef<'a>, value: Option<TermRef<'a>>) -> ScopeId {
+    pub fn push(&mut self, name: Atom, ty: Term<'a>, value: Option<Term<'a>>) -> ScopeId {
         assert!(ty.closed());
         if let Some(v) = value { assert!(v.closed()); }
 
@@ -100,9 +100,9 @@ impl<'a> LocalCtx<'a> {
         return false;
     }
 
-    pub fn all_locals_in_scope(&self, t: TermRef<'a>, scope: OptScopeId) -> bool {
+    pub fn all_locals_in_scope(&self, t: Term<'a>, scope: OptScopeId) -> bool {
         t.find(|at, _| {
-            if let TermData::Local(id) = at.data {
+            if let TermData::Local(id) = at.data() {
                 return Some(!self.local_in_scope(id, scope));
             }
             None
@@ -112,7 +112,7 @@ impl<'a> LocalCtx<'a> {
 
     #[track_caller]
     #[inline(always)]
-    pub fn abstract_forall(&self, ret: TermRef<'a>, id: ScopeId) -> TermRef<'a> {
+    pub fn abstract_forall(&self, ret: Term<'a>, id: ScopeId) -> Term<'a> {
         let entry = self.lookup(id);
         let ret = ret.abstracc(id, self.alloc);
         self.alloc.mkt_forall(entry.name, entry.ty, ret)
@@ -120,7 +120,7 @@ impl<'a> LocalCtx<'a> {
 
     #[track_caller]
     #[inline(always)]
-    pub fn abstract_lambda(&self, value: TermRef<'a>, id: ScopeId) -> TermRef<'a> {
+    pub fn abstract_lambda(&self, value: Term<'a>, id: ScopeId) -> Term<'a> {
         let entry = self.lookup(id);
         let value = value.abstracc(id, self.alloc);
         self.alloc.mkt_lambda(entry.name, entry.ty, value)

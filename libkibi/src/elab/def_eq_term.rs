@@ -4,17 +4,17 @@ use super::*;
 
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
-    pub fn def_eq_basic(&mut self, a: TermRef<'a>, b: TermRef<'a>) -> Option<bool> {
+    pub fn def_eq_basic(&mut self, a: Term<'a>, b: Term<'a>) -> Option<bool> {
         assert!(a.closed());
         assert!(b.closed());
 
         // instantiate inference vars.
-        if let TermData::IVar(var) = a.data {
+        if let TermData::IVar(var) = a.data() {
             if let Some(a) = var.value(self) {
                 return self.def_eq_basic(a, b);
             }
         }
-        if let TermData::IVar(var) = b.data {
+        if let TermData::IVar(var) = b.data() {
             if let Some(b) = var.value(self) {
                 return self.def_eq_basic(a, b);
             }
@@ -48,7 +48,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
 
         use TermData::*;
-        match (a.data, b.data) {
+        match (a.data(), b.data()) {
             (Sort(l1), Sort(l2)) => {
                 Some(self.level_def_eq(l1, l2))
             }
@@ -94,7 +94,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
     /// - assumes `a` and `b` are well typed.
-    pub fn def_eq(&mut self, a: TermRef<'a>, b: TermRef<'a>) -> bool {
+    pub fn def_eq(&mut self, a: Term<'a>, b: Term<'a>) -> bool {
         // @todo: optimize. (eg: unfold def w/ higher depth)
 
         // basic checks.
@@ -149,9 +149,9 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
     /// - assumes: `a.num_args = b.num_args`.
-    pub fn app_args_def_eq(&mut self, a: TermRef<'a>, b: TermRef<'a>) -> bool {
-        let TermData::Apply(a) = a.data else { return true };
-        let TermData::Apply(b) = b.data else { return true };
+    pub fn app_args_def_eq(&mut self, a: Term<'a>, b: Term<'a>) -> bool {
+        let TermData::Apply(a) = a.data() else { return true };
+        let TermData::Apply(b) = b.data() else { return true };
 
         if !self.def_eq(a.arg, b.arg) {
             return false;

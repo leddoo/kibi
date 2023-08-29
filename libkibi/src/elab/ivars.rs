@@ -15,8 +15,8 @@ sti::define_key!(u32, pub TermVarId);
 
 pub struct TermVar<'a> {
     scope: OptScopeId,
-    ty: TermRef<'a>,
-    value: Option<TermRef<'a>>,
+    ty: Term<'a>,
+    value: Option<Term<'a>>,
 }
 
 
@@ -33,7 +33,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
 
-    pub fn new_term_var_id(&mut self, ty: TermRef<'a>, scope: OptScopeId) -> TermVarId {
+    pub fn new_term_var_id(&mut self, ty: Term<'a>, scope: OptScopeId) -> TermVarId {
         self.term_vars.push(TermVar {
             scope,
             ty,
@@ -41,23 +41,23 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         })
     }
 
-    pub fn new_term_var_core(&mut self, ty: TermRef<'a>, scope: OptScopeId) -> TermRef<'a> {
+    pub fn new_term_var_core(&mut self, ty: Term<'a>, scope: OptScopeId) -> Term<'a> {
         let id = self.new_term_var_id(ty, scope);
         self.alloc.mkt_ivar(id)
     }
 
-    pub fn new_term_var_of_type(&mut self, ty: TermRef<'a>) -> TermRef<'a> {
+    pub fn new_term_var_of_type(&mut self, ty: Term<'a>) -> Term<'a> {
         self.new_term_var_core(ty, self.lctx.current())
     }
 
-    pub fn new_term_var(&mut self) -> (TermRef<'a>, TermRef<'a>) {
+    pub fn new_term_var(&mut self) -> (Term<'a>, Term<'a>) {
         let l = self.new_level_var();
         let tyty = self.alloc.mkt_sort(l);
         let ty = self.new_term_var_core(tyty, self.lctx.current());
         (self.new_term_var_core(ty, self.lctx.current()), ty)
     }
 
-    pub fn new_ty_var(&mut self) -> (TermRef<'a>, Level<'a>) {
+    pub fn new_ty_var(&mut self) -> (Term<'a>, Level<'a>) {
         let l = self.new_level_var();
         let ty = self.alloc.mkt_sort(l);
         (self.new_term_var_core(ty, self.lctx.current()), l)
@@ -107,19 +107,19 @@ impl TermVarId {
     }
 
     #[inline(always)]
-    pub fn ty<'a>(self, elab: &Elab<'_, '_, 'a>) -> TermRef<'a> {
+    pub fn ty<'a>(self, elab: &Elab<'_, '_, 'a>) -> Term<'a> {
         elab.term_vars[self].ty
     }
 
     #[inline(always)]
-    pub fn value<'a>(self, elab: &Elab<'_, '_, 'a>) -> Option<TermRef<'a>> {
+    pub fn value<'a>(self, elab: &Elab<'_, '_, 'a>) -> Option<Term<'a>> {
         elab.term_vars[self].value
     }
 
 
     #[track_caller]
     #[inline]
-    pub unsafe fn assign_core<'a>(self, value: TermRef<'a>, elab: &mut Elab<'_, '_, 'a>) {
+    pub unsafe fn assign_core<'a>(self, value: Term<'a>, elab: &mut Elab<'_, '_, 'a>) {
         debug_assert!(self.value(elab).is_none());
         debug_assert!(value.closed());
         debug_assert!(elab.lctx.all_locals_in_scope(value, self.scope(elab)));
@@ -129,7 +129,7 @@ impl TermVarId {
 
     // process `var(args) := value`
     #[must_use]
-    pub fn assign<'a>(self, args: &[ScopeId], mut value: TermRef<'a>, elab: &mut Elab<'_, '_, 'a>) -> Option<bool> {
+    pub fn assign<'a>(self, args: &[ScopeId], mut value: Term<'a>, elab: &mut Elab<'_, '_, 'a>) -> Option<bool> {
         //println!("{:?}({:?}) := {:?}", var, args, value);
 
         // abstract out `args`.
@@ -167,17 +167,17 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         self.lctx.scope_is_prefix(var.scope(self), scope)
     }
 
-    pub fn all_term_vars_in_scope(&self, t: TermRef<'a>, scope: OptScopeId) -> bool {
+    pub fn all_term_vars_in_scope(&self, t: Term<'a>, scope: OptScopeId) -> bool {
         t.find(|at, _| {
-            if let TermData::IVar(var) = at.data {
+            if let TermData::IVar(var) = at.data() {
                 return Some(!self.term_var_in_scope(var, scope));
             }
             None
         }).is_none()
     }
 
-    fn check_value_for_assign(&mut self, value: TermRef<'a>, var: TermVarId) -> Option<TermRef<'a>> {
-        Some(match value.data {
+    fn check_value_for_assign(&mut self, value: Term<'a>, var: TermVarId) -> Option<Term<'a>> {
+        Some(match value.data() {
             TermData::Local(id) => {
                 // scope check.
                 let scope = var.scope(self);

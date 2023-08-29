@@ -71,8 +71,8 @@ impl<'me, 'a> TermPP<'me, 'a> {
         }
     }
 
-    pub fn pp_term(&mut self, t: TermRef) -> DocRef<'a> {
-        match t.data {
+    pub fn pp_term(&mut self, t: Term) -> DocRef<'a> {
+        match t.data() {
             TermData::Sort(l) => {
                 if l.is_zero() {
                     self.pp.text("Prop")
@@ -168,17 +168,17 @@ impl<'me, 'a> TermPP<'me, 'a> {
             }
 
             TermData::Apply(app) => {
-                if let TermData::NatSucc = app.fun.data {
+                if let TermData::NatSucc = app.fun.data() {
                     let mut offset = 1;
                     let mut at = app.arg;
                     loop {
-                        let TermData::Apply(app) = at.data else { break };
-                        let TermData::NatSucc = app.fun.data else { break };
+                        let TermData::Apply(app) = at.data() else { break };
+                        let TermData::NatSucc = app.fun.data() else { break };
                         offset += 1;
                         at = app.arg;
                     }
 
-                    if let TermData::NatZero = at.data {
+                    if let TermData::NatZero = at.data() {
                         return self.pp.text(self.pp.alloc_str(&format!("{offset}")))
                     }
                     else {
@@ -188,7 +188,7 @@ impl<'me, 'a> TermPP<'me, 'a> {
 
                 let (fun_term, fun, args) = self.pp_apply(&app);
 
-                let needs_parens = match fun_term.data {
+                let needs_parens = match fun_term.data() {
                     TermData::Forall(_) |
                     TermData::Lambda(_) => true,
                     _ => false,
@@ -263,9 +263,9 @@ impl<'me, 'a> TermPP<'me, 'a> {
         }
     }
 
-    fn pp_apply<'t>(&mut self, app: &term::Apply<'t>) -> (TermRef<'t>, DocRef<'a>, DocRef<'a>) {
-        if let TermData::Apply(a) = &app.fun.data {
-            let (fun_term, fun, args) = self.pp_apply(a);
+    fn pp_apply<'t>(&mut self, app: &term::Apply<'t>) -> (Term<'t>, DocRef<'a>, DocRef<'a>) {
+        if let TermData::Apply(a) = app.fun.data() {
+            let (fun_term, fun, args) = self.pp_apply(&a);
             let arg = self.pp_term(app.arg);
             let args = self.pp.cats(&[
                 args,
