@@ -193,13 +193,13 @@ impl<'a> Term<'a> {
 
 
     pub fn closed(self) -> bool {
-        self.find(|at, offset| Some(at.try_bvar()?.offset >= offset)).is_none()
+        //self.find(|at, offset| Some(at.try_bvar()?.offset >= offset)).is_none()
+        self.max_succ_bvar() == 0
     }
 
     pub fn has_locals(self) -> bool {
-        self.find(|at, _| {
-            Some(at.is_local())
-        }).is_some()
+        //self.find(|at, _| { Some(at.is_local()) }).is_some()
+        self.max_succ_local() != 0
     }
 
     pub fn has_ivars(self) -> bool {
@@ -313,16 +313,22 @@ impl<'a> Term<'a> {
 
 
     pub fn abstracc(self, id: ScopeId, alloc: &'a Arena) -> Term<'a> {
-        // @speed: has_local. or even max_local?
         self.replace(alloc, |at, offset, alloc| {
+            if at.max_succ_local() < id.inner().saturating_add(1) {
+                return Some(at);
+            }
+
             let local = at.try_local()?;
             (local == id).then(|| alloc.mkt_bound(BVar { offset }))
         })
     }
 
     pub fn instantiate(self, subst: Term<'a>, alloc: &'a Arena) -> Term<'a> {
-        // @speed: max_bvar.
         self.replace(alloc, |at, offset, _| {
+            if at.max_succ_bvar() < offset.saturating_add(1) {
+                return Some(at);
+            }
+
             let bvar = at.try_bvar()?;
             (bvar.offset == offset).then_some(subst)
         })
@@ -511,21 +517,29 @@ mod impel {
     use super::*;
 
     #[derive(Clone, Copy, Debug)]
-    pub struct Term<'a>(&'a TermData<'a>);
+    pub struct Term<'a>(&'a Data<'a>);
+
+    #[derive(Debug)]
+    struct Data<'a> {
+        data: TermData<'a>,
+        max_succ_bvar:  u32,
+        max_succ_local: u32,
+    }
+
 
     impl<'a> Term<'a> {
-        pub const SORT_0: Term<'static> = Term(&TermData::Sort(Level::L0));
-        pub const SORT_1: Term<'static> = Term(&TermData::Sort(Level::L1));
+        pub const SORT_0: Term<'static> = Term(&Data { data: TermData::Sort(Level::L0), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const SORT_1: Term<'static> = Term(&Data { data: TermData::Sort(Level::L1), max_succ_bvar: 0, max_succ_local: 0 });
 
-        pub const NAT: Term<'static> = Term(&TermData::Nat);
-        pub const NAT_ZERO: Term<'static> = Term(&TermData::NatZero);
-        pub const NAT_SUCC: Term<'static> = Term(&TermData::NatSucc);
-        pub const NAT_SUCC_TY: Term<'static> = Term(&TermData::Forall(Binder{ kind: BinderKind::Explicit, name: Atom::NULL, ty: Self::NAT, val: Self::NAT }));
+        pub const NAT: Term<'static> = Term(&Data { data: TermData::Nat, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const NAT_ZERO: Term<'static> = Term(&Data { data: TermData::NatZero, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const NAT_SUCC: Term<'static> = Term(&Data { data: TermData::NatSucc, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const NAT_SUCC_TY: Term<'static> = Term(&Data { data: TermData::Forall(Binder{ kind: BinderKind::Explicit, name: Atom::NULL, ty: Self::NAT, val: Self::NAT }), max_succ_bvar: 0, max_succ_local: 0 });
 
 
         #[inline(always)]
         pub fn kind(self) -> TermKind {
-            match self.0 {
+            match self.0.data {
                 TermData::Sort(_)       => TermKind::Sort,
                 TermData::Bound(_)      => TermKind::Bound,
                 TermData::Local(_)      => TermKind::Local,
@@ -545,68 +559,74 @@ mod impel {
         }
 
         #[inline(always)]
+        pub fn max_succ_bvar(self) -> u32 { self.0.max_succ_bvar }
+
+        #[inline(always)]
+        pub fn max_succ_local(self) -> u32 { self.0.max_succ_local }
+
+        #[inline(always)]
         pub fn data(self) -> TermData<'a> {
-            *self.0
+            self.0.data
         }
 
         #[inline(always)]
         pub fn try_sort(self) -> Option<Level<'a>> {
-            if let TermData::Sort(x) = *self.0 { Some(x) } else { None }
+            if let TermData::Sort(x) = self.0.data { Some(x) } else { None }
         }
 
         #[inline(always)]
         pub fn try_bvar(self) -> Option<BVar> {
-            if let TermData::Bound(x) = *self.0 { Some(x) } else { None }
+            if let TermData::Bound(x) = self.0.data { Some(x) } else { None }
         }
 
         #[inline(always)]
         pub fn try_local(self) -> Option<ScopeId> {
-            if let TermData::Local(x) = *self.0 { Some(x) } else { None }
+            if let TermData::Local(x) = self.0.data { Some(x) } else { None }
         }
 
         #[inline(always)]
         pub fn try_global(self) -> Option<Global<'a>> {
-            if let TermData::Global(x) = *self.0 { Some(x) } else { None }
+            if let TermData::Global(x) = self.0.data { Some(x) } else { None }
         }
 
         #[inline(always)]
         pub fn try_ivar(self) -> Option<TermVarId> {
-            if let TermData::IVar(x) = *self.0 { Some(x) } else { None }
+            if let TermData::IVar(x) = self.0.data { Some(x) } else { None }
         }
 
         #[inline(always)]
         pub fn try_forall(self) -> Option<Binder<'a>> {
-            if let TermData::Forall(x) = *self.0 { Some(x) } else { None }
+            if let TermData::Forall(x) = self.0.data { Some(x) } else { None }
         }
 
         #[inline(always)]
         pub fn try_lambda(self) -> Option<Binder<'a>> {
-            if let TermData::Lambda(x) = *self.0 { Some(x) } else { None }
+            if let TermData::Lambda(x) = self.0.data { Some(x) } else { None }
         }
 
         #[inline(always)]
         pub fn try_apply(self) -> Option<Apply<'a>> {
-            if let TermData::Apply(x) = *self.0 { Some(x) } else { None }
+            if let TermData::Apply(x) = self.0.data { Some(x) } else { None }
         }
 
         #[inline(always)]
         pub fn try_nat_rec(self) -> Option<Level<'a>> {
-            if let TermData::NatRec(x) = *self.0 { Some(x) } else { None }
+            if let TermData::NatRec(x) = self.0.data { Some(x) } else { None }
         }
 
         #[inline(always)]
         pub fn try_eq(self) -> Option<Level<'a>> {
-            if let TermData::Eq(x) = *self.0 { Some(x) } else { None }
+            if let TermData::Eq(x) = self.0.data { Some(x) } else { None }
         }
 
         #[inline(always)]
         pub fn try_eq_refl(self) -> Option<Level<'a>> {
-            if let TermData::EqRefl(x) = *self.0 { Some(x) } else { None }
+            if let TermData::EqRefl(x) = self.0.data { Some(x) } else { None }
         }
 
         #[inline(always)]
         pub fn try_eq_rec(self) -> Option<(Level<'a>, Level<'a>)> {
-            if let TermData::EqRec(x1, x2) = *self.0 { Some((x1, x2)) } else { None }
+            if let TermData::EqRec(x1, x2) = self.0.data { Some((x1, x2)) } else { None }
         }
 
 
@@ -620,57 +640,125 @@ mod impel {
     impl TermAlloc for Arena {
         #[inline(always)]
         fn mkt_sort<'a>(&'a self, level: Level<'a>) -> Term<'a> {
-            Term(self.alloc_new(TermData::Sort(level)))
+            Term(self.alloc_new(Data {
+                data: TermData::Sort(level),
+                max_succ_bvar: 0,
+                max_succ_local: 0,
+            }))
         }
 
         #[inline(always)]
         fn mkt_bound<'a>(&'a self, bvar: BVar) -> Term<'a> {
-            Term(self.alloc_new(TermData::Bound(bvar)))
+            Term(self.alloc_new(Data {
+                data: TermData::Bound(bvar),
+                max_succ_bvar: bvar.offset.saturating_add(1),
+                max_succ_local: 0,
+            }))
         }
 
         #[inline(always)]
         fn mkt_local<'a>(&'a self, id: ScopeId) -> Term<'a> {
-            Term(self.alloc_new(TermData::Local(id)))
+            Term(self.alloc_new(Data {
+                data: TermData::Local(id),
+                max_succ_bvar: 0,
+                max_succ_local: id.inner().saturating_add(1),
+            }))
         }
 
         #[inline(always)]
         fn mkt_global<'a>(&'a self, id: SymbolId, levels: LevelList<'a>) -> Term<'a> {
-            Term(self.alloc_new(TermData::Global(Global { id, levels })))
+            Term(self.alloc_new(Data {
+                data: TermData::Global(Global { id, levels }),
+                max_succ_bvar: 0,
+                max_succ_local: 0,
+            }))
         }
 
         #[inline(always)]
         fn mkt_ivar<'a>(&'a self, id: TermVarId) -> Term<'a> {
-            Term(self.alloc_new(TermData::IVar(id)))
+            Term(self.alloc_new(Data {
+                data: TermData::IVar(id),
+                max_succ_bvar: 0,
+                max_succ_local: 0,
+            }))
         }
 
         #[inline(always)]
         fn mkt_forall_b<'a>(&'a self, binder: Binder<'a>) -> Term<'a> {
-            Term(self.alloc_new(TermData::Forall(binder)))
+            Term(self.alloc_new(Data {
+                data: TermData::Forall(binder),
+                max_succ_bvar:
+                    binder.ty.0.max_succ_bvar.max(
+                    binder.val.0.max_succ_bvar.saturating_sub(1)),
+                max_succ_local:
+                    binder.ty.0.max_succ_local.max(
+                    binder.val.0.max_succ_local),
+            }))
         }
 
         #[inline(always)]
         fn mkt_forall<'a>(&'a self, kind: BinderKind, name: Atom, ty: Term<'a>, ret: Term<'a>) -> Term<'a> {
-            Term(self.alloc_new(TermData::Forall(Binder { kind, name, ty, val: ret })))
+            Term(self.alloc_new(Data {
+                data: TermData::Forall(Binder { kind, name, ty, val: ret }),
+                max_succ_bvar:
+                    ty.0.max_succ_bvar.max(
+                    ret.0.max_succ_bvar.saturating_sub(1)),
+                max_succ_local:
+                    ty.0.max_succ_local.max(
+                    ret.0.max_succ_local),
+            }))
         }
 
         #[inline(always)]
         fn mkt_lambda_b<'a>(&'a self, binder: Binder<'a>) -> Term<'a> {
-            Term(self.alloc_new(TermData::Lambda(binder)))
+            Term(self.alloc_new(Data {
+                data: TermData::Lambda(binder),
+                max_succ_bvar:
+                    binder.ty.0.max_succ_bvar.max(
+                    binder.val.0.max_succ_bvar.saturating_sub(1)),
+                max_succ_local:
+                    binder.ty.0.max_succ_local.max(
+                    binder.val.0.max_succ_local),
+            }))
         }
 
         #[inline(always)]
         fn mkt_lambda<'a>(&'a self, kind: BinderKind, name: Atom, ty: Term<'a>, val: Term<'a>) -> Term<'a> {
-            Term(self.alloc_new(TermData::Lambda(Binder { kind, name, ty, val })))
+            Term(self.alloc_new(Data {
+                data: TermData::Lambda(Binder { kind, name, ty, val }),
+                max_succ_bvar:
+                    ty.0.max_succ_bvar.max(
+                    val.0.max_succ_bvar.saturating_sub(1)),
+                max_succ_local:
+                    ty.0.max_succ_local.max(
+                    val.0.max_succ_local),
+            }))
         }
 
         #[inline(always)]
         fn mkt_apply_a<'a>(&'a self, apply: Apply<'a>) -> Term<'a> {
-            Term(self.alloc_new(TermData::Apply(apply)))
+            Term(self.alloc_new(Data {
+                data: TermData::Apply(apply),
+                max_succ_bvar:
+                    apply.fun.0.max_succ_bvar.max(
+                    apply.arg.0.max_succ_bvar),
+                max_succ_local:
+                    apply.fun.0.max_succ_local.max(
+                    apply.arg.0.max_succ_local),
+            }))
         }
 
         #[inline(always)]
         fn mkt_apply<'a>(&'a self, fun: Term<'a>, arg: Term<'a>) -> Term<'a> {
-            Term(self.alloc_new(TermData::Apply(Apply { fun, arg })))
+            Term(self.alloc_new(Data {
+                data: TermData::Apply(Apply { fun, arg }),
+                max_succ_bvar:
+                    fun.0.max_succ_bvar.max(
+                    arg.0.max_succ_bvar),
+                max_succ_local:
+                    fun.0.max_succ_local.max(
+                    arg.0.max_succ_local),
+            }))
         }
 
         #[inline(always)]
@@ -684,22 +772,38 @@ mod impel {
 
         #[inline(always)]
         fn mkt_nat<'a>(&'a self) -> Term<'a> {
-            Term(self.alloc_new(TermData::Nat))
+            Term(self.alloc_new(Data {
+                data: TermData::Nat,
+                max_succ_bvar: 0,
+                max_succ_local: 0,
+            }))
         }
 
         #[inline(always)]
         fn mkt_nat_zero<'a>(&'a self) -> Term<'a> {
-            Term(self.alloc_new(TermData::NatZero))
+            Term(self.alloc_new(Data {
+                data: TermData::NatZero,
+                max_succ_bvar: 0,
+                max_succ_local: 0,
+            }))
         }
 
         #[inline(always)]
         fn mkt_nat_succ<'a>(&'a self) -> Term<'a> {
-            Term(self.alloc_new(TermData::NatSucc))
+            Term(self.alloc_new(Data {
+                data: TermData::NatSucc,
+                max_succ_bvar: 0,
+                max_succ_local: 0,
+            }))
         }
 
         #[inline(always)]
         fn mkt_nat_rec<'a>(&'a self, r: Level<'a>) -> Term<'a> {
-            Term(self.alloc_new(TermData::NatRec(r)))
+            Term(self.alloc_new(Data {
+                data: TermData::NatRec(r),
+                max_succ_bvar: 0,
+                max_succ_local: 0,
+            }))
         }
 
         fn mkt_nat_rec_ty<'a>(&'a self, r: Level<'a>) -> Term<'a> {
@@ -749,17 +853,29 @@ mod impel {
 
         #[inline(always)]
         fn mkt_eq<'a>(&'a self, l: Level<'a>) -> Term<'a> {
-            Term(self.alloc_new(TermData::Eq(l)))
+            Term(self.alloc_new(Data {
+                data: TermData::Eq(l),
+                max_succ_bvar: 0,
+                max_succ_local: 0,
+            }))
         }
 
         #[inline(always)]
         fn mkt_eq_refl<'a>(&'a self, l: Level<'a>) -> Term<'a> {
-            Term(self.alloc_new(TermData::EqRefl(l)))
+            Term(self.alloc_new(Data {
+                data: TermData::EqRefl(l),
+                max_succ_bvar: 0,
+                max_succ_local: 0,
+            }))
         }
 
         #[inline(always)]
         fn mkt_eq_rec<'a>(&'a self, l: Level<'a>, r: Level<'a>) -> Term<'a> {
-            Term(self.alloc_new(TermData::EqRec(l, r)))
+            Term(self.alloc_new(Data {
+                data: TermData::EqRec(l, r),
+                max_succ_bvar: 0,
+                max_succ_local: 0,
+            }))
         }
 
         fn mkt_eq_ty<'a>(&'a self, l: Level<'a>) -> Term<'a> {
