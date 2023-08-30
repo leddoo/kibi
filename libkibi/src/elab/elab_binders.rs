@@ -16,16 +16,20 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 ast::Binder::Ident(name) => {
                     let (ty, l) = self.new_ty_var();
                     let name = name.to_option().unwrap_or(Atom::NULL);
-                    let id = self.lctx.push(name, ty, None);
+                    let id = self.lctx.push(tt::BinderKind::Explicit, name, ty, None);
                     self.locals.push((name, id));
                     locals.push((id, ty, l));
                 }
 
                 ast::Binder::Typed(b) => {
                     let (ty, l) = self.elab_expr_as_type(b.ty)?;
+                    let kind =
+                        if b.implicit { tt::BinderKind::Implicit }
+                        else          { tt::BinderKind::Explicit };
+
                     for name in b.names {
                         let name = name.to_option().unwrap_or(Atom::NULL);
-                        let id = self.lctx.push(name, ty, None);
+                        let id = self.lctx.push(kind, name, ty, None);
                         self.locals.push((name, id));
                         locals.push((id, ty, l));
                     }

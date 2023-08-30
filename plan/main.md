@@ -23,7 +23,7 @@
         - parser eof errors.
         - `sep_by_ex` takes vec.
         - sti reader `revert(n)`, rename `offset -> position`.
-    - named & implicit params.
+    - named args.
     - type annotation.
     - let.
 

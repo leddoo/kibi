@@ -237,7 +237,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
                 let save = self.lctx.save();
 
-                let id = self.lctx.push(b.name, b.ty, None);
+                let id = self.lctx.push(b.kind, b.name, b.ty, None);
                 let val = b.val.instantiate(self.alloc.mkt_local(id), self.alloc);
 
                 let new_val = self.reduce_ex(val, unfold);

@@ -13,6 +13,7 @@ enum ElimArgKind {
 }
 
 struct ElimInfo<'a> {
+    #[allow(dead_code)]
     motive: usize,
     args: &'a [ElimArgKind],
 }
@@ -27,54 +28,93 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     {
         let Some(info) = self.elim_info(func) else { return (None,) };
 
+        /* @temp: named & explicit args.
         let motive_arg = &args[info.motive];
         let expr::CallArg::Positional(motive_arg) = motive_arg else { unimplemented!() };
         let ExprKind::Hole = motive_arg.kind else {
             //println!("motive not hole");
             return (None,) 
         };
+        */
 
         //println!("!!! elab as elim {:?}", func);
 
         let mut motive = None;
 
-        let mut arg_terms = Vec::with_cap(args.len());
+        let mut targets = Vec::new();
 
         let mut postponed = Vec::with_cap(args.len());
 
         // apply args to func.
         // create vars for motive and non-target args.
+        let mut arg_iter = args.iter();
         let mut result    = func;
         let mut result_ty = func_ty;
-        for (i, arg) in args.iter().enumerate() {
-            let Some(pi) = result_ty.try_forall() else { break };
+        let mut param_idx = 0;
+        while let Some(pi) = result_ty.try_forall() {
+            if 0==1 {
+                println!("param {:?} {:?} {:?}",
+                    &self.strings[pi.name],
+                    pi.kind,
+                    pi.ty);
+            }
 
-            let expr::CallArg::Positional(arg) = arg else { unimplemented!() };
+            let arg = match pi.kind {
+                BinderKind::Explicit => {
+                    if let Some(arg) = arg_iter.next() {
+                        let expr::CallArg::Positional(arg) = arg else { unimplemented!() };
+                        Some(arg)
+                    }
+                    else { break }
+                }
 
-            let arg = match info.args[i] {
+                BinderKind::Implicit => None
+            };
+
+            let arg = match info.args[param_idx] {
                 ElimArgKind::Motive => {
+                    if let Some(arg) = arg {
+                        assert!(matches!(arg.kind, ExprKind::Hole));
+                    }
+
                     let var = self.new_term_var_of_type(pi.ty);
                     motive = Some(var);
                     var
                 }
 
                 ElimArgKind::Target | ElimArgKind::Extra => {
-                    let Some((arg, _)) = self.elab_expr_checking_type(arg, Some(pi.ty)) else {
-                        return (Some(None),);
+                    let arg = if let Some(arg) = arg {
+                        let Some((arg, _)) = self.elab_expr_checking_type(arg, Some(pi.ty)) else {
+                            return (Some(None),);
+                        };
+                        arg
+                    }
+                    else {
+                        self.new_term_var_of_type(pi.ty)
                     };
+
+                    if info.args[param_idx] == ElimArgKind::Target {
+                        targets.push(arg);
+                    }
+
                     arg
                 }
 
                 ElimArgKind::Postpone => {
-                    let var = self.new_term_var_of_type(pi.ty);
-                    postponed.push((arg, var, pi.ty));
-                    var
+                    if let Some(arg) = arg {
+                        let var = self.new_term_var_of_type(pi.ty);
+                        postponed.push((arg, var, pi.ty));
+                        var
+                    }
+                    else {
+                        self.new_term_var_of_type(pi.ty)
+                    }
                 }
             };
-            arg_terms.push(arg);
 
-            result    = self.alloc.mkt_apply(result, arg);
-            result_ty = pi.val.instantiate(arg, self.alloc);
+            result     = self.alloc.mkt_apply(result, arg);
+            result_ty  = pi.val.instantiate(arg, self.alloc);
+            param_idx += 1;
         }
 
         let Some(motive) = motive else {
@@ -88,7 +128,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         // under applied.
         if result_ty.is_forall() {
             println!("under applied");
-            debug_assert!(arg_terms.len() == args.len());
+            debug_assert!(arg_iter.len() == 0);
 
             let old_scope = self.lctx.current;
 
@@ -98,7 +138,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     return (Some(None),);
                 };
 
-                let id = self.lctx.push(pi.name, pi.ty, None);
+                let id = self.lctx.push(pi.kind, pi.name, pi.ty, None);
                 expected_ty = ex_pi.val.instantiate(
                     self.alloc.mkt_local(id), self.alloc);
             }
@@ -106,7 +146,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             self.lctx.current = old_scope;
         }
         // over applied.
-        else if arg_terms.len() < args.len() {
+        else if arg_iter.len() > 0 {
             println!("over applied");
             // elab and add remaining args.
             // revert result & expected_ty.
@@ -117,14 +157,13 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         // create motive.
         let mut motive_val = expected_ty;
-        for (i, target) in arg_terms.iter().copied().enumerate() {
-            if info.args[i] == ElimArgKind::Target {
-                let target_ty = self.infer_type(target).unwrap();
-                //println!("abstract out {:?}", target);
-                let val = self.abstract_eq(motive_val, target);
-                // @todo: use motive binder names.
-                motive_val = self.alloc.mkt_lambda(Atom::NULL, target_ty, val);
-            }
+        for target in targets.iter().copied() {
+            let target_ty = self.infer_type(target).unwrap();
+            //println!("abstract out {:?}", target);
+            let val = self.abstract_eq(motive_val, target);
+            // @todo: use motive binder names.
+            motive_val = self.alloc.mkt_lambda(
+                BinderKind::Explicit, Atom::NULL, target_ty, val);
         }
 
         if 0==1 {
@@ -142,7 +181,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             return (Some(None),);
         }
 
-        if arg_terms.len() != args.len() {
+        if arg_iter.len() != 0 {
             unimplemented!()
         }
 

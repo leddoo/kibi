@@ -11,20 +11,10 @@ fn main() {
     arena.min_block_size.set(1024*1024);
 
     let input = "
-reduce (λ(a: Nat, b: Nat) =>
-    Nat::rec(
-        λ(_: _) => _,
-        a,
-        λ(_: _, r: _) => Nat::succ(r),
-        b)
-    )(1, 2)
+-- reduce (λ(a: Nat, b: Nat) => Nat::rec(a, λ _ r => Nat::succ(r), b))(1, 2)
 
-def Nat::add (a: Nat, b: Nat): Nat :=
-    Nat::rec(
-        _,
-        a,
-        λ(_: _, r: _) => Nat::succ(r),
-        b)
+def Nat::add (a b: Nat): Nat :=
+    Nat::rec(a, λ _ r => Nat::succ(r), b)
 
 reduce Nat::add(1, 2)
 ".as_bytes();
@@ -46,6 +36,7 @@ reduce Nat::add(1, 2)
 
     let errors = ErrorCtx::new(&arena);
 
+    let mut parse_dt = std::time::Duration::ZERO;
     let mut work_dt = std::time::Duration::ZERO;
 
     let mut parser = kibi::parser::Parser::new(&tokens, &errors, &strings, &arena);
@@ -53,6 +44,8 @@ reduce Nat::add(1, 2)
         let t0 = std::time::Instant::now();
 
         let Some(item) = parser.parse_item() else { break };
+
+        parse_dt += t0.elapsed();
 
         let mut elab = kibi::elab::Elab::new(&mut env, SymbolId::ROOT, &errors, &strings, &arena);
 
@@ -129,7 +122,8 @@ reduce Nat::add(1, 2)
     println!("allocated: {}, blocks: {}",
         stats.total_allocated - arena.current_block_size() + arena.current_block_used(),
         stats.num_blocks);
-    println!("{:?}", work_dt);
+    println!("parse: {:?}", parse_dt);
+    println!("work:  {:?}", work_dt);
 
     errors.with(|errors| {
         errors.iter(|e| {

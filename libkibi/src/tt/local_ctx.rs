@@ -19,7 +19,8 @@ pub struct LocalCtx<'a> {
 
 pub struct Scope<'a> {
     pub parent: OptScopeId,
-    pub name:   Atom,
+    pub binder_kind: BinderKind,
+    pub name:  Atom,
     pub ty:    Term<'a>,
     pub value: Option<Term<'a>>,
 }
@@ -43,12 +44,12 @@ impl<'a> LocalCtx<'a> {
 
 
     #[track_caller]
-    pub fn push(&mut self, name: Atom, ty: Term<'a>, value: Option<Term<'a>>) -> ScopeId {
+    pub fn push(&mut self, binder_kind: BinderKind, name: Atom, ty: Term<'a>, value: Option<Term<'a>>) -> ScopeId {
         assert!(ty.closed());
         if let Some(v) = value { assert!(v.closed()); }
 
         let parent = self.current;
-        let id = self.scopes.push(Scope { parent, name, ty, value });
+        let id = self.scopes.push(Scope { binder_kind, parent, name, ty, value });
         self.current = id.some();
         id
     }
@@ -113,7 +114,7 @@ impl<'a> LocalCtx<'a> {
     pub fn abstract_forall(&self, ret: Term<'a>, id: ScopeId) -> Term<'a> {
         let entry = self.lookup(id);
         let ret = ret.abstracc(id, self.alloc);
-        self.alloc.mkt_forall(entry.name, entry.ty, ret)
+        self.alloc.mkt_forall(entry.binder_kind, entry.name, entry.ty, ret)
     }
 
     #[track_caller]
@@ -121,7 +122,7 @@ impl<'a> LocalCtx<'a> {
     pub fn abstract_lambda(&self, value: Term<'a>, id: ScopeId) -> Term<'a> {
         let entry = self.lookup(id);
         let value = value.abstracc(id, self.alloc);
-        self.alloc.mkt_lambda(entry.name, entry.ty, value)
+        self.alloc.mkt_lambda(entry.binder_kind, entry.name, entry.ty, value)
     }
 
 

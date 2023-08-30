@@ -86,19 +86,19 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             TermData::Lambda (b) => {
                 self.infer_type_as_sort(b.ty)?;
 
-                let id = self.lctx.push(b.name, b.ty, None);
+                let id = self.lctx.push(b.kind, b.name, b.ty, None);
                 let value = b.val.instantiate(self.alloc.mkt_local(id), self.alloc);
 
                 let value_ty = self.infer_type(value)?;
                 self.lctx.pop(id);
 
-                self.alloc.mkt_forall(b.name, b.ty, value_ty.abstracc(id, self.alloc))
+                self.alloc.mkt_forall(b.kind, b.name, b.ty, value_ty.abstracc(id, self.alloc))
             }
 
             TermData::Forall (b) => {
                 let param_level = self.infer_type_as_sort(b.ty)?;
 
-                let id = self.lctx.push(b.name, b.ty, None);
+                let id = self.lctx.push(b.kind, b.name, b.ty, None);
                 let value = b.val.instantiate(self.alloc.mkt_local(id), self.alloc);
 
                 let value_level = self.infer_type_as_sort(value)?;

@@ -60,8 +60,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let entry = self.lctx.lookup(id);
         let ty = self.instantiate_term_vars(entry.ty);
 
-        if is_forall { self.alloc.mkt_forall(entry.name, ty, val) }
-        else         { self.alloc.mkt_lambda(entry.name, ty, val) }
+        if is_forall { self.alloc.mkt_forall(entry.binder_kind, entry.name, ty, val) }
+        else         { self.alloc.mkt_lambda(entry.binder_kind, entry.name, ty, val) }
     }
 }
 

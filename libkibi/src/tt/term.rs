@@ -77,7 +77,14 @@ pub struct Global<'a> {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub enum BinderKind {
+    Explicit,
+    Implicit,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct Binder<'a> {
+    pub kind: BinderKind,
     pub name: Atom,
     pub ty:  Term<'a>,
     pub val: Term<'a>,
@@ -95,7 +102,10 @@ impl<'a> Binder<'a> {
         debug_assert!(t.is_forall() || t.is_lambda());
 
         if !new_ty.ptr_eq(self.ty) || !new_val.ptr_eq(self.val) {
-            let b = Self { name: self.name, ty: new_ty, val: new_val };
+            let b = Self {
+                kind: self.kind, name: self.name,
+                ty: new_ty, val: new_val,
+            };
 
             if t.is_forall() { alloc.mkt_forall_b(b) }
             else             { alloc.mkt_lambda_b(b) }
@@ -473,9 +483,9 @@ pub trait TermAlloc {
     fn mkt_global<'a>(&'a self, id: SymbolId, levels: LevelList<'a>) -> Term<'a>;
     fn mkt_ivar<'a>(&'a self, id: TermVarId) -> Term<'a>;
     fn mkt_forall_b<'a>(&'a self, binder: Binder<'a>) -> Term<'a>;
-    fn mkt_forall<'a>(&'a self, name: Atom, ty: Term<'a>, ret: Term<'a>) -> Term<'a>;
+    fn mkt_forall<'a>(&'a self, kind: BinderKind, name: Atom, ty: Term<'a>, ret: Term<'a>) -> Term<'a>;
     fn mkt_lambda_b<'a>(&'a self, binder: Binder<'a>) -> Term<'a>;
-    fn mkt_lambda<'a>(&'a self, name: Atom, ty: Term<'a>, val: Term<'a>) -> Term<'a>;
+    fn mkt_lambda<'a>(&'a self, kind: BinderKind, name: Atom, ty: Term<'a>, val: Term<'a>) -> Term<'a>;
     fn mkt_apply_a<'a>(&'a self, apply: Apply<'a>) -> Term<'a>;
     fn mkt_apply<'a>(&'a self, fun: Term<'a>, arg: Term<'a>) -> Term<'a>;
     fn mkt_apps<'a>(&'a self, fun: Term<'a>, args: &[Term<'a>]) -> Term<'a>;
@@ -510,7 +520,7 @@ mod impel {
         pub const NAT: Term<'static> = Term(&TermData::Nat);
         pub const NAT_ZERO: Term<'static> = Term(&TermData::NatZero);
         pub const NAT_SUCC: Term<'static> = Term(&TermData::NatSucc);
-        pub const NAT_SUCC_TY: Term<'static> = Term(&TermData::Forall(Binder{ name: Atom::NULL, ty: Self::NAT, val: Self::NAT }));
+        pub const NAT_SUCC_TY: Term<'static> = Term(&TermData::Forall(Binder{ kind: BinderKind::Explicit, name: Atom::NULL, ty: Self::NAT, val: Self::NAT }));
 
 
         #[inline(always)]
@@ -639,8 +649,8 @@ mod impel {
         }
 
         #[inline(always)]
-        fn mkt_forall<'a>(&'a self, name: Atom, ty: Term<'a>, ret: Term<'a>) -> Term<'a> {
-            Term(self.alloc_new(TermData::Forall(Binder { name, ty, val: ret })))
+        fn mkt_forall<'a>(&'a self, kind: BinderKind, name: Atom, ty: Term<'a>, ret: Term<'a>) -> Term<'a> {
+            Term(self.alloc_new(TermData::Forall(Binder { kind, name, ty, val: ret })))
         }
 
         #[inline(always)]
@@ -649,8 +659,8 @@ mod impel {
         }
 
         #[inline(always)]
-        fn mkt_lambda<'a>(&'a self, name: Atom, ty: Term<'a>, val: Term<'a>) -> Term<'a> {
-            Term(self.alloc_new(TermData::Lambda(Binder { name, ty, val })))
+        fn mkt_lambda<'a>(&'a self, kind: BinderKind, name: Atom, ty: Term<'a>, val: Term<'a>) -> Term<'a> {
+            Term(self.alloc_new(TermData::Lambda(Binder { kind, name, ty, val })))
         }
 
         #[inline(always)]
@@ -693,22 +703,22 @@ mod impel {
         }
 
         fn mkt_nat_rec_ty<'a>(&'a self, r: Level<'a>) -> Term<'a> {
-            self.mkt_forall(atoms::M,
+            self.mkt_forall(BinderKind::Implicit, atoms::M,
                 // M: Nat -> Sort(r)
-                self.mkt_forall(atoms::Nat,
+                self.mkt_forall(BinderKind::Explicit, atoms::Nat,
                     Term::NAT,
                     self.mkt_sort(r)),
-            self.mkt_forall(atoms::m_zero,
+            self.mkt_forall(BinderKind::Explicit, atoms::m_zero,
                 // m_zero: M(0)
                 self.mkt_apply(
                     self.mkt_bound(BVar { offset: 0 }),
                     Term::NAT_ZERO),
-            self.mkt_forall(atoms::m_succ,
+            self.mkt_forall(BinderKind::Explicit, atoms::m_succ,
                 // m_succ: Π(n, ih) => M(n.succ())
-                self.mkt_forall(atoms::n,
+                self.mkt_forall(BinderKind::Explicit, atoms::n,
                     // n: Nat
                     Term::NAT,
-                self.mkt_forall(atoms::ih,
+                self.mkt_forall(BinderKind::Explicit, atoms::ih,
                     // ih: M(n)
                     self.mkt_apply(
                         self.mkt_bound(BVar { offset: 2 }),
@@ -719,7 +729,7 @@ mod impel {
                         self.mkt_apply(
                             Term::NAT_SUCC,
                             self.mkt_bound(BVar { offset: 1 }))))),
-            self.mkt_forall(atoms::mp,
+            self.mkt_forall(BinderKind::Explicit, atoms::mp,
                 // mp: Nat
                 Term::NAT,
                 // -> M(mp)
@@ -753,13 +763,13 @@ mod impel {
         }
 
         fn mkt_eq_ty<'a>(&'a self, l: Level<'a>) -> Term<'a> {
-            self.mkt_forall(atoms::T,
+            self.mkt_forall(BinderKind::Implicit, atoms::T,
                 // T: Sort(l)
                 self.mkt_sort(l),
-            self.mkt_forall(atoms::a,
+            self.mkt_forall(BinderKind::Explicit, atoms::a,
                 // a: T
                 self.mkt_bound(BVar { offset: 0 }),
-            self.mkt_forall(atoms::b,
+            self.mkt_forall(BinderKind::Explicit, atoms::b,
                 // b: T
                 self.mkt_bound(BVar { offset: 1 }),
                 // -> Prop
@@ -767,10 +777,10 @@ mod impel {
         }
 
         fn mkt_eq_refl_ty<'a>(&'a self, l: Level<'a>) -> Term<'a> {
-            self.mkt_forall(atoms::T,
+            self.mkt_forall(BinderKind::Implicit, atoms::T,
                 // T: Sort(l)
                 self.mkt_sort(l),
-            self.mkt_forall(atoms::a,
+            self.mkt_forall(BinderKind::Explicit, atoms::a,
                 // a: T
                 self.mkt_bound(BVar { offset: 0 }),
                 // -> Eq(T, a, a)
@@ -782,26 +792,26 @@ mod impel {
         }
 
         fn mkt_eq_rec_ty<'a>(&'a self, l: Level<'a>, r: Level<'a>) -> Term<'a> {
-            self.mkt_forall(atoms::T,
+            self.mkt_forall(BinderKind::Implicit, atoms::T,
                 // T: Sort(l)
                 self.mkt_sort(l),
-            self.mkt_forall(atoms::a,
+            self.mkt_forall(BinderKind::Implicit, atoms::a,
                 // a: T
                 self.mkt_bound(BVar { offset: 0 }),
-            self.mkt_forall(atoms::M,
+            self.mkt_forall(BinderKind::Implicit, atoms::M,
                 // M: Π(b: T) -> Sort(r)
-                self.mkt_forall(atoms::b,
+                self.mkt_forall(BinderKind::Explicit, atoms::b,
                     self.mkt_bound(BVar { offset: 1 }),
                     self.mkt_sort(r)),
-            self.mkt_forall(atoms::m_refl,
+            self.mkt_forall(BinderKind::Explicit, atoms::m_refl,
                 // m_refl: M(a)
                 self.mkt_apply(
                     self.mkt_bound(BVar { offset: 0 }),
                     self.mkt_bound(BVar { offset: 1 })),
-            self.mkt_forall(atoms::b,
+            self.mkt_forall(BinderKind::Implicit, atoms::b,
                 // b: T
                 self.mkt_bound(BVar { offset: 3 }),
-            self.mkt_forall(atoms::mp,
+            self.mkt_forall(BinderKind::Explicit, atoms::mp,
                 // mp: Eq(T, a, b)
                 self.mkt_apps(self.mkt_eq(l), &[
                     self.mkt_bound(BVar { offset: 4 }),

@@ -161,20 +161,30 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     }
                 }
 
+                let mut args = it.args.iter();
                 let mut result    = func;
                 let mut result_ty = func_ty;
-                for arg in it.args.iter() {
-                    let expr::CallArg::Positional(arg) = arg else { unimplemented!() };
+                while let Some(pi) = self.whnf_forall(result_ty) {
+                    let arg = match pi.kind {
+                        BinderKind::Explicit => {
+                            let Some(arg) = args.next() else { break };
+                            let expr::CallArg::Positional(arg) = arg else { unimplemented!() };
 
-                    let Some(pi) = self.whnf_forall(result_ty) else {
-                        self.error(expr.source, |_| { ElabError::TooManyArgs });
-                        return None;
+                            let (arg, _) = self.elab_expr_checking_type(arg, Some(pi.ty))?;
+                            arg
+                        }
+
+                        BinderKind::Implicit => {
+                            self.new_term_var_of_type(pi.ty)
+                        }
                     };
-
-                    let (arg, _) = self.elab_expr_checking_type(arg, Some(pi.ty))?;
 
                     result    = self.alloc.mkt_apply(result, arg);
                     result_ty = pi.val.instantiate(arg, self.alloc);
+                }
+                if args.next().is_some() {
+                    self.error(expr.source, |_| { ElabError::TooManyArgs });
+                    return None;
                 }
 
                 (result, result_ty)

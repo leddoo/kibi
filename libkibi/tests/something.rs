@@ -13,16 +13,14 @@ fn nat_add_elab() {
 
     // λ a b, Nat.rec((λ _, Nat), a, (λ _ r, Nat.succ(r)), b)
     let nat_add =
-        alloc.mkt_lambda(strings.insert("a"), Term::NAT,
-        alloc.mkt_lambda(strings.insert("b"), Term::NAT,
+        alloc.mkt_lambda(BinderKind::Explicit, strings.insert("a"), Term::NAT,
+        alloc.mkt_lambda(BinderKind::Explicit, strings.insert("b"), Term::NAT,
             alloc.mkt_apps(alloc.mkt_nat_rec(Level::L1), &[
-                alloc.mkt_lambda(strings.insert(""), Term::NAT, Term::NAT),
+                alloc.mkt_lambda(BinderKind::Explicit, strings.insert(""), Term::NAT, Term::NAT),
                 alloc.mkt_bound(BVar { offset: 1 }),
-                alloc.mkt_lambda(
-                    strings.insert("_"),
+                alloc.mkt_lambda(BinderKind::Explicit, strings.insert("_"),
                     Term::NAT,
-                    alloc.mkt_lambda(
-                        strings.insert("r"),
+                    alloc.mkt_lambda(BinderKind::Explicit, strings.insert("r"),
                         Term::NAT,
                         alloc.mkt_apply(
                             Term::NAT_SUCC,

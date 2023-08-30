@@ -1,98 +1,82 @@
 def Nat::add (a b: Nat): Nat :=
-    Nat::rec(_,
-        a,
-        lam _ r => Nat::succ(r),
-        b)
+    Nat::rec(a, lam _ r => Nat::succ(r), b)
 
 reduce Nat::add(1, 2)
 
 
-def quick_maffs: Eq(_, Nat::add(2, 2), 4) := Eq::refl(_, 4)
+def quick_maffs: Eq(Nat::add(2, 2), 4) := Eq::refl(4)
 
 
 axiom ax_sorry.{l} (T: Sort(l)): T
 
 
-def Eq::symm.{t} {T: Sort(t), a b: T}: Pi(_: Eq(_, a, b)) -> Eq(_, b, a) :=
-    lam heq => Eq::rec(_, _, _, Eq::refl(_, _), _, heq)
+def Eq::symm.{t} {T: Sort(t), a b: T}: Pi(_: Eq(a, b)) -> Eq(b, a) :=
+    lam heq => Eq::rec(Eq::refl(_), heq)
 
 
 def congr_arg.{a, b} {A: Sort(a), B: Sort(b), a1 a2: A} (f: Pi(_: A) -> B)
-    : Pi (_: Eq(_, a1, a2)) -> Eq(_, f(a1), f(a2))
-    := lam heq =>
-        Eq::rec(_, _, _, Eq::refl(_, _), _, heq)
+    : Pi (_: Eq(a1, a2)) -> Eq(f(a1), f(a2))
+    := lam heq => Eq::rec(Eq::refl(_), heq)
 
 
 def Nat::succ::inj (a b: Nat)
-    : Pi(_: Eq(_, Nat::succ(a), Nat::succ(b))) -> Eq(_, a, b)
+    : Pi(_: Eq(Nat::succ(a), Nat::succ(b))) -> Eq(a, b)
     := ax_sorry(_)
 
 
-def Nat::add_zero (n: Nat): Eq(_, Nat::add(n, 0), n) :=
-    Eq::refl(_, n)
+def Nat::add_zero (n: Nat): Eq(Nat::add(n, 0), n) :=
+    Eq::refl(n)
 
-def Nat::zero_add (n: Nat): Eq(_, Nat::add(0, n), n) :=
-    Nat::rec(_,
-        Eq::refl(_, _),
-        lam n ih => congr_arg(_, _, _, _, _, ih),
-        n)
+def Nat::zero_add (n: Nat): Eq(Nat::add(0, n), n) :=
+    Nat::rec(Eq::refl(_), lam n ih => congr_arg(_, ih), n)
 
 -- a.succ + b = (a + b).succ
 def Nat::succ_add (a b: Nat)
-    : Eq(_, Nat::add(Nat::succ(a), b), Nat::succ(Nat::add(a, b)))
-    := Nat::rec(_,
-        Eq::refl(_, _),
-        lam b ih => congr_arg(_, _, _, _, _, ih),
-        b)
+    : Eq(Nat::add(Nat::succ(a), b), Nat::succ(Nat::add(a, b)))
+    := Nat::rec(Eq::refl(_), lam b ih => congr_arg(_, ih), b)
 
-def Nat::add_comm (a b: Nat): Eq(_, Nat::add(a, b), Nat::add(b, a)) :=
-    Nat::rec(_,
-        Eq::symm(_, _, _, Nat::zero_add(a)),
+def Nat::add_comm (a b: Nat): Eq(Nat::add(a, b), Nat::add(b, a)) :=
+    Nat::rec(
+        Eq::symm(Nat::zero_add(a)),
         lam b ih =>
-            Eq::rec(_, _, _,
-                congr_arg(_, _, _, _, Nat::succ, ih),
-                _,
-                Eq::symm(_, _, _, Nat::succ_add(b, a))),
+            Eq::rec(congr_arg(Nat::succ, ih),
+                Eq::symm(Nat::succ_add(b, a))),
         b)
 
 def Nat::add_assoc (a b c: Nat)
-    : Eq(_, Nat::add(Nat::add(a, b), c), Nat::add(a, Nat::add(b, c)))
-    := Nat::rec(_,
-        Eq::refl(_, _),
-        lam c ih => congr_arg(_, _, _, _, Nat::succ, ih),
-        c)
+    : Eq(Nat::add(Nat::add(a, b), c), Nat::add(a, Nat::add(b, c)))
+    := Nat::rec(Eq::refl(_), lam c ih => congr_arg(Nat::succ, ih), c)
 
 
 def Nat::add_left_comm (a b k: Nat)
-    : Eq(_, Nat::add(a, Nat::add(b, k)), Nat::add(b, Nat::add(a, k)))
-    := Nat::rec(_,
+    : Eq(Nat::add(a, Nat::add(b, k)), Nat::add(b, Nat::add(a, k)))
+    := Nat::rec(
         Nat::add_comm(a, b),
-        lam k ih => congr_arg(_, _, _, _, Nat::succ, ih),
+        lam k ih => congr_arg(Nat::succ, ih),
         k)
 
 def Nat::add_right_comm (a b k: Nat)
-    : Eq(_, Nat::add(Nat::add(k, a), b), Nat::add(Nat::add(k, b), a))
-    := Nat::rec(_,
-        Eq::rec(_, _, _,
-            Eq::rec(_, _, _,
-                Nat::add_comm(a, b),
-                _, Eq::symm(_, _, _, Nat::zero_add(b))),
-            _, Eq::symm(_, _, _, Nat::zero_add(a))),
+    : Eq(Nat::add(Nat::add(k, a), b), Nat::add(Nat::add(k, b), a))
+    := Nat::rec(
+        Eq::rec(
+            Eq::rec(Nat::add_comm(a, b),
+                Eq::symm(Nat::zero_add(b))),
+            Eq::symm(Nat::zero_add(a))),
         ax_sorry(_),
         k)
 
 
 def Nat::add_left_cancel (a b k: Nat)
-    : Pi(_: Eq(_, Nat::add(k, a), Nat::add(k, b))) -> Eq(_, a, b)
-    := Nat::rec(_,
-        lam h => Eq::rec(_, _, _, Eq::rec(_, _, _, h, _, Nat::zero_add(a)), _, Nat::zero_add(b)),
+    : Pi(_: Eq(Nat::add(k, a), Nat::add(k, b))) -> Eq(a, b)
+    := Nat::rec(
+        lam h => Eq::rec(Eq::rec(h, Nat::zero_add(a)), Nat::zero_add(b)),
         lam k ih h =>
             ax_sorry(_),
         k)
 
 def Nat::add_right_cancel (a b k: Nat)
-    : Pi(_: Eq(_, Nat::add(a, k), Nat::add(b, k))) -> Eq(_, a, b)
-    := Nat::rec(_,
+    : Pi(_: Eq(Nat::add(a, k), Nat::add(b, k))) -> Eq(a, b)
+    := Nat::rec(
         ax_sorry(_),
         ax_sorry(_),
         k)
