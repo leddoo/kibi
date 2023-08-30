@@ -20,54 +20,7 @@
 - todo:
     - syntax stuff:
         - `+`, `=`, `->`.
-        - parser eof errors.
-        - `sep_by_ex` takes vec.
-        - sti reader `revert(n)`, rename `offset -> position`.
-    - named args.
-    - type annotation.
-    - let.
 
-    - metadata.
-    - custom memory layout.
-
-    - pp locals.
-
-    - check.
-
-    - scope approx.
-        - use common ancestor.
-        - recursively check `other.ty` -> `ty`.
-        - create fresh term var of `ty`.
-        - assign to `other`.
-
-    - motive inference.
-        - over/under-applied. just use some silly example.
-
-    - lambda type check.
-
-    - new milestone.
-
-
-- cleanup backlog;
-    - major gc:
-        - consider only returning term from elab.
-            - kinda sucks cause of repeated `infer_type`.
-        - it's not great, what else could be improved?
-            - `Compiler`.
-            - term pp ergonomics.
-            - trace debugging.
-    - proper `abstract_def_eq`.
-    - how to handle that lambda motive issue?
-        - does lean fail, if you set it up with that expected type?
-    - more expected type propagation?
-    - constant approx.
-    - document inference.
-    - type checking:
-        - review tt rules & validate in `infer_type`.
-        - run before insert into env.
-    - `Compiler`.
-        - and immutability.
-    - pp opt.
     - `fib_iter`.
         - parse it.
         - elab it.
@@ -78,52 +31,66 @@
 ### backlog:
 
 - sti:
-    - kvec truncate.
-
-- better errors:
-    - simplify types (cheap reductions).
-    - merge binders.
-    - binder names.
-    - `A -> B` for non-dependent funcs.
-
-- sti:
     - string and formatting stuff, write trait.
     - KVec::truncate, clone.
+    - reader `revert(n)`, rename `offset -> position`.
 
 - features:
-    - eq rec.
-    - axioms & `ax_sorry`.
+    - type annotation.
+    - let.
+    - named args.
+    - explicit args.
     - `A -> B` syntax.
-    - print.
-    - implicit params.
-        - new binder syntax.
-        - binder info.
+    - check/print.
     - dot-idents.
     - method call syntax.
+    - error to sorry.
+
+- completeness:
+    - scope approx.
+        - use common ancestor.
+        - recursively check `other.ty` -> `ty`.
+        - create fresh term var of `ty`.
+        - assign to `other`.
+    - motive inference.
+        - over/under-applied. just use some silly example.
+    - lambda type check.
+    - constant approx.
+    - proper `abstract_def_eq`.
+    - parser eof errors.
+
+- cleanup:
+    - use arena for temp vecs.
+    - `sep_by_ex` takes vec.
+    - document inference.
+    - `Compiler` and immutability.
+
+- optimization:
+    - metadata.
+    - custom memory layout.
+    - pp caching.
 
 - parser:
     - labels.
     - combined match/if.
     - optional do block.
 
-- elab:
-    - level inference.
-        - ivars.
-    - term inference.
-    - motive inference.
-    - var to let.
-
-- term pretty printer:
+- pp:
+    - binder kinds & merging.
+    - dedup local names.
+    - `A -> B`.
     - config:
         - indent width.
         - args on separate lines.
+
+- elab:
+    - var to let.
 
 - macros:
     - figure out compilation order.
 
 - architecture:
     - error resilience.
-        - `ax_sorry`.
     - shared data structures & multi-threading.
         - symbol table & namespaces.
         - error context.
@@ -136,7 +103,4 @@
         - namespaces - they're kinda immutable by default,
           once we're doing ordering.
         - scopes: the single local + parent id seems nice.
-
-- optimization:
-    - `Term::hash` for faster `syntax_eq`.
 
