@@ -1,34 +1,26 @@
 
 - road map:
-    - tt elab.
+    - mutual inductive.
     - interpreter.
     - basic proof inference.
-    - mutual inductive.
     - unordered decls.
     - modules.
-    - user types.
     - macros.
 
-- backlog stuff:
-    - trace debugging.
-    - interactivity.
-    - very basic tactics.
-    - mutual inductive.
-    - executable code.
 
-
-- todo:
-    - syntax stuff:
-        - `+`, `=`, `->`.
-
-    - `fib_iter`.
-        - parse it.
-        - elab it.
-        - interp it.
+- todo: mutual inductive.
+    - syntax & parse.
+    - elab & check.
 
 
 
 ### backlog:
+
+- stuff:
+    - trace debugging.
+    - interactivity.
+    - very basic tactics.
+    - executable code.
 
 - sti:
     - string and formatting stuff, write trait.

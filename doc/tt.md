@@ -603,8 +603,8 @@ introduction:
             - value *may not* be used in later types.
 
     formal definition of valid constructors:
-        where (Γ, Name) means (Γ, Name: Π (ps :: Ps) (xs :: Xs) -> (Sort l))
-        and the `Ps` are already in the context.
+        where (Γ, Name) means (Γ, Name: Π (ps :: Ps) (xs :: Xs) -> (Sort l), ps :: Ps).
+        ie, it adds the inductive type and the parameters to the context.
 
         env:
             Γ ⊢ (exs :: Xs)
@@ -777,12 +777,25 @@ computation:
             Name.rec ps Motive ms cxs (ctor_i ps as) ⇝ ms_i as mvs
 
         ind-k-reduce (for subsingletons):
-            Name.rec ps Motive ms cxs h ⇝ ms_i as mvs
+            Name.rec ps Motive m cxs h ⇝ m as mvs
 
             only difference is that `h` doesn't have to be a constructor term.
             valid by proof irrelevance and ind-eq.
             note that `h` is opaque. we can't extract the `as` from it.
             which is why the non-recursive args must appear directly in `cxs`
             or be propositions (i.e. only have a single value).
+
+            for simplicity we only support k-reduction for subsingletons,
+            whose constructor doesn't have any arguments.
+
+mutual inductive types:
+    - all types must live in the same universe.
+    - mutual props are not large eliminating.
+    - constructor rules are basically unchanged, though recursive arguments
+      can refer to any of the mutual inducive types.
+    - the elimination rule:
+        - has one motive for each type.
+        - has one minor premise for every constructor in the mutual block.
+    - everything else works analogously.
 ```
 
