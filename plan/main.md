@@ -10,7 +10,6 @@
     - macros.
 
 - backlog stuff:
-    - symbol table.
     - trace debugging.
     - interactivity.
     - very basic tactics.
@@ -19,17 +18,17 @@
 
 
 - todo:
-    - finish chores:
-
-    - `union` rework.
-        - `try_*`.
-
     - syntax stuff:
-        - binder rework - nicer `lam`/`pi` syntax.
         - `+`, `=`, `->`.
-
+        - parser eof errors.
+        - `sep_by_ex` takes vec.
+        - sti reader `revert(n)`, rename `offset -> position`.
+    - named & implicit params.
     - type annotation.
     - let.
+
+    - metadata.
+    - custom memory layout.
 
     - pp locals.
 
@@ -45,8 +44,6 @@
         - over/under-applied. just use some silly example.
 
     - lambda type check.
-
-    - named & implicit params.
 
     - new milestone.
 

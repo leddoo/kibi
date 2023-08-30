@@ -1,4 +1,4 @@
-use crate::string_table::Atom;
+use crate::string_table::{Atom, OptAtom};
 
 
 //
@@ -21,13 +21,21 @@ pub enum IdentOrPath<'a> {
 
 
 #[derive(Debug)]
-pub struct Binder<'a> {
-    pub name:    Option<Atom>,
-    pub ty:      Option<ExprRef<'a>>,
-    pub default: Option<ExprRef<'a>>,
+pub enum Binder<'a> {
+    Ident(OptAtom),
+    Typed(TypedBinder<'a>),
 }
 
 pub type BinderList<'a> = &'a mut [Binder<'a>];
+
+#[derive(Debug)]
+pub struct TypedBinder<'a> {
+    pub implicit: bool,
+    pub names:   &'a[OptAtom],
+    pub ty:      ExprRef<'a>,
+    pub default: Option<ExprRef<'a>>,
+}
+
 
 
 
@@ -216,7 +224,7 @@ pub mod item {
     pub struct Axiom<'a> {
         pub name:   IdentOrPath<'a>,
         pub levels: &'a [Atom],
-        pub params: BinderList<'a>,
+        pub binders: BinderList<'a>,
         pub ty:     Expr<'a>,
     }
 
@@ -224,7 +232,7 @@ pub mod item {
     pub struct Def<'a> {
         pub name:   IdentOrPath<'a>,
         pub levels: &'a [Atom],
-        pub params: BinderList<'a>,
+        pub binders: BinderList<'a>,
         pub ty:     Option<Expr<'a>>,
         pub value:  Expr<'a>,
     }

@@ -3,7 +3,7 @@ use sti::arena::Arena;
 use sti::vec::Vec;
 use sti::reader::Reader;
 
-use crate::string_table::{Atom, StringTable, atoms};
+use crate::string_table::{Atom, OptAtom, StringTable, atoms};
 use crate::error::*;
 use crate::ast::*;
 
@@ -341,48 +341,38 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
         let kind = match at.kind {
             TokenKind::Ident(atoms::axiom) => {
-                let name = self.parse_ident()?;
+                let name = self.expect_ident()?;
                 let name = self.parse_ident_or_path(name)?;
 
                 let mut levels = &mut [][..];
                 if self.tokens.consume_if(|at| at.kind == TokenKind::Dot) {
                     self.expect(TokenKind::LCurly)?;
                     levels = self.sep_by(TokenKind::Comma, TokenKind::RCurly, |this| {
-                        this.parse_ident()
+                        this.expect_ident()
                     })?;
                 }
 
-                let mut params = &mut [][..];
-                if self.tokens.consume_if(|at| at.kind == TokenKind::LParen) {
-                    params = self.sep_by(TokenKind::Comma, TokenKind::RParen, |this| {
-                        this.parse_binder()
-                    })?;
-                }
+                let binders = self.parse_binders(false)?;
 
                 self.expect(TokenKind::Colon)?;
                 let ty = self.parse_expr()?;
 
-                ItemKind::Axiom(item::Axiom { name, levels, params, ty })
+                ItemKind::Axiom(item::Axiom { name, levels, binders, ty })
             }
 
             TokenKind::KwDef => {
-                let name = self.parse_ident()?;
+                let name = self.expect_ident()?;
                 let name = self.parse_ident_or_path(name)?;
 
                 let mut levels = &mut [][..];
                 if self.tokens.consume_if(|at| at.kind == TokenKind::Dot) {
                     self.expect(TokenKind::LCurly)?;
                     levels = self.sep_by(TokenKind::Comma, TokenKind::RCurly, |this| {
-                        this.parse_ident()
+                        this.expect_ident()
                     })?;
                 }
 
-                let mut params = &mut [][..];
-                if self.tokens.consume_if(|at| at.kind == TokenKind::LParen) {
-                    params = self.sep_by(TokenKind::Comma, TokenKind::RParen, |this| {
-                        this.parse_binder()
-                    })?;
-                }
+                let binders = self.parse_binders(false)?;
 
                 let mut ty = None;
                 if self.tokens.consume_if(|at| at.kind == TokenKind::Colon) {
@@ -393,7 +383,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
                 let value = self.parse_expr()?;
 
-                ItemKind::Def(item::Def { name, levels, params, ty, value })
+                ItemKind::Def(item::Def { name, levels, binders, ty, value })
             }
 
             TokenKind::Ident(atoms::reduce) => {
@@ -548,7 +538,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 }
 
                 TokenKind::Dot => {
-                    let ident = self.parse_ident()?;
+                    let ident = self.expect_ident()?;
                     ExprKind::DotIdent(ident)
                 }
 
@@ -571,7 +561,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 }
 
                 TokenKind::KwPi => {
-                    let binders = self.parse_binders()?;
+                    let binders = self.parse_binders(true)?;
 
                     self.expect(TokenKind::Arrow)?;
 
@@ -580,7 +570,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 }
 
                 TokenKind::KwLam => {
-                    let binders = self.parse_binders()?;
+                    let binders = self.parse_binders(true)?;
 
                     self.expect(TokenKind::FatArrow)?;
 
@@ -725,28 +715,78 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
         return Some(Level { source, kind });
     }
 
-    fn parse_binders(&mut self) -> Option<BinderList<'a>> {
-        self.expect(TokenKind::LParen)?;
+    fn parse_binders(&mut self, allow_ident: bool) -> Option<BinderList<'a>> {
+        // @temp: arena
+        let mut binders = Vec::new();
+        loop {
+            if allow_ident {
+                if let Some(ident) = self.parse_ident_or_hole() {
+                    binders.push(Binder::Ident(ident));
+                    continue;
+                }
+            }
 
-        self.sep_by(TokenKind::Comma, TokenKind::RParen, |this| {
-            this.parse_binder()
-        })
+            if self.tokens.consume_if(|at| at.kind == TokenKind::LParen) {
+                self.parse_typed_binders(TokenKind::RParen, &mut binders)?;
+                continue;
+            }
+            if self.tokens.consume_if(|at| at.kind == TokenKind::LCurly) {
+                self.parse_typed_binders(TokenKind::RCurly, &mut binders)?;
+                continue;
+            }
+
+            break;
+        }
+        return Some(binders.move_into(self.arena).leak());
     }
 
-    fn parse_binder(&mut self) -> Option<Binder<'a>> {
-        let name = self.parse_ident_or_hole()?;
+    fn parse_typed_binders(&mut self, terminator: TokenKind, binders: &mut Vec<Binder<'a>>) -> Option<()> {
+        let implicit = match terminator {
+            TokenKind::RParen => false,
+            TokenKind::RCurly => true,
+            _ => unreachable!()
+        };
 
-        let mut ty = None;
-        if self.tokens.consume_if(|at| at.kind == TokenKind::Colon) {
-            ty = Some(self.arena.alloc_new(self.parse_expr()?));
+        let mut last_had_sep = true;
+        let mut last_end = 0;
+
+        loop {
+            if self.tokens.consume_if(|at| at.kind == terminator) {
+                return Some(());
+            }
+
+            if !last_had_sep {
+                debug_assert!(last_end != 0);
+                self.error_expect(SourceRange::collapsed(last_end), "','");
+            }
+
+            // @temp: arena
+            let mut names = Vec::new();
+            while let Some(ident) = self.parse_ident_or_hole() {
+                names.push(ident);
+            }
+            if names.len() == 0 {
+                unimplemented!()
+            }
+            let names = names.clone_in(self.arena).leak();
+
+            self.expect(TokenKind::Colon)?;
+            let ty = self.arena.alloc_new(self.parse_expr()?);
+
+            let mut default = None;
+            if self.tokens.consume_if(|at| at.kind == TokenKind::ColonEq) {
+                default = Some(self.arena.alloc_new(self.parse_expr()?));
+            }
+
+            binders.push(Binder::Typed(TypedBinder { implicit, names, ty, default }));
+
+            last_end = self.prev_token_source().end;
+            last_had_sep = self.tokens.consume_if(|at| at.kind == TokenKind::Comma);
         }
-
-        let default = None;
-        return Some(Binder { name, ty, default });
     }
 
     #[inline(always)]
-    fn parse_ident(&mut self) -> Option<Atom> {
+    fn expect_ident(&mut self) -> Option<Atom> {
         let at = self.tokens.next_ref()?;
         if let TokenKind::Ident(ident) = at.kind {
             return Some(ident);
@@ -755,16 +795,16 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
         return None;
     }
 
-    #[inline(always)]
-    fn parse_ident_or_hole(&mut self) -> Option<Option<Atom>> {
-        let at = self.tokens.next_ref()?;
-        if let TokenKind::Ident(ident) = at.kind {
-            return Some(Some(ident));
-        }
+    fn parse_ident_or_hole(&mut self) -> Option<OptAtom> {
+        let at = self.tokens.peek_ref()?;
         if let TokenKind::Hole = at.kind {
-            return Some(None);
+            self.tokens.consume(1);
+            return Some(None.into())
         }
-        self.error_expect(at.source, "ident | '_'");
+        if let TokenKind::Ident(ident) = at.kind {
+            self.tokens.consume(1);
+            return Some(ident.some())
+        }
         return None;
     }
 

@@ -1,4 +1,3 @@
-use crate::string_table::Atom;
 use crate::ast::*;
 use crate::tt::{self, *};
 
@@ -104,48 +103,26 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
 
             ExprKind::Forall(it) => {
-                // @temp: sti temp arena.
-                let mut levels = Vec::new();
-
-                // @cleanup: elab_binders.
-                let locals_begin = self.locals.len();
-                for param in it.binders.iter() {
-                    let name = param.name.unwrap_or(Atom::NULL);
-                    let (ty, l) = self.elab_expr_as_type(param.ty.as_ref()?)?;
-                    let id = self.lctx.push(name, ty, None);
-                    self.locals.push((name, id));
-                    levels.push(l);
-                }
-                let locals_end = self.locals.len();
+                let locals = self.elab_binders(it.binders)?;
 
                 let (mut result, mut level) = self.elab_expr_as_type(it.ret)?;
 
-                for l in levels.iter().rev() {
+                for (id, _, l) in locals.iter().rev().copied() {
                     level = l.imax(level, self.alloc);
-                }
 
-                assert_eq!(self.locals.len(), locals_end);
-                for i in (locals_begin..locals_end).rev() {
-                    let (_, id) = self.locals[i];
                     result = self.mk_binder(result, id, true);
                     self.lctx.pop(id);
                 }
-                self.locals.truncate(locals_begin);
+                self.locals.truncate(self.locals.len() - locals.len());
 
                 (result, self.alloc.mkt_sort(level))
             }
 
             ExprKind::Lambda(it) => {
+                let locals = self.elab_binders(it.binders)?;
+
                 let mut expected_ty = expected_ty;
-
-                // @cleanup: elab_binders.
-                let locals_begin = self.locals.len();
-                for param in it.binders.iter() {
-                    let name = param.name.unwrap_or(Atom::NULL);
-                    let (ty, _) = self.elab_expr_as_type(param.ty.as_ref()?)?;
-                    let id = self.lctx.push(name, ty, None);
-                    self.locals.push((name, id));
-
+                for (id, ty, _) in locals.iter().copied() {
                     if let Some(expected) = expected_ty {
                         if let Some(pi) = self.whnf_forall(expected) {
                             if self.def_eq(ty, pi.ty) {
@@ -158,18 +135,15 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                         else { expected_ty = None }
                     }
                 }
-                let locals_end = self.locals.len();
 
                 let (mut result, mut result_ty) = self.elab_expr_ex(it.value, expected_ty)?;
 
-                assert_eq!(self.locals.len(), locals_end);
-                for i in (locals_begin..locals_end).rev() {
-                    let (_, id) = self.locals[i];
+                for (id, _, _) in locals.iter().rev().copied() {
                     result    = self.mk_binder(result,    id, false);
                     result_ty = self.mk_binder(result_ty, id, true);
                     self.lctx.pop(id);
                 }
-                self.locals.truncate(locals_begin);
+                self.locals.truncate(self.locals.len() - locals.len());
 
                 (result, result_ty)
             }

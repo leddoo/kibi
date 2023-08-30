@@ -13,17 +13,12 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             self.level_params.push(*level);
         }
 
-        // @cleanup: elab_binders.
-        for param in axiom.params.iter() {
-            let name = param.name.unwrap_or(Atom::NULL);
-            let (ty, _) = self.elab_expr_as_type(param.ty.as_ref()?)?;
-            let id = self.lctx.push(name, ty, None);
-            self.locals.push((name, id));
-        }
+        let locals = self.elab_binders(axiom.binders)?;
 
         // type.
         let mut ty = self.elab_expr_as_type(&axiom.ty)?.0;
 
+        assert_eq!(self.locals.len(), locals.len());
         for (_, id) in self.locals.iter().copied().rev() {
             ty = self.mk_binder(ty,  id, true);
         }
@@ -83,13 +78,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             self.level_params.push(*level);
         }
 
-        // @cleanup: elab_binders.
-        for param in def.params.iter() {
-            let name = param.name.unwrap_or(Atom::NULL);
-            let (ty, _) = self.elab_expr_as_type(param.ty.as_ref()?)?;
-            let id = self.lctx.push(name, ty, None);
-            self.locals.push((name, id));
-        }
+        let locals = self.elab_binders(def.binders)?;
 
         // type.
         let mut ty = None;
@@ -99,10 +88,11 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         // value.
         let (mut val, val_ty) = self.elab_expr_checking_type(&def.value, ty)?;
-        assert_eq!(self.locals.len(), def.params.len());
+
 
         let mut ty = ty.unwrap_or(val_ty);
 
+        assert_eq!(self.locals.len(), locals.len());
         for (_, id) in self.locals.iter().copied().rev() {
             ty  = self.mk_binder(ty,  id, true);
             val = self.mk_binder(val, id, false);

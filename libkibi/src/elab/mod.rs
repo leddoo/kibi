@@ -38,6 +38,7 @@ mod abstracc_eq;
 mod elab_symbol;
 mod elab_level;
 mod elab_expr;
+mod elab_binders;
 mod elab_elim;
 mod elab_def;
 
