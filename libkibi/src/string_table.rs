@@ -47,10 +47,16 @@ impl<'a> StringTable<'a> {
 
     #[inline(always)]
     pub fn insert(&mut self, str: &str) -> Atom {
-        let str = self.alloc.alloc_str(str);
-        let str = HashStr::new(str);
-        *self.table.kget_or_insert_with(str, || {
-            self.strings.push(str)
+        let q = HashStr::new(str);
+        let hash = q.hash();
+
+        // the borrow trait sucks. sorry not sorry.
+        let q: HashStr<'a> = unsafe { core::mem::transmute(q) };
+
+        *self.table.get_or_insert_with_key(&q, |_| {
+            let str = self.alloc.alloc_str(str);
+            let str = HashStr::with_hash(str, hash);
+            (str, self.strings.push(str))
         })
     }
 }
@@ -107,6 +113,13 @@ impl<'a> HashStr<'a> {
         let ptr = str.as_ptr();
         let len = str.len().try_into().unwrap();
         let hash = FxHasher32::hash_bytes(str.as_bytes());
+        Self { ptr, len, hash, phantom: PhantomData }
+    }
+
+    #[inline(always)]
+    pub fn with_hash(str: &'a str, hash: u32) -> Self {
+        let ptr = str.as_ptr();
+        let len = str.len().try_into().unwrap();
         Self { ptr, len, hash, phantom: PhantomData }
     }
 
