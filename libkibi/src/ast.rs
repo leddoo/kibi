@@ -66,6 +66,9 @@ pub enum TokenKind<'a> {
     KwSort, KwProp, KwType,
     KwLam, KwPi,
 
+    KwInductive,
+    KwStruct,
+    KwEnum,
     KwDef,
 
     KwLet, KwVar,
@@ -142,6 +145,9 @@ impl<'a> TokenKind<'a> {
             TokenKind::KwType => "'Type'",
             TokenKind::KwLam => "'λ' | 'lam'",
             TokenKind::KwPi => "'Π' | 'Pi'",
+            TokenKind::KwInductive => "'inductive'",
+            TokenKind::KwStruct => "'struct'",
+            TokenKind::KwEnum => "'enum'",
             TokenKind::KwDef => "'def'",
             TokenKind::KwLet => "'let'",
             TokenKind::KwVar => "'var'",
@@ -213,6 +219,7 @@ pub enum ItemKind<'a> {
     Axiom(item::Axiom<'a>),
     Def(item::Def<'a>),
     Reduce(ExprRef<'a>),
+    Inductive(adt::Inductive<'a>),
 }
 
 
@@ -224,7 +231,7 @@ pub mod item {
     pub struct Axiom<'a> {
         pub name:   IdentOrPath<'a>,
         pub levels: &'a [Atom],
-        pub binders: BinderList<'a>,
+        pub params: BinderList<'a>,
         pub ty:     Expr<'a>,
     }
 
@@ -232,7 +239,7 @@ pub mod item {
     pub struct Def<'a> {
         pub name:   IdentOrPath<'a>,
         pub levels: &'a [Atom],
-        pub binders: BinderList<'a>,
+        pub params: BinderList<'a>,
         pub ty:     Option<Expr<'a>>,
         pub value:  Expr<'a>,
     }
@@ -536,5 +543,34 @@ pub enum LevelKind<'a> {
     Add((LevelRef<'a>, u32)),
     Max((LevelRef<'a>, LevelRef<'a>)),
     IMax((LevelRef<'a>, LevelRef<'a>)),
+}
+
+
+
+//
+// user types
+//
+
+pub mod adt {
+    use super::*;
+
+    #[derive(Debug)]
+    pub struct Inductive<'a> {
+        pub name:   IdentOrPath<'a>,
+        pub levels: &'a [Atom],
+        pub params: BinderList<'a>,
+        pub ty:     Option<Expr<'a>>,
+        pub ctors:  CtorList<'a>,
+    }
+
+
+    #[derive(Debug)]
+    pub struct Ctor<'a> {
+        pub name: Atom,
+        pub args: BinderList<'a>,
+        pub ty:   Option<Expr<'a>>,
+    }
+
+    pub type CtorList<'a> = &'a [Ctor<'a>];
 }
 

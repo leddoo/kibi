@@ -102,6 +102,9 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         // is app?
         let (fun, num_args) = e.app_fun();
         if num_args == 0 || !fun.closed() {
+            // @todo: wait, how can `fun` not be closed?
+            // also, shouldn't we be asserting `closed`
+            // on entry for these functions?
             return (e, false); // if were done, would have returned above.
         }
 

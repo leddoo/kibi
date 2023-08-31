@@ -13,7 +13,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             self.level_params.push(*level);
         }
 
-        let locals = self.elab_binders(axiom.binders)?;
+        let locals = self.elab_binders(axiom.params)?;
 
         // type.
         let mut ty = self.elab_expr_as_type(&axiom.ty)?.0;
@@ -78,7 +78,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             self.level_params.push(*level);
         }
 
-        let locals = self.elab_binders(def.binders)?;
+        let locals = self.elab_binders(def.params)?;
 
         // type.
         let mut ty = None;

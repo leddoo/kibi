@@ -217,6 +217,9 @@ impl<'me, 'a> Tokenizer<'me, 'a> {
                     "lam"  => TokenKind::KwLam,
                     "Pi"   => TokenKind::KwPi,
 
+                    "inductive" => TokenKind::KwInductive,
+                    "struct" => TokenKind::KwStruct,
+                    "enum" => TokenKind::KwEnum,
                     "def" => TokenKind::KwDef,
 
                     "let" => TokenKind::KwLet,
@@ -294,11 +297,12 @@ impl<'me, 'a> Tokenizer<'me, 'a> {
 
 
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct ParseExprFlags {
     pub tuple: bool,
     pub type_hint: bool,
     pub ty: bool,
+    pub no_cmp: bool,
 }
 
 impl ParseExprFlags {
@@ -310,6 +314,9 @@ impl ParseExprFlags {
 
     #[inline(always)]
     pub fn with_ty(self) -> Self { Self { ty: true, ..self } }
+
+    #[inline(always)]
+    pub fn with_no_cmp(self) -> Self { Self { no_cmp: true, ..self } }
 }
 
 impl Default for ParseExprFlags {
@@ -319,6 +326,7 @@ impl Default for ParseExprFlags {
             tuple: false,
             type_hint: false,
             ty: false,
+            no_cmp: false,
         }
     }
 }
@@ -352,12 +360,12 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                     })?;
                 }
 
-                let binders = self.parse_binders(false)?;
+                let params = self.parse_binders(false)?;
 
                 self.expect(TokenKind::Colon)?;
                 let ty = self.parse_expr()?;
 
-                ItemKind::Axiom(item::Axiom { name, levels, binders, ty })
+                ItemKind::Axiom(item::Axiom { name, levels, params, ty })
             }
 
             TokenKind::KwDef => {
@@ -372,7 +380,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                     })?;
                 }
 
-                let binders = self.parse_binders(false)?;
+                let params = self.parse_binders(false)?;
 
                 let mut ty = None;
                 if self.tokens.consume_if(|at| at.kind == TokenKind::Colon) {
@@ -383,12 +391,16 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
                 let value = self.parse_expr()?;
 
-                ItemKind::Def(item::Def { name, levels, binders, ty, value })
+                ItemKind::Def(item::Def { name, levels, params, ty, value })
             }
 
             TokenKind::Ident(atoms::reduce) => {
                 let expr = self.arena.alloc_new(self.parse_expr()?);
                 ItemKind::Reduce(expr)
+            }
+
+            TokenKind::KwInductive => {
+                ItemKind::Inductive(self.parse_inductive()?)
             }
 
             _ => {
@@ -420,7 +432,12 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
             // infix operators.
             if let Some(op) = InfixOp::from_token(at) {
-                if op.lprec() >= prec {
+                let allowed = !flags.no_cmp || (
+                       op != InfixOp::Op2(expr::Op2Kind::CmpLt)
+                    && op != InfixOp::Op2(expr::Op2Kind::CmpGt)
+                );
+
+                if allowed && op.lprec() >= prec {
                     self.tokens.consume(1);
 
                     let lhs = self.arena.alloc_new(result);
@@ -654,6 +671,48 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
     }
 
 
+    fn parse_inductive(&mut self) -> Option<adt::Inductive<'a>> {
+        let name = self.expect_ident()?;
+        let name = self.parse_ident_or_path(name)?;
+
+        // @cleanup: parse_level_params.
+        let mut levels = &mut [][..];
+        if self.tokens.consume_if(|at| at.kind == TokenKind::Dot) {
+            self.expect(TokenKind::LCurly)?;
+            levels = self.sep_by(TokenKind::Comma, TokenKind::RCurly, |this| {
+                this.expect_ident()
+            })?;
+        }
+
+        let params = self.parse_binders(false)?;
+
+        let mut ty = None;
+        if self.tokens.consume_if(|at| at.kind == TokenKind::Colon) {
+            ty = Some(self.parse_expr()?);
+        }
+
+        self.expect(TokenKind::LCurly)?;
+        let ctors = self.sep_by(TokenKind::Semicolon, TokenKind::RCurly, |this| {
+            this.parse_ctor()
+        })?;
+
+        Some(adt::Inductive { name, levels, params, ty, ctors })
+    }
+
+    fn parse_ctor(&mut self) -> Option<adt::Ctor<'a>> {
+        let name = self.expect_ident()?;
+
+        let args = self.parse_binders(false)?;
+
+        let mut ty = None;
+        if self.tokens.consume_if(|at| at.kind == TokenKind::Colon) {
+            ty = Some(self.parse_expr()?);
+        }
+
+        Some(adt::Ctor { name, args, ty })
+    }
+
+
     fn parse_level(&mut self) -> Option<Level<'a>> {
         let at = self.tokens.next_ref()?;
 
@@ -730,8 +789,8 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 self.parse_typed_binders(TokenKind::RParen, &mut binders)?;
                 continue;
             }
-            if self.tokens.consume_if(|at| at.kind == TokenKind::LCurly) {
-                self.parse_typed_binders(TokenKind::RCurly, &mut binders)?;
+            if self.tokens.consume_if(|at| at.kind == TokenKind::Lt) {
+                self.parse_typed_binders(TokenKind::Gt, &mut binders)?;
                 continue;
             }
 
@@ -743,7 +802,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
     fn parse_typed_binders(&mut self, terminator: TokenKind, binders: &mut Vec<Binder<'a>>) -> Option<()> {
         let implicit = match terminator {
             TokenKind::RParen => false,
-            TokenKind::RCurly => true,
+            TokenKind::Gt => true,
             _ => unreachable!()
         };
 
@@ -771,7 +830,9 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
             let names = names.clone_in(self.arena).leak();
 
             self.expect(TokenKind::Colon)?;
-            let ty = self.arena.alloc_new(self.parse_expr()?);
+
+            let flags = ParseExprFlags::default().with_no_cmp();
+            let ty = self.arena.alloc_new(self.parse_expr_exw(flags, 0)?);
 
             let mut default = None;
             if self.tokens.consume_if(|at| at.kind == TokenKind::ColonEq) {

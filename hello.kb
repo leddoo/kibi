@@ -1,3 +1,13 @@
+inductive Nat {
+    zero;
+    succ (of: Nat);
+}
+
+inductive Eq.{t} <T: Sort(t), a: T> : Pi(b: T) -> Prop {
+    refl: Eq(a);
+}
+
+
 def Nat::add (a b: Nat): Nat :=
     Nat::rec(a, lam _ r => Nat::succ(r), b)
 
@@ -10,11 +20,11 @@ def quick_maffs: Eq(Nat::add(2, 2), 4) := Eq::refl(4)
 axiom ax_sorry.{l} (T: Sort(l)): T
 
 
-def Eq::symm.{t} {T: Sort(t), a b: T}: Pi(_: Eq(a, b)) -> Eq(b, a) :=
+def Eq::symm.{t} <T: Sort(t), a b: T>: Pi(_: Eq(a, b)) -> Eq(b, a) :=
     lam heq => Eq::rec(Eq::refl(_), heq)
 
 
-def congr_arg.{a, b} {A: Sort(a), B: Sort(b), a1 a2: A} (f: Pi(_: A) -> B)
+def congr_arg.{a, b} <A: Sort(a), B: Sort(b), a1 a2: A> (f: Pi(_: A) -> B)
     : Pi (_: Eq(a1, a2)) -> Eq(f(a1), f(a2))
     := lam heq => Eq::rec(Eq::refl(_), heq)
 
@@ -50,20 +60,19 @@ def Nat::add_assoc (a b c: Nat)
 
 def Nat::add_left_comm (a b k: Nat)
     : Eq(Nat::add(a, Nat::add(b, k)), Nat::add(b, Nat::add(a, k)))
-    := Nat::rec(
-        Nat::add_comm(a, b),
-        lam k ih => congr_arg(Nat::succ, ih),
-        k)
+    := Eq::rec(Eq::rec(Eq::rec(
+        Eq::refl(_),
+        Eq::symm(Nat::add_assoc(b, a, k))),
+        Nat::add_comm(b, a)),
+        Nat::add_assoc(a, b, k))
 
 def Nat::add_right_comm (a b k: Nat)
     : Eq(Nat::add(Nat::add(k, a), b), Nat::add(Nat::add(k, b), a))
-    := Nat::rec(
-        Eq::rec(
-            Eq::rec(Nat::add_comm(a, b),
-                Eq::symm(Nat::zero_add(b))),
-            Eq::symm(Nat::zero_add(a))),
-        ax_sorry(_),
-        k)
+    := Eq::rec(Eq::rec(Eq::rec(
+        Eq::refl(_),
+        Nat::add_assoc(k, b, a)),
+        Nat::add_comm(b, a)),
+        Eq::symm(Nat::add_assoc(k, a, b)))
 
 
 def Nat::add_left_cancel (a b k: Nat)

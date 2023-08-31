@@ -30,7 +30,9 @@ reduce Nat::add(1, 2)
 
     let mut strings = kibi::string_table::StringTable::new(&arena);
 
+    let tok_t0 = std::time::Instant::now();
     let tokens = kibi::parser::Tokenizer::tokenize(input, 0, &mut strings, &arena);
+    println!("tok: {:?}", tok_t0.elapsed());
 
     let mut env = Env::new();
 
@@ -114,6 +116,12 @@ reduce Nat::add(1, 2)
                 let r = r.layout_string();
                 println!("reduced: {}", r);
                 println!("{:?}", dt);
+            }
+
+            ItemKind::Inductive(ind) => {
+                let _ = ind;
+                //println!("{:#?}", ind);
+                //unimplemented!()
             }
         }
     }
