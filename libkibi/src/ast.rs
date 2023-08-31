@@ -556,7 +556,7 @@ pub mod adt {
 
     #[derive(Debug)]
     pub struct Inductive<'a> {
-        pub name:   IdentOrPath<'a>,
+        pub name:   Atom,
         pub levels: &'a [Atom],
         pub params: BinderList<'a>,
         pub ty:     Option<Expr<'a>>,

@@ -1,6 +1,7 @@
 
 - road map:
     - mutual inductive.
+    - traits.
     - interpreter.
     - basic proof inference.
     - unordered decls.
@@ -9,8 +10,8 @@
 
 
 - todo: mutual inductive.
-    - syntax & parse.
-    - elab & check.
+    - check.
+    - mutual.
 
 
 
@@ -39,6 +40,7 @@
     - error to sorry.
 
 - completeness:
+    - level elab: use `.imax` & friends.
     - scope approx.
         - use common ancestor.
         - recursively check `other.ty` -> `ty`.

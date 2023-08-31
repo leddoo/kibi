@@ -119,9 +119,10 @@ reduce Nat::add(1, 2)
             }
 
             ItemKind::Inductive(ind) => {
-                let _ = ind;
-                //println!("{:#?}", ind);
-                //unimplemented!()
+                let Some(_) = elab.elab_inductive(ind) else { break };
+                work_dt += t0.elapsed();
+
+                println!("inductive {}", &strings[ind.name]);
             }
         }
     }

@@ -41,6 +41,7 @@ mod elab_expr;
 mod elab_binders;
 mod elab_elim;
 mod elab_def;
+mod elab_inductive;
 
 
 pub use ivars::{LevelVarId, TermVarId};

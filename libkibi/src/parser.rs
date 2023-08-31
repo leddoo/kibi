@@ -673,7 +673,6 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
     fn parse_inductive(&mut self) -> Option<adt::Inductive<'a>> {
         let name = self.expect_ident()?;
-        let name = self.parse_ident_or_path(name)?;
 
         // @cleanup: parse_level_params.
         let mut levels = &mut [][..];
