@@ -2,16 +2,19 @@
 - road map:
     - mutual inductive.
     - traits.
+    - unordered decls.
+    - multi-threading.
     - interpreter.
     - basic proof inference.
-    - unordered decls.
     - modules.
     - macros.
 
 
 - todo: mutual inductive.
     - check.
-    - mutual.
+        - what do we need to check?
+    - mutual syntax.
+    - `SymbolKind::Axiom`.
 
 
 
@@ -27,6 +30,7 @@
     - string and formatting stuff, write trait.
     - KVec::truncate, clone.
     - reader `revert(n)`, rename `offset -> position`.
+    - vec collect.
 
 - features:
     - type annotation.

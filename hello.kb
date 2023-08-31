@@ -1,10 +1,10 @@
-inductive Nat {
-    zero;
-    succ (of: Nat);
+inductive MyNat {
+    zero: MyNat;
+    succ (of: MyNat);
 }
 
-inductive Eq.{t} <T: Sort(t), a: T> : Pi(b: T) -> Prop {
-    refl: Eq(a);
+inductive MyEq.{t} <T: Sort(t)> (a: T) : Pi(b: T) -> Prop {
+    refl: MyEq(a);
 }
 
 

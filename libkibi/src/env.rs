@@ -29,6 +29,7 @@ pub struct Symbol<'a> {
 pub enum SymbolKind<'a> {
     Root,
     BuiltIn(symbol::BuiltIn),
+    IndTy(symbol::IndTy<'a>),
     Def(symbol::Def<'a>),
 }
 
@@ -45,6 +46,13 @@ pub mod symbol {
         Eq,
         EqRefl,
         EqRec,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    pub struct IndTy<'a> {
+        pub num_levels: u32,
+        pub own_type:    Term<'a>,
+        pub type_former: Term<'a>,
     }
 
     #[derive(Clone, Copy, Debug)]
@@ -104,6 +112,23 @@ impl<'a> Env<'a> {
     pub fn new_symbol(&mut self, parent: SymbolId, name: Atom, kind: SymbolKind<'a>) -> Option<SymbolId> {
         if self.lookup(parent, name).is_some() {
             return None;
+        }
+
+        match &kind {
+            SymbolKind::Root => (),
+            SymbolKind::BuiltIn(_) => (),
+
+            SymbolKind::IndTy(it) => {
+                assert!(it.own_type.closed_no_local_no_ivar());
+                assert!(it.type_former.closed_no_local_no_ivar());
+            }
+
+            SymbolKind::Def(it) => {
+                assert!(it.ty.closed_no_local_no_ivar());
+                if let Some(val) = it.val {
+                    assert!(val.closed_no_local_no_ivar());
+                }
+            }
         }
 
         let symbol = self.symbols.next_key();

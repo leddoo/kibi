@@ -15,6 +15,13 @@ pub struct StringTable<'a> {
     alloc: &'a Arena,
     strings: KVec<Atom, HashStr<'a>>,
     table: HashMapF<HashStr<'a>, Atom, HashStrHashFn>,
+
+    // `HashStr` speeds up table resizing,
+    // cause the hashes don't need to be recomputed,
+    // which would touch all the string memory in hash (aka random) order.
+    // lexing was about 12% faster for a 600 MiB test file.
+    // though that's obviously not super realistic.
+    // might not matter for normal inputs ¯\_(ツ)_/¯
 }
 
 impl<'a> StringTable<'a> {

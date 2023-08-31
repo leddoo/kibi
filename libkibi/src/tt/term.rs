@@ -230,6 +230,15 @@ impl<'a> Term<'a> {
     }
 
 
+    pub fn closed_no_local(self) -> bool {
+        self.closed() && !self.has_locals()
+    }
+
+    pub fn closed_no_local_no_ivar(self) -> bool {
+        self.closed() && !self.has_locals() && !self.has_ivars()
+    }
+
+
     pub fn find<F>(self, f: F) -> Option<Term<'a>>
     where F: Fn(Term<'a>, u32) -> Option<bool> {
         self.find_ex(0, &f)

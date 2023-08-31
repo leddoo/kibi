@@ -163,9 +163,40 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 }
             }
 
+            SymbolKind::IndTy(it) => {
+                let num_levels = it.num_levels as usize;
+
+                // @cleanup: dedup.
+                let levels = if levels.len() == 0 {
+                    let mut ls = Vec::with_cap_in(num_levels, self.alloc);
+                    for _ in 0..num_levels {
+                        ls.push(self.new_level_var());
+                    }
+                    ls.leak()
+                }
+                else {
+                    if levels.len() != num_levels {
+                        self.error(source, |_|
+                            ElabError::LevelMismatch {
+                                expected: it.num_levels, found: levels.len() as u32 });
+                        return None;
+                    }
+
+                    let mut ls = Vec::with_cap_in(levels.len(), self.alloc);
+                    for l in levels {
+                        ls.push(self.elab_level(l)?);
+                    }
+                    ls.leak()
+                };
+
+                (self.alloc.mkt_global(id, levels),
+                 it.own_type.instantiate_level_params(levels, self.alloc))
+            }
+
             SymbolKind::Def(def) => {
                 let num_levels = def.num_levels as usize;
 
+                // @cleanup: dedup.
                 let levels = if levels.len() == 0 {
                     let mut ls = Vec::with_cap_in(num_levels, self.alloc);
                     for _ in 0..num_levels {

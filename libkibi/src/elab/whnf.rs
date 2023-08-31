@@ -210,6 +210,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
             SymbolKind::BuiltIn(_) => None,
 
+            SymbolKind::IndTy(_) => None,
+
             SymbolKind::Def(d) => {
                 debug_assert_eq!(g.levels.len(), d.num_levels as usize);
                 if let Some(val) = d.val {
