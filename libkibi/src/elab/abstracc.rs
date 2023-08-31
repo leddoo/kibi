@@ -63,5 +63,17 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         if is_forall { self.alloc.mkt_forall(entry.binder_kind, entry.name, ty, val) }
         else         { self.alloc.mkt_lambda(entry.binder_kind, entry.name, ty, val) }
     }
+
+    pub fn mk_binder_with_kind(&self, kind: BinderKind, val: Term<'a>, id: ScopeId, is_forall: bool) -> Term<'a> {
+        let val = self.abstracc(val, id);
+
+        // instantiate type after val, cause abstracc may
+        // assign ivars (elim locals).
+        let entry = self.lctx.lookup(id);
+        let ty = self.instantiate_term_vars(entry.ty);
+
+        if is_forall { self.alloc.mkt_forall(kind, entry.name, ty, val) }
+        else         { self.alloc.mkt_lambda(kind, entry.name, ty, val) }
+    }
 }
 

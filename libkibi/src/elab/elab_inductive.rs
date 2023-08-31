@@ -42,8 +42,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let symbol = self.env.new_symbol(self.root_symbol, ind.name,
             SymbolKind::IndTy(symbol::IndTy {
                 num_levels: ind.levels.len().try_into().unwrap(),
-                own_type: self.alloc.mkt_sort(level),
-                type_former,
+                ty: type_former,
             }))?;
 
 
@@ -106,7 +105,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             });
 
             for (param, _, _) in params.iter().rev().copied() {
-                ty = self.mk_binder(ty, param, true);
+                ty = self.mk_binder_with_kind(BinderKind::Implicit, ty, param, true);
             }
 
             let ty = self.instantiate_term_vars(ty);

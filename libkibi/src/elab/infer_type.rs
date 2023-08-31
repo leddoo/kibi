@@ -72,9 +72,9 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     SymbolKind::IndTy(it) => {
                         debug_assert_eq!(g.levels.len() as u32, it.num_levels);
                         if g.levels.len() != 0 {
-                            it.own_type.instantiate_level_params(g.levels, self.alloc)
+                            it.ty.instantiate_level_params(g.levels, self.alloc)
                         }
-                        else { it.own_type }
+                        else { it.ty }
                     }
 
                     SymbolKind::Def(it) => {

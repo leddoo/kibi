@@ -7,6 +7,17 @@ inductive MyEq.{t} <T: Sort(t)> (a: T) : Pi(b: T) -> Prop {
     refl: MyEq(a);
 }
 
+
+inductive Array (T: Type) : Pi(n: Nat) -> Type {
+    nil: Array(0);
+    cons (v: T) <n: Nat> (rest: Array(n)): Array(Nat::succ(n));
+}
+
+
+inductive Exists.{t} <T: Sort(t)> (P: Pi(_: T) -> Prop): Prop {
+    mk (value: T, h: P(value))
+}
+
 inductive Subtype.{t} <T: Sort(t)> (P: Pi(_: T) -> Prop): Sort(max(1, t)) {
     mk (value: T, h: P(value))
 }

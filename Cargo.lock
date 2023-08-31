@@ -19,4 +19,4 @@ dependencies = [
 [[package]]
 name = "sti"
 version = "0.1.8"
-source = "git+https://github.com/leddoo/sti#04076dd5f788e9363d8af58f0367972024c12518"
+source = "git+https://github.com/leddoo/sti#e6cceb285c0b71d7d4ef2f6d787f8d8d2d8fb275"

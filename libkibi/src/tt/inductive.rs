@@ -1,7 +1,7 @@
 use sti::vec::Vec;
 
 use crate::string_table::Atom;
-use crate::env::{SymbolKind, Env};
+use crate::env::SymbolKind;
 use crate::elab::Elab;
 
 use super::level::*;
@@ -21,15 +21,16 @@ pub fn check<'temp, 'err, 'a>(elab: &mut Elab<'temp, 'err, 'a>, specs: &[TypeSpe
 
     // check levels.
     let _ind_level = {
-        fn get_level<'a>(env: &Env<'a>, id: SymbolId) -> Level<'a> {
-            let SymbolKind::IndTy(ind) = env.symbol(id).kind else { unreachable!() };
-            ind.own_type.try_sort().unwrap()
+        fn get_level<'a>(elab: &mut Elab<'_, '_, 'a>, id: SymbolId) -> Level<'a> {
+            let SymbolKind::IndTy(ind) = elab.env.symbol(id).kind else { unreachable!() };
+            let Some(level) = elab.infer_type_as_sort(ind.ty) else { unreachable!() };
+            level
         }
 
-        let level = get_level(&elab.env, specs[0].symbol);
+        let level = get_level(elab, specs[0].symbol);
 
         for spec in &specs[1..] {
-            let l = get_level(&elab.env, spec.symbol);
+            let l = get_level(elab, spec.symbol);
             if !l.syntax_eq(level) {
                 println!("error: all inductive types must live in the same universe");
                 return None;
@@ -46,7 +47,7 @@ pub fn check<'temp, 'err, 'a>(elab: &mut Elab<'temp, 'err, 'a>, specs: &[TypeSpe
 
         let type_former = {
             let SymbolKind::IndTy(ind) = elab.env.symbol(spec.symbol).kind else { unreachable!() };
-            ind.type_former
+            ind.ty
         };
 
         let lctx_save = elab.lctx.save();

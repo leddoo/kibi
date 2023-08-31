@@ -15,7 +15,7 @@ sti::define_key!(u32, pub SymbolId, opt: OptSymbolId);
 impl SymbolId { pub const ROOT: SymbolId = SymbolId(0); }
 
 
-//#[derive(Debug)]
+#[derive(Debug)]
 pub struct Symbol<'a> {
     pub parent: SymbolId,
 
@@ -51,8 +51,7 @@ pub mod symbol {
     #[derive(Clone, Copy, Debug)]
     pub struct IndTy<'a> {
         pub num_levels: u32,
-        pub own_type:    Term<'a>,
-        pub type_former: Term<'a>,
+        pub ty: Term<'a>,
     }
 
     #[derive(Clone, Copy, Debug)]
@@ -119,8 +118,7 @@ impl<'a> Env<'a> {
             SymbolKind::BuiltIn(_) => (),
 
             SymbolKind::IndTy(it) => {
-                assert!(it.own_type.closed_no_local_no_ivar());
-                assert!(it.type_former.closed_no_local_no_ivar());
+                assert!(it.ty.closed_no_local_no_ivar());
             }
 
             SymbolKind::Def(it) => {

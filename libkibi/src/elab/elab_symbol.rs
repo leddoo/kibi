@@ -190,7 +190,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 };
 
                 (self.alloc.mkt_global(id, levels),
-                 it.own_type.instantiate_level_params(levels, self.alloc))
+                 it.ty.instantiate_level_params(levels, self.alloc))
             }
 
             SymbolKind::Def(def) => {
