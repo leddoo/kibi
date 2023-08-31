@@ -7,6 +7,10 @@ inductive MyEq.{t} <T: Sort(t)> (a: T) : Pi(b: T) -> Prop {
     refl: MyEq(a);
 }
 
+inductive Subtype.{t} <T: Sort(t)> (P: Pi(_: T) -> Prop): Sort(max(1, t)) {
+    mk (value: T, h: P(value))
+}
+
 
 def Nat::add (a b: Nat): Nat :=
     Nat::rec(a, lam _ r => Nat::succ(r), b)

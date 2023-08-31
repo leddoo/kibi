@@ -44,6 +44,7 @@
     - error to sorry.
 
 - completeness:
+    - env does type check before insertion.
     - level elab: use `.imax` & friends.
     - scope approx.
         - use common ancestor.
@@ -66,6 +67,7 @@
 - optimization:
     - metadata.
     - custom memory layout.
+    - reset lctx after whnf/defeq?
     - pp caching.
 
 - parser:

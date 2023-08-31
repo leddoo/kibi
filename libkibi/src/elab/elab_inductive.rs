@@ -120,6 +120,14 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             ctors.push((ctor.name, ty));
         }
 
+        // check spec.
+        let spec = inductive::TypeSpec {
+            symbol,
+            num_params: params.len(),
+            ctors: &ctors,
+        };
+        inductive::check(self, core::slice::from_ref(&spec))?;
+
         // validate lctx.
         self.lctx.pop(fake_type_former_id);
         assert_eq!(self.locals.len(), params.len() + 1);

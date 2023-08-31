@@ -19,7 +19,8 @@ pub struct Elab<'me, 'err, 'a> {
 
     level_params: Vec<Atom>,
 
-    lctx: LocalCtx<'a>,
+    // @temp: @inductive_uses_elab.
+    pub(crate) lctx: LocalCtx<'a>,
     locals: Vec<(Atom, ScopeId)>,
 
     level_vars: KVec<LevelVarId, ivars::LevelVar<'a>>,
