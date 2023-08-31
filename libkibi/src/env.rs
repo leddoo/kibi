@@ -28,6 +28,7 @@ pub struct Symbol<'a> {
 #[derive(Debug)]
 pub enum SymbolKind<'a> {
     Root,
+    Pending,
     BuiltIn(symbol::BuiltIn),
     IndTy(symbol::IndTy<'a>),
     Def(symbol::Def<'a>),
@@ -114,8 +115,9 @@ impl<'a> Env<'a> {
         }
 
         match &kind {
-            SymbolKind::Root => (),
+            SymbolKind::Root => unreachable!(),
             SymbolKind::BuiltIn(_) => (),
+            SymbolKind::Pending => (),
 
             SymbolKind::IndTy(it) => {
                 assert!(it.ty.closed_no_local_no_ivar());
@@ -149,10 +151,17 @@ impl<'a> Env<'a> {
         &self.symbols[id]
     }
 
-
     pub fn lookup(&self, parent: SymbolId, name: Atom) -> Option<SymbolId> {
         let p = &self.symbols[parent];
         p.children.get(&name).copied()
+    }
+
+    pub fn resolve_pending(&mut self, id: SymbolId, kind: SymbolKind<'a>) {
+        assert!(!matches!(kind, SymbolKind::Pending));
+
+        let symbol = &mut self.symbols[id];
+        assert!(matches!(symbol.kind, SymbolKind::Pending));
+        symbol.kind = kind;
     }
 }
 

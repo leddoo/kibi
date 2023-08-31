@@ -10,7 +10,7 @@ inductive MyEq.{t} <T: Sort(t)> (a: T) : Pi(b: T) -> Prop {
 
 inductive Array (T: Type) : Pi(n: Nat) -> Type {
     nil: Array(0);
-    cons (v: T) <n: Nat> (rest: Array(n)): Array(Nat::succ(n));
+    cons <n: Nat> (head: T, tail: Array(n)): Array(Nat::succ(n));
 }
 
 

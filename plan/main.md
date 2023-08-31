@@ -1,8 +1,8 @@
 
 - road map:
     - mutual inductive.
-    - traits.
-    - unordered decls.
+    - unordered decls & compiler rework.
+    - basic traits.
     - multi-threading.
     - interpreter.
     - basic proof inference.
@@ -11,11 +11,12 @@
 
 
 - todo: mutual inductive.
-    - check.
-        - what do we need to check?
+    - generate elim types.
+        - determine elim level.
+    - generate elim rules.
+    - generate elim info.
     - mutual syntax.
     - `SymbolKind::Axiom`.
-
 
 
 ### backlog:

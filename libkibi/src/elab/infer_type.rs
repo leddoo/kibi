@@ -23,7 +23,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             TermData::Global (g) => {
                 let symbol = self.env.symbol(g.id);
                 match symbol.kind {
-                    SymbolKind::Root => unreachable!(),
+                    SymbolKind::Root |
+                    SymbolKind::Pending => unreachable!(),
 
                     SymbolKind::BuiltIn(it) => {
                         match it {

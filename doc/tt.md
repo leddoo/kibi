@@ -790,6 +790,7 @@ computation:
 
 mutual inductive types:
     - all types must live in the same universe.
+    - all types must have the same parameters and level parameters.
     - mutual props are not large eliminating.
     - constructor rules are basically unchanged, though recursive arguments
       can refer to any of the mutual inducive types.

@@ -42,6 +42,11 @@ impl<'a> LocalCtx<'a> {
         }
     }
 
+    #[inline(always)]
+    pub fn len(&self) -> usize {
+        self.scopes.len()
+    }
+
 
     #[track_caller]
     pub fn push(&mut self, binder_kind: BinderKind, name: Atom, ty: Term<'a>, value: Option<Term<'a>>) -> ScopeId {
@@ -71,6 +76,12 @@ impl<'a> LocalCtx<'a> {
     #[inline(always)]
     pub fn lookup(&self, id: ScopeId) -> &Scope<'a> {
         &self.scopes[id]
+    }
+
+    #[track_caller]
+    #[inline(always)]
+    pub fn lookup_mut(&mut self, id: ScopeId) -> &mut Scope<'a> {
+        &mut self.scopes[id]
     }
 
 

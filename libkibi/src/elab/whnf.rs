@@ -21,7 +21,13 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
     pub fn whnf_forall(&mut self, t: Term<'a>) -> Option<term::Binder<'a>> {
-        Some(self.whnf(t).try_forall()?)
+        if let Some(binder) = t.try_forall() { return Some(binder) }
+        self.whnf(t).try_forall()
+    }
+
+    pub fn whnf_sort(&mut self, t: Term<'a>) -> Option<Level<'a>> {
+        if let Some(level) = t.try_sort() { return Some(level) }
+        self.whnf(t).try_sort()
     }
 
 
@@ -206,7 +212,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         let symbol = self.env.symbol(g.id);
         match symbol.kind {
-            SymbolKind::Root => unreachable!(),
+            SymbolKind::Root |
+            SymbolKind::Pending => unreachable!(),
 
             SymbolKind::BuiltIn(_) => None,
 
