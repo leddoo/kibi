@@ -6,10 +6,9 @@ use super::*;
 
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
-    pub fn elab_binders(&mut self, binders: &[ast::Binder<'a>])
-    -> Option<Vec<(ScopeId, tt::Term<'a>, tt::Level<'a>)>> {
-        // @temp: arena
-        let mut locals = Vec::new();
+    pub fn elab_binders<'res>(&mut self, binders: &[ast::Binder<'a>], alloc: &'res Arena)
+    -> Option<Vec<(ScopeId, tt::Term<'a>, tt::Level<'a>), &'res Arena>> {
+        let mut locals = Vec::new_in(alloc);
 
         for binder in binders.iter() {
             match binder {

@@ -5,4 +5,5 @@ edition = "2021"
 
 [dependencies]
 sti = { git = "https://github.com/leddoo/sti" }
+#sti = { path = "../../sti" }
 

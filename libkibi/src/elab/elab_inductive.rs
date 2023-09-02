@@ -1,3 +1,5 @@
+use sti::arena_pool::ArenaPool;
+
 use crate::ast::adt::Inductive;
 use crate::tt::*;
 
@@ -9,6 +11,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         assert_eq!(self.locals.len(), 0);
         assert_eq!(self.level_params.len(), 0);
 
+        let temp = ArenaPool::tls_get_rec();
+
         for level in ind.levels {
             self.level_params.push(*level);
         }
@@ -17,7 +21,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             ind.name, SymbolKind::Pending)?;
 
         // check params.
-        let params = self.elab_binders(ind.params)?;
+        let params = self.elab_binders(ind.params, &*temp)?;
 
         // check type.
         let type_former =
@@ -53,9 +57,9 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         // elab ctors.
         // @speed: arena.
-        let mut ctors = Vec::with_cap(ind.ctors.len());
+        let mut ctors = Vec::with_cap_in(ind.ctors.len(), &*temp);
         for ctor in ind.ctors {
-            let args = self.elab_binders(&ctor.args)?;
+            let args = self.elab_binders(&ctor.args, &*temp)?;
 
             let mut ty = match &ctor.ty {
                 Some(ty) => self.elab_expr_as_type(ty)?.0,
@@ -86,7 +90,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
 
         // @speed: arena.
-        let mut param_ids = Vec::with_cap(params.len());
+        let mut param_ids = Vec::with_cap_in(params.len(), &*temp);
         for (id, _, _) in params.iter().copied() {
             param_ids.push(id);
         }

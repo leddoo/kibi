@@ -1,3 +1,5 @@
+use sti::arena_pool::ArenaPool;
+
 use crate::ast::*;
 use crate::tt::{self, *};
 
@@ -103,7 +105,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
 
             ExprKind::Forall(it) => {
-                let locals = self.elab_binders(it.binders)?;
+                let temp = ArenaPool::tls_get_rec();
+                let locals = self.elab_binders(it.binders, &*temp)?;
 
                 let (mut result, mut level) = self.elab_expr_as_type(it.ret)?;
 
@@ -119,7 +122,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
 
             ExprKind::Lambda(it) => {
-                let locals = self.elab_binders(it.binders)?;
+                let temp = ArenaPool::tls_get_rec();
+                let locals = self.elab_binders(it.binders, &*temp)?;
 
                 let mut expected_ty = expected_ty;
                 for (id, ty, _) in locals.iter().copied() {

@@ -1,5 +1,6 @@
 use sti::alloc::{Alloc, GlobalAlloc};
 use sti::arena::Arena;
+use sti::arena_pool::ArenaPool;
 use sti::vec::Vec;
 use sti::reader::Reader;
 
@@ -774,8 +775,8 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
     }
 
     fn parse_binders(&mut self, allow_ident: bool) -> Option<BinderList<'a>> {
-        // @temp: arena
-        let mut binders = Vec::new();
+        let temp = ArenaPool::tls_get_rec();
+        let mut binders = Vec::new_in(&*temp);
         loop {
             if allow_ident {
                 if let Some(ident) = self.parse_ident_or_hole() {
@@ -798,7 +799,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
         return Some(binders.move_into(self.arena).leak());
     }
 
-    fn parse_typed_binders(&mut self, terminator: TokenKind, binders: &mut Vec<Binder<'a>>) -> Option<()> {
+    fn parse_typed_binders<'res>(&mut self, terminator: TokenKind, binders: &mut Vec<Binder<'a>, &'res Arena>) -> Option<()> {
         let implicit = match terminator {
             TokenKind::RParen => false,
             TokenKind::Gt => true,
@@ -818,15 +819,17 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 self.error_expect(SourceRange::collapsed(last_end), "','");
             }
 
-            // @temp: arena
-            let mut names = Vec::new();
-            while let Some(ident) = self.parse_ident_or_hole() {
-                names.push(ident);
-            }
-            if names.len() == 0 {
-                unimplemented!()
-            }
-            let names = names.clone_in(self.arena).leak();
+            let names = {
+                let temp = ArenaPool::tls_get_temp();
+                let mut names = Vec::new_in(&*temp);
+                while let Some(ident) = self.parse_ident_or_hole() {
+                    names.push(ident);
+                }
+                if names.len() == 0 {
+                    unimplemented!()
+                }
+                names.clone_in(self.arena).leak()
+            };
 
             self.expect(TokenKind::Colon)?;
 
@@ -898,8 +901,8 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
         (&mut self, sep: TokenKind<'static>, end: TokenKind<'static>, mut f: F)
         -> (&'a mut [T], bool, bool)
     {
-        // @temp: sti temp arena.
-        let mut buffer = Vec::new();
+        let temp = ArenaPool::tls_get_rec();
+        let mut buffer = Vec::new_in(&*temp);
 
         let mut last_had_sep = true;
         let mut last_end = 0;

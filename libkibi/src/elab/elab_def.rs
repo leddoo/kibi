@@ -1,3 +1,5 @@
+use sti::arena_pool::ArenaPool;
+
 use crate::ast::*;
 use crate::tt::*;
 
@@ -9,11 +11,13 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         assert_eq!(self.locals.len(), 0);
         assert_eq!(self.level_params.len(), 0);
 
+        let temp = ArenaPool::tls_get_rec();
+
         for level in axiom.levels {
             self.level_params.push(*level);
         }
 
-        let locals = self.elab_binders(axiom.params)?;
+        let locals = self.elab_binders(axiom.params, &*temp)?;
 
         // type.
         let mut ty = self.elab_expr_as_type(&axiom.ty)?.0;
@@ -74,11 +78,13 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         assert_eq!(self.locals.len(), 0);
         assert_eq!(self.level_params.len(), 0);
 
+        let temp = ArenaPool::tls_get_rec();
+
         for level in def.levels {
             self.level_params.push(*level);
         }
 
-        let locals = self.elab_binders(def.params)?;
+        let locals = self.elab_binders(def.params, &*temp)?;
 
         // type.
         let mut ty = None;

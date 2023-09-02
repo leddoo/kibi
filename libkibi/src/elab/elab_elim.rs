@@ -1,3 +1,5 @@
+use sti::arena_pool::ArenaPool;
+
 use crate::ast::*;
 use crate::tt::*;
 
@@ -39,11 +41,13 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         //println!("!!! elab as elim {:?}", func);
 
+        let temp = ArenaPool::tls_get_rec();
+
         let mut motive = None;
 
-        let mut targets = Vec::new();
+        let mut targets = Vec::new_in(&*temp);
 
-        let mut postponed = Vec::with_cap(args.len());
+        let mut postponed = Vec::with_cap_in(args.len(), &*temp);
 
         // apply args to func.
         // create vars for motive and non-target args.

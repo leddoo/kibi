@@ -12,7 +12,8 @@
 
 - todo: mutual inductive.
     - generate elim types.
-        - determine elim level.
+        - motives.
+        - minor premises.
     - generate elim rules.
     - generate elim info.
     - mutual syntax.

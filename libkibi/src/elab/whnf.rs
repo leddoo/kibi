@@ -1,3 +1,5 @@
+use sti::arena_pool::ArenaPool;
+
 use crate::tt::*;
 
 use super::*;
@@ -121,7 +123,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         // beta.
         if fun.is_lambda() {
-            let (_, args) = e.app_args();
+            let temp = ArenaPool::tls_get_temp();
+            let (_, args) = e.app_args(&*temp);
 
             let mut result = fun;
             let mut i = 0;
@@ -158,12 +161,14 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         'next: { if let Some(l) = fun.try_nat_rec() {
             if num_args < 4 { break 'next; }
 
-            let (_, rec_args) = t.app_args();
+            let temp = ArenaPool::tls_get_temp();
+
+            let (_, rec_args) = t.app_args(&*temp);
 
             let mp = rec_args[3];
             let mp = self.whnf(mp);
 
-            let (ctor, ctor_args) = mp.app_args();
+            let (ctor, ctor_args) = mp.app_args(&*temp);
 
             let result = match ctor.data() {
                 TermData::NatZero => {

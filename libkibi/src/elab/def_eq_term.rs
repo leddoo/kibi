@@ -1,3 +1,5 @@
+use sti::arena_pool::ArenaPool;
+
 use crate::tt::*;
 
 use super::*;
@@ -25,7 +27,9 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             return Some(true);
         }
 
-        if let Some((var, args)) = a.try_ivar_app() {
+        let temp = ArenaPool::tls_get_temp();
+
+        if let Some((var, args)) = a.try_ivar_app(&*temp) {
             // @mega@temp
             if let Some(value) = var.value(self) {
                 let a = a.replace_app_fun(value, self.alloc);
@@ -36,7 +40,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
         }
 
-        if let Some((var, args)) = b.try_ivar_app() {
+        if let Some((var, args)) = b.try_ivar_app(&*temp) {
             // @mega@temp
             if let Some(value) = var.value(self) {
                 let b = b.replace_app_fun(value, self.alloc);

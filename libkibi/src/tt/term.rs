@@ -436,10 +436,9 @@ impl<'a> Term<'a> {
         return (f, num_args);
     }
 
-    // @speed: arena.
-    pub fn app_args_rev(self) -> (Term<'a>, Vec<Term<'a>>) {
+    pub fn app_args_rev<'res>(self, arena: &'res Arena) -> (Term<'a>, Vec<Term<'a>, &'res Arena>) {
         let mut f = self;
-        let mut args = Vec::new();
+        let mut args = Vec::new_in(arena);
         while let Some(app) = f.try_apply() {
             f = app.fun;
             args.push(app.arg);
@@ -447,21 +446,19 @@ impl<'a> Term<'a> {
         return (f, args);
     }
 
-    // @speed: arena.
-    pub fn app_args(self) -> (Term<'a>, Vec<Term<'a>>) {
-        let (f, mut args) = self.app_args_rev();
+    pub fn app_args<'res>(self, arena: &'res Arena) -> (Term<'a>, Vec<Term<'a>, &'res Arena>) {
+        let (f, mut args) = self.app_args_rev(arena);
         args.reverse();
         return (f, args);
     }
 
 
-    // @speed: arena.
-    pub fn try_ivar_app(self) -> Option<(TermVarId, Vec<ScopeId>)> {
-        let mut args = Vec::new();
+    pub fn try_ivar_app<'res>(self, arena: &'res Arena) -> Option<(TermVarId, Vec<ScopeId, &'res Arena>)> {
+        let mut args = Vec::new_in(arena);
         let var = rec(self, 0, &mut args)?;
         return Some((var, args));
 
-        fn rec(at: Term, num_args: usize, result: &mut Vec<ScopeId>) -> Option<TermVarId> {
+        fn rec(at: Term, num_args: usize, result: &mut Vec<ScopeId, &Arena>) -> Option<TermVarId> {
             if let Some(app) = at.try_apply() {
                 let local = app.arg.try_local()?;
 
