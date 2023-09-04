@@ -2,23 +2,10 @@ use sti::arena_pool::ArenaPool;
 
 use crate::ast::*;
 use crate::tt::*;
+use crate::tt::inductive::{ElimArgKind, ElimInfo};
 
 use super::*;
 
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum ElimArgKind {
-    Motive,
-    Target,
-    Extra,
-    Postpone,
-}
-
-struct ElimInfo<'a> {
-    #[allow(dead_code)]
-    motive: usize,
-    args: &'a [ElimArgKind],
-}
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     pub fn try_elab_as_elim(&mut self,

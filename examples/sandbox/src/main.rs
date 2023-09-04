@@ -123,7 +123,6 @@ reduce Nat::add(1, 2)
                 work_dt += t0.elapsed();
 
                 println!("inductive {}", &strings[ind.name]);
-                println!();
             }
         }
     }

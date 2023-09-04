@@ -164,7 +164,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 }
             }
 
-            SymbolKind::IndTy(it) => {
+            SymbolKind::IndAxiom(it) => {
                 let num_levels = it.num_levels as usize;
 
                 // @cleanup: dedup.

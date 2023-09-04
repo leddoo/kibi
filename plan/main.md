@@ -3,17 +3,16 @@
     - mutual inductive.
     - unordered decls & compiler rework.
     - basic traits.
+    - codegen.
+    - references.
     - multi-threading.
-    - interpreter.
-    - basic proof inference.
     - modules.
     - macros.
+    - basic proof inference.
 
 
 - todo:
     - inductive:
-        - generate elim info.
-        - assign symbols.
         - impl reduction.
     - mutual inductive:
         - mutual syntax.

@@ -3,6 +3,7 @@ use sti::hash::HashMap;
 
 use crate::string_table::{Atom, atoms};
 use crate::tt::*;
+use crate::tt::inductive::InductiveInfo;
 
 
 pub struct Env<'a> {
@@ -30,7 +31,7 @@ pub enum SymbolKind<'a> {
     Root,
     Pending,
     BuiltIn(symbol::BuiltIn),
-    IndTy(symbol::IndTy<'a>),
+    IndAxiom(symbol::IndAxiom<'a>),
     Def(symbol::Def<'a>),
 }
 
@@ -49,10 +50,20 @@ pub mod symbol {
         EqRec,
     }
 
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub enum IndAxiomKind {
+        TypeFormer,
+        Constructor,
+        Eliminator,
+    }
+
     #[derive(Clone, Copy, Debug)]
-    pub struct IndTy<'a> {
+    pub struct IndAxiom<'a> {
+        pub kind: IndAxiomKind,
+        pub info: &'a InductiveInfo<'a>,
         pub num_levels: u32,
         pub ty: Term<'a>,
+        pub mutual_infos: &'a [InductiveInfo<'a>],
     }
 
     #[derive(Clone, Copy, Debug)]
@@ -119,7 +130,7 @@ impl<'a> Env<'a> {
             SymbolKind::BuiltIn(_) => (),
             SymbolKind::Pending => (),
 
-            SymbolKind::IndTy(it) => {
+            SymbolKind::IndAxiom(it) => {
                 assert!(it.ty.closed_no_local_no_ivar());
             }
 
@@ -157,7 +168,22 @@ impl<'a> Env<'a> {
     }
 
     pub fn resolve_pending(&mut self, id: SymbolId, kind: SymbolKind<'a>) {
-        assert!(!matches!(kind, SymbolKind::Pending));
+        match &kind {
+            SymbolKind::Root |
+            SymbolKind::BuiltIn(_) |
+            SymbolKind::Pending => unreachable!(),
+
+            SymbolKind::IndAxiom(it) => {
+                assert!(it.ty.closed_no_local_no_ivar());
+            }
+
+            SymbolKind::Def(it) => {
+                assert!(it.ty.closed_no_local_no_ivar());
+                if let Some(val) = it.val {
+                    assert!(val.closed_no_local_no_ivar());
+                }
+            }
+        }
 
         let symbol = &mut self.symbols[id];
         assert!(matches!(symbol.kind, SymbolKind::Pending));

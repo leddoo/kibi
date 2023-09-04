@@ -3,6 +3,7 @@ use sti::arena_pool::ArenaPool;
 use sti::vec::Vec;
 
 use crate::string_table::Atom;
+use crate::env::{SymbolKind, symbol::{IndAxiomKind, IndAxiom}};
 use crate::elab::Elab;
 
 use super::level::*;
@@ -34,6 +35,30 @@ pub struct CtorSpec<'a> {
 }
 
 
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ElimArgKind {
+    Motive,
+    Target,
+    Postpone,
+    Extra,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ElimInfo<'a> {
+    #[allow(dead_code)]
+    pub motive: usize,
+    pub args: &'a [ElimArgKind],
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct InductiveInfo<'a> {
+    pub type_former: SymbolId,
+    pub elim_info: ElimInfo<'a>,
+    pub comp_rules: &'a [Term<'a>],
+}
+
+
 pub struct Check<'me, 'temp, 'err, 'a> {
     alloc: &'a Arena,
     temp: &'me Arena,
@@ -45,9 +70,10 @@ pub struct Check<'me, 'temp, 'err, 'a> {
 
     level_params: &'a [Level<'a>],
     type_globals: Vec<Term<'a>, &'me Arena>,
-    type_global_apps: Vec<Term<'a>, &'me Arena>,
+    type_global_param_apps: Vec<Term<'a>, &'me Arena>,
+    type_global_index_apps: Vec<Term<'a>, &'me Arena>,
     indices: Vec<Vec<ScopeId, &'me Arena>, &'me Arena>,
-    ctor_infos: Vec<Vec<CtorInfo<'me, 'a>, &'me Arena>, &'me Arena>,
+    ctor_infos: Vec<&'me [CtorInfo<'me, 'a>], &'me Arena>,
 }
 
 #[derive(Clone, Copy)]
@@ -82,7 +108,8 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
             spec,
             level_params: level_params.leak(),
             type_globals: Vec::with_cap_in(num_types, &*temp),
-            type_global_apps: Vec::with_cap_in(num_types, &*temp),
+            type_global_param_apps: Vec::with_cap_in(num_types, &*temp),
+            type_global_index_apps: Vec::with_cap_in(num_types, &*temp),
             indices: Vec::with_cap_in(num_types, &*temp),
             ctor_infos: Vec::new_in(&*temp),
         };
@@ -94,9 +121,13 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
 
         // check specs.
         let mut ind_level = None;
-        for (type_idx, spec) in this.spec.types.iter().enumerate() {
+        let mut type_formers = Vec::with_cap_in(this.spec.types.len(), this.temp);
+        let mut ctor_types = Vec::with_cap_in(this.spec.types.len(), this.temp);
+        for (spec_idx, spec) in this.spec.types.iter().enumerate() {
+            let mut type_former = this.elab.lctx.lookup(spec.local).ty;
+
             // check type.
-            let mut ty = this.elab.lctx.lookup(spec.local).ty;
+            let mut ty = type_former;
             let mut indices = Vec::new_in(this.temp);
             while let Some(pi) = this.elab.whnf_forall(ty) {
                 // @complete: check indices are types.
@@ -116,8 +147,15 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
                 global_indices = this.alloc.mkt_apply(global_indices, this.alloc.mkt_local(index));
             }
 
+            for param in this.spec.params.iter().copied().rev() {
+                type_former = this.elab.lctx.abstract_forall(type_former, param);
+            }
+            assert!(type_former.closed_no_local_no_ivar());
+            type_formers.push(type_former);
+
             this.type_globals.push(global);
-            this.type_global_apps.push(global_indices);
+            this.type_global_param_apps.push(global_params);
+            this.type_global_index_apps.push(global_indices);
             this.indices.push(indices);
 
 
@@ -137,6 +175,7 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
 
             // check ctors.
             let mut ty_ctor_infos = Vec::with_cap_in(spec.ctors.len(), this.temp);
+            let mut ty_ctor_types = Vec::with_cap_in(spec.ctors.len(), this.temp);
             for ctor in spec.ctors.iter().copied() {
                 let mut args = Vec::new_in(this.temp);
 
@@ -192,15 +231,28 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
                 }
 
                 // check indices.
-                let Some((_, indices)) = this.is_valid_inductive_app(ty, Some((type_idx, spec.local)))? else {
+                let Some((_, indices)) = this.is_valid_inductive_app(ty, Some((spec_idx, spec.local)))? else {
                     println!("error: ctor ret must be the inductive type");
                     return None;
                 };
 
+
+                let mut ctor_type = ctor.ty;
+                ctor_type = ctor_type.replace(this.alloc, |at, _, _| {
+                    let local = at.try_local()?;
+                    (local == spec.local).then_some(this.type_global_param_apps[spec_idx])
+                });
+                for param in this.spec.params.iter().copied().rev() {
+                    ctor_type = this.elab.lctx.abstract_forall(ctor_type, param);
+                }
+                assert!(ctor_type.closed_no_local_no_ivar());
+
                 ty_ctor_infos.push(CtorInfo { args: args.leak(), indices });
+                ty_ctor_types.push(ctor_type);
             }
 
-            this.ctor_infos.push(ty_ctor_infos);
+            this.ctor_infos.push(ty_ctor_infos.leak());
+            ctor_types.push(ty_ctor_types.leak());
         }
         let ind_level = ind_level.unwrap();
 
@@ -271,7 +323,7 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
 
         let mut motives = Vec::with_cap_in(this.spec.types.len(), this.temp);
         for spec_idx in 0..this.spec.types.len() {
-            let mp = this.type_global_apps[spec_idx];
+            let mp = this.type_global_index_apps[spec_idx];
 
             let mut m = elim_sort;
             m = this.alloc.mkt_forall(BinderKind::Explicit, atoms::mp, mp, m);
@@ -337,8 +389,12 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
         let minors = minors;
 
 
-        let mut elim_tys = Vec::with_cap_in(this.spec.types.len(), this.temp);
+        let mut elim_types = Vec::with_cap_in(this.spec.types.len(), this.temp);
+        let mut elim_infos = Vec::with_cap_in(this.spec.types.len(), this.temp);
         for spec_idx in 0..this.spec.types.len() {
+            let mut motive_pos = None;
+            let mut elim_arg_kinds = Vec::new_in(this.temp);
+
             let mut ret = this.alloc.mkt_local(motives[spec_idx]);
             for index in this.indices[spec_idx].iter().copied().rev() {
                 ret = this.alloc.mkt_apply(ret, this.alloc.mkt_local(index));
@@ -346,37 +402,57 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
 
             let mut ty =
                 this.alloc.mkt_forall(BinderKind::Explicit, atoms::mp,
-                    this.type_global_apps[spec_idx],
+                    this.type_global_index_apps[spec_idx],
                     this.alloc.mkt_apply(ret, this.alloc.mkt_bound(BVar { offset: 0 })));
+            elim_arg_kinds.push(ElimArgKind::Target);
 
             for index in this.indices[spec_idx].iter().copied().rev() {
                 ty = this.elab.lctx.abstract_forall(ty, index);
+                elim_arg_kinds.push(ElimArgKind::Target);
             }
 
             for minor in minors.iter().copied().rev() {
                 ty = this.elab.lctx.abstract_forall(ty, minor);
+                elim_arg_kinds.push(ElimArgKind::Postpone);
             }
 
-            for motive in motives.iter().copied().rev() {
+            for (i, motive) in motives.iter().copied().enumerate().rev() {
                 ty = this.elab.lctx.abstract_forall(ty, motive);
+                if i == spec_idx {
+                    motive_pos = Some(elim_arg_kinds.len());
+                    elim_arg_kinds.push(ElimArgKind::Motive);
+                }
+                else {
+                    elim_arg_kinds.push(ElimArgKind::Postpone);
+                }
             }
 
             for param in this.spec.params.iter().copied().rev() {
                 ty = this.elab.lctx.abstract_forall(ty, param);
+                elim_arg_kinds.push(ElimArgKind::Postpone);
             }
 
             assert!(ty.closed_no_local_no_ivar());
 
-            println!("{}", this.elab.pp(ty, 80));
+            let motive_pos = (elim_arg_kinds.len() - 1) - motive_pos.unwrap();
+            elim_arg_kinds.reverse();
 
-            elim_tys.push(ty);
+            elim_types.push(ty);
+            elim_infos.push(ElimInfo {
+                motive: motive_pos,
+                args: elim_arg_kinds.clone_in(this.alloc).leak(),
+            });
         }
+        let elim_types = elim_types;
+        let elim_infos = elim_infos;
 
 
+        let mut comp_rules: Vec<&'a [Term<'a>], _> = Vec::with_cap_in(this.spec.types.len(), this.alloc);
         let mut minors_offset = 0;
         for spec_idx in 0..this.spec.types.len() {
             let ctor_infos = &this.ctor_infos[spec_idx];
 
+            let mut spec_rules = Vec::with_cap_in(ctor_infos.len(), this.alloc);
             for (i, ctor_info) in ctor_infos.iter().enumerate() {
                 // comp_i = λ ps Ms ms as, ms_i as mvs
                 let mut comp_ret = this.alloc.mkt_local(minors[minors_offset + i]);
@@ -453,10 +529,54 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
 
                 assert!(comp.closed_no_local_no_ivar());
 
-                println!("comp_{i} = {}", this.elab.pp(comp, 80));
+                spec_rules.push(comp);
             }
 
             minors_offset += ctor_infos.len();
+            comp_rules.push(spec_rules.leak());
+        }
+
+
+        let mut infos = Vec::with_cap_in(this.spec.types.len(), this.alloc);
+        for (spec_idx, spec) in this.spec.types.iter().enumerate() {
+            infos.push(InductiveInfo {
+                type_former: spec.symbol,
+                elim_info:  elim_infos[spec_idx],
+                comp_rules: comp_rules[spec_idx],
+            });
+        }
+        let infos = infos.leak();
+
+        // define symbol.
+        for (spec_idx, spec) in this.spec.types.iter().enumerate() {
+            let info = &infos[spec_idx];
+            let ctor_types = &ctor_types[spec_idx];
+
+            this.elab.env.resolve_pending(spec.symbol, SymbolKind::IndAxiom(IndAxiom {
+                kind: IndAxiomKind::TypeFormer,
+                info,
+                num_levels: this.level_params.len() as u32,
+                ty: type_formers[spec_idx],
+                mutual_infos: infos,
+            }));
+
+            for (ctor_idx, ctor) in spec.ctors.iter().enumerate() {
+                this.elab.env.resolve_pending(ctor.symbol, SymbolKind::IndAxiom(IndAxiom {
+                    kind: IndAxiomKind::Constructor,
+                    info,
+                    num_levels: this.level_params.len() as u32,
+                    ty: ctor_types[ctor_idx],
+                    mutual_infos: infos,
+                }));
+            }
+
+            this.elab.env.resolve_pending(spec.rec_symbol, SymbolKind::IndAxiom(IndAxiom {
+                kind: IndAxiomKind::Eliminator,
+                info,
+                num_levels: this.level_params.len() as u32 + large_elim as u32,
+                ty: elim_types[spec_idx],
+                mutual_infos: infos,
+            }));
         }
 
         Some(())
