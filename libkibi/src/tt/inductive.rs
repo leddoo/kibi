@@ -198,17 +198,50 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
                 true
             }
             // mutual props aren't LE
-            else if this.spec.types.len() > 0 {
+            else if this.spec.types.len() > 1 {
                 false
             }
+            // single inductive type.
             else {
                 let ctors = this.spec.types[0].ctors;
                 // `False`
                 if ctors.len() == 0 {
                     true
                 }
+                // possibly singleton.
+                else if ctors.len() == 1 {
+                    let info = &this.ctor_infos[0][0];
+
+                    let mut singleton = true;
+                    for (arg, is_rec) in info.args.iter().copied() {
+                        // rarg.
+                        if is_rec.is_some() {
+                            continue;
+                        }
+
+                        // narg-direct.
+                        for idx in info.indices.iter().copied() {
+                            if let Some(local) = idx.try_local() {
+                                if local == arg {
+                                    continue;
+                                }
+                            }
+                        }
+
+                        // narg-prop.
+                        let ty = this.elab.lctx.lookup(arg).ty;
+                        let l = this.elab.infer_type_as_sort(ty).unwrap();
+                        if l.is_zero() {
+                            continue;
+                        }
+
+                        singleton = false;
+                        break;
+                    }
+                    singleton
+                }
+                // too many ctors.
                 else {
-                    // @todo: sub-singleton.
                     false
                 }
             }
@@ -324,8 +357,6 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
 
             elim_tys.push(ty);
         }
-
-        println!();
 
         Some(())
     }

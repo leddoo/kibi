@@ -11,7 +11,6 @@
 
 
 - todo: mutual inductive.
-    - sub-singleton LE.
     - generate elim rules.
     - generate elim info.
     - mutual syntax.

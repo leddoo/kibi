@@ -1,3 +1,6 @@
+inductive False {
+}
+
 inductive MyNat {
     zero: MyNat;
     succ (of: MyNat);
