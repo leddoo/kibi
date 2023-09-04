@@ -25,15 +25,6 @@ pub enum TermKind {
     Forall,
     Lambda,
     Apply,
-
-    Nat,
-    NatZero,
-    NatSucc,
-    NatRec,
-
-    Eq,
-    EqRefl,
-    EqRec,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -48,15 +39,6 @@ pub enum TermData<'a> {
     Forall(Binder<'a>),
     Lambda(Binder<'a>),
     Apply(Apply<'a>),
-
-    Nat,
-    NatZero,
-    NatSucc,
-    NatRec(Level<'a>),
-
-    Eq(Level<'a>),
-    EqRefl(Level<'a>),
-    EqRec(Level<'a>, Level<'a>),
 
     // sync:
     // - `Term::syntax_eq`.
@@ -178,15 +160,6 @@ impl<'a> Term<'a> {
             (Apply(a1), Apply(a2)) =>
                 a1.fun.syntax_eq(a2.fun) && a1.arg.syntax_eq(a2.arg),
 
-            (Nat, Nat) => true,
-            (NatZero, NatZero) => true,
-            (NatSucc, NatSucc) => true,
-            (NatRec(l1), NatRec(l2)) => l1.syntax_eq(l2),
-
-            (Eq(l1), Eq(l2)) => l1.syntax_eq(l2),
-            (EqRefl(l1), EqRefl(l2)) => l1.syntax_eq(l2),
-            (EqRec(l1, r1), EqRec(l2, r2)) => l1.syntax_eq(l2) && r1.syntax_eq(r2),
-
             _ => false
         }
     }
@@ -216,13 +189,6 @@ impl<'a> Term<'a> {
                 }
 
                 TermData::IVar(_) => true,
-
-                TermData::NatRec(l) |
-                TermData::Eq(l) |
-                TermData::EqRefl(l) => l.has_ivars(),
-
-                TermData::EqRec(l, r) =>
-                    l.has_ivars() || r.has_ivars(),
 
                 _ => return None,
             })
@@ -267,14 +233,6 @@ impl<'a> Term<'a> {
                 a.fun.find_ex(offset, f).or_else(||
                 a.arg.find_ex(offset, f))
             }
-
-            TermData::Nat |
-            TermData::NatZero |
-            TermData::NatSucc |
-            TermData::NatRec(_) |
-            TermData::Eq(_) |
-            TermData::EqRefl(_) |
-            TermData::EqRec(_, _) => None,
         }
     }
 
@@ -309,14 +267,6 @@ impl<'a> Term<'a> {
                     a.fun.replace_ex(offset, alloc, f),
                     a.arg.replace_ex(offset, alloc, f))
             }
-
-            TermData::Nat |
-            TermData::NatZero |
-            TermData::NatSucc |
-            TermData::NatRec(_) |
-            TermData::Eq(_) |
-            TermData::EqRefl(_) |
-            TermData::EqRec(_, _) => self
         }
     }
 
@@ -376,34 +326,6 @@ impl<'a> Term<'a> {
                     debug_assert_eq!(new_levels.len(), g.levels.len());
                     let levels = new_levels.leak();
                     return Some(alloc.mkt_global(g.id, levels));
-                }
-            }
-
-            TermData::NatRec(r) => {
-                if let Some(r) = f(r, alloc) {
-                    return Some(alloc.mkt_nat_rec(r));
-                }
-            }
-
-            TermData::Eq(l) => {
-                if let Some(l) = f(l, alloc) {
-                    return Some(alloc.mkt_eq(l));
-                }
-            }
-
-            TermData::EqRefl(l) => {
-                if let Some(l) = f(l, alloc) {
-                    return Some(alloc.mkt_eq_refl(l));
-                }
-            }
-
-            TermData::EqRec(l, r) => {
-                let new_l = f(l, alloc);
-                let new_r = f(r, alloc);
-                if new_l.is_some() || new_r.is_some() {
-                    let l = new_l.unwrap_or(l);
-                    let r = new_r.unwrap_or(r);
-                    return Some(alloc.mkt_eq_rec(l, r));
                 }
             }
 
@@ -502,20 +424,7 @@ pub trait TermAlloc {
     fn mkt_apply<'a>(&'a self, fun: Term<'a>, arg: Term<'a>) -> Term<'a>;
     fn mkt_apps<'a>(&'a self, fun: Term<'a>, args: &[Term<'a>]) -> Term<'a>;
 
-    fn mkt_nat<'a>(&'a self) -> Term<'a>;
-    fn mkt_nat_zero<'a>(&'a self) -> Term<'a>;
-    fn mkt_nat_succ<'a>(&'a self) -> Term<'a>;
-    fn mkt_nat_rec<'a>(&'a self, r: Level<'a>) -> Term<'a>;
-    fn mkt_nat_rec_ty<'a>(&'a self, r: Level<'a>) -> Term<'a>;
     fn mkt_nat_val<'a>(&'a self, n: u32) -> Term<'a>;
-
-
-    fn mkt_eq<'a>(&'a self, l: Level<'a>) -> Term<'a>;
-    fn mkt_eq_refl<'a>(&'a self, l: Level<'a>) -> Term<'a>;
-    fn mkt_eq_rec<'a>(&'a self, l: Level<'a>, r: Level<'a>) -> Term<'a>;
-    fn mkt_eq_ty<'a>(&'a self, l: Level<'a>) -> Term<'a>;
-    fn mkt_eq_refl_ty<'a>(&'a self, l: Level<'a>) -> Term<'a>;
-    fn mkt_eq_rec_ty<'a>(&'a self, l: Level<'a>, r: Level<'a>) -> Term<'a>;
 }
 
 
@@ -537,10 +446,9 @@ mod impel {
         pub const SORT_0: Term<'static> = Term(&Data { data: TermData::Sort(Level::L0), max_succ_bvar: 0, max_succ_local: 0 });
         pub const SORT_1: Term<'static> = Term(&Data { data: TermData::Sort(Level::L1), max_succ_bvar: 0, max_succ_local: 0 });
 
-        pub const NAT: Term<'static> = Term(&Data { data: TermData::Nat, max_succ_bvar: 0, max_succ_local: 0 });
-        pub const NAT_ZERO: Term<'static> = Term(&Data { data: TermData::NatZero, max_succ_bvar: 0, max_succ_local: 0 });
-        pub const NAT_SUCC: Term<'static> = Term(&Data { data: TermData::NatSucc, max_succ_bvar: 0, max_succ_local: 0 });
-        pub const NAT_SUCC_TY: Term<'static> = Term(&Data { data: TermData::Forall(Binder{ kind: BinderKind::Explicit, name: Atom::NULL, ty: Self::NAT, val: Self::NAT }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const NAT:      Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::NAT,      levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const NAT_ZERO: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::NAT_ZERO, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const NAT_SUCC: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::NAT_SUCC, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
 
 
         #[inline(always)]
@@ -554,13 +462,6 @@ mod impel {
                 TermData::Forall(_)     => TermKind::Forall,
                 TermData::Lambda(_)     => TermKind::Lambda,
                 TermData::Apply(_)      => TermKind::Apply,
-                TermData::Nat           => TermKind::Nat,
-                TermData::NatZero       => TermKind::NatZero,
-                TermData::NatSucc       => TermKind::NatSucc,
-                TermData::NatRec(_)     => TermKind::NatRec,
-                TermData::Eq(_)         => TermKind::Eq,
-                TermData::EqRefl(_)     => TermKind::EqRefl,
-                TermData::EqRec(_, _)   => TermKind::EqRec,
             }
         }
 
@@ -613,26 +514,6 @@ mod impel {
         #[inline(always)]
         pub fn try_apply(self) -> Option<Apply<'a>> {
             if let TermData::Apply(x) = self.0.data { Some(x) } else { None }
-        }
-
-        #[inline(always)]
-        pub fn try_nat_rec(self) -> Option<Level<'a>> {
-            if let TermData::NatRec(x) = self.0.data { Some(x) } else { None }
-        }
-
-        #[inline(always)]
-        pub fn try_eq(self) -> Option<Level<'a>> {
-            if let TermData::Eq(x) = self.0.data { Some(x) } else { None }
-        }
-
-        #[inline(always)]
-        pub fn try_eq_refl(self) -> Option<Level<'a>> {
-            if let TermData::EqRefl(x) = self.0.data { Some(x) } else { None }
-        }
-
-        #[inline(always)]
-        pub fn try_eq_rec(self) -> Option<(Level<'a>, Level<'a>)> {
-            if let TermData::EqRec(x1, x2) = self.0.data { Some((x1, x2)) } else { None }
         }
 
 
@@ -776,174 +657,12 @@ mod impel {
             return result;
         }
 
-        #[inline(always)]
-        fn mkt_nat<'a>(&'a self) -> Term<'a> {
-            Term(self.alloc_new(Data {
-                data: TermData::Nat,
-                max_succ_bvar: 0,
-                max_succ_local: 0,
-            }))
-        }
-
-        #[inline(always)]
-        fn mkt_nat_zero<'a>(&'a self) -> Term<'a> {
-            Term(self.alloc_new(Data {
-                data: TermData::NatZero,
-                max_succ_bvar: 0,
-                max_succ_local: 0,
-            }))
-        }
-
-        #[inline(always)]
-        fn mkt_nat_succ<'a>(&'a self) -> Term<'a> {
-            Term(self.alloc_new(Data {
-                data: TermData::NatSucc,
-                max_succ_bvar: 0,
-                max_succ_local: 0,
-            }))
-        }
-
-        #[inline(always)]
-        fn mkt_nat_rec<'a>(&'a self, r: Level<'a>) -> Term<'a> {
-            Term(self.alloc_new(Data {
-                data: TermData::NatRec(r),
-                max_succ_bvar: 0,
-                max_succ_local: 0,
-            }))
-        }
-
-        fn mkt_nat_rec_ty<'a>(&'a self, r: Level<'a>) -> Term<'a> {
-            self.mkt_forall(BinderKind::Implicit, atoms::M,
-                // M: Nat -> Sort(r)
-                self.mkt_forall(BinderKind::Explicit, atoms::Nat,
-                    Term::NAT,
-                    self.mkt_sort(r)),
-            self.mkt_forall(BinderKind::Explicit, atoms::m_zero,
-                // m_zero: M(0)
-                self.mkt_apply(
-                    self.mkt_bound(BVar { offset: 0 }),
-                    Term::NAT_ZERO),
-            self.mkt_forall(BinderKind::Explicit, atoms::m_succ,
-                // m_succ: Π(n, ih) => M(n.succ())
-                self.mkt_forall(BinderKind::Explicit, atoms::n,
-                    // n: Nat
-                    Term::NAT,
-                self.mkt_forall(BinderKind::Explicit, atoms::ih,
-                    // ih: M(n)
-                    self.mkt_apply(
-                        self.mkt_bound(BVar { offset: 2 }),
-                        self.mkt_bound(BVar { offset: 0 })),
-                    // -> M(n.succ())
-                    self.mkt_apply(
-                        self.mkt_bound(BVar { offset: 3 }),
-                        self.mkt_apply(
-                            Term::NAT_SUCC,
-                            self.mkt_bound(BVar { offset: 1 }))))),
-            self.mkt_forall(BinderKind::Explicit, atoms::mp,
-                // mp: Nat
-                Term::NAT,
-                // -> M(mp)
-                self.mkt_apply(
-                    self.mkt_bound(BVar { offset: 3 }),
-                    self.mkt_bound(BVar { offset: 0 }))))))
-        }
-
         fn mkt_nat_val<'a>(&'a self, n: u32) -> Term<'a> {
             let mut result = Term::NAT_ZERO;
             for _ in 0..n {
                 result = self.mkt_apply(Term::NAT_SUCC, result);
             }
             return result;
-        }
-
-
-        #[inline(always)]
-        fn mkt_eq<'a>(&'a self, l: Level<'a>) -> Term<'a> {
-            Term(self.alloc_new(Data {
-                data: TermData::Eq(l),
-                max_succ_bvar: 0,
-                max_succ_local: 0,
-            }))
-        }
-
-        #[inline(always)]
-        fn mkt_eq_refl<'a>(&'a self, l: Level<'a>) -> Term<'a> {
-            Term(self.alloc_new(Data {
-                data: TermData::EqRefl(l),
-                max_succ_bvar: 0,
-                max_succ_local: 0,
-            }))
-        }
-
-        #[inline(always)]
-        fn mkt_eq_rec<'a>(&'a self, l: Level<'a>, r: Level<'a>) -> Term<'a> {
-            Term(self.alloc_new(Data {
-                data: TermData::EqRec(l, r),
-                max_succ_bvar: 0,
-                max_succ_local: 0,
-            }))
-        }
-
-        fn mkt_eq_ty<'a>(&'a self, l: Level<'a>) -> Term<'a> {
-            self.mkt_forall(BinderKind::Implicit, atoms::T,
-                // T: Sort(l)
-                self.mkt_sort(l),
-            self.mkt_forall(BinderKind::Explicit, atoms::a,
-                // a: T
-                self.mkt_bound(BVar { offset: 0 }),
-            self.mkt_forall(BinderKind::Explicit, atoms::b,
-                // b: T
-                self.mkt_bound(BVar { offset: 1 }),
-                // -> Prop
-                self.mkt_sort(self.mkl_zero()))))
-        }
-
-        fn mkt_eq_refl_ty<'a>(&'a self, l: Level<'a>) -> Term<'a> {
-            self.mkt_forall(BinderKind::Implicit, atoms::T,
-                // T: Sort(l)
-                self.mkt_sort(l),
-            self.mkt_forall(BinderKind::Explicit, atoms::a,
-                // a: T
-                self.mkt_bound(BVar { offset: 0 }),
-                // -> Eq(T, a, a)
-                self.mkt_apps(self.mkt_eq(l), &[
-                    self.mkt_bound(BVar { offset: 1 }),
-                    self.mkt_bound(BVar { offset: 0 }),
-                    self.mkt_bound(BVar { offset: 0 }),
-                ])))
-        }
-
-        fn mkt_eq_rec_ty<'a>(&'a self, l: Level<'a>, r: Level<'a>) -> Term<'a> {
-            self.mkt_forall(BinderKind::Implicit, atoms::T,
-                // T: Sort(l)
-                self.mkt_sort(l),
-            self.mkt_forall(BinderKind::Implicit, atoms::a,
-                // a: T
-                self.mkt_bound(BVar { offset: 0 }),
-            self.mkt_forall(BinderKind::Implicit, atoms::M,
-                // M: Π(b: T) -> Sort(r)
-                self.mkt_forall(BinderKind::Explicit, atoms::b,
-                    self.mkt_bound(BVar { offset: 1 }),
-                    self.mkt_sort(r)),
-            self.mkt_forall(BinderKind::Explicit, atoms::m_refl,
-                // m_refl: M(a)
-                self.mkt_apply(
-                    self.mkt_bound(BVar { offset: 0 }),
-                    self.mkt_bound(BVar { offset: 1 })),
-            self.mkt_forall(BinderKind::Implicit, atoms::b,
-                // b: T
-                self.mkt_bound(BVar { offset: 3 }),
-            self.mkt_forall(BinderKind::Explicit, atoms::mp,
-                // mp: Eq(T, a, b)
-                self.mkt_apps(self.mkt_eq(l), &[
-                    self.mkt_bound(BVar { offset: 4 }),
-                    self.mkt_bound(BVar { offset: 3 }),
-                    self.mkt_bound(BVar { offset: 0 }),
-                ]),
-                // -> M(b)
-                self.mkt_apply(
-                    self.mkt_bound(BVar { offset: 3 }),
-                    self.mkt_bound(BVar { offset: 1 }))))))))
         }
     }
 }

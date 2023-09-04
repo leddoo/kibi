@@ -342,7 +342,7 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
                 }
                 else { atoms::M };
 
-            let id = this.elab.lctx.push(BinderKind::Explicit, name, m, None);
+            let id = this.elab.lctx.push(BinderKind::Implicit, name, m, None);
 
             motives.push(id);
         }

@@ -168,6 +168,7 @@ impl<'me, 'a> TermPP<'me, 'a> {
             }
 
             TermData::Apply(app) => {
+                /*
                 if app.fun.kind() == TermKind::NatSucc {
                     let mut offset = 1;
                     let mut at = app.arg;
@@ -185,6 +186,7 @@ impl<'me, 'a> TermPP<'me, 'a> {
                         // @todo: `() + offset`.
                     }
                 }
+                */
 
                 let (fun_term, fun, args) = self.pp_apply(&app);
 
@@ -214,51 +216,6 @@ impl<'me, 'a> TermPP<'me, 'a> {
                             self.pp.cat(self.pp.line(), args))),
                     self.pp.text(")"),
                 ]))
-            }
-
-            TermData::Nat => self.pp.text("Nat"),
-
-            TermData::NatZero => self.pp.text("0"),
-
-            TermData::NatSucc => self.pp.text("Nat::succ"),
-
-            TermData::NatRec(l) => {
-                let l = self.pp_level(l);
-                self.pp.cats(&[
-                    self.pp.text("Nat::rec.{"),
-                    l,
-                    self.pp.text("}"),
-                ])
-            }
-
-            TermData::Eq(l) => {
-                let l = self.pp_level(l);
-                self.pp.cats(&[
-                    self.pp.text("Eq.{"),
-                    l,
-                    self.pp.text("}"),
-                ])
-            }
-
-            TermData::EqRefl(l) => {
-                let l = self.pp_level(l);
-                self.pp.cats(&[
-                    self.pp.text("Eq::refl.{"),
-                    l,
-                    self.pp.text("}"),
-                ])
-            }
-
-            TermData::EqRec(l, r) => {
-                let l = self.pp_level(l);
-                let r = self.pp_level(r);
-                self.pp.cats(&[
-                    self.pp.text("Eq::rec.{"),
-                    l,
-                    self.pp.text(", "),
-                    r,
-                    self.pp.text("}"),
-                ])
             }
         }
     }

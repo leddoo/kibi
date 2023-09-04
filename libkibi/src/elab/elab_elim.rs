@@ -194,31 +194,13 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         (Some(Some((result, result_ty))),)
     }
 
-    fn elim_info(&self, func: Term<'a>) -> Option<ElimInfo<'static>> {
-        if func.kind() == TermKind::NatRec {
-            return Some(ElimInfo {
-                motive: 0,
-                args: &[
-                    ElimArgKind::Motive,   // M
-                    ElimArgKind::Postpone, // m_zero
-                    ElimArgKind::Postpone, // m_succ
-                    ElimArgKind::Target,   // n
-                ],
-            });
-        }
+    fn elim_info(&self, func: Term<'a>) -> Option<ElimInfo<'a>> {
+        let global = func.try_global()?;
 
-        if func.kind() == TermKind::EqRec {
-            return Some(ElimInfo {
-                motive: 2,
-                args: &[
-                    ElimArgKind::Postpone, // T
-                    ElimArgKind::Postpone, // a
-                    ElimArgKind::Motive,   // M
-                    ElimArgKind::Postpone, // m_refl
-                    ElimArgKind::Target,   // b
-                    ElimArgKind::Extra,    // mp
-                ],
-            });
+        if let SymbolKind::IndAxiom(ind) = &self.env.symbol(global.id).kind {
+            if ind.kind == symbol::IndAxiomKind::Eliminator {
+                return Some(ind.info.elim_info);
+            }
         }
 
         None

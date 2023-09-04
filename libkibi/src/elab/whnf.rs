@@ -69,14 +69,6 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
             TermData::Apply (_) =>
                 (e, false),
-
-            TermData::Nat |
-            TermData::NatZero |
-            TermData::NatSucc |
-            TermData::NatRec(_) |
-            TermData::Eq(_) |
-            TermData::EqRefl(_) |
-            TermData::EqRec(_, _) => (e, true)
         }
     }
 
@@ -158,53 +150,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     fn try_reduce_recursor(&mut self, t: Term<'a>, fun: Term<'a>, num_args: usize) -> Option<Term<'a>> {
         assert!(t.closed());
 
-        'next: { if let Some(l) = fun.try_nat_rec() {
-            if num_args < 4 { break 'next; }
-
-            let temp = ArenaPool::tls_get_temp();
-
-            let (_, rec_args) = t.app_args(&*temp);
-
-            let mp = rec_args[3];
-            let mp = self.whnf(mp);
-
-            let (ctor, ctor_args) = mp.app_args(&*temp);
-
-            let result = match ctor.data() {
-                TermData::NatZero => {
-                    assert_eq!(ctor_args.len(), 0);
-                    rec_args[1]
-                }
-
-                TermData::NatSucc => {
-                    assert_eq!(ctor_args.len(), 1);
-
-                    // Nat.rec M mz ms (Nat.succ n)
-                    // ms: Π (n: Nat) (ih: M n), M n.succ
-
-                    // result = ms n (Nat.rec M mz ms n)
-
-                    let m  = rec_args[0];
-                    let mz = rec_args[1];
-                    let ms = rec_args[2];
-                    let n = ctor_args[0];
-
-                    self.alloc.mkt_apps(ms, &[
-                        n,
-                        self.alloc.mkt_apps(self.alloc.mkt_nat_rec(l), &[
-                            m,
-                            mz,
-                            ms,
-                            n,
-                        ]),
-                    ])
-                }
-
-                _ => break 'next,
-            };
-            assert!(result.closed());
-            return Some(result);
-        }}
+        let _ = (fun, num_args);
 
         None
     }
@@ -218,9 +164,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let symbol = self.env.symbol(g.id);
         match symbol.kind {
             SymbolKind::Root |
+            SymbolKind::Predeclared |
             SymbolKind::Pending => unreachable!(),
-
-            SymbolKind::BuiltIn(_) => None,
 
             SymbolKind::IndAxiom(_) => None,
 
@@ -272,9 +217,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     self.reduce_ex(a.arg, unfold)),
 
             TermData::Sort(_)   | TermData::Local(_)  | TermData::Global(_) |
-            TermData::IVar(_)   | TermData::Nat       | TermData::NatZero   |
-            TermData::NatSucc   | TermData::NatRec(_) | TermData::Eq(_)     |
-            TermData::EqRefl(_) | TermData::EqRec(_, _) =>
+            TermData::IVar(_) =>
                 result,
         };
         assert!(result.closed());

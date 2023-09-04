@@ -83,16 +83,6 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 Some(self.def_eq(val1, val2))
             }
 
-            (NatRec(l1), NatRec(l2)) |
-            (Eq    (l1), Eq    (l2)) |
-            (EqRefl(l1), EqRefl(l2)) => {
-                Some(self.level_def_eq(l1, l2))
-            }
-
-            (EqRec(l1, r1), EqRec(l2, r2)) => {
-                Some(self.level_def_eq(l1, l2) && self.level_def_eq(r1, r2))
-            }
-
             _ => None,
         }
     }

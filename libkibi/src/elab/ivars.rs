@@ -215,10 +215,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     self.check_value_for_assign(a.fun, var)?,
                     self.check_value_for_assign(a.arg, var)?),
 
-            TermData::Sort(_)   | TermData::Bound(_) | TermData::Global(_) |
-            TermData::Nat       | TermData::NatZero  | TermData::NatSucc   |
-            TermData::NatRec(_) | TermData::Eq(_)    | TermData::EqRefl(_) |
-            TermData::EqRec(_, _) =>
+            TermData::Sort(_)   | TermData::Bound(_) | TermData::Global(_) =>
                 value,
         })
     }

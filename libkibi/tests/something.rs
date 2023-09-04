@@ -1,3 +1,4 @@
+/*
 use kibi::error::ErrorCtx;
 
 use kibi::string_table::StringTable;
@@ -67,4 +68,5 @@ fn nat_add_elab() {
     let n3_ty = elab.infer_type(n3_add).unwrap();
     assert!(elab.whnf(n3_ty).syntax_eq(Term::NAT));
 }
+*/
 

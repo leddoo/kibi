@@ -5,13 +5,13 @@ inductive True: Prop {
     trivial;
 }
 
-inductive MyNat {
-    zero: MyNat;
-    succ (of: MyNat);
+inductive Nat {
+    zero: Nat;
+    succ (of: Nat);
 }
 
-inductive MyEq.{t} <T: Sort(t)> (a: T) : Pi(b: T) -> Prop {
-    refl: MyEq(a);
+inductive Eq.{t} <T: Sort(t)> (a: T) : Pi(b: T) -> Prop {
+    refl: Eq(a);
 }
 
 

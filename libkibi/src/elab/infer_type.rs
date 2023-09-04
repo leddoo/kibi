@@ -24,51 +24,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 let symbol = self.env.symbol(g.id);
                 match symbol.kind {
                     SymbolKind::Root |
+                    SymbolKind::Predeclared |
                     SymbolKind::Pending => unreachable!(),
-
-                    SymbolKind::BuiltIn(it) => {
-                        match it {
-                            symbol::BuiltIn::Nat => {
-                                debug_assert_eq!(g.levels.len(), 0);
-                                Term::SORT_1
-                            }
-
-                            symbol::BuiltIn::NatZero => {
-                                debug_assert_eq!(g.levels.len(), 0);
-                                Term::NAT
-                            }
-
-                            symbol::BuiltIn::NatSucc => {
-                                debug_assert_eq!(g.levels.len(), 0);
-                                Term::NAT_SUCC_TY
-                            }
-
-                            symbol::BuiltIn::NatRec => {
-                                debug_assert_eq!(g.levels.len(), 1);
-                                let r = g.levels[0];
-                                self.alloc.mkt_nat_rec_ty(r)
-                            }
-
-                            symbol::BuiltIn::Eq => {
-                                debug_assert_eq!(g.levels.len(), 1);
-                                let l = g.levels[0];
-                                self.alloc.mkt_eq_ty(l)
-                            }
-
-                            symbol::BuiltIn::EqRefl => {
-                                debug_assert_eq!(g.levels.len(), 1);
-                                let l = g.levels[0];
-                                self.alloc.mkt_eq_refl_ty(l)
-                            }
-
-                            symbol::BuiltIn::EqRec => {
-                                debug_assert_eq!(g.levels.len(), 2);
-                                let l = g.levels[0];
-                                let r = g.levels[1];
-                                self.alloc.mkt_eq_rec_ty(l, r)
-                            }
-                        }
-                    }
 
                     SymbolKind::IndAxiom(it) => {
                         debug_assert_eq!(g.levels.len() as u32, it.num_levels);
@@ -130,15 +87,6 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
                 fun_ty.val.instantiate(app.arg, self.alloc)
             }
-
-            TermData::Nat => Term::SORT_1,
-            TermData::NatZero => Term::NAT,
-            TermData::NatSucc => Term::NAT_SUCC_TY,
-            TermData::NatRec(r) => self.alloc.mkt_nat_rec_ty(r),
-
-            TermData::Eq(l) => self.alloc.mkt_eq_ty(l),
-            TermData::EqRefl(l) => self.alloc.mkt_eq_refl_ty(l),
-            TermData::EqRec(l, r) => self.alloc.mkt_eq_rec_ty(l, r),
         };
         assert!(result.closed());
         // TODO: assert all locals are in current local context.

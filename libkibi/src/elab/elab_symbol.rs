@@ -1,7 +1,6 @@
 use crate::string_table::Atom;
 use crate::ast;
 use crate::tt::*;
-use crate::env::*;
 
 use super::*;
 
@@ -54,115 +53,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let symbol = self.env.symbol(id);
         Some(match symbol.kind {
             SymbolKind::Root |
+            SymbolKind::Predeclared |
             SymbolKind::Pending => unreachable!(),
-
-            SymbolKind::BuiltIn(b) => {
-                match b {
-                    symbol::BuiltIn::Nat => {
-                        if levels.len() != 0 {
-                            self.error(source, |_|
-                                ElabError::LevelMismatch {
-                                    expected: 0, found: levels.len() as u32 });
-                            return None;
-                        }
-                        (Term::NAT, Term::SORT_1)
-                    }
-
-                    symbol::BuiltIn::NatZero => {
-                        if levels.len() != 0 {
-                            self.error(source, |_|
-                                ElabError::LevelMismatch {
-                                    expected: 0, found: levels.len() as u32 });
-                            return None;
-                        }
-                        (Term::NAT_ZERO, Term::NAT)
-                    }
-
-                    symbol::BuiltIn::NatSucc => {
-                        if levels.len() != 0 {
-                            self.error(source, |_|
-                                ElabError::LevelMismatch {
-                                    expected: 0, found: levels.len() as u32 });
-                            return None;
-                        }
-                        (Term::NAT_SUCC, Term::NAT_SUCC_TY)
-                    }
-
-                    symbol::BuiltIn::NatRec => {
-                        let r = if levels.len() == 0 {
-                            self.new_level_var()
-                        }
-                        else {
-                            if levels.len() != 1 {
-                                self.error(source, |_|
-                                    ElabError::LevelMismatch {
-                                        expected: 1, found: levels.len() as u32 });
-                                return None;
-                            }
-                            self.elab_level(&levels[0])?
-                        };
-
-                        (self.alloc.mkt_nat_rec(r),
-                         self.alloc.mkt_nat_rec_ty(r))
-                    }
-
-                    symbol::BuiltIn::Eq => {
-                        let l = if levels.len() == 0 {
-                            self.new_level_var()
-                        }
-                        else {
-                            if levels.len() != 1 {
-                                self.error(source, |_|
-                                    ElabError::LevelMismatch {
-                                        expected: 1, found: levels.len() as u32 });
-                                return None;
-                            }
-                            self.elab_level(&levels[0])?
-                        };
-
-                        (self.alloc.mkt_eq(l),
-                         self.alloc.mkt_eq_ty(l))
-                    }
-
-                    symbol::BuiltIn::EqRefl => {
-                        let l = if levels.len() == 0 {
-                            self.new_level_var()
-                        }
-                        else {
-                            if levels.len() != 1 {
-                                self.error(source, |_|
-                                    ElabError::LevelMismatch {
-                                        expected: 1, found: levels.len() as u32 });
-                                return None;
-                            }
-                            self.elab_level(&levels[0])?
-                        };
-
-                        (self.alloc.mkt_eq_refl(l),
-                         self.alloc.mkt_eq_refl_ty(l))
-                    }
-
-                    symbol::BuiltIn::EqRec => {
-                        let (l, r) = if levels.len() == 0 {
-                            (self.new_level_var(),
-                             self.new_level_var())
-                        }
-                        else {
-                            if levels.len() != 2 {
-                                self.error(source, |_|
-                                    ElabError::LevelMismatch {
-                                        expected: 2, found: levels.len() as u32 });
-                                return None;
-                            }
-                            (self.elab_level(&levels[0])?,
-                             self.elab_level(&levels[1])?)
-                        };
-
-                        (self.alloc.mkt_eq_rec(l, r),
-                         self.alloc.mkt_eq_rec_ty(l, r))
-                    }
-                }
-            }
 
             SymbolKind::IndAxiom(it) => {
                 let num_levels = it.num_levels as usize;

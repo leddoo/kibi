@@ -13,8 +13,6 @@ pub struct Env<'a> {
 
 sti::define_key!(u32, pub SymbolId, opt: OptSymbolId);
 
-impl SymbolId { pub const ROOT: SymbolId = SymbolId(0); }
-
 
 #[derive(Debug)]
 pub struct Symbol<'a> {
@@ -29,26 +27,26 @@ pub struct Symbol<'a> {
 #[derive(Debug)]
 pub enum SymbolKind<'a> {
     Root,
+    Predeclared,
     Pending,
-    BuiltIn(symbol::BuiltIn),
     IndAxiom(symbol::IndAxiom<'a>),
     Def(symbol::Def<'a>),
 }
 
 
+impl SymbolId {
+    pub const ROOT: SymbolId = SymbolId(0);
+
+    pub const NAT: SymbolId = SymbolId(1);
+    pub const NAT_ZERO: SymbolId = SymbolId(2);
+    pub const NAT_SUCC: SymbolId = SymbolId(3);
+
+    pub const EQ: SymbolId = SymbolId(4);
+}
+
+
 pub mod symbol {
     use super::*;
-
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub enum BuiltIn {
-        Nat,
-        NatZero,
-        NatSucc,
-        NatRec,
-        Eq,
-        EqRefl,
-        EqRec,
-    }
 
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub enum IndAxiomKind {
@@ -87,47 +85,52 @@ impl<'a> Env<'a> {
         });
         assert_eq!(root, SymbolId::ROOT);
 
-        let mut env = Env { symbols };
 
+        let nat = symbols.push(Symbol {
+            parent: SymbolId::ROOT,
+            kind: SymbolKind::Predeclared,
+            name: atoms::Nat,
+            children: HashMap::new(),
+        });
+        symbols[SymbolId::ROOT].children.insert(atoms::Nat, nat);
+        assert_eq!(nat, SymbolId::NAT);
 
-        // @temp: how to handle built-ins, if we have any?
-        {
-            let nat = env.new_symbol(SymbolId::ROOT, atoms::Nat,
-                SymbolKind::BuiltIn(symbol::BuiltIn::Nat)).unwrap();
+        let nat_zero = symbols.push(Symbol {
+            parent: SymbolId::NAT,
+            kind: SymbolKind::Predeclared,
+            name: atoms::zero,
+            children: HashMap::new(),
+        });
+        symbols[SymbolId::NAT].children.insert(atoms::zero, nat_zero);
+        assert_eq!(nat_zero, SymbolId::NAT_ZERO);
 
-            env.new_symbol(nat, atoms::zero,
-                SymbolKind::BuiltIn(symbol::BuiltIn::NatZero)).unwrap();
+        let nat_succ = symbols.push(Symbol {
+            parent: SymbolId::NAT,
+            kind: SymbolKind::Predeclared,
+            name: atoms::succ,
+            children: HashMap::new(),
+        });
+        symbols[SymbolId::NAT].children.insert(atoms::succ, nat_succ);
+        assert_eq!(nat_succ, SymbolId::NAT_SUCC);
 
-            env.new_symbol(nat, atoms::succ,
-                SymbolKind::BuiltIn(symbol::BuiltIn::NatSucc)).unwrap();
-
-            env.new_symbol(nat, atoms::rec,
-                SymbolKind::BuiltIn(symbol::BuiltIn::NatRec)).unwrap();
-
-
-            let eq = env.new_symbol(SymbolId::ROOT, atoms::Eq,
-                SymbolKind::BuiltIn(symbol::BuiltIn::Eq)).unwrap();
-
-            env.new_symbol(eq, atoms::refl,
-                SymbolKind::BuiltIn(symbol::BuiltIn::EqRefl)).unwrap();
-
-            env.new_symbol(eq, atoms::rec,
-                SymbolKind::BuiltIn(symbol::BuiltIn::EqRec)).unwrap();
-        }
-
-        return env;
+        return Env { symbols };
     }
 
 
     #[inline(always)]
     pub fn new_symbol(&mut self, parent: SymbolId, name: Atom, kind: SymbolKind<'a>) -> Option<SymbolId> {
-        if self.lookup(parent, name).is_some() {
-            return None;
+        let mut predeclared = None;
+        if let Some(symbol) = self.lookup(parent, name) {
+            if matches!(self.symbols[symbol].kind, SymbolKind::Predeclared) {
+                predeclared = Some(symbol);
+            }
+            else { return None }
         }
 
         match &kind {
-            SymbolKind::Root => unreachable!(),
-            SymbolKind::BuiltIn(_) => (),
+            SymbolKind::Root |
+            SymbolKind::Predeclared => unreachable!(),
+
             SymbolKind::Pending => (),
 
             SymbolKind::IndAxiom(it) => {
@@ -142,19 +145,22 @@ impl<'a> Env<'a> {
             }
         }
 
-        let symbol = self.symbols.next_key();
+        if let Some(symbol) = predeclared {
+            self.symbols[symbol].kind = kind;
+            return Some(symbol);
+        }
+        else {
+            let id = self.symbols.push(Symbol {
+                parent,
+                kind,
+                name,
+                children: HashMap::new(),
+            });
 
-        let id = self.symbols.push(Symbol {
-            parent,
-            kind,
-            name,
-            children: HashMap::new(),
-        });
-        debug_assert_eq!(id, symbol);
+            self.symbols[parent].children.insert(name, id);
 
-        self.symbols[parent].children.insert(name, symbol);
-
-        return Some(symbol);
+            return Some(id);
+        }
     }
 
     #[inline(always)]
@@ -170,7 +176,7 @@ impl<'a> Env<'a> {
     pub fn resolve_pending(&mut self, id: SymbolId, kind: SymbolKind<'a>) {
         match &kind {
             SymbolKind::Root |
-            SymbolKind::BuiltIn(_) |
+            SymbolKind::Predeclared |
             SymbolKind::Pending => unreachable!(),
 
             SymbolKind::IndAxiom(it) => {
