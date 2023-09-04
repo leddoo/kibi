@@ -11,8 +11,7 @@
 
 
 - todo: mutual inductive.
-    - generate elim types.
-        - minor premises.
+    - sub-singleton LE.
     - generate elim rules.
     - generate elim info.
     - mutual syntax.

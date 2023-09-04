@@ -17,7 +17,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             self.level_params.push(*level);
         }
 
-        let symbol = self.env.new_symbol(self.root_symbol,
+        let ind_symbol = self.env.new_symbol(self.root_symbol,
             ind.name, SymbolKind::Pending)?;
 
         // check params.
@@ -86,7 +86,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 return None;
             }
 
-            ctors.push((ctor.name, ty));
+            let symbol = self.env.new_symbol(ind_symbol, ctor.name, SymbolKind::Pending)?;
+            ctors.push(inductive::CtorSpec { name: ctor.name, symbol, ty });
         }
 
         // @speed: arena.
@@ -101,7 +102,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             params: &param_ids,
             types: &[
                 inductive::TypeSpec {
-                    symbol,
+                    name: ind.name,
+                    symbol: ind_symbol,
                     local: ind_local_id,
                     ctors: &ctors,
                 }
@@ -109,7 +111,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         };
         inductive::Check::check(self, spec)?;
 
-        return Some(symbol);
+        return Some(ind_symbol);
     }
 }
 
