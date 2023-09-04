@@ -1,4 +1,5 @@
 use sti::arena::Arena;
+use sti::arena_pool::ArenaPool;
 use sti::vec::Vec;
 
 use crate::string_table::Atom;
@@ -24,6 +25,7 @@ pub struct TypeSpec<'me, 'a> {
 
 pub struct Check<'me, 'temp, 'err, 'a> {
     alloc: &'a Arena,
+    temp: &'me Arena,
 
     // @temp: @inductive_uses_elab.
     elab: &'me mut Elab<'temp, 'err, 'a>,
@@ -31,8 +33,8 @@ pub struct Check<'me, 'temp, 'err, 'a> {
     spec: MutualSpec<'me, 'a>,
 
     level_params: &'a [Level<'a>],
-    type_globals: Vec<Term<'a>>,
-    indices: Vec<Vec<ScopeId>>,
+    type_globals: Vec<Term<'a>, &'me Arena>,
+    indices: Vec<Vec<ScopeId, &'me Arena>, &'me Arena>,
 }
 
 impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
@@ -45,23 +47,27 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
             level_params.push(elab.alloc.mkl_param(name, i as u32));
         }
 
+        let temp = ArenaPool::tls_get_rec();
+
         let mut this = Check {
             alloc: elab.alloc,
+            temp: &*temp,
             elab,
             spec,
             level_params: level_params.leak(),
-            type_globals: Vec::with_cap(num_types),
-            indices: Vec::with_cap(num_types),
+            type_globals: Vec::with_cap_in(num_types, &*temp),
+            indices: Vec::with_cap_in(num_types, &*temp),
         };
 
         // @complete: check levels params in types.
 
         // @complete: check params are types.
 
+
         // check specs.
         let mut ind_level = None;
         for spec in this.spec.types {
-            let mut indices = Vec::new();
+            let mut indices = Vec::new_in(this.temp);
 
             // check type.
             let mut ty = this.elab.lctx.lookup(spec.local).ty;
@@ -135,6 +141,7 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
         }
         let ind_level = ind_level.unwrap();
 
+
         // determine elim level.
         let large_elim = {
             // non-prop.
@@ -158,7 +165,38 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
             }
         };
 
-        println!("ind LE: {}", large_elim);
+        let elim_sort =
+            if large_elim {
+                this.alloc.mkt_sort(
+                    this.alloc.mkl_param(atoms::r, this.level_params.len() as u32))
+            }
+            else { Term::SORT_0 };
+
+
+        let mut motives = Vec::with_cap_in(this.spec.types.len(), this.temp);
+        for spec_idx in 0..this.spec.types.len() {
+            let mut mp = this.type_globals[spec_idx];
+            for param in this.spec.params.iter().copied() {
+                mp = this.alloc.mkt_apply(mp, this.alloc.mkt_local(param));
+            }
+            for index in this.indices[spec_idx].iter().copied() {
+                mp = this.alloc.mkt_apply(mp, this.alloc.mkt_local(index));
+            }
+
+            let mut m = elim_sort;
+            m = this.alloc.mkt_forall(BinderKind::Explicit, atoms::mp, mp, m);
+
+            for index in this.indices[spec_idx].iter().copied().rev() {
+                m = this.elab.lctx.abstract_forall(m, index);
+            }
+
+            println!("{}", this.elab.pp(m, 80));
+
+            motives.push(m);
+        }
+        let motives = motives;
+
+        println!();
 
         Some(())
     }

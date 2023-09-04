@@ -7,9 +7,6 @@ use kibi::env::*;
 
 
 fn main() {
-    let arena = sti::arena::Arena::new();
-    arena.min_block_size.set(1024*1024);
-
     let input = "
 -- reduce (λ(a: Nat, b: Nat) => Nat::rec(a, λ _ r => Nat::succ(r), b))(1, 2)
 
@@ -27,6 +24,9 @@ reduce Nat::add(1, 2)
         }
         else { input }
     };
+
+    let arena = sti::arena::Arena::new();
+    arena.min_block_size.set(1024*1024);
 
     let mut strings = kibi::string_table::StringTable::new(&arena);
 
@@ -288,71 +288,5 @@ reduce Nat::add(1, 2)
             println!();
         });
     });
-
-    /*
-
-    let alloc = kibi::tt::Alloc::new(&arena);
-    let l = alloc.mkl_max(
-        alloc.mkl_nat(5),
-        alloc.mkl_imax(
-            alloc.mkl_nat(7),
-            alloc.mkl_nat(0)));
-
-    let pp = kibi::pp::PP::new(&arena);
-    let mut tpp = kibi::tt::TermPP::new(&arena);
-
-    let nat_add = {
-        let input = "λ(a: Nat, b: Nat) =>
-            Nat::rec.{1}(b, λ(_: Nat) => Nat, a, λ(_: Nat, r: Nat) => Nat::succ(r))";
-
-        let tokens = kibi::parser::Tokenizer::tokenize(&arena, 0, input.as_bytes());
-
-        let errors = ErrorCtx::new(&arena);
-
-        let mut parser = kibi::parser::Parser::new(&arena, &errors, &tokens);
-        let ast = parser.parse_expr().unwrap();
-        errors.with(|errors| assert!(errors.empty()));
-
-        let mut elab = kibi::elab::Elab::new(&mut env, ns, &errors, &arena);
-        let (term, _) = elab.elab_expr(&ast).unwrap();
-
-        errors.with(|errors| assert!(errors.empty()));
-
-        term
-    };
-
-    let doc = tpp.pp_term(nat_add);
-
-    let _doc = 
-        pp.group(pp.cats(&[
-            pp.text("("),
-            pp.indent(1,
-                pp.group(pp.cats(&[
-                    pp.text("aaaa"),
-                    pp.line(),
-                    pp.text("bbb"),
-                ]))),
-            pp.text(")("),
-            pp.group(pp.indent(2, pp.cats(&[
-                pp.line(),
-                pp.text("bbbbb"),
-            ]))),
-            pp.text(")"),
-        ]));
-
-    let print = |doc: &kibi::pp::Doc, width: i32| {
-        let doc = pp.render(doc, width);
-
-        let mut buffer = String::new();
-        doc.layout_string(&mut buffer);
-
-        for _ in 0..width { print!("-") } println!();
-        println!("{}", buffer);
-    };
-
-    for i in (10..40).step_by(7) {
-        print(doc, i);
-    }
-    */
 }
 

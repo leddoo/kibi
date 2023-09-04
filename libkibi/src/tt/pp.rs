@@ -264,8 +264,8 @@ impl<'me, 'a> TermPP<'me, 'a> {
     }
 
     fn pp_apply<'t>(&mut self, app: &term::Apply<'t>) -> (Term<'t>, DocRef<'a>, DocRef<'a>) {
-        if let Some(app) = app.fun.try_apply() {
-            let (fun_term, fun, args) = self.pp_apply(&app);
+        if let Some(f_app) = app.fun.try_apply() {
+            let (fun_term, fun, args) = self.pp_apply(&f_app);
             let arg = self.pp_term(app.arg);
             let args = self.pp.cats(&[
                 args,

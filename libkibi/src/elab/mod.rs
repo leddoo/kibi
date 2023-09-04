@@ -90,5 +90,13 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         Some(())
     }
+
+    pub fn pp(&self, t: crate::tt::Term, width: i32) -> String {
+        let mut pp = crate::tt::TermPP::new(&self.env, &self.strings, self.alloc);
+        let val = pp.pp_term(t);
+        let val = pp.render(val, width);
+        let val = val.layout_string();
+        return val;
+    }
 }
 
