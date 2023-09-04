@@ -1,6 +1,7 @@
 use sti::arena_pool::ArenaPool;
 
 use crate::tt::*;
+use crate::env::SymbolKind;
 
 use super::*;
 
@@ -150,9 +151,69 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     fn try_reduce_recursor(&mut self, t: Term<'a>, fun: Term<'a>, num_args: usize) -> Option<Term<'a>> {
         assert!(t.closed());
 
-        let _ = (fun, num_args);
+        // ensure is eliminator.
+        let global = fun.try_global()?;
+        let SymbolKind::IndAxiom(ind) = self.env.symbol(global.id).kind else {
+            return None;
+        };
+        if ind.kind != symbol::IndAxiomKind::Eliminator {
+            return None;
+        }
 
-        None
+        let info = ind.info;
+        let min_args = info.min_args_for_reduce as usize;
+        if num_args < min_args {
+            //println!("not enough args");
+            return None;
+        }
+
+        //println!("elim thing !! {}", self.pp(t, 80));
+
+        let temp = ArenaPool::tls_get_rec();
+        let (_, args) = t.app_args(&*temp);
+
+
+        let mp = args[min_args - 1];
+        let mp = self.whnf(mp);
+
+        let (mp_fun, _) = mp.app_fun();
+        let mp_global = mp_fun.try_global()?;
+        let SymbolKind::IndAxiom(mp_ind) = self.env.symbol(mp_global.id).kind else {
+            //println!("not an inductive");
+            return None;
+        };
+        if !core::ptr::eq(mp_ind.info, ind.info) {
+            //println!("not same inductive");
+            return None;
+        }
+        let symbol::IndAxiomKind::Constructor(ctor_idx) = mp_ind.kind else {
+            debug_assert!(mp_ind.kind == symbol::IndAxiomKind::Eliminator);
+            return None;
+        };
+
+        let (_, mp_args) = mp.app_args(&*temp);
+
+
+        let mut result = ind.info.comp_rules[ctor_idx as usize];
+        //println!("comp: {}\n", self.pp(result, 80));
+
+        for arg in args[..min_args-1].iter().copied() {
+            let Some(lam) = result.try_lambda() else { unreachable!() };
+            result = lam.val.instantiate(arg, self.alloc);
+            //println!("result: {}\n", self.pp(result, 80));
+        }
+
+        for arg in mp_args.iter().copied() {
+            let Some(lam) = result.try_lambda() else { unreachable!() };
+            result = lam.val.instantiate(arg, self.alloc);
+            //println!("result: {}\n", self.pp(result, 80));
+        }
+
+        let result = result.instantiate_level_params(global.levels, self.alloc);
+
+        //println!("success? {}\n", self.pp(result, 80));
+
+        return Some(result);
     }
 
 

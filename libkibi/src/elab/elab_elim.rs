@@ -26,6 +26,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         };
         */
 
+        //println!();
         //println!("!!! elab as elim {:?}", func);
 
         let temp = ArenaPool::tls_get_rec();
@@ -62,11 +63,15 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 BinderKind::Implicit => None
             };
 
+            //println!("{:?}\n", info.args[param_idx]);
+
             let arg = match info.args[param_idx] {
                 ElimArgKind::Motive => {
                     if let Some(arg) = arg {
                         assert!(matches!(arg.kind, ExprKind::Hole));
                     }
+
+                    //println!("motive: {}", self.pp(pi.ty, 80));
 
                     let var = self.new_term_var_of_type(pi.ty);
                     motive = Some(var);
@@ -102,6 +107,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     }
                 }
             };
+
+            //println!("arg: {}", self.pp(arg, 80));
 
             result     = self.alloc.mkt_apply(result, arg);
             result_ty  = pi.val.instantiate(arg, self.alloc);
@@ -144,13 +151,18 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             unimplemented!()
         }
 
-        //println!("expected: {:?}", expected_ty);
+        //println!("expected: {}", self.pp(expected_ty, 80));
 
         // create motive.
         let mut motive_val = expected_ty;
-        for target in targets.iter().copied() {
+        for target in targets.iter().copied().rev() {
+            motive_val = self.instantiate_term_vars(motive_val);
+            //println!("val: {}", self.pp(motive_val, 80));
+
+            let target    = self.instantiate_term_vars(target);
             let target_ty = self.infer_type(target).unwrap();
-            //println!("abstract out {:?}", target);
+            //println!("abstract out {}", self.pp(target, 80));
+
             let val = self.abstract_eq(motive_val, target);
             // @todo: use motive binder names.
             motive_val = self.alloc.mkt_lambda(
@@ -159,16 +171,16 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         if 0==1 {
             let val = self.instantiate_term_vars(motive_val);
-            let mut pp = TermPP::new(&self.env, &self.strings, self.alloc);
-            let val = pp.pp_term(val);
-            let val = pp.render(val, 50);
-            let val = val.layout_string();
-            println!("motive: {}", val);
+            println!("motive: {}", self.pp(val, 80));
         }
 
         // assign.
         if !self.def_eq(motive, motive_val) {
+            let motive     = self.instantiate_term_vars(motive);
+            let motive_val = self.instantiate_term_vars(motive_val);
             println!("motive failed");
+            println!("motive:     {}", self.pp(motive,     80));
+            println!("motive_val: {}", self.pp(motive_val, 80));
             return (Some(None),);
         }
 

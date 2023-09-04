@@ -91,6 +91,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     pub fn def_eq(&mut self, a: Term<'a>, b: Term<'a>) -> bool {
         // @todo: optimize. (eg: unfold def w/ higher depth)
 
+        //println!("{}\n=?=\n{}\n", self.pp(a, 80), self.pp(b, 80));
+
         // basic checks.
         if let Some(result) = self.def_eq_basic(a, b) {
             return result;

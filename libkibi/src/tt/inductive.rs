@@ -55,7 +55,13 @@ pub struct ElimInfo<'a> {
 pub struct InductiveInfo<'a> {
     pub type_former: SymbolId,
     pub elim_info: ElimInfo<'a>,
+
     pub comp_rules: &'a [Term<'a>],
+    pub num_params:  u32,
+    pub num_indices: u32,
+    pub num_motives: u32,
+    pub num_minors:  u32,
+    pub min_args_for_reduce: u32,
 }
 
 
@@ -69,6 +75,7 @@ pub struct Check<'me, 'temp, 'err, 'a> {
     spec: MutualSpec<'me, 'a>,
 
     level_params: &'a [Level<'a>],
+    elim_levels: &'a [Level<'a>],
     type_globals: Vec<Term<'a>, &'me Arena>,
     type_global_param_apps: Vec<Term<'a>, &'me Arena>,
     type_global_index_apps: Vec<Term<'a>, &'me Arena>,
@@ -98,6 +105,7 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
         for (i, name) in spec.levels.iter().copied().enumerate() {
             level_params.push(elab.alloc.mkl_param(name, i as u32));
         }
+        let level_params = level_params.leak();
 
         let temp = ArenaPool::tls_get_rec();
 
@@ -106,7 +114,8 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
             temp: &*temp,
             elab,
             spec,
-            level_params: level_params.leak(),
+            level_params,
+            elim_levels: level_params,
             type_globals: Vec::with_cap_in(num_types, &*temp),
             type_global_param_apps: Vec::with_cap_in(num_types, &*temp),
             type_global_index_apps: Vec::with_cap_in(num_types, &*temp),
@@ -119,11 +128,10 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
         // @complete: check params are types.
 
 
-        // check specs.
+        // check type formers.
         let mut ind_level = None;
         let mut type_formers = Vec::with_cap_in(this.spec.types.len(), this.temp);
-        let mut ctor_types = Vec::with_cap_in(this.spec.types.len(), this.temp);
-        for (spec_idx, spec) in this.spec.types.iter().enumerate() {
+        for spec in this.spec.types {
             let mut type_former = this.elab.lctx.lookup(spec.local).ty;
 
             // check type.
@@ -172,7 +180,23 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
             else {
                 ind_level = Some(level);
             }
+        }
 
+
+        // make params/indices implicit for ctor/rec types.
+        for param in this.spec.params.iter().copied() {
+            this.elab.lctx.lookup_mut(param).binder_kind = BinderKind::Implicit;
+        }
+        for indices in this.indices.iter() {
+            for index in indices.iter().copied() {
+                this.elab.lctx.lookup_mut(index).binder_kind = BinderKind::Implicit;
+            }
+        }
+
+
+        // check ctors.
+        let mut ctor_types = Vec::with_cap_in(this.spec.types.len(), this.temp);
+        for (spec_idx, spec) in this.spec.types.iter().enumerate() {
             // check ctors.
             let mut ty_ctor_infos = Vec::with_cap_in(spec.ctors.len(), this.temp);
             let mut ty_ctor_types = Vec::with_cap_in(spec.ctors.len(), this.temp);
@@ -211,7 +235,8 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
                     };
 
                     if is_rec.is_some() {
-                        let rec_ty = pi.ty.replace_app_fun(global_params, this.alloc);
+                        let ind = this.type_global_param_apps[spec_idx];
+                        let rec_ty = pi.ty.replace_app_fun(ind, this.alloc);
                         let id = this.elab.lctx.push(pi.kind, pi.name, rec_ty, None);
                         args.push((id, is_rec));
 
@@ -315,8 +340,17 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
 
         let elim_sort =
             if large_elim {
-                this.alloc.mkt_sort(
-                    this.alloc.mkl_param(atoms::r, this.level_params.len() as u32))
+                let r = this.alloc.mkl_param(atoms::r, this.level_params.len() as u32);
+
+                let mut elim_levels = Vec::with_cap_in(this.level_params.len() + 1, this.alloc);
+                for level in this.level_params.iter().copied() {
+                    elim_levels.push(level);
+                }
+                elim_levels.push(r);
+
+                this.elim_levels = elim_levels.leak();
+
+                this.alloc.mkt_sort(r)
             }
             else { Term::SORT_0 };
 
@@ -466,7 +500,7 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
                         let rec_k = this.spec.types[rec_arg.type_idx].rec_symbol;
 
                         // rec_k
-                        let mut rec_ret = this.alloc.mkt_global(rec_k, this.level_params);
+                        let mut rec_ret = this.alloc.mkt_global(rec_k, this.elim_levels);
 
                         // ps
                         for param in this.spec.params.iter().copied() {
@@ -539,10 +573,17 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
 
         let mut infos = Vec::with_cap_in(this.spec.types.len(), this.alloc);
         for (spec_idx, spec) in this.spec.types.iter().enumerate() {
+            let elim_info  = elim_infos[spec_idx];
+            let comp_rules = comp_rules[spec_idx];
             infos.push(InductiveInfo {
                 type_former: spec.symbol,
-                elim_info:  elim_infos[spec_idx],
-                comp_rules: comp_rules[spec_idx],
+                elim_info,
+                comp_rules,
+                num_params:  this.spec.params.len() as u32,
+                num_indices: this.indices[spec_idx].len() as u32,
+                num_motives: motives.len() as u32,
+                num_minors:  minors.len() as u32,
+                min_args_for_reduce: elim_info.args.len() as u32,
             });
         }
         let infos = infos.leak();
@@ -562,7 +603,7 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
 
             for (ctor_idx, ctor) in spec.ctors.iter().enumerate() {
                 this.elab.env.resolve_pending(ctor.symbol, SymbolKind::IndAxiom(IndAxiom {
-                    kind: IndAxiomKind::Constructor,
+                    kind: IndAxiomKind::Constructor(ctor_idx as u32),
                     info,
                     num_levels: this.level_params.len() as u32,
                     ty: ctor_types[ctor_idx],
@@ -573,7 +614,7 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
             this.elab.env.resolve_pending(spec.rec_symbol, SymbolKind::IndAxiom(IndAxiom {
                 kind: IndAxiomKind::Eliminator,
                 info,
-                num_levels: this.level_params.len() as u32 + large_elim as u32,
+                num_levels: this.elim_levels.len() as u32,
                 ty: elim_types[spec_idx],
                 mutual_infos: infos,
             }));

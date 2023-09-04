@@ -51,7 +51,7 @@ pub mod symbol {
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub enum IndAxiomKind {
         TypeFormer,
-        Constructor,
+        Constructor(u32),
         Eliminator,
     }
 

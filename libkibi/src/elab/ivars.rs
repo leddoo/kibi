@@ -146,10 +146,14 @@ impl TermVarId {
         let value_ty = elab.infer_type(value).unwrap();
         if !elab.def_eq(var_ty, value_ty) {
             println!("type check failed");
-            println!("{:?}", var_ty);
-            println!("{:?}", value_ty);
+            let var_ty   = elab.instantiate_term_vars(var_ty);
+            let value_ty = elab.instantiate_term_vars(value_ty);
+            println!("{}", elab.pp(var_ty,   80));
+            println!("{}", elab.pp(value_ty, 80));
             return Some(false);
         }
+
+        //println!("{:?} := {}", self, elab.pp(value, 80));
 
         unsafe { self.assign_core(value, elab) }
         return Some(true);
