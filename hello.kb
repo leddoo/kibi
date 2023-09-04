@@ -1,4 +1,8 @@
-inductive False {
+inductive False: Prop {
+}
+
+inductive True: Prop {
+    trivial;
 }
 
 inductive MyNat {

@@ -23,6 +23,7 @@ pub struct TypeSpec<'me, 'a> {
     pub symbol: SymbolId,
     pub local: ScopeId,
     pub ctors: &'me [CtorSpec<'a>],
+    pub rec_symbol: SymbolId,
 }
 
 #[derive(Clone, Copy)]
@@ -51,7 +52,14 @@ pub struct Check<'me, 'temp, 'err, 'a> {
 
 #[derive(Clone, Copy)]
 struct CtorInfo<'me, 'a> {
-    args:    &'me [(ScopeId, Option<&'me [Term<'a>]>)],
+    args:    &'me [(ScopeId, Option<RecArg<'me, 'a>>)],
+    indices: &'me [Term<'a>],
+}
+
+#[derive(Clone, Copy)]
+struct RecArg<'me, 'a> {
+    type_idx: usize,
+    args:    &'me [ScopeId],
     indices: &'me [Term<'a>],
 }
 
@@ -86,7 +94,7 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
 
         // check specs.
         let mut ind_level = None;
-        for spec in this.spec.types {
+        for (type_idx, spec) in this.spec.types.iter().enumerate() {
             // check type.
             let mut ty = this.elab.lctx.lookup(spec.local).ty;
             let mut indices = Vec::new_in(this.temp);
@@ -145,6 +153,7 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
                     // check recursion.
                     let is_rec = {
                         let mut ret = pi.ty;
+                        let mut args = Vec::new_in(this.temp);
                         while let Some(pi) = this.elab.whnf_forall(ret) {
                             // check positivity.
                             if this.has_ind_occ(pi.ty) {
@@ -152,9 +161,14 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
                                 return None;
                             }
                             ret = pi.val;
-                        }
 
-                        this.is_valid_inductive_app(ret, spec.local, this.temp)?
+                            let id = this.elab.lctx.push(pi.kind, pi.name, pi.ty, None);
+                            args.push(id);
+                        }
+                        let args = args.leak();
+
+                        this.is_valid_inductive_app(ret, None)?
+                        .map(|(type_idx, indices)| RecArg { type_idx, args, indices })
                     };
 
                     if is_rec.is_some() {
@@ -178,7 +192,7 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
                 }
 
                 // check indices.
-                let Some(indices) = this.is_valid_inductive_app(ty, spec.local, this.temp)? else {
+                let Some((_, indices)) = this.is_valid_inductive_app(ty, Some((type_idx, spec.local)))? else {
                     println!("error: ctor ret must be the inductive type");
                     return None;
                 };
@@ -304,9 +318,9 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
 
                 let mut minor = ret;
                 for (arg, is_rec) in info.args.iter().copied().rev() {
-                    if let Some(rec_indices) = is_rec {
+                    if let Some(rec_arg) = is_rec {
                         let mut rec_m = this.alloc.mkt_local(m);
-                        rec_m = this.alloc.mkt_apps(rec_m, rec_indices);
+                        rec_m = this.alloc.mkt_apps(rec_m, rec_arg.indices);
                         rec_m = this.alloc.mkt_apply(rec_m, this.alloc.mkt_local(arg));
 
                         minor = this.alloc.mkt_forall(BinderKind::Explicit, Atom::NULL, rec_m, minor);
@@ -358,6 +372,93 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
             elim_tys.push(ty);
         }
 
+
+        let mut minors_offset = 0;
+        for spec_idx in 0..this.spec.types.len() {
+            let ctor_infos = &this.ctor_infos[spec_idx];
+
+            for (i, ctor_info) in ctor_infos.iter().enumerate() {
+                // comp_i = λ ps Ms ms as, ms_i as mvs
+                let mut comp_ret = this.alloc.mkt_local(minors[minors_offset + i]);
+
+                // (ms_i as mvs)
+                for (arg, is_rec) in ctor_info.args.iter().copied() {
+                    comp_ret = this.alloc.mkt_apply(comp_ret, this.alloc.mkt_local(arg));
+
+                    // mvs_j  = λ (rs :: Rs), rec_k ps Ms ms rxs (rarg_j rs)
+                    if let Some(rec_arg) = is_rec {
+                        let rec_k = this.spec.types[rec_arg.type_idx].rec_symbol;
+
+                        // rec_k
+                        let mut rec_ret = this.alloc.mkt_global(rec_k, this.level_params);
+
+                        // ps
+                        for param in this.spec.params.iter().copied() {
+                            rec_ret = this.alloc.mkt_apply(rec_ret, this.alloc.mkt_local(param));
+                        }
+
+                        // Ms
+                        for motive in motives.iter().copied() {
+                            rec_ret = this.alloc.mkt_apply(rec_ret, this.alloc.mkt_local(motive));
+                        }
+
+                        // ms
+                        for minor in minors.iter().copied() {
+                            rec_ret = this.alloc.mkt_apply(rec_ret, this.alloc.mkt_local(minor));
+                        }
+
+                        // rxs
+                        for index in rec_arg.indices.iter().copied() {
+                            rec_ret = this.alloc.mkt_apply(rec_ret, index);
+                        }
+
+                        // (rarg_j rs)
+                        let mut rec_val = this.alloc.mkt_local(arg);
+                        for arg in rec_arg.args.iter().copied() {
+                            rec_val = this.alloc.mkt_apply(rec_val, this.alloc.mkt_local(arg));
+                        }
+
+                        rec_ret = this.alloc.mkt_apply(rec_ret, rec_val);
+
+                        let mut rec_m = rec_ret;
+                        for arg in rec_arg.args.iter().copied().rev() {
+                            rec_m = this.elab.lctx.abstract_lambda(rec_m, arg);
+                        }
+
+                        comp_ret = this.alloc.mkt_apply(comp_ret, rec_m);
+                    }
+                }
+
+                let mut comp = comp_ret;
+
+                // as
+                for (arg, _) in ctor_info.args.iter().copied().rev() {
+                    comp = this.elab.lctx.abstract_lambda(comp, arg);
+                }
+
+                // ms
+                for minor in minors.iter().copied().rev() {
+                    comp = this.elab.lctx.abstract_lambda(comp, minor);
+                }
+
+                // Ms
+                for motive in motives.iter().copied().rev() {
+                    comp = this.elab.lctx.abstract_lambda(comp, motive);
+                }
+
+                // ps
+                for param in this.spec.params.iter().copied().rev() {
+                    comp = this.elab.lctx.abstract_lambda(comp, param);
+                }
+
+                assert!(comp.closed_no_local_no_ivar());
+
+                println!("comp_{i} = {}", this.elab.pp(comp, 80));
+            }
+
+            minors_offset += ctor_infos.len();
+        }
+
         Some(())
     }
 
@@ -368,12 +469,12 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
         }).is_some()
     }
 
-    fn is_valid_inductive_app<'res>(&self, app: Term<'a>, ind_local: ScopeId, alloc: &'res Arena)
-        -> Option<Option<&'res [Term<'a>]>>
+    fn is_valid_inductive_app(&self, app: Term<'a>, ind: Option<(usize, ScopeId)>)
+        -> Option<Option<(usize, &'me [Term<'a>])>>
     {
         // find app target.
         let mut target = app;
-        let mut args = Vec::new_in(alloc);
+        let mut args = Vec::new_in(self.temp);
         while let Some(app) = target.try_apply() {
             // check no recursion in arguments.
             if self.has_ind_occ(app.arg) {
@@ -384,12 +485,24 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
             target = app.fun;
             args.push(app.arg);
         }
+        let args = args.leak();
+
+        let Some(local) = target.try_local() else {
+            return Some(None);
+        };
 
         // check if target is the inductive type.
-        if let Some(local) = target.try_local() {
-            Some((local == ind_local).then_some(args.leak()))
+        if let Some((type_idx, type_local)) = ind {
+            return Some((local == type_local).then_some((type_idx, args)));
         }
-        else { Some(None) }
+        else {
+            for (i, spec) in self.spec.types.iter().enumerate() {
+                if local == spec.local {
+                    return Some(Some((i, args)));
+                }
+            }
+            return Some(None);
+        }
     }
 }
 

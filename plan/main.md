@@ -10,11 +10,17 @@
     - macros.
 
 
-- todo: mutual inductive.
-    - generate elim rules.
-    - generate elim info.
-    - mutual syntax.
+- todo:
+    - inductive:
+        - generate elim info.
+        - assign symbols.
+        - impl reduction.
+    - mutual inductive:
+        - mutual syntax.
+        - add existing inductives to def, for non-strict-pos occ.
     - `SymbolKind::Axiom`.
+    - kernel type checker.
+        - use for inductive.
 
 
 ### backlog:

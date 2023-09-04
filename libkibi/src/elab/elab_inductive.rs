@@ -96,6 +96,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             param_ids.push(id);
         }
 
+        let rec_symbol = self.env.new_symbol(ind_symbol, atoms::rec, SymbolKind::Pending)?;
+
         // check spec.
         let spec = inductive::MutualSpec {
             levels: ind.levels,
@@ -106,6 +108,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     symbol: ind_symbol,
                     local: ind_local_id,
                     ctors: &ctors,
+                    rec_symbol,
                 }
             ],
         };

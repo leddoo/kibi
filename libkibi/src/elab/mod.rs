@@ -92,7 +92,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
     pub fn pp(&self, t: crate::tt::Term, width: i32) -> String {
-        let mut pp = crate::tt::TermPP::new(&self.env, &self.strings, self.alloc);
+        let temp = sti::arena_pool::ArenaPool::tls_get_temp();
+        let mut pp = crate::tt::TermPP::new(&self.env, &self.strings, &*temp);
         let val = pp.pp_term(t);
         let val = pp.render(val, width);
         let val = val.layout_string();
