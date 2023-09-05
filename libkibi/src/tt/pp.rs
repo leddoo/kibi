@@ -176,25 +176,23 @@ impl<'me, 'a> TermPP<'me, 'a> {
             }
 
             TermData::Apply(app) => {
-                /*
-                if app.fun.kind() == TermKind::NatSucc {
+                if app.fun.is_nat_succ() {
                     let mut offset = 1;
                     let mut at = app.arg;
                     loop {
                         let Some(app) = at.try_apply() else { break };
-                        if app.fun.kind() != TermKind::NatSucc { break }
+                        if !app.fun.is_nat_succ() { break }
                         offset += 1;
                         at = app.arg;
                     }
 
-                    if at.kind() == TermKind::NatZero {
+                    if at.is_nat_zero() {
                         return self.pp.text(self.pp.alloc_str(&format!("{offset}")))
                     }
                     else {
                         // @todo: `() + offset`.
                     }
                 }
-                */
 
                 let (fun_term, fun, args) = self.pp_apply(&app);
 

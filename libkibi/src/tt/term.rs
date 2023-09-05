@@ -137,6 +137,16 @@ impl<'a> Term<'a> {
 
 
     #[inline(always)]
+    pub fn is_nat(self) -> bool { if let Some(g) = self.try_global() { g.id == SymbolId::NAT } else { false } }
+
+    #[inline(always)]
+    pub fn is_nat_zero(self) -> bool { if let Some(g) = self.try_global() { g.id == SymbolId::NAT_ZERO } else { false } }
+
+    #[inline(always)]
+    pub fn is_nat_succ(self) -> bool { if let Some(g) = self.try_global() { g.id == SymbolId::NAT_SUCC } else { false } }
+
+
+    #[inline(always)]
     pub fn syntax_eq(self, other: Term) -> bool {
         if self.ptr_eq(other) {
             return true;

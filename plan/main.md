@@ -13,21 +13,20 @@
 
 
 - todo: robustness.
-    - `is_type_correct`.
-        - lambda type check.
-    - elab-elim:
-        - under-applied: `Nat::add`.
-        - over-applied: `Array::get`.
     - scope approx.
         - use common ancestor.
+            - have depth proxy: just the index.
+              cause `parent < self`.
         - recursively check `other.ty` -> `ty`.
         - create fresh term var of `ty`.
         - assign to `other`.
-    - `SymbolKind::Axiom`.
-    - kernel type checker.
-        - use for inductive.
-        - env does type check before insertion.
+    - elab-elim:
+        - under-applied: `Nat::add`.
+        - over-applied: `Array::get`.
+    - `is_type_correct`.
+        - lambda type check.
     - cleanup:
+        - `SymbolKind::Axiom`.
         - move `assign` into `def_eq_*`.
         - move `instantiate` into `ivars`.
 
@@ -61,6 +60,9 @@
     - error to sorry.
 
 - completeness:
+    - kernel type checker.
+        - use for inductive.
+        - env does type check before insertion.
     - level elab: use `.imax` & friends.
     - constant approx.
     - proper `abstract_def_eq`.
