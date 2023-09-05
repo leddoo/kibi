@@ -58,7 +58,7 @@ pub struct Global<'a> {
     pub levels: LevelList<'a>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BinderKind {
     Explicit,
     Implicit,

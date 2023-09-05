@@ -168,9 +168,37 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 let mut args = it.args.iter();
                 let mut result    = func;
                 let mut result_ty = func_ty;
+                let mut expected_ty = expected_ty;
                 while let Some(pi) = self.whnf_forall(result_ty) {
                     let arg = match pi.kind {
                         BinderKind::Explicit => {
+                            // propagate expected type.
+                            if let Some(expected) = expected_ty {
+                                let mut args_remaining = args.len();
+                                let mut f_ty = result_ty;
+                                while let Some(pi) = f_ty.try_forall() {
+                                    if pi.kind == BinderKind::Explicit {
+                                        // not enough args.
+                                        if args_remaining == 0 {
+                                            // prevent def_eq below.
+                                            args_remaining = 1;
+                                            expected_ty = None;
+                                            break;
+                                        }
+                                        args_remaining -= 1;
+                                    }
+                                    f_ty = pi.val;
+                                }
+                                if args_remaining == 0 && f_ty.closed() {
+                                    // @todo: is_def_eq.
+                                    if !self.def_eq(f_ty, expected) {
+                                        println!("oops");
+                                        println!("{}\n=/=\n{}", self.pp(f_ty, 80), self.pp(expected, 80));
+                                    }
+                                    expected_ty = None;
+                                }
+                            }
+
                             let Some(arg) = args.next() else { break };
                             let expr::CallArg::Positional(arg) = arg else { unimplemented!() };
 

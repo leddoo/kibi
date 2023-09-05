@@ -12,8 +12,8 @@
 
 
 - todo:
-    - inductive:
-        - impl reduction.
+    - instantiate: lift loose bvars.
+    - elab-elim: over-applied and `Array::get`.
     - mutual inductive:
         - mutual syntax.
         - add existing inductives to def, for non-strict-pos occ.

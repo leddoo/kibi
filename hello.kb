@@ -21,7 +21,7 @@ inductive Array (T: Type) : Pi(n: Nat) -> Type {
 }
 
 
-inductive Exists.{t} <T: Sort(t)> (P: Pi(_: T) -> Prop): Prop {
+inductive Exists.{t} (T: Sort(t), P: Pi(_: T) -> Prop): Prop {
     mk (value: T, h: P(value))
 }
 
@@ -42,8 +42,14 @@ def quick_maffs: Eq(Nat::add(2, 2), 4) := Eq::refl()
 axiom ax_sorry.{l} (T: Sort(l)): T
 
 
+def Not (P: Prop): Prop := Pi(_: P) -> False
+
+
 def Eq::symm.{t} <T: Sort(t), a b: T>: Pi(_: Eq(a, b)) -> Eq(b, a) :=
     lam heq => Eq::rec(Eq::refl(), heq)
+
+def Eq::trans.{t} <T: Sort(t), a b c: T>: Pi(_: Eq(a, b), _: Eq(b, c)) -> Eq(a, c) :=
+    lam hab hbc => Eq::rec(Eq::rec(Eq::refl(), hab), hbc)
 
 
 def congr_arg.{a, b} <A: Sort(a), B: Sort(b), a1 a2: A> (f: Pi(_: A) -> B)
@@ -51,9 +57,31 @@ def congr_arg.{a, b} <A: Sort(a), B: Sort(b), a1 a2: A> (f: Pi(_: A) -> B)
     := lam heq => Eq::rec(Eq::refl(), heq)
 
 
+def Nat::cases_on.{r} <M: Sort(r)> (n: Nat) (m_zero: M) (m_succ: Pi(n: Nat) -> M): M :=
+    Nat::rec(m_zero, lam n _ => m_succ(n), n)
+
+
+def Nat::No_Confusion.{p} (P: Sort(p), a b: Nat): Sort(p) :=
+    Nat::rec(
+        Nat::rec(Pi(_: P) -> P, lam _ _ => P, a),
+        lam b _ => Nat::rec(P, lam a _ => Pi(_: Pi(_: Eq(a, b)) -> P) -> P, a),
+        b)
+
+def Nat::no_confusion_self.{p} (P: Sort(p), a: Nat): Nat::No_Confusion(P, a, a) :=
+    Nat::rec(lam p => p, lam _ _ => lam p => p(Eq::refl()), a)
+
+def Nat::no_confusion.{p} <P: Sort(p), a b: Nat>: Pi(_: Eq(a, b)) -> Nat::No_Confusion(P, a, b) :=
+    -- @bug: inlining no_confusion_self leads to error.
+    lam h => Eq::rec(Nat::no_confusion_self(P, a), h)
+
+
+def Nat::zero_ne_succ <n: Nat>: Not(Eq(0, Nat::succ(n))) :=
+    lam h => Nat::no_confusion(h)
+
+
 def Nat::succ::inj (a b: Nat)
     : Pi(_: Eq(Nat::succ(a), Nat::succ(b))) -> Eq(a, b)
-    := ax_sorry(_)
+    := lam h => Nat::no_confusion(h, lam eq => eq)
 
 
 def Nat::add_zero (n: Nat): Eq(Nat::add(n, 0), n) :=
@@ -99,22 +127,32 @@ def Nat::add_right_comm (a b k: Nat)
 
 def Nat::add_left_cancel (a b k: Nat)
     : Pi(_: Eq(Nat::add(k, a), Nat::add(k, b))) -> Eq(a, b)
-    := Nat::rec(
-        -- @todo: this is broken, fix it.
-        --lam h => Eq::rec(Eq::rec(h, Nat::zero_add(a)), Nat::zero_add(b)),
-        ax_sorry(_),
-        lam k ih h =>
-            ax_sorry(_),
-        k)
+    := ax_sorry(_)
 
 def Nat::add_right_cancel (a b k: Nat)
     : Pi(_: Eq(Nat::add(a, k), Nat::add(b, k))) -> Eq(a, b)
-    := Nat::rec(
-        ax_sorry(_),
-        ax_sorry(_),
-        k)
+    := ax_sorry(_)
 
 
--- yeah, don't uncomment that...
--- reduce Nat::zero_add
+
+def Nat::Le (a b: Nat) := Exists(Nat, lam k => Eq(Nat::add(k, a), b))
+
+def Nat::zero_le (n: Nat): Nat::Le(0, n) := Exists::mk(n, Eq::refl())
+
+
+def Nat::Lt (a b: Nat) := Nat::Le(Nat::succ(a), b)
+
+def Nat::not_lt_zero <n: Nat>: Not(Nat::Lt(n, 0)) :=
+    lam hlt => Exists::rec(
+        lam k (heq: Eq(Nat::add(k, Nat::succ(n)), 0)) =>
+            Nat::zero_ne_succ(Eq::symm(heq)),
+        hlt)
+
+
+def Array::get <T: Type, n: Nat> (self: Array(T, n), i: Nat, h: Nat::Lt(i, n)): T :=
+    ax_sorry(_)
+    --  match i {
+    --      0   => (self as cons).head
+    --      i+1 => Array::get((self as cons).tail, i, Nat::lt_of_succ_lt_succ(h))
+    --  }
 

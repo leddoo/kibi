@@ -9,6 +9,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     pub fn def_eq_basic(&mut self, a: Term<'a>, b: Term<'a>) -> Option<bool> {
         assert!(a.closed());
         assert!(b.closed());
+        //println!("{}\n=?=\n{}\n", self.pp(a, 80), self.pp(b, 80));
 
         // instantiate inference vars.
         if let Some(var) = a.try_ivar() {
