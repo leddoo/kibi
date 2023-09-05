@@ -80,6 +80,7 @@ pub struct Apply<'a> {
 
 
 impl<'a> Binder<'a> {
+    #[inline(always)]
     pub fn update(&self, t: Term<'a>, alloc: &'a Arena, new_ty: Term<'a>, new_val: Term<'a>) -> Term<'a> {
         debug_assert!(t.is_forall() || t.is_lambda());
 
@@ -97,6 +98,7 @@ impl<'a> Binder<'a> {
 }
 
 impl<'a> Apply<'a> {
+    #[inline(always)]
     pub fn update(&self, t: Term<'a>, alloc: &'a Arena, new_fun: Term<'a>, new_arg: Term<'a>) -> Term<'a> {
         debug_assert!(t.is_apply());
 

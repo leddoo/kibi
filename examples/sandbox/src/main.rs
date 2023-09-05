@@ -25,6 +25,8 @@ reduce Nat::add(1, 2)
         else { input }
     };
 
+    let printing = true;
+
     let arena = sti::arena::Arena::new();
     arena.min_block_size.set(1024*1024);
 
@@ -32,7 +34,7 @@ reduce Nat::add(1, 2)
 
     let tok_t0 = std::time::Instant::now();
     let tokens = kibi::parser::Tokenizer::tokenize(input, 0, &mut strings, &arena);
-    println!("tok: {:?}", tok_t0.elapsed());
+    if printing { println!("tok: {:?}", tok_t0.elapsed()) }
 
     let mut env = Env::new();
 
@@ -56,18 +58,20 @@ reduce Nat::add(1, 2)
                 let Some(_) = elab.elab_axiom(axiom) else { break };
                 work_dt += t0.elapsed();
 
-                print!("axiom ");
-                match axiom.name {
-                    IdentOrPath::Ident(name) => {
-                        println!("{}", &strings[name]);
-                    }
-
-                    IdentOrPath::Path(path) => {
-                        print!("{}", &strings[path.parts[0]]);
-                        for part in path.parts[1..].iter().copied() {
-                            print!("::{}", &strings[part]);
+                if printing {
+                    print!("axiom ");
+                    match axiom.name {
+                        IdentOrPath::Ident(name) => {
+                            println!("{}", &strings[name]);
                         }
-                        println!();
+
+                        IdentOrPath::Path(path) => {
+                            print!("{}", &strings[path.parts[0]]);
+                            for part in path.parts[1..].iter().copied() {
+                                print!("::{}", &strings[part]);
+                            }
+                            println!();
+                        }
                     }
                 }
 
@@ -81,18 +85,20 @@ reduce Nat::add(1, 2)
                 let Some(_) = elab.elab_def(def) else { break };
                 work_dt += t0.elapsed();
 
-                print!("def ");
-                match def.name {
-                    IdentOrPath::Ident(name) => {
-                        println!("{}", &strings[name]);
-                    }
-
-                    IdentOrPath::Path(path) => {
-                        print!("{}", &strings[path.parts[0]]);
-                        for part in path.parts[1..].iter().copied() {
-                            print!("::{}", &strings[part]);
+                if printing {
+                    print!("def ");
+                    match def.name {
+                        IdentOrPath::Ident(name) => {
+                            println!("{}", &strings[name]);
                         }
-                        println!();
+
+                        IdentOrPath::Path(path) => {
+                            print!("{}", &strings[path.parts[0]]);
+                            for part in path.parts[1..].iter().copied() {
+                                print!("::{}", &strings[part]);
+                            }
+                            println!();
+                        }
                     }
                 }
 
@@ -107,32 +113,38 @@ reduce Nat::add(1, 2)
                 let r = elab.reduce(term);
                 work_dt += t0.elapsed();
 
-                let mut pp = TermPP::new(&elab.env, &strings, &arena);
-                let r = pp.pp_term(r);
-                let r = pp.indent(9, r);
-                let t0 = std::time::Instant::now();
-                let r = pp.render(r, 50);
-                let dt = t0.elapsed();
-                let r = r.layout_string();
-                println!("reduced: {}", r);
-                println!("{:?}", dt);
+                if printing {
+                    let mut pp = TermPP::new(&elab.env, &strings, &arena);
+                    let r = pp.pp_term(r);
+                    let r = pp.indent(9, r);
+                    let t0 = std::time::Instant::now();
+                    let r = pp.render(r, 50);
+                    let dt = t0.elapsed();
+                    let r = r.layout_string();
+                    println!("reduced: {}", r);
+                    println!("{:?}", dt);
+                }
             }
 
             ItemKind::Inductive(ind) => {
                 let Some(_) = elab.elab_inductive(ind) else { break };
                 work_dt += t0.elapsed();
 
-                println!("inductive {}", &strings[ind.name]);
+                if printing {
+                    println!("inductive {}", &strings[ind.name]);
+                }
             }
         }
     }
 
-    let stats = arena.stats();
-    println!("allocated: {}, blocks: {}",
-        stats.total_allocated - arena.current_block_size() + arena.current_block_used(),
-        stats.num_blocks);
-    println!("parse: {:?}", parse_dt);
-    println!("work:  {:?}", work_dt);
+    if printing {
+        let stats = arena.stats();
+        println!("allocated: {}, blocks: {}",
+            stats.total_allocated - arena.current_block_size() + arena.current_block_used(),
+            stats.num_blocks);
+        println!("parse: {:?}", parse_dt);
+        println!("work:  {:?}", work_dt);
+    }
 
     errors.with(|errors| {
         errors.iter(|e| {

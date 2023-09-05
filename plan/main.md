@@ -64,6 +64,8 @@
     - level elab: use `.imax` & friends.
     - constant approx.
     - proper `abstract_def_eq`.
+        - "key matching": only call `is_def_eq`, if the head symbol matches.
+        - and try `syntax_eq` first, common case.
     - parser eof errors.
 
 - cleanup:
