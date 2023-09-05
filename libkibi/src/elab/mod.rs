@@ -23,8 +23,7 @@ pub struct Elab<'me, 'err, 'a> {
     pub(crate) lctx: LocalCtx<'a>,
     locals: Vec<(Atom, ScopeId)>,
 
-    level_vars: KVec<LevelVarId, ivars::LevelVar<'a>>,
-    term_vars:  KVec<TermVarId,  ivars::TermVar<'a>>,
+    ivars: ivars::IVarCtx<'a>,
 }
 
 
@@ -59,8 +58,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             lctx: LocalCtx::new(alloc),
             locals: Vec::new(),
             level_params: Vec::new(),
-            level_vars: KVec::new(),
-            term_vars: KVec::new(),
+            ivars: ivars::IVarCtx::new(),
         }
     }
 
@@ -74,14 +72,14 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
     // @temp: `Compiler` rework.
     pub fn check_no_unassigned_variables(&self) -> Option<()> {
-        for var in self.level_vars.range() {
+        for var in self.ivars.level_vars.range() {
             if var.value(self).is_none() {
                 println!("{:?} unassigned", var);
                 return None;
             }
         }
 
-        for var in self.term_vars.range() {
+        for var in self.ivars.term_vars.range() {
             if var.value(self).is_none() {
                 println!("{:?} unassigned", var);
                 return None;
@@ -98,6 +96,29 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let val = pp.render(val, width);
         let val = val.layout_string();
         return val;
+    }
+}
+
+
+struct SavePoint {
+    local_ctx: crate::tt::local_ctx::SavePoint,
+    num_locals: usize,
+    ivar_ctx: ivars::SavePoint,
+}
+
+impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
+    fn save(&self) -> SavePoint {
+        SavePoint {
+            local_ctx: self.lctx.save(),
+            num_locals: self.locals.len(),
+            ivar_ctx: self.ivars.save(),
+        }
+    }
+
+    fn restore(&mut self, save: SavePoint) {
+        self.lctx.restore(save.local_ctx);
+        self.locals.truncate(save.num_locals);
+        self.ivars.restore(save.ivar_ctx);
     }
 }
 

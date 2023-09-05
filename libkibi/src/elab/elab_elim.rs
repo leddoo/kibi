@@ -175,7 +175,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
 
         // assign.
-        if !self.def_eq(motive, motive_val) {
+        if !self.ensure_def_eq(motive, motive_val) {
             let motive     = self.instantiate_term_vars(motive);
             let motive_val = self.instantiate_term_vars(motive_val);
             println!("motive failed");
@@ -195,7 +195,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 return (Some(None),);
             };
 
-            if !self.def_eq(var, arg) {
+            if !self.ensure_def_eq(var, arg) {
                 println!("arg failed");
                 return (Some(None),);
             }

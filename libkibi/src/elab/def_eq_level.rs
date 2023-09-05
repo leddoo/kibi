@@ -4,8 +4,8 @@ use super::*;
 
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
-    pub fn level_def_eq(&mut self, a: Level<'a>, b: Level<'a>) -> bool {
-        if self.level_vars.len() > 0 {
+    pub fn ensure_level_def_eq(&mut self, a: Level<'a>, b: Level<'a>) -> bool {
+        if self.ivars.level_vars.len() > 0 {
             // we currently don't implement the proper level equivalence test.
             // instead we just do syntax eq + var assignment.
             // but that means, we need to instantiate all level vars first.
@@ -20,7 +20,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
     }
 
-    pub fn level_def_eq_basic(&mut self, a: Level<'a>, b: Level<'a>) -> bool {
+    fn level_def_eq_basic(&mut self, a: Level<'a>, b: Level<'a>) -> bool {
         if a.syntax_eq(b) {
             return true;
         }
@@ -58,17 +58,16 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
     }
 
-    pub fn level_list_def_eq(&mut self, a: LevelList<'a>, b: LevelList<'a>) -> bool {
+    pub fn ensure_levels_def_eq(&mut self, a: &[Level<'a>], b: &[Level<'a>]) -> bool {
         if a.len() != b.len() {
             return false;
         }
         for i in 0..a.len() {
-            if !self.level_def_eq(a[i], b[i]) {
+            if !self.ensure_level_def_eq(a[i], b[i]) {
                 return false;
             }
         }
         true
     }
-
 }
 

@@ -16,7 +16,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let (term, ty) = self.elab_expr_ex(expr, expected_ty)?;
 
         if let Some(expected) = expected_ty {
-            if !self.def_eq(ty, expected) {
+            if !self.ensure_def_eq(ty, expected) {
                 let expected = self.instantiate_term_vars(expected);
                 let ty       = self.instantiate_term_vars(ty);
                 let expected = self.reduce_ex(expected, false);
@@ -43,7 +43,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
 
         let (ty_var, l) = self.new_ty_var();
-        if self.def_eq(term, ty_var) {
+        if self.ensure_def_eq(term, ty_var) {
             return Some((ty_var, l));
         }
 
@@ -129,7 +129,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 for (id, ty, _) in locals.iter().copied() {
                     if let Some(expected) = expected_ty {
                         if let Some(pi) = self.whnf_forall(expected) {
-                            if self.def_eq(ty, pi.ty) {
+                            if self.is_def_eq(ty, pi.ty) {
                                 expected_ty = Some(
                                     pi.val.instantiate(
                                         self.alloc.mkt_local(id), self.alloc));
@@ -190,12 +190,9 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                                     f_ty = pi.val;
                                 }
                                 if args_remaining == 0 && f_ty.closed() {
-                                    // @todo: is_def_eq.
-                                    if !self.def_eq(f_ty, expected) {
-                                        println!("oops");
-                                        println!("{}\n=/=\n{}", self.pp(f_ty, 80), self.pp(expected, 80));
+                                    if self.is_def_eq(f_ty, expected) {
+                                        expected_ty = None;
                                     }
-                                    expected_ty = None;
                                 }
                             }
 

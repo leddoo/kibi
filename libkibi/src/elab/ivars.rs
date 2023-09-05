@@ -8,6 +8,7 @@ sti::define_key!(u32, pub LevelVarId);
 
 pub struct LevelVar<'a> {
     value: Option<Level<'a>>,
+    assignment_gen: u32,
 }
 
 
@@ -17,13 +18,75 @@ pub struct TermVar<'a> {
     scope: OptScopeId,
     ty: Term<'a>,
     value: Option<Term<'a>>,
+    assignment_gen: u32,
+}
+
+
+pub(super) struct IVarCtx<'a> {
+    pub level_vars: KVec<LevelVarId, ivars::LevelVar<'a>>,
+    pub term_vars:  KVec<TermVarId,  ivars::TermVar<'a>>,
+    assignment_gen: u32,
+}
+
+impl<'a> IVarCtx<'a> {
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            level_vars: KVec::new(),
+            term_vars: KVec::new(),
+            assignment_gen: 0,
+        }
+    }
+}
+
+
+pub(super) struct SavePoint {
+    num_level_vars: u32,
+    num_term_vars:  u32,
+    assignment_gen: u32,
+}
+
+impl<'a> IVarCtx<'a> {
+    pub fn save(&self) -> SavePoint {
+        SavePoint {
+            num_level_vars: self.level_vars.len() as u32,
+            num_term_vars:  self.term_vars.len() as u32,
+            assignment_gen: self.assignment_gen,
+        }
+    }
+
+    pub fn restore(&mut self, save: SavePoint) {
+        unsafe {
+            self.level_vars.inner_mut().truncate(save.num_level_vars as usize);
+            self.term_vars.inner_mut().truncate(save.num_term_vars as usize);
+
+            if self.assignment_gen > save.assignment_gen {
+                println!("restore assignments");
+
+                for level in self.level_vars.inner_mut().iter_mut() {
+                    if level.assignment_gen > save.assignment_gen {
+                        level.value = None;
+                    }
+                }
+
+                for term in self.term_vars.inner_mut().iter_mut() {
+                    if term.assignment_gen > save.assignment_gen {
+                        term.value = None;
+                    }
+                }
+
+                self.assignment_gen = save.assignment_gen;
+            }
+        }
+    }
 }
 
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     pub fn new_level_var_id(&mut self) -> LevelVarId {
-        self.level_vars.push(LevelVar {
+        self.ivars.level_vars.push(LevelVar {
             value: None,
+            assignment_gen: 0,
         })
     }
 
@@ -34,10 +97,11 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
 
     pub fn new_term_var_id(&mut self, ty: Term<'a>, scope: OptScopeId) -> TermVarId {
-        self.term_vars.push(TermVar {
+        self.ivars.term_vars.push(TermVar {
             scope,
             ty,
             value: None,
+            assignment_gen: 0,
         })
     }
 
@@ -68,7 +132,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 impl LevelVarId {
     #[inline(always)]
     pub fn value<'a>(self, elab: &Elab<'_, '_, 'a>) -> Option<Level<'a>> {
-        elab.level_vars[self].value
+        elab.ivars.level_vars[self].value
     }
 
 
@@ -76,7 +140,10 @@ impl LevelVarId {
     #[inline]
     pub unsafe fn assign_core<'a>(self, value: Level<'a>, elab: &mut Elab<'_, '_, 'a>) {
         debug_assert!(self.value(elab).is_none());
-        elab.level_vars[self].value = Some(value);
+        let var = &mut elab.ivars.level_vars[self];
+        var.value = Some(value);
+        var.assignment_gen = elab.ivars.assignment_gen;
+        elab.ivars.assignment_gen += 1;
     }
 
     #[track_caller]
@@ -98,17 +165,17 @@ impl LevelVarId {
 impl TermVarId {
     #[inline(always)]
     pub fn scope(self, elab: &Elab) -> OptScopeId {
-        elab.term_vars[self].scope
+        elab.ivars.term_vars[self].scope
     }
 
     #[inline(always)]
     pub fn ty<'a>(self, elab: &Elab<'_, '_, 'a>) -> Term<'a> {
-        elab.term_vars[self].ty
+        elab.ivars.term_vars[self].ty
     }
 
     #[inline(always)]
     pub fn value<'a>(self, elab: &Elab<'_, '_, 'a>) -> Option<Term<'a>> {
-        elab.term_vars[self].value
+        elab.ivars.term_vars[self].value
     }
 
 
@@ -119,7 +186,10 @@ impl TermVarId {
         debug_assert!(value.closed());
         debug_assert!(elab.lctx.all_locals_in_scope(value, self.scope(elab)));
         debug_assert!(elab.all_term_vars_in_scope(value, self.scope(elab)));
-        elab.term_vars[self].value = Some(value);
+        let var = &mut elab.ivars.term_vars[self];
+        var.value = Some(value);
+        var.assignment_gen = elab.ivars.assignment_gen;
+        elab.ivars.assignment_gen += 1;
     }
 
     // process `var(args) := value`
@@ -138,13 +208,13 @@ impl TermVarId {
 
         if args.len() > 0 {
             // type correct check.
-            //println!("@todo: check lambda type correct");
+            println!("@todo: check lambda type correct");
         }
 
         // type check.
         let var_ty = self.ty(elab);
         let value_ty = elab.infer_type(value).unwrap();
-        if !elab.def_eq(var_ty, value_ty) {
+        if !elab.ensure_def_eq(var_ty, value_ty) {
             println!("type check failed");
             let var_ty   = elab.instantiate_term_vars(var_ty);
             let value_ty = elab.instantiate_term_vars(value_ty);

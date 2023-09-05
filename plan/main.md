@@ -13,12 +13,11 @@
 
 
 - todo: robustness.
+    - `is_type_correct`.
+        - lambda type check.
     - elab-elim:
         - under-applied: `Nat::add`.
         - over-applied: `Array::get`.
-    - `is_def_eq`:
-        - lambda type check.
-        - app expected type propagation.
     - scope approx.
         - use common ancestor.
         - recursively check `other.ty` -> `ty`.
@@ -28,6 +27,9 @@
     - kernel type checker.
         - use for inductive.
         - env does type check before insertion.
+    - cleanup:
+        - move `assign` into `def_eq_*`.
+        - move `instantiate` into `ivars`.
 
 
 ### backlog:
