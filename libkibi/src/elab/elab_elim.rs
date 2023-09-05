@@ -114,31 +114,46 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             result_ty  = pi.val.instantiate(arg, self.alloc);
             param_idx += 1;
         }
+        let result    = result;
+        let result_ty = result_ty;
 
         let Some(motive) = motive else {
             println!("no motive");
             return (Some(None),);
         };
 
+        // add remaining locals to context.
+        let mut rem = result_ty;
+        let mut rem_locals = Vec::new_in(&*temp);
+        while let Some(pi) = rem.try_forall() {
+            let id = self.lctx.push(pi.kind, pi.name, pi.ty, None);
+            rem_locals.push(id);
+
+            let local = self.alloc.mkt_local(id);
+            if info.args[param_idx] == ElimArgKind::Target {
+                targets.push(local);
+            }
+            param_idx += 1;
+
+            rem = pi.val.instantiate(local, self.alloc);
+        }
+
         // adjust expected_ty.
         let mut expected_ty = expected_ty;
 
         // under applied.
-        if result_ty.is_forall() {
-            println!("under applied");
+        if rem_locals.len() > 0 {
             debug_assert!(arg_iter.len() == 0);
 
             let old_scope = self.lctx.current;
 
-            while let Some(pi) = result_ty.try_forall() {
-                let Some(ex_pi) = self.whnf_forall(expected_ty) else {
-                    println!("error");
+            for rem in rem_locals.iter().copied() {
+                let Some(pi) = expected_ty.try_forall() else {
+                    println!("error: tbd");
                     return (Some(None),);
                 };
 
-                let id = self.lctx.push(pi.kind, pi.name, pi.ty, None);
-                expected_ty = ex_pi.val.instantiate(
-                    self.alloc.mkt_local(id), self.alloc);
+                expected_ty = pi.val.instantiate(self.alloc.mkt_local(rem), self.alloc);
             }
 
             self.lctx.current = old_scope;
@@ -201,7 +216,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
         }
 
-        //println!("{:?}", self.ictx.instantiate_term(result));
+        let result    = self.instantiate_term_vars(result);
+        let result_ty = self.instantiate_term_vars(result_ty);
 
         (Some(Some((result, result_ty))),)
     }

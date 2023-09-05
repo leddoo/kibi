@@ -14,7 +14,6 @@
 
 - todo: robustness.
     - elab-elim:
-        - under-applied: `Nat::add`.
         - over-applied: `Array::get`.
     - `is_type_correct`.
         - lambda type check.

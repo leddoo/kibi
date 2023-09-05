@@ -157,3 +157,10 @@ def scope_approx (a b c n: Nat) :=
     (lam a (b: Eq(_, a), c: Nat, d: Eq(a, c)) => c)(
         _, Nat::zero_add(_), n, Eq::refl())
 
+
+def elim_under_applied_1 (a: Nat): Pi(b: Nat) -> Nat :=
+    Nat::rec(a, lam _ r => Nat::succ(r))
+
+def elim_under_applied_2: Pi(n: Nat) -> Eq(Nat::add(0, n), n) :=
+    Nat::rec(Eq::refl(), lam n ih => congr_arg(_, ih))
+
