@@ -67,12 +67,8 @@ def Nat::No_Confusion.{p} (P: Sort(p), a b: Nat): Sort(p) :=
         lam b _ => Nat::rec(P, lam a _ => Pi(_: Pi(_: Eq(a, b)) -> P) -> P, a),
         b)
 
-def Nat::no_confusion_self.{p} (P: Sort(p), a: Nat): Nat::No_Confusion(P, a, a) :=
-    Nat::rec(lam p => p, lam _ _ => lam p => p(Eq::refl()), a)
-
 def Nat::no_confusion.{p} <P: Sort(p), a b: Nat>: Pi(_: Eq(a, b)) -> Nat::No_Confusion(P, a, b) :=
-    -- @bug: inlining no_confusion_self leads to error.
-    lam h => Eq::rec(Nat::no_confusion_self(P, a), h)
+    lam h => Eq::rec(Nat::rec(lam p => p, lam _ _ => lam p => p(Eq::refl()), a), h)
 
 
 def Nat::zero_ne_succ <n: Nat>: Not(Eq(0, Nat::succ(n))) :=

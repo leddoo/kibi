@@ -1,8 +1,9 @@
 
 - road map:
-    - mutual inductive.
-    - unordered decls & compiler rework.
+    - robustness.
     - basic traits.
+    - nat literals.
+    - unordered decls & compiler rework.
     - codegen.
     - references.
     - multi-threading.
@@ -11,15 +12,22 @@
     - basic proof inference.
 
 
-- todo:
-    - instantiate: lift loose bvars.
-    - elab-elim: over-applied and `Array::get`.
-    - mutual inductive:
-        - mutual syntax.
-        - add existing inductives to def, for non-strict-pos occ.
+- todo: robustness.
+    - elab-elim:
+        - under-applied: `Nat::add`.
+        - over-applied: `Array::get`.
+    - `is_def_eq`:
+        - lambda type check.
+        - app expected type propagation.
+    - scope approx.
+        - use common ancestor.
+        - recursively check `other.ty` -> `ty`.
+        - create fresh term var of `ty`.
+        - assign to `other`.
     - `SymbolKind::Axiom`.
     - kernel type checker.
         - use for inductive.
+        - env does type check before insertion.
 
 
 ### backlog:
@@ -37,6 +45,9 @@
     - vec collect.
 
 - features:
+    - mutual inductive:
+        - mutual syntax.
+        - add existing inductives to def, for non-strict-pos occ.
     - type annotation.
     - let.
     - named args.
@@ -48,16 +59,7 @@
     - error to sorry.
 
 - completeness:
-    - env does type check before insertion.
     - level elab: use `.imax` & friends.
-    - scope approx.
-        - use common ancestor.
-        - recursively check `other.ty` -> `ty`.
-        - create fresh term var of `ty`.
-        - assign to `other`.
-    - motive inference.
-        - over/under-applied. just use some silly example.
-    - lambda type check.
     - constant approx.
     - proper `abstract_def_eq`.
     - parser eof errors.

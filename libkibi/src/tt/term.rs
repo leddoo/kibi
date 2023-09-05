@@ -271,6 +271,22 @@ impl<'a> Term<'a> {
     }
 
 
+    pub fn lift_loose_bvars(self, delta: u32, alloc: &'a Arena) -> Term<'a> {
+        self.lift_bvars(0, delta, alloc)
+    }
+
+    pub fn lift_bvars(self, cut_off: u32, delta: u32, alloc: &'a Arena) -> Term<'a> {
+        self.replace_ex(cut_off, alloc, &mut |at, offset, alloc| {
+            if at.max_succ_bvar() < offset.saturating_add(1) {
+                return Some(at);
+            }
+
+            let bvar = at.try_bvar()?;
+            debug_assert!(bvar.offset >= offset);
+            return Some(alloc.mkt_bound(BVar { offset: bvar.offset + delta }));
+        })
+    }
+
     pub fn abstracc(self, id: ScopeId, alloc: &'a Arena) -> Term<'a> {
         self.replace(alloc, |at, offset, alloc| {
             if at.max_succ_local() < id.inner().saturating_add(1) {
@@ -283,13 +299,17 @@ impl<'a> Term<'a> {
     }
 
     pub fn instantiate(self, subst: Term<'a>, alloc: &'a Arena) -> Term<'a> {
-        self.replace(alloc, |at, offset, _| {
+        self.replace(alloc, |at, offset, alloc| {
             if at.max_succ_bvar() < offset.saturating_add(1) {
                 return Some(at);
             }
 
             let bvar = at.try_bvar()?;
-            (bvar.offset == offset).then_some(subst)
+            if bvar.offset == offset {
+                if subst.closed() || offset == 0 { Some(subst) }
+                else { Some(subst.lift_loose_bvars(offset, alloc)) }
+            }
+            else { None }
         })
     }
 
