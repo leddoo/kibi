@@ -271,8 +271,15 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 // scope check.
                 if !self.term_var_in_scope(other, var.scope(self)) {
                     // scope approx.
-                    println!("scope check failed (for ivar)");
-                    println!("@todo");
+                    let scope = self.lctx.scope_common_prefix(
+                        var.scope(self), other.scope(self));
+
+                    let ty = self.check_value_for_assign(other.ty(self), var)?;
+
+                    let new_other = self.new_term_var_core(ty, scope);
+                    unsafe { other.assign_core(new_other, self) }
+
+                    return Some(new_other);
                 }
 
                 value

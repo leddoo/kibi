@@ -101,6 +101,29 @@ impl<'a> LocalCtx<'a> {
         }
     }
 
+    pub fn scope_common_prefix(&self, a: OptScopeId, b: OptScopeId) -> OptScopeId {
+        // if either is root, result is root.
+        let Some(mut a) = a.to_option() else { return a };
+        let Some(mut b) = b.to_option() else { return b };
+
+        loop {
+            if a < b {
+                let new_b = self.scopes[b].parent;
+                let Some(new_b) = new_b.to_option() else { return new_b };
+                b = new_b;
+            }
+            else {
+                let new_a = self.scopes[a].parent;
+                let Some(new_a) = new_a.to_option() else { return new_a };
+                a = new_a;
+            }
+
+            if a == b {
+                return a.some();
+            }
+        }
+    }
+
     pub fn local_in_scope(&self, local: ScopeId, scope: OptScopeId) -> bool {
         let mut curr = scope;
         while let Some(at) = curr.to_option() {

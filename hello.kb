@@ -152,3 +152,8 @@ def Array::get <T: Type, n: Nat> (self: Array(T, n), i: Nat, h: Nat::Lt(i, n)): 
     --      i+1 => Array::get((self as cons).tail, i, Nat::lt_of_succ_lt_succ(h))
     --  }
 
+
+def scope_approx (a b c n: Nat) :=
+    (lam a (b: Eq(_, a), c: Nat, d: Eq(a, c)) => c)(
+        _, Nat::zero_add(_), n, Eq::refl())
+

@@ -13,13 +13,6 @@
 
 
 - todo: robustness.
-    - scope approx.
-        - use common ancestor.
-            - have depth proxy: just the index.
-              cause `parent < self`.
-        - recursively check `other.ty` -> `ty`.
-        - create fresh term var of `ty`.
-        - assign to `other`.
     - elab-elim:
         - under-applied: `Nat::add`.
         - over-applied: `Array::get`.
