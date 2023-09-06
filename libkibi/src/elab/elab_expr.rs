@@ -184,6 +184,10 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     }
                 }
 
+                let temp = ArenaPool::tls_get_rec();
+
+                let mut impl_args = Vec::new_in(&*temp);
+
                 let mut args = it.args.iter();
                 let mut result    = func;
                 let mut result_ty = func_ty;
@@ -223,7 +227,18 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                         }
 
                         BinderKind::Implicit => {
-                            self.new_term_var_of_type(pi.ty)
+                            let var = self.new_term_var_of_type(pi.ty);
+
+                            // impl implicit
+                            // @todo: also for explicit holes.
+                            let (head, _) = pi.ty.app_fun();
+                            if let Some(global) = head.try_global() {
+                                if self.traits.is_trait(global.id) {
+                                    impl_args.push((global.id, var));
+                                }
+                            }
+
+                            var
                         }
                     };
 
@@ -233,6 +248,59 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 if args.next().is_some() {
                     self.error(expr.source, |_| { ElabError::TooManyArgs });
                     return None;
+                }
+
+                for (trayt, ivar) in impl_args.iter().copied() {
+                    println!("impl resolution");
+                    let goal = self.infer_type(ivar).unwrap();
+                    let goal = self.instantiate_term_vars(goal);
+                    if goal.has_ivars() {
+                        println!("error: impl resolution doesn't support ivars rn, sorry");
+                        return None;
+                    }
+
+                    println!("for {}", self.pp(goal, 80));
+
+                    let mut impls = Vec::new_in(&*temp);
+                    for impel in self.traits.impls(trayt).iter().copied() {
+                        impls.push(impel);
+                    }
+
+                    let mut matched = None;
+                    for impel in impls.iter().copied() {
+                        let sym = self.env.symbol(impel);
+
+                        let def = match sym.kind {
+                            SymbolKind::Def(def) => def,
+                            _ => unreachable!()
+                        };
+
+                        let Some(val) = def.val else {
+                            continue;
+                        };
+
+                        println!("found {}", self.pp(def.ty, 80));
+
+                        if def.ty.syntax_eq(goal) {
+                            if matched.is_some() {
+                                println!("error: multiple matching impls");
+                                return None;
+                            }
+
+                            println!("found match {:?}", &self.strings[sym.name]);
+                            matched = Some(val);
+                        }
+                    }
+
+                    let Some(matched) = matched else {
+                        println!("error: no matching impl found");
+                        return None;
+                    };
+
+                    if !self.ensure_def_eq(ivar, matched) {
+                        println!("error: something went wrong");
+                        return None;
+                    }
                 }
 
                 (result, result_ty)

@@ -20,13 +20,12 @@
             - `<A is Foo + Bar>` means `<A: Type, _: Foo(A), _: Bar(A)>`.
 
 - todo:
-    - basic impl resolution.
-        - just walk all of them, try unify, error on ambiguous.
+    - higher order impls.
     - local impls.
-
     - arrow functions.
     - methods.
         - lookup in type, needs `self` arg.
+    - tbd.
 
 
 - effects:

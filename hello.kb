@@ -224,4 +224,6 @@ impl: Add(Nat, Nat) := Add::mk(Nat, Nat::add)
 def do_some_doubling(a: Nat): Nat :=
     double(a)
 
+reduce do_some_doubling(3)
+
 

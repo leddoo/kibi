@@ -36,11 +36,9 @@ impl Traits {
         self.map.get(&symbol).is_some()
     }
 
-    pub fn impls(&self, symbol: SymbolId) -> Option<&[SymbolId]> {
-        if let Some(trayt) = &self.map.get(&symbol) {
-            Some(&trayt.impls)
-        }
-        else { None }
+    #[track_caller]
+    pub fn impls(&self, symbol: SymbolId) -> &[SymbolId] {
+        &self.map[&symbol].impls
     }
 }
 

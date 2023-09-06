@@ -162,7 +162,8 @@ reduce Nat::add(1, 2)
 
                 let (trayt, _) = ty.app_fun();
                 if let Some(g) = trayt.try_global() {
-                    if let Some(impls) = elab.traits.impls(g.id) {
+                    if elab.traits.is_trait(g.id) {
+                        let impls = elab.traits.impls(g.id);
                         let name = impl_names[impls.len()];
                         let symbol = elab.env.new_symbol(g.id, name, SymbolKind::Def(symbol::Def {
                             num_levels: impel.levels.len() as u32,
