@@ -23,9 +23,10 @@ pub struct TermVar<'a> {
 
 
 pub(super) struct IVarCtx<'a> {
+    // @todo: non-pub.
     pub level_vars: KVec<LevelVarId, ivars::LevelVar<'a>>,
     pub term_vars:  KVec<TermVarId,  ivars::TermVar<'a>>,
-    assignment_gen: u32,
+    pub assignment_gen: u32,
 }
 
 impl<'a> IVarCtx<'a> {

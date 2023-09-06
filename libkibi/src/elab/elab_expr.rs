@@ -11,7 +11,6 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         self.elab_expr_ex(expr, None)
     }
 
-
     pub fn elab_expr_checking_type(&mut self, expr: &Expr<'a>, expected_ty: Option<Term<'a>>) -> Option<(Term<'a>, Term<'a>)> {
         let (term, ty) = self.elab_expr_ex(expr, expected_ty)?;
 
@@ -56,7 +55,27 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
 
-    pub fn elab_expr_ex(&mut self, expr: &Expr<'a>, expected_ty: Option<Term<'a>>) -> Option<(Term<'a>, Term<'a>)> {
+    fn elab_expr_ex(&mut self, expr: &Expr<'a>, expected_ty: Option<Term<'a>>) -> Option<(Term<'a>, Term<'a>)> {
+        let result = self.elab_expr_core(expr, expected_ty);
+
+        #[cfg(debug_assertions)]
+        if let Some((res, ty)) = result {
+            let n = self.ivars.assignment_gen;
+            let inferred = self.infer_type(res).unwrap();
+            if !self.ensure_def_eq(ty, inferred) {
+                println!("---\nbug: elab_expr_core returned term\n{}\nwith type\n{}\nbut has type\n{}\n---",
+                    self.pp(res, 80),
+                    self.pp(ty, 80),
+                    self.pp(inferred, 80));
+                assert!(false);
+            }
+            assert_eq!(n, self.ivars.assignment_gen);
+        }
+
+        return result;
+    }
+
+    fn elab_expr_core(&mut self, expr: &Expr<'a>, expected_ty: Option<Term<'a>>) -> Option<(Term<'a>, Term<'a>)> {
         Some(match &expr.kind {
             ExprKind::Hole => {
                 self.new_term_var()
@@ -140,7 +159,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     }
                 }
 
-                let (mut result, mut result_ty) = self.elab_expr_ex(it.value, expected_ty)?;
+                let (mut result, mut result_ty) = self.elab_expr_checking_type(it.value, expected_ty)?;
 
                 for (id, _, _) in locals.iter().rev().copied() {
                     result    = self.mk_binder(result,    id, false);

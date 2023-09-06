@@ -158,13 +158,27 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
             self.lctx.current = old_scope;
         }
+
         // over applied.
-        else if arg_iter.len() > 0 {
-            println!("over applied");
-            // elab and add remaining args.
-            // revert result & expected_ty.
-            unimplemented!()
+        let mut result = result;
+        let result_ty_valid = arg_iter.len() == 0;
+        if arg_iter.len() > 0 {
+            debug_assert!(rem_locals.len() == 0);
+
+            for arg in arg_iter.rev() {
+                let expr::CallArg::Positional(arg) = arg else { unimplemented!() };
+                let Some((arg, arg_ty)) = self.elab_expr(arg) else {
+                    return (Some(None),);
+                };
+
+                result = self.alloc.mkt_apply(result, arg);
+
+                let val = self.abstract_eq(expected_ty, arg);
+                expected_ty = self.alloc.mkt_forall(
+                    BinderKind::Explicit, Atom::NULL, arg_ty, val);
+            }
         }
+        let result = result;
 
         //println!("expected: {}", self.pp(expected_ty, 80));
 
@@ -199,10 +213,6 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             return (Some(None),);
         }
 
-        if arg_iter.len() != 0 {
-            unimplemented!()
-        }
-
         // elab remaining args.
         for (arg, var, expected_ty) in postponed.iter().copied() {
             let expected_ty = self.instantiate_term_vars(expected_ty);
@@ -216,8 +226,12 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
         }
 
-        let result    = self.instantiate_term_vars(result);
-        let result_ty = self.instantiate_term_vars(result_ty);
+        let result = self.instantiate_term_vars(result);
+        let result_ty =
+            if result_ty_valid {
+                self.instantiate_term_vars(result_ty)
+            }
+            else { self.infer_type(result).unwrap() };
 
         (Some(Some((result, result_ty))),)
     }

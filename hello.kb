@@ -75,7 +75,7 @@ def Nat::zero_ne_succ <n: Nat>: Not(Eq(0, Nat::succ(n))) :=
     lam h => Nat::no_confusion(h)
 
 
-def Nat::succ::inj (a b: Nat)
+def Nat::succ_inj <a b: Nat>
     : Pi(_: Eq(Nat::succ(a), Nat::succ(b))) -> Eq(a, b)
     := lam h => Nat::no_confusion(h, lam eq => eq)
 
@@ -138,19 +138,58 @@ def Nat::zero_le (n: Nat): Nat::Le(0, n) := Exists::mk(n, Eq::refl())
 
 def Nat::Lt (a b: Nat) := Nat::Le(Nat::succ(a), b)
 
-def Nat::not_lt_zero <n: Nat>: Not(Nat::Lt(n, 0)) :=
+def Nat::not_lt_zero (n: Nat): Not(Nat::Lt(n, 0)) :=
     lam hlt => Exists::rec(
         lam k (heq: Eq(Nat::add(k, Nat::succ(n)), 0)) =>
             Nat::zero_ne_succ(Eq::symm(heq)),
         hlt)
 
+def Nat::lt_of_succ_lt_succ <a b: Nat>: Pi(_: Nat::Lt(Nat::succ(a), Nat::succ(b))) -> Nat::Lt(a, b) :=
+    Exists::rec(
+        lam k (h: Eq(Nat::add(k, Nat::succ(Nat::succ(a))), Nat::succ(b))) =>
+            Exists::mk(k, Nat::succ_inj(h)))
+
+
+def Array::nat_sum <n: Nat> (self: Array(Nat, n)): Nat :=
+    Array::rec(
+        0,
+        lam _ head _ res => Nat::add(head, res),
+        self)
+
+
+reduce Array::nat_sum(Array::nil())
+reduce Array::nat_sum(Array::cons(1, Array::nil()))
+reduce Array::nat_sum(Array::cons(1, Array::cons(2, Array::nil())))
+reduce Array::nat_sum(Array::cons(1, Array::cons(2, Array::cons(3, Array::nil()))))
+
 
 def Array::get <T: Type, n: Nat> (self: Array(T, n), i: Nat, h: Nat::Lt(i, n)): T :=
-    ax_sorry(_)
-    --  match i {
-    --      0   => (self as cons).head
-    --      i+1 => Array::get((self as cons).tail, i, Nat::lt_of_succ_lt_succ(h))
-    --  }
+    Nat::rec(
+        lam n self h =>
+            Array::rec(
+                lam (h: Nat::Lt(0, 0)) =>
+                    False::rec(Nat::not_lt_zero(0, h)),
+                lam n head tail _ h => head,
+                self, h),
+        lam i rec n self h =>
+            Array::rec(
+                lam (h: Nat::Lt(Nat::succ(i), 0)) =>
+                    False::rec(Nat::not_lt_zero(Nat::succ(i), h)),
+                lam n head tail _ h =>
+                    rec(n, tail, Nat::lt_of_succ_lt_succ(h)),
+                self, h),
+        i, n, self, h)
+
+
+reduce
+    Array::get(
+        Array::cons(6, Array::cons(9, Array::nil())),
+        0, Exists::mk(1, Eq::refl()))
+
+reduce
+    Array::get(
+        Array::cons(6, Array::cons(9, Array::nil())),
+        1, Exists::mk(0, Eq::refl()))
 
 
 def scope_approx (a b c n: Nat) :=

@@ -1,6 +1,5 @@
 
 - road map:
-    - robustness.
     - basic traits.
     - nat literals.
     - unordered decls & compiler rework.
@@ -12,15 +11,24 @@
     - basic proof inference.
 
 
-- todo: robustness.
-    - elab-elim:
-        - over-applied: `Array::get`.
-    - `is_type_correct`.
-        - lambda type check.
-    - cleanup:
-        - `SymbolKind::Axiom`.
-        - move `assign` into `def_eq_*`.
-        - move `instantiate` into `ivars`.
+- todo:
+    - basic traits.
+        - parse. just do inductives for now.
+        - instance binder.
+        - trait is special symbol?
+            - well, we kinda just want it to be a type.
+            - but with a flag that it's a trait.
+            - remember, can have params, can be instances.
+        - then we need impls.
+            - that's just a special kind of def.
+            - which is registered with the trait -> vec of instances.
+            - make sure it doesn't unify with any other impls.
+                - what about something like
+                  `impl: Foo(Nat)` and
+                  `impl T [bar: Bar T]: Foo(bar.type)`?
+                  rust complains that `T` isn't "constrained".
+        - then we need impl resolution.
+            - just linear search for now.
 
 
 ### backlog:
@@ -52,6 +60,8 @@
     - error to sorry.
 
 - completeness:
+    - `is_type_correct`.
+        - lambda type check.
     - kernel type checker.
         - use for inductive.
         - env does type check before insertion.
@@ -63,7 +73,9 @@
     - parser eof errors.
 
 - cleanup:
-    - use arena for temp vecs.
+    - `SymbolKind::Axiom`.
+    - move `assign` into `def_eq_*`.
+    - move `instantiate` into `ivars`.
     - `sep_by_ex` takes vec.
     - document inference.
     - `Compiler` and immutability.

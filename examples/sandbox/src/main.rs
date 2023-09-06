@@ -114,15 +114,13 @@ reduce Nat::add(1, 2)
                 work_dt += t0.elapsed();
 
                 if printing {
-                    let mut pp = TermPP::new(&elab.env, &strings, &arena);
+                    let temp = sti::arena_pool::ArenaPool::tls_get_temp();
+                    let mut pp = TermPP::new(&elab.env, &strings, &*temp);
                     let r = pp.pp_term(r);
                     let r = pp.indent(9, r);
-                    let t0 = std::time::Instant::now();
-                    let r = pp.render(r, 50);
-                    let dt = t0.elapsed();
+                    let r = pp.render(r, 80);
                     let r = r.layout_string();
                     println!("reduced: {}", r);
-                    println!("{:?}", dt);
                 }
             }
 

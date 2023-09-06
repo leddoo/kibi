@@ -116,20 +116,22 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         // beta.
         if fun.is_lambda() {
-            let temp = ArenaPool::tls_get_temp();
-            let (_, args) = e.app_args(&*temp);
+            let result = {
+                let temp = ArenaPool::tls_get_temp();
+                let (_, args) = e.app_args(&*temp);
 
-            let mut result = fun;
-            let mut i = 0;
-            while let Some(lam) = result.try_lambda() {
-                if i < args.len() {
-                    result = lam.val.instantiate(args[i], self.alloc);
-                    i += 1;
+                let mut result = fun;
+                let mut i = 0;
+                while let Some(lam) = result.try_lambda() {
+                    if i < args.len() {
+                        result = lam.val.instantiate(args[i], self.alloc);
+                        i += 1;
+                    }
+                    else { break }
                 }
-                else { break }
-            }
 
-            let result = self.alloc.mkt_apps(result, &args[i..]);
+                self.alloc.mkt_apps(result, &args[i..])
+            };
             return self.whnf_no_unfold(result);
         }
 
@@ -172,6 +174,9 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let temp = ArenaPool::tls_get_rec();
         let (_, args) = t.app_args(&*temp);
 
+        //println!("args:");
+        //for arg in args.iter().copied() { println!("  {}", self.pp(arg, 80)); }
+
 
         let mp = args[min_args - 1];
         let mp = self.whnf(mp);
@@ -193,23 +198,36 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         let (_, mp_args) = mp.app_args(&*temp);
 
+        //println!("major premise ({ctor_idx}) args:");
+        //for arg in mp_args.iter().copied() { println!("  {}", self.pp(arg, 80)); }
+
 
         let mut result = ind.info.comp_rules[ctor_idx as usize];
         //println!("comp: {}\n", self.pp(result, 80));
 
-        for arg in args[..min_args-1].iter().copied() {
+        // Name.rec   ps Ms ms cxs (ctor_i ps as) ⇝ ms_i as mvs
+        // comp_i = λ ps Ms ms                as,   ms_i as mvs
+
+        let rec_args  = &args[.. (info.num_params + info.num_motives + info.num_minors) as usize];
+        let app_args  = &args[min_args..];
+        let ctor_args = &mp_args[info.num_params as usize ..];
+
+        for arg in rec_args.iter().copied() {
+            //println!("arg {}", self.pp(arg, 80));
             let Some(lam) = result.try_lambda() else { unreachable!() };
             result = lam.val.instantiate(arg, self.alloc);
             //println!("result: {}\n", self.pp(result, 80));
         }
 
-        for arg in mp_args.iter().copied() {
+        for arg in ctor_args.iter().copied() {
             let Some(lam) = result.try_lambda() else { unreachable!() };
             result = lam.val.instantiate(arg, self.alloc);
             //println!("result: {}\n", self.pp(result, 80));
         }
 
         let result = result.instantiate_level_params(global.levels, self.alloc);
+
+        let result = self.alloc.mkt_apps(result, app_args);
 
         //println!("success? {}\n", self.pp(result, 80));
 
