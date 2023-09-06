@@ -220,6 +220,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
 
         for arg in ctor_args.iter().copied() {
+            //println!("ctor_arg {}", self.pp(arg, 80));
             let Some(lam) = result.try_lambda() else { unreachable!() };
             result = lam.val.instantiate(arg, self.alloc);
             //println!("result: {}\n", self.pp(result, 80));

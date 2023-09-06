@@ -7,6 +7,7 @@ use crate::error::*;
 use crate::ast::SourceRange;
 use crate::tt::{ScopeId, LocalCtx};
 use crate::env::*;
+use crate::traits::Traits;
 
 
 pub struct Elab<'me, 'err, 'a> {
@@ -14,6 +15,7 @@ pub struct Elab<'me, 'err, 'a> {
     pub strings: &'me StringTable<'a>,
     pub errors: &'me ErrorCtx<'err>,
     pub env: &'me mut Env<'a>,
+    pub traits: &'me mut Traits,
 
     root_symbol: SymbolId,
 
@@ -48,12 +50,13 @@ pub use ivars::{LevelVarId, TermVarId};
 
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
-    pub fn new(env: &'me mut Env<'a>, root_symbol: SymbolId, errors: &'me ErrorCtx<'err>, strings: &'me StringTable<'a>, alloc: &'a Arena) -> Self {
+    pub fn new(env: &'me mut Env<'a>, traits: &'me mut Traits, root_symbol: SymbolId, errors: &'me ErrorCtx<'err>, strings: &'me StringTable<'a>, alloc: &'a Arena) -> Self {
         Self {
             alloc,
             strings,
             errors,
             env,
+            traits,
             root_symbol,
             lctx: LocalCtx::new(alloc),
             locals: Vec::new(),

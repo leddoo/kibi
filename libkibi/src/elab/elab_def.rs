@@ -1,6 +1,6 @@
 use sti::arena_pool::ArenaPool;
 
-use crate::ast::*;
+use crate::ast::{self, *};
 use crate::tt::*;
 
 use super::*;
@@ -74,26 +74,27 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         Some(symbol)
     }
 
-    pub fn elab_def(&mut self, def: &item::Def<'a>) -> Option<SymbolId> {
+    pub fn elab_def_core(&mut self, levels: &[Atom], params: &[ast::Binder<'a>], ty: Option<&Expr<'a>>, value: &Expr<'a>) -> Option<(Term<'a>, Term<'a>)> {
         assert_eq!(self.locals.len(), 0);
         assert_eq!(self.level_params.len(), 0);
 
         let temp = ArenaPool::tls_get_rec();
 
-        for level in def.levels {
+        for level in levels {
             self.level_params.push(*level);
         }
 
-        let locals = self.elab_binders(def.params, &*temp)?;
+        let locals = self.elab_binders(params, &*temp)?;
 
         // type.
-        let mut ty = None;
-        if let Some(t) = &def.ty {
-            ty = Some(self.elab_expr_as_type(&t)?.0);
-        }
+        let ty =
+            if let Some(t) = &ty {
+                Some(self.elab_expr_as_type(&t)?.0)
+            }
+            else { None };
 
         // value.
-        let (mut val, val_ty) = self.elab_expr_checking_type(&def.value, ty)?;
+        let (mut val, val_ty) = self.elab_expr_checking_type(&value, ty)?;
 
 
         let mut ty = ty.unwrap_or(val_ty);
@@ -111,17 +112,6 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         debug_assert!(ty.syntax_eq(self.instantiate_term_vars(ty)));
         debug_assert!(val.syntax_eq(self.instantiate_term_vars(val)));
-
-        let (parent, name) = match &def.name {
-            IdentOrPath::Ident(name) => (self.root_symbol, *name),
-
-            IdentOrPath::Path(path) => {
-                let (name, parts) = path.parts.split_last().unwrap();
-                // @temp: missing source range.
-                let parent = self.lookup_symbol_path(SourceRange::UNKNOWN, path.local, parts)?;
-                (parent, *name)
-            }
-        };
 
         if !ty.closed() || !val.closed() || ty.has_locals() || val.has_locals() {
             let mut pp = TermPP::new(self.env, &self.strings, self.alloc);
@@ -148,6 +138,23 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             println!("{}", pp.render(val, 50).layout_string());
             return None;
         }
+
+        Some((ty, val))
+    }
+
+    pub fn elab_def(&mut self, def: &item::Def<'a>) -> Option<SymbolId> {
+        let (ty, val) = self.elab_def_core(def.levels, def.params, def.ty.as_ref(), &def.value)?;
+
+        let (parent, name) = match &def.name {
+            IdentOrPath::Ident(name) => (self.root_symbol, *name),
+
+            IdentOrPath::Path(path) => {
+                let (name, parts) = path.parts.split_last().unwrap();
+                // @temp: missing source range.
+                let parent = self.lookup_symbol_path(SourceRange::UNKNOWN, path.local, parts)?;
+                (parent, *name)
+            }
+        };
 
         let symbol = self.env.new_symbol(parent, name,
             SymbolKind::Def(symbol::Def {

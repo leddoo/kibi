@@ -203,3 +203,25 @@ def elim_under_applied_1 (a: Nat): Pi(b: Nat) -> Nat :=
 def elim_under_applied_2: Pi(n: Nat) -> Eq(Nat::add(0, n), n) :=
     Nat::rec(Eq::refl(), lam n ih => congr_arg(_, ih))
 
+
+trait inductive Add (A B: Type) {
+    mk (R: Type) (add: Pi(_: A, _: B) -> R)
+}
+
+def Add::R <A B: Type> (self: Add(A, B)): Type :=
+    Add::rec(lam R add => R, self)
+
+def Add::add <A B: Type> (self: Add(A, B)): Pi(_: A, _: B) -> Add::R(self) :=
+    Add::rec(lam R add => add, self)
+
+
+def double<A: Type, add: Add(A, A)>(a: A): Add::R(add) :=
+    Add::add(add)(a, a)
+
+
+impl: Add(Nat, Nat) := Add::mk(Nat, Nat::add)
+
+def do_some_doubling(a: Nat): Nat :=
+    double(a)
+
+

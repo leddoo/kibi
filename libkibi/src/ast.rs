@@ -71,6 +71,9 @@ pub enum TokenKind<'a> {
     KwEnum,
     KwDef,
 
+    KwTrait,
+    KwImpl,
+
     KwLet, KwVar,
 
     KwDo,
@@ -149,6 +152,8 @@ impl<'a> TokenKind<'a> {
             TokenKind::KwStruct => "'struct'",
             TokenKind::KwEnum => "'enum'",
             TokenKind::KwDef => "'def'",
+            TokenKind::KwTrait => "'trait'",
+            TokenKind::KwImpl => "'impl'",
             TokenKind::KwLet => "'let'",
             TokenKind::KwVar => "'var'",
             TokenKind::KwDo => "'do'",
@@ -220,6 +225,8 @@ pub enum ItemKind<'a> {
     Def(item::Def<'a>),
     Reduce(ExprRef<'a>),
     Inductive(adt::Inductive<'a>),
+    Trait(item::Trait<'a>),
+    Impl(item::Impl<'a>),
 }
 
 
@@ -241,6 +248,19 @@ pub mod item {
         pub levels: &'a [Atom],
         pub params: BinderList<'a>,
         pub ty:     Option<Expr<'a>>,
+        pub value:  Expr<'a>,
+    }
+
+    #[derive(Debug)]
+    pub enum Trait<'a> {
+        Inductive(adt::Inductive<'a>),
+    }
+
+    #[derive(Debug)]
+    pub struct Impl<'a> {
+        pub levels: &'a [Atom],
+        pub params: BinderList<'a>,
+        pub ty:     Expr<'a>,
         pub value:  Expr<'a>,
     }
 }

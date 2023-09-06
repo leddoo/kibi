@@ -394,6 +394,9 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
                 let info = &ctor_infos[ctor_idx];
 
                 let mut ctor_app = this.alloc.mkt_global(ctor.symbol, this.level_params);
+                for param in this.spec.params.iter().copied() {
+                    ctor_app = this.alloc.mkt_apply(ctor_app, this.alloc.mkt_local(param));
+                }
                 for (arg, _) in info.args.iter().copied() {
                     ctor_app = this.alloc.mkt_apply(ctor_app, this.alloc.mkt_local(arg));
                 }

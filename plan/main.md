@@ -11,24 +11,37 @@
     - basic proof inference.
 
 
+- traits:
+    - binders:
+        - orthogonal to explicit/implicit.
+        - if implicit or `_`, does impl resolution.
+        - syntax:
+            - `<A>` means `<A: Type>`.
+            - `<A is Foo + Bar>` means `<A: Type, _: Foo(A), _: Bar(A)>`.
+
 - todo:
-    - basic traits.
-        - parse. just do inductives for now.
-        - instance binder.
-        - trait is special symbol?
-            - well, we kinda just want it to be a type.
-            - but with a flag that it's a trait.
-            - remember, can have params, can be instances.
-        - then we need impls.
-            - that's just a special kind of def.
-            - which is registered with the trait -> vec of instances.
-            - make sure it doesn't unify with any other impls.
-                - what about something like
-                  `impl: Foo(Nat)` and
-                  `impl T [bar: Bar T]: Foo(bar.type)`?
-                  rust complains that `T` isn't "constrained".
-        - then we need impl resolution.
-            - just linear search for now.
+    - basic impl resolution.
+        - just walk all of them, try unify, error on ambiguous.
+    - local impls.
+
+    - arrow functions.
+    - methods.
+        - lookup in type, needs `self` arg.
+
+
+- effects:
+    - in particular, panics.
+    - `fn foo(): B` means `lam foo(_: ()): Io(B)` or something like that.
+    - so if you use `fn` in traits, you expect those to potentially panic
+      or have other side-effects.
+    - using `Pi`, you can make that explicit (or require totality).
+    - the IR is going to get pretty nasty though. oh well.
+        - actually, that's pretty bad.
+        - cause it also breaks `A -> B -> C`.
+        - we could just mark the decl as partial.
+        - yeah, that seems better.
+        - we could still do explicit effects later on.
+          for now, `partial` as a catch-all seems fine.
 
 
 ### backlog:

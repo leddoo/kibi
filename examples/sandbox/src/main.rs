@@ -4,6 +4,7 @@ use kibi::error::*;
 use kibi::ast::*;
 use kibi::tt::TermPP;
 use kibi::env::*;
+use kibi::traits::*;
 
 
 fn main() {
@@ -32,11 +33,18 @@ reduce Nat::add(1, 2)
 
     let mut strings = kibi::string_table::StringTable::new(&arena);
 
+    // @temp
+    let mut impl_names = Vec::new();
+    for i in 0..69 {
+        impl_names.push(strings.insert(&format!("impl_{i}")));
+    }
+
     let tok_t0 = std::time::Instant::now();
     let tokens = kibi::parser::Tokenizer::tokenize(input, 0, &mut strings, &arena);
     if printing { println!("tok: {:?}", tok_t0.elapsed()) }
 
     let mut env = Env::new();
+    let mut traits = Traits::new();
 
     let errors = ErrorCtx::new(&arena);
 
@@ -51,7 +59,7 @@ reduce Nat::add(1, 2)
 
         parse_dt += t0.elapsed();
 
-        let mut elab = kibi::elab::Elab::new(&mut env, SymbolId::ROOT, &errors, &strings, &arena);
+        let mut elab = kibi::elab::Elab::new(&mut env, &mut traits, SymbolId::ROOT, &errors, &strings, &arena);
 
         match &item.kind {
             ItemKind::Axiom(axiom) => {
@@ -131,6 +139,56 @@ reduce Nat::add(1, 2)
                 if printing {
                     println!("inductive {}", &strings[ind.name]);
                 }
+            }
+
+            ItemKind::Trait(trayt) => {
+                match trayt {
+                    item::Trait::Inductive(ind) => {
+                        let Some(symbol) = elab.elab_inductive(ind) else { break };
+                        work_dt += t0.elapsed();
+
+                        elab.traits.new_trait(symbol);
+
+                        if printing {
+                            println!("trait inductive {}", &strings[ind.name]);
+                        }
+                    }
+                }
+            }
+
+            ItemKind::Impl(impel) => {
+                let Some((ty, val)) = elab.elab_def_core(impel.levels, impel.params, Some(&impel.ty), &impel.value) else { break };
+                work_dt += t0.elapsed();
+
+                let (trayt, _) = ty.app_fun();
+                if let Some(g) = trayt.try_global() {
+                    if let Some(impls) = elab.traits.impls(g.id) {
+                        let name = impl_names[impls.len()];
+                        let symbol = elab.env.new_symbol(g.id, name, SymbolKind::Def(symbol::Def {
+                            num_levels: impel.levels.len() as u32,
+                            ty,
+                            val: Some(val),
+                        })).unwrap();
+                        elab.traits.add_impl(g.id, symbol);
+                    }
+                    else {
+                        println!("error: must impl a trait");
+                        break;
+                    }
+                }
+                else {
+                    println!("error: must impl a trait");
+                    break;
+                }
+
+                if printing {
+                    println!("impl");
+                }
+
+                let Some(()) = elab.check_no_unassigned_variables() else {
+                    println!("error: unassigned inference variables");
+                    break;
+                };
             }
         }
     }

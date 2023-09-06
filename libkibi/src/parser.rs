@@ -223,6 +223,9 @@ impl<'me, 'a> Tokenizer<'me, 'a> {
                     "enum" => TokenKind::KwEnum,
                     "def" => TokenKind::KwDef,
 
+                    "trait" => TokenKind::KwTrait,
+                    "impl" => TokenKind::KwImpl,
+
                     "let" => TokenKind::KwLet,
                     "var" => TokenKind::KwVar,
 
@@ -369,6 +372,10 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 ItemKind::Axiom(item::Axiom { name, levels, params, ty })
             }
 
+            TokenKind::KwInductive => {
+                ItemKind::Inductive(self.parse_inductive()?)
+            }
+
             TokenKind::KwDef => {
                 let name = self.expect_ident()?;
                 let name = self.parse_ident_or_path(name)?;
@@ -395,13 +402,38 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 ItemKind::Def(item::Def { name, levels, params, ty, value })
             }
 
+            TokenKind::KwTrait => {
+                self.expect(TokenKind::KwInductive)?;
+                ItemKind::Trait(item::Trait::Inductive(self.parse_inductive()?))
+            }
+
+            TokenKind::KwImpl => {
+                //let name = self.expect_ident()?;
+                //let name = self.parse_ident_or_path(name)?;
+
+                let mut levels = &mut [][..];
+                if self.tokens.consume_if(|at| at.kind == TokenKind::Dot) {
+                    self.expect(TokenKind::LCurly)?;
+                    levels = self.sep_by(TokenKind::Comma, TokenKind::RCurly, |this| {
+                        this.expect_ident()
+                    })?;
+                }
+
+                let params = self.parse_binders(false)?;
+
+                self.expect(TokenKind::Colon)?;
+                let ty = self.parse_expr()?;
+
+                self.expect(TokenKind::ColonEq)?;
+
+                let value = self.parse_expr()?;
+
+                ItemKind::Impl(item::Impl { levels, params, ty, value })
+            }
+
             TokenKind::Ident(atoms::reduce) => {
                 let expr = self.arena.alloc_new(self.parse_expr()?);
                 ItemKind::Reduce(expr)
-            }
-
-            TokenKind::KwInductive => {
-                ItemKind::Inductive(self.parse_inductive()?)
             }
 
             _ => {
