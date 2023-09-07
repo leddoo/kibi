@@ -160,7 +160,7 @@ reduce Nat::add(1, 2)
                 let Some((ty, val)) = elab.elab_def_core(impel.levels, impel.params, Some(&impel.ty), &impel.value) else { break };
                 work_dt += t0.elapsed();
 
-                let (trayt, _) = ty.app_fun();
+                let trayt = ty.forall_ret().0.app_fun().0;
                 if let Some(g) = trayt.try_global() {
                     if elab.traits.is_trait(g.id) {
                         let impls = elab.traits.impls(g.id);

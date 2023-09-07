@@ -251,56 +251,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 }
 
                 for (trayt, ivar) in impl_args.iter().copied() {
-                    println!("impl resolution");
-                    let goal = self.infer_type(ivar).unwrap();
-                    let goal = self.instantiate_term_vars(goal);
-                    if goal.has_ivars() {
-                        println!("error: impl resolution doesn't support ivars rn, sorry");
-                        return None;
-                    }
-
-                    println!("for {}", self.pp(goal, 80));
-
-                    let mut impls = Vec::new_in(&*temp);
-                    for impel in self.traits.impls(trayt).iter().copied() {
-                        impls.push(impel);
-                    }
-
-                    let mut matched = None;
-                    for impel in impls.iter().copied() {
-                        let sym = self.env.symbol(impel);
-
-                        let def = match sym.kind {
-                            SymbolKind::Def(def) => def,
-                            _ => unreachable!()
-                        };
-
-                        let Some(val) = def.val else {
-                            continue;
-                        };
-
-                        println!("found {}", self.pp(def.ty, 80));
-
-                        if def.ty.syntax_eq(goal) {
-                            if matched.is_some() {
-                                println!("error: multiple matching impls");
-                                return None;
-                            }
-
-                            println!("found match {:?}", &self.strings[sym.name]);
-                            matched = Some(val);
-                        }
-                    }
-
-                    let Some(matched) = matched else {
-                        println!("error: no matching impl found");
-                        return None;
-                    };
-
-                    if !self.ensure_def_eq(ivar, matched) {
-                        println!("error: something went wrong");
-                        return None;
-                    }
+                    self.resolve_impl(trayt, ivar)?;
                 }
 
                 (result, result_ty)

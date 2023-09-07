@@ -20,7 +20,6 @@
             - `<A is Foo + Bar>` means `<A: Type, _: Foo(A), _: Bar(A)>`.
 
 - todo:
-    - higher order impls.
     - local impls.
     - the compiler cleanup.
         - sti vec utils.

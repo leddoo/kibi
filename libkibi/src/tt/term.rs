@@ -429,6 +429,18 @@ impl<'a> Term<'a> {
     }
 
 
+    #[inline]
+    pub fn forall_ret(self) -> (Term<'a>, usize) {
+        let mut r = self;
+        let mut num_params = 0;
+        while let Some(pi) = r.try_forall() {
+            r = pi.val;
+            num_params += 1;
+        }
+        return (r, num_params);
+    }
+
+
 
     // doesn't check for `ptr_eq` of old `app_fun`.
     pub fn replace_app_fun(self, new_fun: Term<'a>, alloc: &'a Arena) -> Term<'a> {

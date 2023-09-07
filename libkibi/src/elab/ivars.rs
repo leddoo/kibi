@@ -62,7 +62,7 @@ impl<'a> IVarCtx<'a> {
             self.term_vars.inner_mut().truncate(save.num_term_vars as usize);
 
             if self.assignment_gen > save.assignment_gen {
-                println!("restore assignments");
+                //println!("restore assignments");
 
                 for level in self.level_vars.inner_mut().iter_mut() {
                     if level.assignment_gen > save.assignment_gen {
