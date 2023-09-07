@@ -1,3 +1,5 @@
+use sti::traits::FromIn;
+
 use crate::string_table::Atom;
 use crate::ast;
 use crate::tt::*;
@@ -61,11 +63,9 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
                 // @cleanup: dedup.
                 let levels = if levels.len() == 0 {
-                    let mut ls = Vec::with_cap_in(num_levels, self.alloc);
-                    for _ in 0..num_levels {
-                        ls.push(self.new_level_var());
-                    }
-                    ls.leak()
+                    Vec::from_in(self.alloc,
+                        (0..num_levels).map(|_| self.new_level_var())
+                    ).leak()
                 }
                 else {
                     if levels.len() != num_levels {
@@ -75,7 +75,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                         return None;
                     }
 
-                    let mut ls = Vec::with_cap_in(levels.len(), self.alloc);
+                    let mut ls = Vec::with_cap_in(self.alloc, levels.len());
                     for l in levels {
                         ls.push(self.elab_level(l)?);
                     }
@@ -91,11 +91,9 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
                 // @cleanup: dedup.
                 let levels = if levels.len() == 0 {
-                    let mut ls = Vec::with_cap_in(num_levels, self.alloc);
-                    for _ in 0..num_levels {
-                        ls.push(self.new_level_var());
-                    }
-                    ls.leak()
+                    Vec::from_in(self.alloc,
+                        (0..num_levels).map(|_| self.new_level_var())
+                    ).leak()
                 }
                 else {
                     if levels.len() != num_levels {
@@ -105,7 +103,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                         return None;
                     }
 
-                    let mut ls = Vec::with_cap_in(levels.len(), self.alloc);
+                    let mut ls = Vec::with_cap_in(self.alloc, levels.len());
                     for l in levels {
                         ls.push(self.elab_level(l)?);
                     }

@@ -1,4 +1,5 @@
 use sti::arena_pool::ArenaPool;
+use sti::traits::{FromIn, CopyIt};
 
 use crate::ast::adt::Inductive;
 use crate::tt::*;
@@ -56,8 +57,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let ind_local = self.alloc.mkt_local(ind_local_id);
 
         // elab ctors.
-        // @speed: arena.
-        let mut ctors = Vec::with_cap_in(ind.ctors.len(), &*temp);
+        let mut ctors = Vec::with_cap_in(&*temp, ind.ctors.len());
         for ctor in ind.ctors {
             let args = self.elab_binders(&ctor.args, &*temp)?;
 
@@ -90,11 +90,8 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             ctors.push(inductive::CtorSpec { name: ctor.name, symbol, ty });
         }
 
-        // @speed: arena.
-        let mut param_ids = Vec::with_cap_in(params.len(), &*temp);
-        for (id, _, _) in params.iter().copied() {
-            param_ids.push(id);
-        }
+        let param_ids = Vec::from_in(&*temp,
+            params.copy_map_it(|(id, _, _)| id));
 
         let rec_symbol = self.env.new_symbol(ind_symbol, atoms::rec, SymbolKind::Pending)?;
 

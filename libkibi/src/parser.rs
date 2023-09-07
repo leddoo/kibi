@@ -905,7 +905,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
     fn parse_ident_or_path(&mut self, start: Atom) -> Option<IdentOrPath<'a>> {
         if self.tokens.consume_if(|at| at.kind == TokenKind::ColonColon) {
-            let mut parts = Vec::with_cap_in(4, self.arena);
+            let mut parts = Vec::with_cap_in(self.arena, 4);
             parts.push(start);
 
             loop { // don't use `self.arena` in here.

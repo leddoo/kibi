@@ -6,7 +6,7 @@ use sti::hash::{HashMapF, HashFn};
 use sti::hash::fxhash::FxHasher32;
 
 
-sti::define_key!(u32, pub Atom, opt: pub OptAtom);
+sti::define_key!(pub, u32, Atom, opt: OptAtom);
 
 impl Atom { pub const NULL: Atom = Atom(0); }
 

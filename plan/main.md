@@ -21,7 +21,6 @@
 
 - todo:
     - the compiler cleanup.
-        - sti vec utils.
         - move parse/elab loop & error formatting into library.
         - the `elab_def` situation.
         - string table shared mutation, but not for tok.

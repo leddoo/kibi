@@ -35,10 +35,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
         }
 
-        let mut impls = Vec::new_in(&*temp);
-        for impel in self.traits.impls(trayt).iter().copied() {
-            impls.push(impel);
-        }
+        let impls = Vec::from_slice_in(&*temp, self.traits.impls(trayt));
 
         let mut matched = None;
         for impel in impls.iter().copied() {

@@ -35,7 +35,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         let mut targets = Vec::new_in(&*temp);
 
-        let mut postponed = Vec::with_cap_in(args.len(), &*temp);
+        let mut postponed = Vec::with_cap_in(&*temp, args.len());
 
         // apply args to func.
         // create vars for motive and non-target args.

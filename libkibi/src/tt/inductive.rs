@@ -1,5 +1,6 @@
 use sti::arena::Arena;
 use sti::arena_pool::ArenaPool;
+use sti::traits::{CopyIt, FromIn};
 use sti::vec::Vec;
 
 use crate::string_table::Atom;
@@ -101,11 +102,11 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
         let num_types = spec.types.len();
         assert!(num_types > 0);
 
-        let mut level_params = Vec::with_cap_in(spec.levels.len(), elab.alloc);
-        for (i, name) in spec.levels.iter().copied().enumerate() {
-            level_params.push(elab.alloc.mkl_param(name, i as u32));
-        }
-        let level_params = level_params.leak();
+        let level_params =
+            Vec::from_in(elab.alloc,
+                spec.levels.copy_it().enumerate()
+                .map(|(i, name)|
+                     elab.alloc.mkl_param(name, i as u32))).leak();
 
         let temp = ArenaPool::tls_get_rec();
 
@@ -116,10 +117,10 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
             spec,
             level_params,
             elim_levels: level_params,
-            type_globals: Vec::with_cap_in(num_types, &*temp),
-            type_global_param_apps: Vec::with_cap_in(num_types, &*temp),
-            type_global_index_apps: Vec::with_cap_in(num_types, &*temp),
-            indices: Vec::with_cap_in(num_types, &*temp),
+            type_globals: Vec::with_cap_in(&*temp, num_types),
+            type_global_param_apps: Vec::with_cap_in(&*temp, num_types),
+            type_global_index_apps: Vec::with_cap_in(&*temp, num_types),
+            indices: Vec::with_cap_in(&*temp, num_types),
             ctor_infos: Vec::new_in(&*temp),
         };
 
@@ -130,7 +131,7 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
 
         // check type formers.
         let mut ind_level = None;
-        let mut type_formers = Vec::with_cap_in(this.spec.types.len(), this.temp);
+        let mut type_formers = Vec::with_cap_in(this.temp, this.spec.types.len());
         for spec in this.spec.types {
             let mut type_former = this.elab.lctx.lookup(spec.local).ty;
 
@@ -196,11 +197,11 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
 
 
         // check ctors.
-        let mut ctor_types = Vec::with_cap_in(this.spec.types.len(), this.temp);
+        let mut ctor_types = Vec::with_cap_in(this.temp, this.spec.types.len());
         for (spec_idx, spec) in this.spec.types.iter().enumerate() {
             // check ctors.
-            let mut ty_ctor_infos = Vec::with_cap_in(spec.ctors.len(), this.temp);
-            let mut ty_ctor_types = Vec::with_cap_in(spec.ctors.len(), this.temp);
+            let mut ty_ctor_infos = Vec::with_cap_in(this.temp, spec.ctors.len());
+            let mut ty_ctor_types = Vec::with_cap_in(this.temp, spec.ctors.len());
             for ctor in spec.ctors.iter().copied() {
                 let mut args = Vec::new_in(this.temp);
 
@@ -355,20 +356,18 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
             if large_elim {
                 let r = this.alloc.mkl_param(atoms::r, this.level_params.len() as u32);
 
-                let mut elim_levels = Vec::with_cap_in(this.level_params.len() + 1, this.alloc);
-                for level in this.level_params.iter().copied() {
-                    elim_levels.push(level);
-                }
-                elim_levels.push(r);
-
-                this.elim_levels = elim_levels.leak();
+                this.elim_levels =
+                    Vec::from_in(this.alloc,
+                        this.level_params.copy_it()
+                        .chain([r])
+                    ).leak();
 
                 this.alloc.mkt_sort(r)
             }
             else { Term::SORT_0 };
 
 
-        let mut motives = Vec::with_cap_in(this.spec.types.len(), this.temp);
+        let mut motives = Vec::with_cap_in(this.temp, this.spec.types.len());
         for spec_idx in 0..this.spec.types.len() {
             let mp = this.type_global_index_apps[spec_idx];
 
@@ -439,8 +438,8 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
         let minors = minors;
 
 
-        let mut elim_types = Vec::with_cap_in(this.spec.types.len(), this.temp);
-        let mut elim_infos = Vec::with_cap_in(this.spec.types.len(), this.temp);
+        let mut elim_types = Vec::with_cap_in(this.temp, this.spec.types.len());
+        let mut elim_infos = Vec::with_cap_in(this.temp, this.spec.types.len());
         for spec_idx in 0..this.spec.types.len() {
             let mut motive_pos = None;
             let mut elim_arg_kinds = Vec::new_in(this.temp);
@@ -497,12 +496,12 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
         let elim_infos = elim_infos;
 
 
-        let mut comp_rules: Vec<&'a [Term<'a>], _> = Vec::with_cap_in(this.spec.types.len(), this.alloc);
+        let mut comp_rules: Vec<&'a [Term<'a>], _> = Vec::with_cap_in(this.alloc, this.spec.types.len());
         let mut minors_offset = 0;
         for spec_idx in 0..this.spec.types.len() {
             let ctor_infos = &this.ctor_infos[spec_idx];
 
-            let mut spec_rules = Vec::with_cap_in(ctor_infos.len(), this.alloc);
+            let mut spec_rules = Vec::with_cap_in(this.alloc, ctor_infos.len());
             for (i, ctor_info) in ctor_infos.iter().enumerate() {
                 // comp_i = λ ps Ms ms as, ms_i as mvs
                 let mut comp_ret = this.alloc.mkt_local(minors[minors_offset + i]);
@@ -587,7 +586,7 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
         }
 
 
-        let mut infos = Vec::with_cap_in(this.spec.types.len(), this.alloc);
+        let mut infos = Vec::with_cap_in(this.alloc, this.spec.types.len());
         for (spec_idx, spec) in this.spec.types.iter().enumerate() {
             let elim_info  = elim_infos[spec_idx];
             let comp_rules = comp_rules[spec_idx];

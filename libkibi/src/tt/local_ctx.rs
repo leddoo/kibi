@@ -7,7 +7,7 @@ use super::term::*;
 
 
 // @todo: debug version with (global) generational indices.
-sti::define_key!(u32, pub ScopeId, opt: pub OptScopeId);
+sti::define_key!(pub, u32, ScopeId, opt: OptScopeId);
 
 
 pub struct LocalCtx<'a> {

@@ -11,7 +11,7 @@ pub struct Env<'a> {
 }
 
 
-sti::define_key!(u32, pub SymbolId, opt: OptSymbolId);
+sti::define_key!(pub, u32, SymbolId, opt: OptSymbolId);
 
 
 #[derive(Debug)]
