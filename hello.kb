@@ -219,8 +219,8 @@ def add<A B: Type, self: Add(A, B)>(a: A, b: B): Add::R(self) :=
     Add::add(self)(a, b)
 
 
-def double<A: Type, add: Add(A, A)>(a: A): Add::R(add) :=
-    Add::add(add)(a, a)
+def double<A: Type, add_impl: Add(A, A)>(a: A): Add::R(add_impl) :=
+    add(a, a)
 
 
 impl: Add(Nat, Nat) := Add::mk(Nat, Nat::add)
@@ -247,16 +247,16 @@ impl<A1 A2 B1 B2: Type, add_a: Add(A1, A2), add_b: Add(B1, B2)>:
     := Add::mk(
         Pair(Add::R(add_a), Add::R(add_b)),
         lam p1 p2 => Pair::mk(
-            Add::add(add_a)(Pair::fst(p1), Pair::fst(p2)),
-            Add::add(add_b)(Pair::snd(p1), Pair::snd(p2))))
+            add(Pair::fst(p1), Pair::fst(p2)),
+            add(Pair::snd(p1), Pair::snd(p2))))
 
 impl<A B C: Type, add_a: Add(A, C), add_b: Add(B, C)>:
     Add(Pair(A, B), C)
     := Add::mk(
         Pair(Add::R(add_a), Add::R(add_b)),
         lam p c => Pair::mk(
-            Add::add(add_a)(Pair::fst(p), c),
-            Add::add(add_b)(Pair::snd(p), c)))
+            add(Pair::fst(p), c),
+            add(Pair::snd(p), c)))
 
 
 reduce add(33, 36)

@@ -20,7 +20,6 @@
             - `<A is Foo + Bar>` means `<A: Type, _: Foo(A), _: Bar(A)>`.
 
 - todo:
-    - local impls.
     - the compiler cleanup.
         - sti vec utils.
         - move parse/elab loop & error formatting into library.

@@ -251,7 +251,10 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 }
 
                 for (trayt, ivar) in impl_args.iter().copied() {
-                    self.resolve_impl(trayt, ivar)?;
+                    if !self.resolve_impl(trayt, ivar) {
+                        println!("error: no matching impl found");
+                        return None;
+                    }
                 }
 
                 (result, result_ty)

@@ -7,17 +7,33 @@ use super::*;
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     #[must_use]
-    pub fn resolve_impl(&mut self, trayt: SymbolId, ivar: Term<'a>) -> Option<()> {
+    pub fn resolve_impl(&mut self, trayt: SymbolId, ivar: Term<'a>) -> bool {
         let temp = ArenaPool::tls_get_rec();
 
         let goal = self.infer_type(ivar).unwrap();
         let goal = self.instantiate_term_vars(goal);
         if goal.has_ivars() {
             println!("error: impl resolution doesn't support ivars rn, sorry");
-            return None;
+            return false;
         }
 
         //println!("impl resolution for {}", self.pp(goal, 80));
+
+        // local impls.
+        let mut scope = self.lctx.current;
+        while let Some(local) = scope.to_option() {
+            let entry = self.lctx.lookup(local);
+            scope = entry.parent;
+
+            if entry.ty.syntax_eq(goal) {
+                let val = self.alloc.mkt_local(local);
+                if !self.ensure_def_eq(ivar, val) {
+                    println!("error: something went wrong");
+                    return false;
+                }
+                return true;
+            }
+        }
 
         let mut impls = Vec::new_in(&*temp);
         for impel in self.traits.impls(trayt).iter().copied() {
@@ -27,7 +43,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let mut matched = None;
         for impel in impls.iter().copied() {
             let sym = self.env.symbol(impel);
-            let name = sym.name;
+            //let name = sym.name;
 
             let def = match sym.kind {
                 SymbolKind::Def(def) => def,
@@ -58,7 +74,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 if def.ty.syntax_eq(goal) {
                     if matched.is_some() {
                         println!("error: multiple matching impls");
-                        return None;
+                        return false;
                     }
 
                     //println!("found match {:?}", &self.strings[name]);
@@ -78,7 +94,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                             let head = sub_goal.app_fun().0;
                             if let Some(global) = head.try_global() {
                                 if self.traits.is_trait(global.id) {
-                                    if self.resolve_impl(global.id, sub_ivar).is_some() {
+                                    if self.resolve_impl(global.id, sub_ivar) {
                                         continue;
                                     }
                                     else{
@@ -95,7 +111,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     if success {
                         if matched.is_some() {
                             println!("error: multiple matching impls");
-                            return None;
+                            return false;
                         }
 
                         //println!("found match {:?}", &self.strings[name]);
@@ -114,16 +130,15 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
 
         let Some(matched) = matched else {
-            //println!("error: no matching impl found");
-            return None;
+            return false;
         };
 
         if !self.ensure_def_eq(ivar, matched) {
             println!("error: something went wrong");
-            return None;
+            return false;
         }
 
-        return Some(());
+        return true;
     }
 }
 
