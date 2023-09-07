@@ -204,7 +204,7 @@ def elim_under_applied_2: Pi(n: Nat) -> Eq(Nat::add(0, n), n) :=
     Nat::rec(Eq::refl(), lam n ih => congr_arg(_, ih))
 
 
-trait inductive Add (A B: Type) {
+trait inductive Add (A B: Type): Sort(2) {
     mk (R: Type) (add: Pi(_: A, _: B) -> R)
 }
 

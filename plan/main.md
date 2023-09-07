@@ -1,9 +1,9 @@
 
 - road map:
     - basic traits.
+    - codegen.
     - nat literals.
     - unordered decls & compiler rework.
-    - codegen.
     - references.
     - multi-threading.
     - modules.
@@ -22,10 +22,20 @@
 - todo:
     - higher order impls.
     - local impls.
+    - the compiler cleanup.
+        - sti vec utils.
+        - move parse/elab loop & error formatting into library.
+        - the `elab_def` situation.
+        - string table shared mutation, but not for tok.
+        - `SymbolKind::Axiom`.
+    - ident -> elab as app with no args.
     - arrow functions.
+    - dot-idents.
     - methods.
         - lookup in type, needs `self` arg.
-    - tbd.
+    - partial functions.
+    - `fn`.
+    - codegen.
 
 
 - effects:

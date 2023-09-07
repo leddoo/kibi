@@ -181,6 +181,7 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
                 ind_level = Some(level);
             }
         }
+        let ind_level = ind_level.unwrap();
 
 
         // make params/indices implicit for ctor/rec types.
@@ -207,11 +208,24 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
                 let mut ty = ctor.ty;
                 while let Some(pi) = this.elab.whnf_forall(ty) {
                     // check level.
-                    let Some(_arg_level) = this.elab.infer_type_as_sort(pi.ty) else {
+                    let Some(arg_level) = this.elab.infer_type_as_sort(pi.ty) else {
                         println!("this shouldn't have happened...");
                         return None;
                     };
-                    // @complete: `ind_level.is_zero() || arg_level.le(ind_level)`.
+
+                    if !ind_level.is_zero() {
+                        if let (Some(arg_level), Some(ind_level)) = (arg_level.to_nat(), ind_level.to_nat()) {
+                            if arg_level > ind_level {
+                                println!("error: arg level too large");
+                                return None;
+                            }
+                        }
+                        else {
+                            println!("warn: need to validate {} <= {}",
+                                this.elab.pp_level(arg_level, 80),
+                                this.elab.pp_level(ind_level, 80));
+                        }
+                    }
 
                     // check recursion.
                     let is_rec = {
@@ -279,7 +293,6 @@ impl<'me, 'temp, 'err, 'a> Check<'me, 'temp, 'err, 'a> {
             this.ctor_infos.push(ty_ctor_infos.leak());
             ctor_types.push(ty_ctor_types.leak());
         }
-        let ind_level = ind_level.unwrap();
 
 
         // determine elim level.
