@@ -1,0 +1,8 @@
+[package]
+name = "kibi-lsp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+kibi = { path = "../libkibi" }
+

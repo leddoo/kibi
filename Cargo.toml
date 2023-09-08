@@ -2,6 +2,7 @@
 
 members = [
     "libkibi",
+    "kibi-lsp",
     "examples/sandbox",
 ]
 

@@ -20,11 +20,12 @@
             - `<A is Foo + Bar>` means `<A: Type, _: Foo(A), _: Bar(A)>`.
 
 - todo:
-    - lsp:
-        - how?
-        - what do we need for the bare minimum?
+    - lsp syntax highlighting.
+        - specify capability.
+        - tokenize & stuff.
 
     - cleanup.
+        - assert last item's end is parser prev token's end.
         - `SymbolKind::Axiom`.
         - parser eof errors.
         - proper errors for elab stuff.

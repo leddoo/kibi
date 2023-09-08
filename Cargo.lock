@@ -10,6 +10,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "kibi-lsp"
+version = "0.1.0"
+dependencies = [
+ "kibi",
+]
+
+[[package]]
 name = "sandbox"
 version = "0.1.0"
 dependencies = [
