@@ -20,11 +20,15 @@
             - `<A is Foo + Bar>` means `<A: Type, _: Foo(A), _: Bar(A)>`.
 
 - todo:
-    - the compiler cleanup.
-        - move parse/elab loop & error formatting into library.
-        - the `elab_def` situation.
-        - string table shared mutation, but not for tok.
+    - lsp:
+        - how?
+        - what do we need for the bare minimum?
+
+    - cleanup.
         - `SymbolKind::Axiom`.
+        - parser eof errors.
+        - proper errors for elab stuff.
+
     - ident -> elab as app with no args.
     - arrow functions.
     - dot-idents.

@@ -12,7 +12,7 @@ use crate::traits::Traits;
 
 pub struct Elab<'me, 'err, 'a> {
     pub alloc: &'a Arena,
-    pub strings: &'me StringTable<'a>,
+    pub strings: &'me mut StringTable<'a>,
     pub errors: &'me ErrorCtx<'err>,
     pub env: &'me mut Env<'a>,
     pub traits: &'me mut Traits,
@@ -51,7 +51,7 @@ pub use ivars::{LevelVarId, TermVarId};
 
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
-    pub fn new(env: &'me mut Env<'a>, traits: &'me mut Traits, root_symbol: SymbolId, errors: &'me ErrorCtx<'err>, strings: &'me StringTable<'a>, alloc: &'a Arena) -> Self {
+    pub fn new(env: &'me mut Env<'a>, traits: &'me mut Traits, root_symbol: SymbolId, errors: &'me ErrorCtx<'err>, strings: &'me mut StringTable<'a>, alloc: &'a Arena) -> Self {
         Self {
             alloc,
             strings,
@@ -70,6 +70,13 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         self.errors.with(|errors| {
             errors.report(Error { source, kind: ErrorKind::Elab(f(errors.alloc)) });
         });
+    }
+
+    pub fn reset(&mut self) {
+        self.level_params.clear();
+        self.lctx.clear();
+        self.locals.clear();
+        self.ivars.clear();
     }
 
     // @mega@temp below this line.

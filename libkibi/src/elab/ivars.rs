@@ -38,6 +38,12 @@ impl<'a> IVarCtx<'a> {
             assignment_gen: 0,
         }
     }
+
+    pub fn clear(&mut self) {
+        unsafe { self.level_vars.inner_mut().clear() }
+        unsafe { self.term_vars.inner_mut().clear() }
+        self.assignment_gen = 0;
+    }
 }
 
 

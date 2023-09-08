@@ -12,4 +12,5 @@ pub mod tt;
 pub mod env;
 pub mod traits;
 pub mod elab;
+pub mod compiler;
 

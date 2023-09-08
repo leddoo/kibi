@@ -42,6 +42,11 @@ impl<'a> LocalCtx<'a> {
         }
     }
 
+    pub fn clear(&mut self) {
+        unsafe { self.scopes.inner_mut().clear() }
+        self.current = None.into();
+    }
+
     #[inline(always)]
     pub fn len(&self) -> usize {
         self.scopes.len()
