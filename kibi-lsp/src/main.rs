@@ -1,6 +1,8 @@
 use kibi::sti;
-
+use sti::arena_pool::ArenaPool;
 use sti::vec::Vec;
+
+mod json;
 
 
 fn main() {
@@ -85,7 +87,16 @@ fn process_message(msg: &mut Vec<u8>, log: &mut std::fs::File) -> bool {
 
     let content = &content[..content_length];
 
-    _ = log.write(format!("[debug] content:\n{:?}\n", core::str::from_utf8(content)).as_bytes());
+    let temp = unsafe { ArenaPool::tls_get_scoped(&[]) };
+    let content = match json::JsonValue::parse(&*temp, content) {
+        Ok(content) => content,
+        Err(e) => {
+            _ = log.write(format!("[error] invalid json {:?}", e).as_bytes());
+            return false;
+        }
+    };
+
+    _ = log.write(format!("[debug] content:\n{:#?}\n", content).as_bytes());
 
     let consumed = end_headers + 4 + content_length;
     unsafe {

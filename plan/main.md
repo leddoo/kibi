@@ -11,16 +11,10 @@
     - basic proof inference.
 
 
-- traits:
-    - binders:
-        - orthogonal to explicit/implicit.
-        - if implicit or `_`, does impl resolution.
-        - syntax:
-            - `<A>` means `<A: Type>`.
-            - `<A is Foo + Bar>` means `<A: Type, _: Foo(A), _: Bar(A)>`.
-
 - todo:
     - lsp syntax highlighting.
+        - json parser.
+            - sti utf-8 utils.
         - specify capability.
         - tokenize & stuff.
 
@@ -38,21 +32,6 @@
     - partial functions.
     - `fn`.
     - codegen.
-
-
-- effects:
-    - in particular, panics.
-    - `fn foo(): B` means `lam foo(_: ()): Io(B)` or something like that.
-    - so if you use `fn` in traits, you expect those to potentially panic
-      or have other side-effects.
-    - using `Pi`, you can make that explicit (or require totality).
-    - the IR is going to get pretty nasty though. oh well.
-        - actually, that's pretty bad.
-        - cause it also breaks `A -> B -> C`.
-        - we could just mark the decl as partial.
-        - yeah, that seems better.
-        - we could still do explicit effects later on.
-          for now, `partial` as a catch-all seems fine.
 
 
 ### backlog:
