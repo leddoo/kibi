@@ -12,13 +12,13 @@
 
 
 - todo:
-    - debug tracing.
     - lsp syntax highlighting.
-        - handle shutdown.
         - specify capability.
         - tokenize & stuff.
         - fix memory leak in compiler.
             - remove elab, box other stuff (can keep in arena).
+    - json display: string escapes.
+    - debug tracing.
 
     - cleanup.
         - assert last item's end is parser prev token's end.
