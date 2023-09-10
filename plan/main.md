@@ -13,6 +13,7 @@
 
 - todo:
     - lsp syntax highlighting.
+        - attach to buffer.
         - specify capability.
         - tokenize & stuff.
         - fix memory leak in compiler.

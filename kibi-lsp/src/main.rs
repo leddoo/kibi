@@ -10,6 +10,8 @@ use std::fs::File;
 use std::io::Write;
 
 struct Lsp {
+    stdin: File,
+    stdout: File,
     log: File,
 
     message: Vec<u8>,
@@ -19,102 +21,64 @@ struct Lsp {
 impl Lsp {
     pub fn new() -> Self {
         Self {
-            log: File::create("lsp.log").unwrap(),
+            stdin: File::create("target/lsp.stdin").unwrap(),
+            stdout: File::create("target/lsp.stdout").unwrap(),
+            log: File::create("target/lsp.log").unwrap(),
             message: Vec::new(),
             initialized: false,
         }
     }
 
     pub fn process_bytes(&mut self, bytes: &[u8]) -> bool {
+        _ = self.stdin.write(bytes);
+
         self.message.extend_from_slice(bytes);
         if self.message.len() == 0 {
             return true;
         }
-
-        _ = self.log.write(b"[debug] try parsing\n");
 
         let mut msg = self.message.take();
 
         let bytes = msg.as_slice();
 
         let Some(end_headers) = bytes.windows(4).position(|w| w == b"\r\n\r\n") else {
-            _ = self.log.write(b"[debug] not enough data\n");
-            _ = self.log.write(bytes);
-            _ = self.log.write(b"\n\n");
             return true;
         };
 
         let headers = &bytes[..end_headers];
         let content = &bytes[end_headers+4..];
 
-        let Ok(headers) = core::str::from_utf8(headers) else {
-            _ = self.log.write(b"[error] headers are not valid utf8:\n");
-            _ = self.log.write(headers);
-            _ = self.log.write(b"\n");
-            panic!()
-        };
-        _ = self.log.write(b"[debug] headers valid utf8\n");
+        let headers = core::str::from_utf8(headers).unwrap();
 
         let mut content_length = None;
         for header in headers.lines() {
-            let Some((key, value)) = header.split_once(": ") else {
-                _ = self.log.write(b"[error] invalid header");
-                panic!()
-            };
-            _ = self.log.write(format!("[debug] header {key:?}: {value:?}\n").as_bytes());
+            let (key, value) = header.split_once(": ").unwrap();
 
             if key == "Content-Length" {
-                let Ok(value) = usize::from_str_radix(value, 10) else {
-                    _ = self.log.write(b"[error] content length not a number: ");
-                    _ = self.log.write(value.as_bytes());
-                    _ = self.log.write(b"\n");
-                    panic!()
-                };
-
+                let value = usize::from_str_radix(value, 10).unwrap();
                 content_length = Some(value);
             }
         }
 
-        let Some(content_length) = content_length else {
-            _ = self.log.write(b"[error] content length missing\n");
-            panic!()
-        };
+        let content_length = content_length.unwrap();
 
         if content_length > content.len() {
-            _ = self.log.write(format!("[debug] valid headers, but need more data. have {}, need {}\n",
-                    content.len(), content_length).as_bytes());
             return true;
         }
 
         let content = &content[..content_length];
 
         let temp = unsafe { ArenaPool::tls_get_scoped(&[]) };
-        let content = match json::parse(&*temp, content) {
-            Ok(content) => content,
-            Err(e) => {
-                _ = self.log.write(format!("[error] invalid json {:?}", e).as_bytes());
-                panic!()
-            }
-        };
-
-        _ = self.log.write(format!("[debug] content:\n{:#}\n", content).as_bytes());
+        let content = json::parse(&*temp, content).unwrap();
 
         {
             use core::fmt::Write;
 
             let temp = unsafe { ArenaPool::tls_get_scoped(&[]) };
-
             let mut buf = String::new_in(&*temp);
             write!(&mut buf, "{}", content).unwrap();
 
-            match json::parse(&*temp, buf.as_bytes()) {
-                Ok(json) => {
-                    _ = self.log.write(format!("[debug] json-reparse: {}\n", json == content).as_bytes());
-                }
-                Err(e) => {
-                    _ = self.log.write(format!("[debug] json-reparse failed: {:?}\n", e).as_bytes());
-                }
-            }
+            assert_eq!(json::parse(&*temp, buf.as_bytes()).unwrap(), content);
         }
 
         if !self.process_message(content) {
@@ -199,6 +163,8 @@ impl Lsp {
 
         print!("Content-Length: {}\r\n\r\n{}", content.len(), content);
         std::io::stdout().flush().unwrap();
+
+        _ = write!(self.stdout, "Content-Length: {}\r\n\r\n{}", content.len(), content);
     }
 }
 
