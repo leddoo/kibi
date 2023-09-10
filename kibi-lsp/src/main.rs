@@ -1,6 +1,7 @@
 use kibi::sti;
 use sti::arena_pool::ArenaPool;
 use sti::vec::Vec;
+use sti::string::String;
 
 mod json;
 
@@ -18,8 +19,10 @@ fn main() {
             Ok(n) => {
                 message.extend_from_slice(&buffer[..n]);
 
-                if !process_message(&mut message, &mut log) {
-                    return;
+                if message.len() > 0 {
+                    if !process_message(&mut message, &mut log) {
+                        return;
+                    }
                 }
             }
 
@@ -28,6 +31,9 @@ fn main() {
                 return;
             }
         }
+
+        // @todo: block.
+        std::thread::sleep(std::time::Duration::from_millis(5));
     }
 }
 
@@ -88,7 +94,7 @@ fn process_message(msg: &mut Vec<u8>, log: &mut std::fs::File) -> bool {
     let content = &content[..content_length];
 
     let temp = unsafe { ArenaPool::tls_get_scoped(&[]) };
-    let content = match json::JsonValue::parse(&*temp, content) {
+    let content = match json::parse(&*temp, content) {
         Ok(content) => content,
         Err(e) => {
             _ = log.write(format!("[error] invalid json {:?}", e).as_bytes());
@@ -96,7 +102,25 @@ fn process_message(msg: &mut Vec<u8>, log: &mut std::fs::File) -> bool {
         }
     };
 
-    _ = log.write(format!("[debug] content:\n{:#?}\n", content).as_bytes());
+    _ = log.write(format!("[debug] content:\n{:#}\n", content).as_bytes());
+
+    {
+        use core::fmt::Write;
+
+        let temp = unsafe { ArenaPool::tls_get_scoped(&[]) };
+
+        let mut buf = String::new_in(&*temp);
+        write!(&mut buf, "{}", content).unwrap();
+
+        match json::parse(&*temp, buf.as_bytes()) {
+            Ok(json) => {
+                _ = log.write(format!("[debug] json-reparse: {}\n", json == content).as_bytes());
+            }
+            Err(e) => {
+                _ = log.write(format!("[debug] json-reparse failed: {:?}\n", e).as_bytes());
+            }
+        }
+    }
 
     let consumed = end_headers + 4 + content_length;
     unsafe {
