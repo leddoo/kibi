@@ -2,6 +2,8 @@ use kibi::compiler::Compiler;
 
 
 fn main() {
+    kibi::spall::init("target/trace.spall").unwrap();
+
     let input = "
 -- reduce (λ(a: Nat, b: Nat) => Nat::rec(a, λ _ r => Nat::succ(r), b))(1, 2)
 

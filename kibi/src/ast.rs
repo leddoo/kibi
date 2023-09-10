@@ -1,4 +1,6 @@
-use crate::string_table::{Atom, OptAtom};
+use sti::traits::CopyIt;
+
+use crate::string_table::{Atom, OptAtom, StringTable};
 
 
 //
@@ -592,5 +594,43 @@ pub mod adt {
     }
 
     pub type CtorList<'a> = &'a [Ctor<'a>];
+}
+
+
+
+//
+// stuff
+//
+
+impl<'a> IdentOrPath<'a> {
+    #[inline(always)]
+    pub fn display<'s>(self, strings: &'s StringTable<'s>) -> IdentOrPathDisplay<'a, 's> {
+        IdentOrPathDisplay { this: self, strings }
+    }
+}
+
+pub struct IdentOrPathDisplay<'a, 's> {
+    this: IdentOrPath<'a>,
+    strings: &'s StringTable<'s>,
+}
+
+impl<'a, 's> core::fmt::Display for IdentOrPathDisplay<'a, 's> {
+    #[inline]
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self.this {
+            IdentOrPath::Ident(name) =>
+                sti::write!(f, "{}", &self.strings[name]),
+
+            IdentOrPath::Path(parts) => {
+                let mut first = true;
+                for part in parts.parts.copy_it() {
+                    if !first { sti::write!(f, "::"); }
+                    first = false;
+                    sti::write!(f, "{}", &self.strings[part]);
+                }
+            }
+        }
+        Ok(())
+    }
 }
 

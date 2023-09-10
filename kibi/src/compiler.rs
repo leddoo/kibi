@@ -73,17 +73,27 @@ impl<'a> Inner<'a> {
 
         let offset = self.source_map.add_file(name, source).ok_or(())?;
 
-        let tokens = Tokenizer::tokenize(source, offset, self.elab.strings, &self.alloc);
-        let mut parser = Parser::new(&tokens, self.elab.errors, self.elab.strings, &self.alloc);
+        let tokens = {
+            spall::trace_scope!("kibi/tok");
+
+            Tokenizer::tokenize(source, offset, self.elab.strings, &self.alloc)
+        };
 
         let mut items = Vec::new();
-        while !parser.tokens.is_empty() {
-            if let Some(item) = parser.parse_item() {
-                items.push(item);
+        {
+            spall::trace_scope!("kibi/parse");
+
+            let mut parser = Parser::new(&tokens,
+                self.elab.errors, self.elab.strings, &self.alloc);
+
+            while !parser.tokens.is_empty() {
+                if let Some(item) = parser.parse_item() {
+                    items.push(item);
+                }
             }
         }
 
-        let printing = true;
+        let printing = false;
 
         for item in &items {
             use crate::ast::*;
@@ -94,6 +104,9 @@ impl<'a> Inner<'a> {
 
             match &item.kind {
                 ItemKind::Axiom(axiom) => {
+                    spall::trace_scope!("kibi/elab/axiom"; "{}",
+                        axiom.name.display(self.elab.strings));
+
                     let Some(_) = self.elab.elab_axiom(axiom) else { break };
 
                     if printing {
@@ -120,6 +133,9 @@ impl<'a> Inner<'a> {
                 }
 
                 ItemKind::Def(def) => {
+                    spall::trace_scope!("kibi/elab/def"; "{}",
+                        def.name.display(self.elab.strings));
+
                     let Some(_) = self.elab.elab_def(def) else { break };
 
                     if printing {
@@ -146,6 +162,8 @@ impl<'a> Inner<'a> {
                 }
 
                 ItemKind::Reduce(expr) => {
+                    spall::trace_scope!("kibi/elab/reduce");
+
                     let Some((term, _)) = self.elab.elab_expr(expr) else { break };
                     let r = self.elab.reduce(term);
 
@@ -161,6 +179,9 @@ impl<'a> Inner<'a> {
                 }
 
                 ItemKind::Inductive(ind) => {
+                    spall::trace_scope!("kibi/elab/inductive"; "{}",
+                        &self.elab.strings[ind.name]);
+
                     let Some(_) = self.elab.elab_inductive(ind) else { break };
 
                     if printing {
@@ -171,6 +192,9 @@ impl<'a> Inner<'a> {
                 ItemKind::Trait(trayt) => {
                     match trayt {
                         item::Trait::Inductive(ind) => {
+                            spall::trace_scope!("kibi/elab/trait-ind",
+                                &self.elab.strings[ind.name]);
+
                             let Some(symbol) = self.elab.elab_inductive(ind) else { break };
 
                             self.elab.traits.new_trait(symbol);
@@ -183,6 +207,8 @@ impl<'a> Inner<'a> {
                 }
 
                 ItemKind::Impl(impel) => {
+                    spall::trace_scope!("kibi/elab/impl");
+
                     let Some((ty, val)) = self.elab.elab_def_core(
                         impel.levels, impel.params, Some(&impel.ty), &impel.value) else { break };
 

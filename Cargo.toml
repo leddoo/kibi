@@ -1,6 +1,7 @@
 [workspace]
 
 members = [
+    "spall-rs",
     "kibi",
     "kibi-lsp",
     "examples/sandbox",
