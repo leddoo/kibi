@@ -148,59 +148,46 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_string(&mut self) -> Result<&'a str, JsonError> {
-        let leading = match utf8::validate_string_inline(self.reader.as_slice()) {
-            Ok((str, stopper)) => {
-                if !stopper { return Err(JsonError::UnexpectedEof) }
-
-                self.reader.consume(str.len());
-
-                if self.reader.consume_if_eq(&b'"') {
-                    return Ok(str);
-                }
-                else { str }
-            }
-
-            Err(_) => {
-                return Err(JsonError::InvalidUtf8(self.reader.consumed()));
-            }
-        };
-
         let mut buffer = String::new_in(self.alloc);
-        buffer.push(leading);
-
         loop {
-            let escape_pos = self.reader.consumed();
-            debug_assert_eq!(self.reader[0], b'\\');
-            self.reader.consume(1);
-
-            // process escape.
-            match self.reader.next().unwrap() {
-                b'"'  => buffer.push_char('"'),
-                b'\\' => buffer.push_char('\\'),
-                b'/'  => buffer.push_char('/'),
-                b'b'  => buffer.push_char('\x08'),
-                b'f'  => buffer.push_char('\x0C'),
-                b'n'  => buffer.push_char('\n'),
-                b'r'  => buffer.push_char('\r'),
-                b't'  => buffer.push_char('\r'),
-
-                b'u' => {
-                    unimplemented!()
-                }
-
-                _ => return Err(JsonError::InvalidEscape(escape_pos)),
-            }
-
-            // parse next bit.
             match utf8::validate_string_inline(self.reader.as_slice()) {
                 Ok((str, stopper)) => {
                     if !stopper { return Err(JsonError::UnexpectedEof) }
 
-                    buffer.push(str);
                     self.reader.consume(str.len());
 
-                    if self.reader.consume_if_eq(&b'"') {
+                    let escape_pos = self.reader.consumed();
+
+                    let stopper = self.reader.next().unwrap();
+                    if stopper == b'"' && buffer.cap() == 0 {
+                        return Ok(str);
+                    }
+
+                    buffer.push(str);
+
+                    if stopper == b'"' {
                         return Ok(buffer.leak());
+                    }
+                    else {
+                        debug_assert_eq!(stopper, b'\\');
+
+                        // process escape.
+                        match self.reader.next().unwrap() {
+                            b'"'  => buffer.push_char('"'),
+                            b'\\' => buffer.push_char('\\'),
+                            b'/'  => buffer.push_char('/'),
+                            b'b'  => buffer.push_char('\x08'),
+                            b'f'  => buffer.push_char('\x0C'),
+                            b'n'  => buffer.push_char('\n'),
+                            b'r'  => buffer.push_char('\r'),
+                            b't'  => buffer.push_char('\r'),
+
+                            b'u' => {
+                                unimplemented!()
+                            }
+
+                            _ => return Err(JsonError::InvalidEscape(escape_pos)),
+                        }
                     }
                 }
 

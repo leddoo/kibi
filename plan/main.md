@@ -12,9 +12,10 @@
 
 
 - todo:
+    - spall tracing.
+    - debug tracing.
     - lsp syntax highlighting.
-        - json parser.
-            - sti utf-8 utils.
+        - handle shutdown.
         - specify capability.
         - tokenize & stuff.
 
