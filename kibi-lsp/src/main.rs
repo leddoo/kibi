@@ -166,6 +166,12 @@ impl Lsp {
 
         match method {
             "shutdown" => {
+                let id = id.unwrap();
+                self.send_response(id, Ok(json::Value::Null));
+                return true;
+            }
+
+            "exit" => {
                 return false;
             }
 
