@@ -2,7 +2,7 @@ use core::cell::RefCell;
 use sti::arena::*;
 use sti::vec::Vec;
 
-use crate::source_map::SourceRange;
+use crate::ast::{ParseId, ParseRange, TokenRange, ExprId};
 use crate::pp::DocRef;
 
 
@@ -18,8 +18,16 @@ pub struct ErrorCtxMut<'err> {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Error<'a> {
-    pub source: SourceRange,
+    pub parse: ParseId,
+    pub source: ErrorSource,
     pub kind: ErrorKind<'a>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum ErrorSource {
+    ParseRange(ParseRange),
+    TokenRange(TokenRange),
+    Expr(ExprId),
 }
 
 #[derive(Clone, Copy, Debug)]

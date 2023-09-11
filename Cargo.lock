@@ -31,4 +31,4 @@ version = "0.1.0"
 [[package]]
 name = "sti"
 version = "0.1.8"
-source = "git+https://github.com/leddoo/sti#8ca33e89a3aeaca90257ad8d43591a637482bbcf"
+source = "git+https://github.com/leddoo/sti#78b7bc846d987f70c25f1cce2e06abddf901f040"

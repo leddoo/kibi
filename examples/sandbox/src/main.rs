@@ -14,9 +14,7 @@ fn main() {
 
     let fs = Rc::new(MemFs::new());
 
-    let vfs = unsafe { fs.clone().cast(|p| p as *mut sti::rc::RcInner<dyn kibi::vfs::Vfs>) };
-
-    let mut kc = Compiler::new(vfs); 
+    let mut kc = Compiler::new(&fs); 
 
     fs.write("hello.kb", input);
     kc.add_source("hello.kb");

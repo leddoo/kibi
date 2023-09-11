@@ -8,9 +8,9 @@ pub struct Compiler {
 }
 
 impl Compiler {
-    pub fn new(vfs: Rc<dyn Vfs>) -> Self {
+    pub fn new(vfs: &Rc<impl 'static + Vfs>) -> Self {
         Self {
-            vfs,
+            vfs: unsafe { vfs.clone().cast(|p| p as *mut sti::rc::RcInner<dyn Vfs>) },
         }
     }
 

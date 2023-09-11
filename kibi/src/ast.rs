@@ -1,4 +1,5 @@
 use sti::traits::CopyIt;
+use sti::keyed::KVec;
 
 use crate::string_table::{Atom, OptAtom, StringTable};
 
@@ -7,7 +8,21 @@ use crate::string_table::{Atom, OptAtom, StringTable};
 // common
 //
 
-pub use crate::source_map::SourceRange;
+sti::define_key!(pub, u32, SourceId);
+sti::define_key!(pub, u32, ParseId);
+
+sti::define_key!(pub, u32, TokenId, rng: TokenRange);
+sti::define_key!(pub, u32, ItemId);
+sti::define_key!(pub, u32, ExprId, opt: OptExprId);
+
+
+#[derive(Clone, Copy, Debug)]
+pub enum AstParent {
+    None,
+    Item(ItemId),
+    Expr(ExprId),
+}
+
 
 #[derive(Clone, Copy, Debug)]
 pub struct Path<'a> {
@@ -34,8 +49,55 @@ pub type BinderList<'a> = &'a [Binder<'a>];
 pub struct TypedBinder<'a> {
     pub implicit: bool,
     pub names:   &'a[OptAtom],
-    pub ty:      ExprRef<'a>,
-    pub default: Option<ExprRef<'a>>,
+    pub ty:      ExprId,
+    pub default: OptExprId,
+}
+
+
+
+#[derive(Clone, Copy, Debug)]
+pub struct SourceRange {
+    pub begin: u32,
+    pub end:   u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ParseRange {
+    pub begin: u32,
+    pub end:   u32,
+}
+
+impl ParseRange {
+    pub const UNKNOWN: SourceRange = SourceRange { begin: 0, end: 0 };
+
+    #[inline(always)]
+    pub fn collapsed(pos: u32) -> SourceRange {
+        SourceRange { begin: pos, end: pos }
+    }
+
+    #[track_caller]
+    #[inline(always)]
+    pub fn join(self, other: SourceRange) -> SourceRange {
+        debug_assert!(self.begin <= other.end);
+        SourceRange { begin: self.begin, end: other.end }
+    }
+}
+
+
+
+sti::define_key!(pub, u32, ParseStringId);
+sti::define_key!(pub, u32, ParseNumberId);
+
+pub struct Parse<'a> {
+    pub source: SourceId,
+    pub source_range: SourceRange,
+
+    pub numbers: KVec<ParseNumberId, &'a str>,
+    pub strings: KVec<ParseStringId, &'a str>,
+    pub tokens:  KVec<TokenId, Token>,
+
+    pub items: KVec<ItemId, Item<'a>>,
+    pub exprs: KVec<ExprId, Expr<'a>>,
 }
 
 
@@ -46,24 +108,21 @@ pub struct TypedBinder<'a> {
 //
 
 #[derive(Clone, Copy, Debug)]
-pub struct Token<'a> {
-    pub source: SourceRange,
-    pub kind: TokenKind<'a>,
+pub struct Token {
+    pub source: ParseRange,
+    pub kind: TokenKind,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum TokenKind<'a> {
+pub enum TokenKind {
     Error,
 
     Hole,
     Ident(Atom),
 
     Bool(bool),
-    Number(&'a str),
-    String(&'a str),
-    //FString(&'a str),
-
-    //Code(&'a str),
+    Number(ParseNumberId),
+    String(ParseStringId),
 
     KwSort, KwProp, KwType,
     KwLam, KwPi,
@@ -136,7 +195,7 @@ pub enum TokenKind<'a> {
 }
 
 
-impl<'a> TokenKind<'a> {
+impl TokenKind {
     pub fn repr(&self) -> &'static str {
         match self {
             TokenKind::Error => unreachable!(),
@@ -218,14 +277,18 @@ impl<'a> TokenKind<'a> {
 
 #[derive(Debug)]
 pub struct Item<'a> {
+    pub parent: AstParent,
+    pub source: TokenRange,
+
     pub kind: ItemKind<'a>,
 }
 
 #[derive(Debug)]
 pub enum ItemKind<'a> {
+    Uninit,
     Axiom(item::Axiom<'a>),
     Def(item::Def<'a>),
-    Reduce(ExprRef<'a>),
+    Reduce(ExprId),
     Inductive(adt::Inductive<'a>),
     Trait(item::Trait<'a>),
     Impl(item::Impl<'a>),
@@ -241,7 +304,7 @@ pub mod item {
         pub name:   IdentOrPath<'a>,
         pub levels: &'a [Atom],
         pub params: BinderList<'a>,
-        pub ty:     Expr<'a>,
+        pub ty:     ExprId,
     }
 
     #[derive(Debug)]
@@ -249,8 +312,8 @@ pub mod item {
         pub name:   IdentOrPath<'a>,
         pub levels: &'a [Atom],
         pub params: BinderList<'a>,
-        pub ty:     Option<Expr<'a>>,
-        pub value:  Expr<'a>,
+        pub ty:     OptExprId,
+        pub value:  ExprId,
     }
 
     #[derive(Debug)]
@@ -262,8 +325,8 @@ pub mod item {
     pub struct Impl<'a> {
         pub levels: &'a [Atom],
         pub params: BinderList<'a>,
-        pub ty:     Expr<'a>,
-        pub value:  Expr<'a>,
+        pub ty:     ExprId,
+        pub value:  ExprId,
     }
 }
 
@@ -273,6 +336,7 @@ pub mod item {
 // stmts
 //
 
+/*
 pub type StmtRef<'a> = &'a Stmt<'a>;
 
 pub type StmtList<'a> = &'a [StmtRef<'a>];
@@ -301,6 +365,7 @@ pub mod stmt {
         pub value:  Option<ExprRef<'a>>,
     }
 }
+*/
 
 
 
@@ -308,18 +373,19 @@ pub mod stmt {
 // exprs
 //
 
-pub type ExprRef<'a> = &'a Expr<'a>;
-
-pub type ExprList<'a> = &'a [Expr<'a>];
+pub type ExprList<'a> = &'a [ExprId];
 
 #[derive(Clone, Copy, Debug)]
 pub struct Expr<'a> {
-    pub source: SourceRange,
+    pub parent: AstParent,
+    pub source: TokenRange,
+
     pub kind: ExprKind<'a>,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub enum ExprKind<'a> {
+    Uninit,
     Error,
 
     Hole,
@@ -333,32 +399,32 @@ pub enum ExprKind<'a> {
     Lambda(expr::Lambda<'a>),
 
     Bool(bool),
-    Number(&'a str),
-    String(&'a str),
+    Number(ParseNumberId),
+    String(ParseStringId),
 
-    Parens(ExprRef<'a>),
+    Parens(ExprId),
     Block(expr::Block<'a>),
 
-    Op1(expr::Op1<'a>),
-    Op2(expr::Op2<'a>),
-    Op2Assign(expr::Op2<'a>),
+    Op1(expr::Op1),
+    Op2(expr::Op2),
+    Op2Assign(expr::Op2),
 
-    Assign(expr::Assign<'a>),
+    Assign(expr::Assign),
 
-    Field(expr::Field<'a>),
-    Index(expr::Index<'a>),
+    Field(expr::Field),
+    Index(expr::Index),
     Call(expr::Call<'a>),
 
     List(ExprList<'a>),
-    ListType(ExprRef<'a>),
+    ListType(ExprId),
     Map(expr::Map<'a>),
-    MapType(expr::MapType<'a>),
+    MapType(expr::MapType),
 
     Match(expr::Match<'a>),
     If(expr::If<'a>),
     Loop(expr::Loop<'a>),
 
-    TypeHint(expr::TypeHint<'a>),
+    TypeHint(expr::TypeHint),
 }
 
 
@@ -376,20 +442,20 @@ pub mod expr {
     #[derive(Clone, Copy, Debug)]
     pub struct Forall<'a> {
         pub binders: BinderList<'a>,
-        pub ret:     ExprRef<'a>,
+        pub ret:     ExprId,
     }
 
     #[derive(Clone, Copy, Debug)]
     pub struct Lambda<'a> {
         pub binders: BinderList<'a>,
-        pub value:   ExprRef<'a>,
+        pub value:   ExprId,
     }
 
 
     #[derive(Clone, Copy, Debug)]
     pub struct Block<'a> {
         pub is_do: bool,
-        pub stmts: StmtList<'a>,
+        pub stmts: &'a (), //StmtList<'a>,
     }
 
 
@@ -401,9 +467,9 @@ pub mod expr {
     }
 
     #[derive(Clone, Copy, Debug)]
-    pub struct Op1<'a> {
+    pub struct Op1 {
         pub op:   Op1Kind,
-        pub expr: ExprRef<'a>,
+        pub expr: ExprId,
     }
 
 
@@ -426,51 +492,51 @@ pub mod expr {
     }
 
     #[derive(Clone, Copy, Debug)]
-    pub struct Op2<'a> {
+    pub struct Op2 {
         pub op:  Op2Kind,
-        pub lhs: ExprRef<'a>,
-        pub rhs: ExprRef<'a>,
+        pub lhs: ExprId,
+        pub rhs: ExprId,
     }
 
 
     #[derive(Clone, Copy, Debug)]
-    pub struct Field<'a> {
-        pub base: ExprRef<'a>,
+    pub struct Field {
+        pub base: ExprId,
         pub name: Atom,
     }
 
     #[derive(Clone, Copy, Debug)]
-    pub struct Index<'a> {
-        pub base:  ExprRef<'a>,
-        pub index: ExprRef<'a>,
+    pub struct Index {
+        pub base:  ExprId,
+        pub index: ExprId,
     }
 
     #[derive(Clone, Copy, Debug)]
     pub struct Call<'a> {
         //pub self_post_eval: bool,
-        pub func: ExprRef<'a>,
+        pub func: ExprId,
         pub args: CallArgList<'a>,
     }
 
-    pub type CallArgList<'a> = &'a [CallArg<'a>];
+    pub type CallArgList<'a> = &'a [CallArg];
 
     #[derive(Clone, Copy, Debug)]
-    pub enum CallArg<'a> {
-        Positional(Expr<'a>),
-        Named(NamedArg<'a>),
+    pub enum CallArg {
+        Positional(ExprId),
+        Named(NamedArg),
     }
 
     #[derive(Clone, Copy, Debug)]
-    pub struct NamedArg<'a> {
-        pub name:  &'a str,
-        pub value: Expr<'a>,
+    pub struct NamedArg {
+        pub name:  Atom,
+        pub value: ExprId,
     }
 
 
     #[derive(Clone, Copy, Debug)]
-    pub struct Assign<'a> {
-        pub lhs: ExprRef<'a>,
-        pub rhs: ExprRef<'a>,
+    pub struct Assign {
+        pub lhs: ExprId,
+        pub rhs: ExprId,
     }
 
 
@@ -484,19 +550,19 @@ pub mod expr {
     #[derive(Clone, Copy, Debug)]
     pub struct MapEntry<'a> {
         pub key:   &'a str,
-        pub value: ExprRef<'a>,
+        pub value: ExprId,
     }
 
     #[derive(Clone, Copy, Debug)]
-    pub struct MapType<'a> {
-        pub key:   ExprRef<'a>,
-        pub value: ExprRef<'a>,
+    pub struct MapType {
+        pub key:   ExprId,
+        pub value: ExprId,
     }
 
 
     #[derive(Clone, Copy, Debug)]
     pub struct Match<'a> {
-        pub expr: ExprRef<'a>,
+        pub expr: ExprId,
         pub cases: MatchCaseList<'a>,
     }
 
@@ -506,37 +572,37 @@ pub mod expr {
     pub struct MatchCase<'a> {
         //pub ctor:    GenericIdent<'a>,
         pub binding: Option<&'a str>,
-        pub expr:    ExprRef<'a>,
+        pub expr:    ExprId,
     }
 
 
     #[derive(Clone, Copy, Debug)]
     pub struct If<'a> {
-        pub cond:  ExprRef<'a>,
+        pub cond:  ExprId,
         pub then:  Block<'a>,
-        pub els:   Option<ExprRef<'a>>,
+        pub els:   Option<ExprId>,
     }
 
     pub type IfCaseList<'a> = &'a [IfCase<'a>];
 
     #[derive(Clone, Copy, Debug)]
     pub struct IfCase<'a> {
-        pub cond: ExprRef<'a>,
+        pub cond: ExprId,
         pub then: Block<'a>,
     }
 
 
     #[derive(Clone, Copy, Debug)]
     pub struct Loop<'a> {
-        pub cond: Option<ExprRef<'a>>,
+        pub cond: Option<ExprId>,
         pub body: Block<'a>,
     }
 
 
     #[derive(Clone, Copy, Debug)]
-    pub struct TypeHint<'a> {
-        pub expr: ExprRef<'a>,
-        pub ty:   ExprRef<'a>,
+    pub struct TypeHint {
+        pub expr: ExprId,
+        pub ty:   ExprId,
     }
 }
 
@@ -552,7 +618,7 @@ pub type LevelList<'a> = &'a [Level<'a>];
 
 #[derive(Clone, Copy, Debug)]
 pub struct Level<'a> {
-    pub source: SourceRange,
+    pub source: TokenRange,
     pub kind: LevelKind<'a>,
 }
 
@@ -581,7 +647,7 @@ pub mod adt {
         pub name:   Atom,
         pub levels: &'a [Atom],
         pub params: BinderList<'a>,
-        pub ty:     Option<Expr<'a>>,
+        pub ty:     OptExprId,
         pub ctors:  CtorList<'a>,
     }
 
@@ -590,7 +656,7 @@ pub mod adt {
     pub struct Ctor<'a> {
         pub name: Atom,
         pub args: BinderList<'a>,
-        pub ty:   Option<Expr<'a>>,
+        pub ty:   OptExprId,
     }
 
     pub type CtorList<'a> = &'a [Ctor<'a>];

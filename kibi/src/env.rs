@@ -3,7 +3,8 @@ use sti::hash::HashMap;
 
 use crate::string_table::{Atom, atoms};
 use crate::tt::*;
-use crate::tt::inductive::InductiveInfo;
+// @temp
+//use crate::tt::inductive::InductiveInfo;
 
 
 pub struct Env<'a> {
@@ -58,10 +59,10 @@ pub mod symbol {
     #[derive(Clone, Copy, Debug)]
     pub struct IndAxiom<'a> {
         pub kind: IndAxiomKind,
-        pub info: &'a InductiveInfo<'a>,
+        //pub info: &'a InductiveInfo<'a>,
         pub num_levels: u32,
         pub ty: Term<'a>,
-        pub mutual_infos: &'a [InductiveInfo<'a>],
+        //pub mutual_infos: &'a [InductiveInfo<'a>],
     }
 
     #[derive(Clone, Copy, Debug)]

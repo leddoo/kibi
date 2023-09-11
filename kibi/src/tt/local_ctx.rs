@@ -43,7 +43,7 @@ impl<'a> LocalCtx<'a> {
     }
 
     pub fn clear(&mut self) {
-        unsafe { self.scopes.inner_mut().clear() }
+        self.scopes.inner_mut_unck().clear();
         self.current = None.into();
     }
 
@@ -178,7 +178,7 @@ impl<'a> LocalCtx<'a> {
     pub fn restore(&mut self, save: SavePoint) {
         assert!(save.num_scopes <= self.scopes.len());
         // @temp: sti kvec truncate.
-        unsafe { self.scopes.inner_mut().truncate(save.num_scopes) }
+        self.scopes.inner_mut_unck().truncate(save.num_scopes);
         self.current = save.current;
     }
 }

@@ -18,6 +18,7 @@
         - expr source: `TokenRange`.
         - these are local to a "parse".
     - ir node source: `(ParseId, ExprId)`.
+    - don't expose `ParseId`. instead have opaque `ExprSource`, `TermSource`, etc.
     - query functions either call update (but what about the changes),
       or require compiler to be up-to-date (panic if not).
         - could also keep an internal queue of `Delta`s.
@@ -31,10 +32,12 @@
         - so we add a source. and have a function to query its tokens.
         - thinking we expose `SourceId`, so we don't need those strings everywhere.
         - todo:
+            - flat levels.
+            - eof error. validate total parse.
+            - remove `ArgKind`.
             - maintain `SourceId <-> Path` mapping.
-            - whatever we need for tokens.
-            - store stuff per source.
-            - flat tokens & exprs.
+            - parse on change.
+            - `vfs::mem`, `vfs::std`.
     - some syntax sugar for fun & profit (arrow, eq, add).
     - don't `print!`.
         - sti.
@@ -51,7 +54,7 @@
 
     - debug tracing.
     - json display: string escapes.
-    - vfs directories.
+    - vfs directories, create/delete/write.
 
     - cleanup.
         - assert last item's end is parser prev token's end.

@@ -1,4 +1,3 @@
-use sti::alloc::{Alloc, GlobalAlloc};
 use sti::arena::Arena;
 use sti::arena_pool::ArenaPool;
 use sti::vec::Vec;
@@ -9,48 +8,25 @@ use crate::error::*;
 use crate::ast::*;
 
 
+pub fn tokenize<'a>(input: &'a [u8], strings: &mut StringTable<'a>, parse: &mut Parse<'a>) {
+    let mut tok = Tokenizer {
+        strings,
+        parse,
+        reader: Reader::new(input),
+    };
+    while tok.next() {}
+}
+
+
 pub struct Tokenizer<'me, 'a> {
-    #[allow(dead_code)]
-    pub arena:  &'a Arena,
     pub strings: &'me mut StringTable<'a>,
-    pub source_offset: u32,
+    pub parse: &'me mut Parse<'a>,
+
     pub reader: Reader<'a, u8>,
 }
 
 impl<'me, 'a> Tokenizer<'me, 'a> {
-    pub fn tokenize(input: &'a [u8], source_offset: u32,
-        strings: &'me mut StringTable<'a>, arena: &'a Arena,
-    ) -> Vec<Token<'a>> {
-        Self::tokenize_in(input, source_offset, strings, arena, GlobalAlloc)
-    }
-
-    pub fn tokenize_in<A: Alloc>(input: &'a [u8], source_offset: u32,
-        strings: &'me mut StringTable<'a>, arena: &'a Arena, alloc: A,
-    ) -> Vec<Token<'a>, A> {
-        Self::new(input, source_offset, strings, arena).run_in(alloc)
-    }
-
-
-    pub fn new(input: &'a [u8], source_offset: u32,
-        strings: &'me mut StringTable<'a>, arena: &'a Arena,
-    ) -> Self {
-        Self { arena, strings, source_offset, reader: Reader::new(input) }
-    }
-
-    pub fn run(&mut self) -> Vec<Token<'a>> {
-        self.run_in(GlobalAlloc)
-    }
-
-    pub fn run_in<A: Alloc>(&mut self, alloc: A) -> Vec<Token<'a>, A> {
-        let mut tokens = Vec::new_in(alloc);
-        while let Some(tok) = self.next() {
-            tokens.push(tok);
-        }
-        return tokens;
-    }
-
-
-    pub fn next(&mut self) -> Option<Token<'a>> {
+    pub fn next(&mut self) -> bool {
         loop {
             self.skip_ws();
 
@@ -64,7 +40,9 @@ impl<'me, 'a> Tokenizer<'me, 'a> {
         }
 
         let begin_offset = self.reader.offset();
-        let at = self.reader.next()?;
+        let Some(at) = self.reader.next() else {
+            return false;
+        };
 
         let kind = 'kind: {
             // operators & punctuation.
@@ -193,7 +171,7 @@ impl<'me, 'a> Tokenizer<'me, 'a> {
 
                 let value = unsafe { core::str::from_utf8_unchecked(value) };
 
-                TokenKind::String(value)
+                TokenKind::String(self.parse.strings.push(value))
             }
             // f-strings.
             /*
@@ -275,7 +253,7 @@ impl<'me, 'a> Tokenizer<'me, 'a> {
                 let value = &self.reader.consumed_slice()[begin_offset..];
                 let value = unsafe { core::str::from_utf8_unchecked(value) };
 
-                TokenKind::Number(value)
+                TokenKind::Number(self.parse.numbers.push(value))
             }
             // error.
             else {
@@ -284,12 +262,13 @@ impl<'me, 'a> Tokenizer<'me, 'a> {
         };
 
         let end_offset = self.reader.offset();
-        let source = SourceRange {
-            begin: self.source_offset + begin_offset as u32,
-            end:   self.source_offset + end_offset as u32,
+        let source = ParseRange {
+            begin: begin_offset as u32,
+            end:   end_offset as u32,
         };
+        self.parse.tokens.push(Token { source, kind });
 
-        Some(Token { source, kind })
+        return true;
     }
 
 
@@ -340,16 +319,26 @@ pub struct Parser<'me, 'err, 'a> {
     pub arena:  &'a Arena,
     pub strings: &'me StringTable<'a>,
     pub errors: &'me ErrorCtx<'err>,
-    pub tokens: Reader<'me, Token<'a>>,
+
+    pub parse_id: ParseId,
+    pub parse: &'me mut Parse<'a>,
+    pub token_cursor: usize,
 }
 
 impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
-    pub fn new(tokens: &'me [Token<'a>], errors: &'me ErrorCtx<'err>, strings: &'me StringTable<'a>, arena: &'a Arena) -> Self {
-        Self { arena, strings, errors, tokens: Reader::new(tokens) }
+    pub fn new(parse_id: ParseId, parse: &'me mut Parse<'a>, errors: &'me ErrorCtx<'err>, strings: &'me StringTable<'a>, arena: &'a Arena) -> Self {
+        Self { arena, strings, errors, parse_id, parse, token_cursor: 0 }
     }
 
-    pub fn parse_item(&mut self) -> Option<Item<'a>> {
-        let at = self.tokens.next_ref()?;
+    pub fn parse_item(&mut self, parent: AstParent) -> Option<ItemId> {
+        let (at, source_begin) = self.next()?;
+
+        let this_item = self.parse.items.push(Item {
+            parent,
+            source: TokenRange::ZERO,
+            kind: ItemKind::Uninit,
+        });
+        let this_parent = AstParent::Item(this_item);
 
         let kind = match at.kind {
             TokenKind::Ident(atoms::axiom) => {
@@ -357,23 +346,23 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 let name = self.parse_ident_or_path(name)?;
 
                 let mut levels = &mut [][..];
-                if self.tokens.consume_if(|at| at.kind == TokenKind::Dot) {
+                if self.consume_if_eq(TokenKind::Dot) {
                     self.expect(TokenKind::LCurly)?;
                     levels = self.sep_by(TokenKind::Comma, TokenKind::RCurly, |this| {
                         this.expect_ident()
                     })?;
                 }
 
-                let params = self.parse_binders(false)?;
+                let params = self.parse_binders(this_parent, false)?;
 
                 self.expect(TokenKind::Colon)?;
-                let ty = self.parse_expr()?;
+                let ty = self.parse_expr(this_parent)?;
 
                 ItemKind::Axiom(item::Axiom { name, levels, params, ty })
             }
 
             TokenKind::KwInductive => {
-                ItemKind::Inductive(self.parse_inductive()?)
+                ItemKind::Inductive(self.parse_inductive(this_parent)?)
             }
 
             TokenKind::KwDef => {
@@ -381,30 +370,30 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 let name = self.parse_ident_or_path(name)?;
 
                 let mut levels = &mut [][..];
-                if self.tokens.consume_if(|at| at.kind == TokenKind::Dot) {
+                if self.consume_if_eq(TokenKind::Dot) {
                     self.expect(TokenKind::LCurly)?;
                     levels = self.sep_by(TokenKind::Comma, TokenKind::RCurly, |this| {
                         this.expect_ident()
                     })?;
                 }
 
-                let params = self.parse_binders(false)?;
+                let params = self.parse_binders(this_parent, false)?;
 
-                let mut ty = None;
-                if self.tokens.consume_if(|at| at.kind == TokenKind::Colon) {
-                    ty = Some(self.parse_expr()?);
+                let mut ty = None.into();
+                if self.consume_if_eq(TokenKind::Colon) {
+                    ty = self.parse_expr(this_parent)?.some();
                 }
 
                 self.expect(TokenKind::ColonEq)?;
 
-                let value = self.parse_expr()?;
+                let value = self.parse_expr(this_parent)?;
 
                 ItemKind::Def(item::Def { name, levels, params, ty, value })
             }
 
             TokenKind::KwTrait => {
                 self.expect(TokenKind::KwInductive)?;
-                ItemKind::Trait(item::Trait::Inductive(self.parse_inductive()?))
+                ItemKind::Trait(item::Trait::Inductive(self.parse_inductive(this_parent)?))
             }
 
             TokenKind::KwImpl => {
@@ -412,57 +401,60 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 //let name = self.parse_ident_or_path(name)?;
 
                 let mut levels = &mut [][..];
-                if self.tokens.consume_if(|at| at.kind == TokenKind::Dot) {
+                if self.consume_if_eq(TokenKind::Dot) {
                     self.expect(TokenKind::LCurly)?;
                     levels = self.sep_by(TokenKind::Comma, TokenKind::RCurly, |this| {
                         this.expect_ident()
                     })?;
                 }
 
-                let params = self.parse_binders(false)?;
+                let params = self.parse_binders(this_parent, false)?;
 
                 self.expect(TokenKind::Colon)?;
-                let ty = self.parse_expr()?;
+                let ty = self.parse_expr(this_parent)?;
 
                 self.expect(TokenKind::ColonEq)?;
 
-                let value = self.parse_expr()?;
+                let value = self.parse_expr(this_parent)?;
 
                 ItemKind::Impl(item::Impl { levels, params, ty, value })
             }
 
             TokenKind::Ident(atoms::reduce) => {
-                let expr = self.arena.alloc_new(self.parse_expr()?);
+                let expr = self.parse_expr(this_parent)?;
                 ItemKind::Reduce(expr)
             }
 
             _ => {
-                self.error_unexpected(at);
+                self.error_unexpected(at, source_begin);
                 return None;
             }
         };
 
-        Some(Item { kind })
+        let source = self.token_range_from(source_begin);
+
+        let this = &mut self.parse.items[this_item];
+        this.source = source;
+        this.kind = kind;
+
+        return Some(this_item);
     }
 
-    pub fn parse_stmt(&mut self) -> Option<Stmt<'a>> {
-        unimplemented!()
+
+    pub fn parse_expr(&mut self, parent: AstParent) -> Option<ExprId> {
+        self.parse_expr_exw(parent, ParseExprFlags::default(), 0)
     }
 
-    pub fn parse_expr(&mut self) -> Option<Expr<'a>> {
-        self.parse_expr_exw(ParseExprFlags::default(), 0)
+    pub fn parse_expr_ex(&mut self, parent: AstParent, prec: u32) -> Option<ExprId> {
+        self.parse_expr_exw(parent, ParseExprFlags::default(), prec)
     }
 
-    pub fn parse_expr_ex(&mut self, prec: u32) -> Option<Expr<'a>> {
-        self.parse_expr_exw(ParseExprFlags::default(), prec)
-    }
+    pub fn parse_expr_exw(&mut self, parent: AstParent, flags: ParseExprFlags, prec: u32) -> Option<ExprId> {
+        let token_begin = self.current_token_id();
 
-    pub fn parse_expr_exw(&mut self, flags: ParseExprFlags, prec: u32) -> Option<Expr<'a>> {
-        let mut result = self.parse_leading_expr(flags, prec)?;
+        let mut result = self.parse_leading_expr(parent, flags, prec)?;
 
-        while let Some(at) = self.tokens.peek_ref() {
-            let source_begin = result.source;
-
+        while let Some(at) = self.peek() {
             // infix operators.
             if let Some(op) = InfixOp::from_token(at) {
                 let allowed = !flags.no_cmp || (
@@ -471,13 +463,13 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 );
 
                 if allowed && op.lprec() >= prec {
-                    self.tokens.consume(1);
+                    self.consume(1);
 
-                    let lhs = self.arena.alloc_new(result);
-                    let rhs = self.arena.alloc_new(
-                        self.parse_expr_ex(op.rprec())?);
+                    let (this_expr, this_parent) = self.new_expr_uninit(parent);
+                    self.parse.exprs[result].parent = this_parent;
 
-                    let source = source_begin.join(rhs.source);
+                    let lhs = result;
+                    let rhs = self.parse_expr_ex(this_parent, op.rprec())?;
 
                     let kind = match op {
                         InfixOp::Assign =>
@@ -490,8 +482,9 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                             ExprKind::Op2(expr::Op2 { op, lhs, rhs }),
                     };
 
-                    result = Expr { source, kind };
+                    self.expr_init_from(this_expr, token_begin, kind);
 
+                    result = this_expr;
                     continue;
                 }
             }
@@ -502,25 +495,29 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
             }
 
             if at.kind == TokenKind::Dot {
-                self.tokens.consume(1);
+                self.consume(1);
 
-                let at = self.tokens.next_ref()?;
+                let (this_expr, this_parent) = self.new_expr_uninit(parent);
+                self.parse.exprs[result].parent = this_parent;
+
+                let (at, at_src) = self.next()?;
                 let kind = match at.kind {
                     // field.
                     TokenKind::Ident(name) => {
                         ExprKind::Field(expr::Field {
                             name,
-                            base: self.arena.alloc_new(result),
+                            base: result,
                         })
                     }
 
                     // levels
                     TokenKind::LCurly => {
-                        let symbol = match result.kind {
+                        let r = self.parse.exprs[result];
+                        let symbol = match r.kind {
                             ExprKind::Ident(name) => IdentOrPath::Ident(name),
                             ExprKind::Path(path)  => IdentOrPath::Path(path),
                             _ => {
-                                self.error_expect(result.source, "ident | path");
+                                self.error_expect_expr(result, "ident | path");
                                 return None;
                             }
                         };
@@ -533,33 +530,36 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                     }
 
                     _ => {
-                        self.error_expect(result.source, "ident | '{'");
+                        self.error_expect(at_src, "ident | '{'");
                         return None;
                     }
                 };
+                self.expr_init_from(this_expr, token_begin, kind);
 
-                let source = source_begin.join(self.prev_token_source());
-                result = Expr { source, kind };
-
+                result = this_expr;
                 continue;
             }
 
             if at.kind == TokenKind::LParen {
-                self.tokens.consume(1);
+                self.consume(1);
+
+                let (this_expr, this_parent) = self.new_expr_uninit(parent);
+                self.parse.exprs[result].parent = this_parent;
+
 
                 let args = self.sep_by(TokenKind::Comma, TokenKind::RParen, |this| {
                     // @temp: named args.
-                    this.parse_expr()
+                    this.parse_expr(this_parent)
                     .map(|value| expr::CallArg::Positional(value))
                 })?;
 
-                let source = source_begin.join(self.prev_token_source());
-                let kind = ExprKind::Call(expr::Call {
-                    func: self.arena.alloc_new(result),
-                    args,
-                });
-                result = Expr { source, kind };
+                self.expr_init_from(this_expr, token_begin,
+                    ExprKind::Call(expr::Call {
+                        func: result,
+                        args,
+                    }));
 
+                result = this_expr;
                 continue;
             }
 
@@ -569,10 +569,10 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
         return Some(result);
     }
 
-    fn parse_leading_expr(&mut self, flags: ParseExprFlags, prec: u32) -> Option<Expr<'a>> {
-        let at = self.tokens.next_ref()?;
+    fn parse_leading_expr(&mut self, parent: AstParent, flags: ParseExprFlags, prec: u32) -> Option<ExprId> {
+        let (at, source_begin) = self.next()?;
 
-        let source_begin = at.source;
+        let (this_expr, this_parent) = self.new_expr_uninit(parent);
 
         let kind = 'kind: {
             'next: { break 'kind match at.kind {
@@ -601,30 +601,32 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 }
 
                 TokenKind::KwProp => {
+                    let source = self.token_range_from(source_begin);
                     ExprKind::Sort(self.arena.alloc_new(
-                        Level { source: at.source, kind: LevelKind::Nat(0) }))
+                        Level { source, kind: LevelKind::Nat(0) }))
                 }
 
                 TokenKind::KwType => {
+                    let source = self.token_range_from(source_begin);
                     ExprKind::Sort(self.arena.alloc_new(
-                        Level { source: at.source, kind: LevelKind::Nat(1) }))
+                        Level { source, kind: LevelKind::Nat(1) }))
                 }
 
                 TokenKind::KwPi => {
-                    let binders = self.parse_binders(true)?;
+                    let binders = self.parse_binders(this_parent, true)?;
 
                     self.expect(TokenKind::Arrow)?;
 
-                    let ret = self.arena.alloc_new(self.parse_expr()?);
+                    let ret = self.parse_expr(this_parent)?;
                     ExprKind::Forall(expr::Forall { binders, ret })
                 }
 
                 TokenKind::KwLam => {
-                    let binders = self.parse_binders(true)?;
+                    let binders = self.parse_binders(this_parent, true)?;
 
                     self.expect(TokenKind::FatArrow)?;
 
-                    let value = self.arena.alloc_new(self.parse_expr()?);
+                    let value = self.parse_expr(this_parent)?;
                     ExprKind::Lambda(expr::Lambda { binders, value })
                 }
 
@@ -646,12 +648,13 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
                 // subexpr.
                 TokenKind::LParen => {
-                    let inner = self.arena.alloc_new(
+                    let inner =
                         self.parse_expr_exw(
+                            this_parent,
                             ParseExprFlags::default()
                                 .with_tuple()
                                 .with_type_hint(),
-                            0)?);
+                            0)?;
 
                     self.expect(TokenKind::RParen)?;
 
@@ -662,7 +665,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 TokenKind::LBracket => {
                     let (children, last_had_sep, had_error) =
                         self.sep_by_ex(TokenKind::Comma, TokenKind::RBracket, |this| {
-                            this.parse_expr()
+                            this.parse_expr(this_parent)
                         });
 
                     if had_error {
@@ -671,7 +674,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
                     // list type.
                     if !last_had_sep && children.len() == 1 && flags.ty {
-                        ExprKind::ListType(&mut children[0])
+                        ExprKind::ListType(children[0])
                     }
                     // list.
                     else {
@@ -688,57 +691,57 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                     unimplemented!()
                 }
 
-                let expr = self.arena.alloc_new(
-                    self.parse_expr_ex(PREC_PREFIX)?);
+                let expr = self.parse_expr_ex(this_parent, PREC_PREFIX)?;
 
                 break 'kind ExprKind::Op1(expr::Op1 { op, expr });
             }
 
 
-            self.error_unexpected(at);
+            self.error_unexpected(at, source_begin);
             return None;
         };
 
-        let source = source_begin.join(self.prev_token_source());
-        return Some(Expr { source, kind });
+        self.expr_init_from(this_expr, source_begin, kind);
+
+        return Some(this_expr);
     }
 
 
-    fn parse_inductive(&mut self) -> Option<adt::Inductive<'a>> {
+    fn parse_inductive(&mut self, this_parent: AstParent) -> Option<adt::Inductive<'a>> {
         let name = self.expect_ident()?;
 
         // @cleanup: parse_level_params.
         let mut levels = &mut [][..];
-        if self.tokens.consume_if(|at| at.kind == TokenKind::Dot) {
+        if self.consume_if_eq(TokenKind::Dot) {
             self.expect(TokenKind::LCurly)?;
             levels = self.sep_by(TokenKind::Comma, TokenKind::RCurly, |this| {
                 this.expect_ident()
             })?;
         }
 
-        let params = self.parse_binders(false)?;
+        let params = self.parse_binders(this_parent, false)?;
 
-        let mut ty = None;
-        if self.tokens.consume_if(|at| at.kind == TokenKind::Colon) {
-            ty = Some(self.parse_expr()?);
+        let mut ty = None.into();
+        if self.consume_if_eq(TokenKind::Colon) {
+            ty = self.parse_expr(this_parent)?.some();
         }
 
         self.expect(TokenKind::LCurly)?;
         let ctors = self.sep_by(TokenKind::Semicolon, TokenKind::RCurly, |this| {
-            this.parse_ctor()
+            this.parse_ctor(this_parent)
         })?;
 
         Some(adt::Inductive { name, levels, params, ty, ctors })
     }
 
-    fn parse_ctor(&mut self) -> Option<adt::Ctor<'a>> {
+    fn parse_ctor(&mut self, this_parent: AstParent) -> Option<adt::Ctor<'a>> {
         let name = self.expect_ident()?;
 
-        let args = self.parse_binders(false)?;
+        let args = self.parse_binders(this_parent, false)?;
 
-        let mut ty = None;
-        if self.tokens.consume_if(|at| at.kind == TokenKind::Colon) {
-            ty = Some(self.parse_expr()?);
+        let mut ty = None.into();
+        if self.consume_if_eq(TokenKind::Colon) {
+            ty = self.parse_expr(this_parent)?.some();
         }
 
         Some(adt::Ctor { name, args, ty })
@@ -746,9 +749,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
 
     fn parse_level(&mut self) -> Option<Level<'a>> {
-        let at = self.tokens.next_ref()?;
-
-        let source_begin = at.source;
+        let (at, source_begin) = self.next()?;
 
         let mut kind = match at.kind {
             TokenKind::Hole => {
@@ -777,36 +778,38 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
             }
 
             TokenKind::Number(v) => {
+                let v = self.parse.numbers[v];
                 let v = u32::from_str_radix(v, 10).ok()?;
                 LevelKind::Nat(v)
             }
 
             _ => {
-                self.error_unexpected(at);
+                self.error_unexpected(at, source_begin);
                 return None;
             }
         };
 
-        let source = source_begin.join(self.prev_token_source());
+        let source = self.token_range_from(source_begin);
 
-        if self.tokens.consume_if(|at| at.kind == TokenKind::Add) {
-            let at = self.tokens.next_ref()?;
+        if self.consume_if_eq(TokenKind::Add) {
+            let (at, at_src) = self.next()?;
             let TokenKind::Number(v) = at.kind else {
-                self.error_expect(at.source, "number");
+                self.error_expect(at_src, "number");
                 return None;
             };
 
             let l = self.arena.alloc_new(Level { source, kind });
+            let v = self.parse.numbers[v];
             let v = u32::from_str_radix(v, 10).ok()?;
             kind = LevelKind::Add((l, v));
         }
 
-        let source = source_begin.join(self.prev_token_source());
+        let source = self.token_range_from(source_begin);
 
         return Some(Level { source, kind });
     }
 
-    fn parse_binders(&mut self, allow_ident: bool) -> Option<BinderList<'a>> {
+    fn parse_binders(&mut self, this_parent: AstParent, allow_ident: bool) -> Option<BinderList<'a>> {
         let temp = ArenaPool::tls_get_rec();
         let mut binders = Vec::new_in(&*temp);
         loop {
@@ -817,12 +820,12 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 }
             }
 
-            if self.tokens.consume_if(|at| at.kind == TokenKind::LParen) {
-                self.parse_typed_binders(TokenKind::RParen, &mut binders)?;
+            if self.consume_if_eq(TokenKind::LParen) {
+                self.parse_typed_binders(this_parent, TokenKind::RParen, &mut binders)?;
                 continue;
             }
-            if self.tokens.consume_if(|at| at.kind == TokenKind::Lt) {
-                self.parse_typed_binders(TokenKind::Gt, &mut binders)?;
+            if self.consume_if_eq(TokenKind::Lt) {
+                self.parse_typed_binders(this_parent, TokenKind::Gt, &mut binders)?;
                 continue;
             }
 
@@ -831,7 +834,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
         return Some(binders.move_into(self.arena).leak());
     }
 
-    fn parse_typed_binders<'res>(&mut self, terminator: TokenKind, binders: &mut Vec<Binder<'a>, &'res Arena>) -> Option<()> {
+    fn parse_typed_binders<'res>(&mut self, this_parent: AstParent, terminator: TokenKind, binders: &mut Vec<Binder<'a>, &'res Arena>) -> Option<()> {
         let implicit = match terminator {
             TokenKind::RParen => false,
             TokenKind::Gt => true,
@@ -839,16 +842,16 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
         };
 
         let mut last_had_sep = true;
-        let mut last_end = 0;
+        let mut last_end = TokenId::ZERO;
 
         loop {
-            if self.tokens.consume_if(|at| at.kind == terminator) {
+            if self.consume_if_eq(terminator) {
                 return Some(());
             }
 
             if !last_had_sep {
-                debug_assert!(last_end != 0);
-                self.error_expect(SourceRange::collapsed(last_end), "','");
+                debug_assert!(last_end != TokenId::ZERO);
+                self.error_expect(last_end, "','");
             }
 
             let names = {
@@ -866,54 +869,54 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
             self.expect(TokenKind::Colon)?;
 
             let flags = ParseExprFlags::default().with_no_cmp();
-            let ty = self.arena.alloc_new(self.parse_expr_exw(flags, 0)?);
+            let ty = self.parse_expr_exw(this_parent, flags, 0)?;
 
-            let mut default = None;
-            if self.tokens.consume_if(|at| at.kind == TokenKind::ColonEq) {
-                default = Some(&*self.arena.alloc_new(self.parse_expr()?));
+            let mut default = None.into();
+            if self.consume_if_eq(TokenKind::ColonEq) {
+                default = self.parse_expr(this_parent)?.some();
             }
 
             binders.push(Binder::Typed(TypedBinder { implicit, names, ty, default }));
 
-            last_end = self.prev_token_source().end;
-            last_had_sep = self.tokens.consume_if(|at| at.kind == TokenKind::Comma);
+            last_end = self.current_token_id();
+            last_had_sep = self.consume_if_eq(TokenKind::Comma);
         }
     }
 
     #[inline(always)]
     fn expect_ident(&mut self) -> Option<Atom> {
-        let at = self.tokens.next_ref()?;
+        let (at, at_src) = self.next()?;
         if let TokenKind::Ident(ident) = at.kind {
             return Some(ident);
         }
-        self.error_expect(at.source, "ident");
+        self.error_expect(at_src, "ident");
         return None;
     }
 
     fn parse_ident_or_hole(&mut self) -> Option<OptAtom> {
-        let at = self.tokens.peek_ref()?;
+        let at = self.peek()?;
         if let TokenKind::Hole = at.kind {
-            self.tokens.consume(1);
+            self.consume(1);
             return Some(None.into())
         }
         if let TokenKind::Ident(ident) = at.kind {
-            self.tokens.consume(1);
+            self.consume(1);
             return Some(ident.some())
         }
         return None;
     }
 
     fn parse_ident_or_path(&mut self, start: Atom) -> Option<IdentOrPath<'a>> {
-        if self.tokens.consume_if(|at| at.kind == TokenKind::ColonColon) {
+        if self.consume_if_eq(TokenKind::ColonColon) {
             let mut parts = Vec::with_cap_in(self.arena, 4);
             parts.push(start);
 
             loop { // don't use `self.arena` in here.
-                let at = self.tokens.next_ref()?;
+                let (at, _) = self.next()?;
                 let TokenKind::Ident(part) = at.kind else { return None };
                 parts.push(part);
 
-                if !self.tokens.consume_if(|at| at.kind == TokenKind::ColonColon) {
+                if !self.consume_if_eq(TokenKind::ColonColon) {
                     break;
                 }
             }
@@ -930,27 +933,27 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
     // returns: (exprs, last_had_sep, had_error)
     #[inline]
     fn sep_by_ex<T, F: FnMut(&mut Self) -> Option<T>>
-        (&mut self, sep: TokenKind<'static>, end: TokenKind<'static>, mut f: F)
+        (&mut self, sep: TokenKind, end: TokenKind, mut f: F)
         -> (&'a mut [T], bool, bool)
     {
         let temp = ArenaPool::tls_get_rec();
         let mut buffer = Vec::new_in(&*temp);
 
         let mut last_had_sep = true;
-        let mut last_end = 0;
+        let mut last_end = TokenId::ZERO;
         let mut had_error = false;
         loop {
-            if self.tokens.consume_if(|at| at.kind == end) {
+            if self.consume_if_eq(end) {
                 break;
             }
 
             if !last_had_sep {
-                debug_assert!(last_end != 0);
-                self.error_expect(SourceRange::collapsed(last_end), sep.repr());
+                debug_assert!(last_end != TokenId::ZERO);
+                self.error_expect(last_end, sep.repr());
             }
 
             if let Some(x) = f(self) {
-                last_end = self.prev_token_source().end;
+                last_end = self.current_token_id();
                 buffer.push(x);
             }
             else {
@@ -958,7 +961,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 break;
             }
 
-            last_had_sep = self.tokens.consume_if(|at| at.kind == sep);
+            last_had_sep = self.consume_if_eq(sep);
         }
 
         let result = buffer.move_into(self.arena).leak();
@@ -967,7 +970,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
     #[inline]
     fn sep_by<T, F: FnMut(&mut Self) -> Option<T>>
-        (&mut self, sep: TokenKind<'static>, end: TokenKind<'static>, f: F)
+        (&mut self, sep: TokenKind, end: TokenKind, f: F)
         -> Option<&'a mut [T]>
     {
         let (result, _, had_error) = self.sep_by_ex(sep, end, f);
@@ -977,41 +980,118 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
         return Some(result);
     }
 
-    #[track_caller]
     #[inline(always)]
-    fn prev_token_source(&self) -> SourceRange {
-        self.tokens.consumed_slice().last().unwrap().source
+    fn current_token_id(&self) -> TokenId {
+        TokenId::new_unck(self.token_cursor as u32)
     }
 
+    #[inline(always)]
+    fn token_range_from(&self, begin: TokenId) -> TokenRange {
+        TokenRange::new_unck(begin, self.current_token_id())
+    }
+
+
+    #[inline(always)]
+    fn peek(&self) -> Option<Token> {
+        if let Some(at) = self.parse.tokens.inner().get(self.token_cursor) {
+            Some(*at)
+        }
+        else { None }
+    }
+
+    #[inline(always)]
+    fn next(&mut self) -> Option<(Token, TokenId)> {
+        let src = self.current_token_id();
+        if let Some(at) = self.parse.tokens.inner().get(self.token_cursor) {
+            self.token_cursor += 1;
+            Some((*at, src))
+        }
+        else {
+            // unexpected eof.
+            None
+        }
+    }
+
+    #[inline(always)]
+    fn consume(&mut self, n: usize) {
+        debug_assert!(self.token_cursor + n <= self.parse.tokens.len());
+        self.token_cursor += n;
+    }
+
+    #[inline(always)]
+    fn consume_if_eq(&mut self, kind: TokenKind) -> bool {
+        if let Some(at) = self.parse.tokens.inner().get(self.token_cursor) {
+            if at.kind == kind {
+                self.token_cursor += 1;
+                true
+            }
+            else { false }
+        }
+        else { false }
+    }
 
     #[must_use]
     #[inline(always)]
     fn expect(&mut self, kind: TokenKind) -> Option<()> {
-        let at = self.tokens.next_ref()?;
+        let (at, at_src) = self.next()?;
         if at.kind == kind {
             return Some(());
         }
-        self.error_expect(at.source, kind.repr());
+        self.error_expect(at_src, kind.repr());
         return None;
     }
 
 
-    fn error_expect(&mut self, source: SourceRange, what: &'err str) {
+    fn error_expect(&mut self, source: TokenId, what: &'err str) {
         self.errors.with(|errors| {
             errors.report(Error {
-                source,
+                parse: self.parse_id,
+                source: ErrorSource::TokenRange(TokenRange::from_key(source)),
                 kind: ErrorKind::Parse(ParseError::Expected(what)),
             });
         });
     }
 
-    fn error_unexpected(&mut self, token: &Token<'a>) {
+    fn error_expect_expr(&mut self, source: ExprId, what: &'err str) {
         self.errors.with(|errors| {
             errors.report(Error {
-                source: token.source,
+                parse: self.parse_id,
+                source: ErrorSource::Expr(source),
+                kind: ErrorKind::Parse(ParseError::Expected(what)),
+            });
+        });
+    }
+
+    fn error_unexpected(&mut self, token: Token, source: TokenId) {
+        self.errors.with(|errors| {
+            errors.report(Error {
+                parse: self.parse_id,
+                source: ErrorSource::TokenRange(TokenRange::from_key(source)),
                 kind: ErrorKind::Parse(ParseError::Unexpected(token.kind.repr())),
             });
         });
+    }
+
+
+    #[inline]
+    fn new_expr_uninit(&mut self, parent: AstParent) -> (ExprId, AstParent) {
+        let id = self.parse.exprs.push(Expr {
+            parent,
+            source: TokenRange::ZERO,
+            kind: ExprKind::Uninit,
+        });
+        (id, AstParent::Expr(id))
+    }
+
+    #[inline]
+    fn expr_init_from(&mut self, id: ExprId, from: TokenId, kind: ExprKind<'a>) {
+        let source = self.token_range_from(from);
+
+        let this = &mut self.parse.exprs[id];
+        debug_assert!(matches!(this.kind, ExprKind::Uninit));
+
+        this.source = source;
+        this.kind = kind;
     }
 }
 
@@ -1025,7 +1105,8 @@ pub const PREC_POSTFIX: u32 = 1000;
 pub struct PrefixOp(pub expr::Op1Kind);
 
 impl PrefixOp {
-    pub fn from_token(token: &Token) -> Option<Self> {
+    #[inline]
+    pub fn from_token(token: Token) -> Option<Self> {
         use expr::Op1Kind::*;
         Some(PrefixOp(match token.kind {
             TokenKind::KwNot => LogicNot,
@@ -1047,7 +1128,7 @@ pub enum InfixOp {
 
 impl InfixOp {
     #[inline(always)]
-    pub fn from_token(token: &Token) -> Option<Self> {
+    pub fn from_token(token: Token) -> Option<Self> {
         use InfixOp::*;
         use expr::Op2Kind::*;
         Some(match token.kind {

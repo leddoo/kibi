@@ -40,8 +40,8 @@ impl<'a> IVarCtx<'a> {
     }
 
     pub fn clear(&mut self) {
-        unsafe { self.level_vars.inner_mut().clear() }
-        unsafe { self.term_vars.inner_mut().clear() }
+        self.level_vars.inner_mut_unck().clear();
+        self.term_vars.inner_mut_unck().clear();
         self.assignment_gen = 0;
     }
 }
@@ -63,27 +63,25 @@ impl<'a> IVarCtx<'a> {
     }
 
     pub fn restore(&mut self, save: SavePoint) {
-        unsafe {
-            self.level_vars.inner_mut().truncate(save.num_level_vars as usize);
-            self.term_vars.inner_mut().truncate(save.num_term_vars as usize);
+        self.level_vars.inner_mut_unck().truncate(save.num_level_vars as usize);
+        self.term_vars.inner_mut_unck().truncate(save.num_term_vars as usize);
 
-            if self.assignment_gen > save.assignment_gen {
-                //println!("restore assignments");
+        if self.assignment_gen > save.assignment_gen {
+            //println!("restore assignments");
 
-                for level in self.level_vars.inner_mut().iter_mut() {
-                    if level.assignment_gen > save.assignment_gen {
-                        level.value = None;
-                    }
+            for level in self.level_vars.inner_mut_unck().iter_mut() {
+                if level.assignment_gen > save.assignment_gen {
+                    level.value = None;
                 }
-
-                for term in self.term_vars.inner_mut().iter_mut() {
-                    if term.assignment_gen > save.assignment_gen {
-                        term.value = None;
-                    }
-                }
-
-                self.assignment_gen = save.assignment_gen;
             }
+
+            for term in self.term_vars.inner_mut_unck().iter_mut() {
+                if term.assignment_gen > save.assignment_gen {
+                    term.value = None;
+                }
+            }
+
+            self.assignment_gen = save.assignment_gen;
         }
     }
 }
