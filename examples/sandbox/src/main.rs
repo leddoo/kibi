@@ -18,5 +18,6 @@ fn main() {
 
     fs.write("hello.kb", input);
     kc.add_source("hello.kb");
+    kc.update();
 }
 

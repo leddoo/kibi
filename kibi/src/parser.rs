@@ -8,8 +8,9 @@ use crate::error::*;
 use crate::ast::*;
 
 
-pub fn tokenize<'a>(input: &'a [u8], strings: &mut StringTable<'a>, parse: &mut Parse<'a>) {
+pub fn tokenize<'a>(input: &[u8], strings: &mut StringTable, parse: &mut Parse<'a>, alloc: &'a Arena) {
     let mut tok = Tokenizer {
+        alloc,
         strings,
         parse,
         reader: Reader::new(input),
@@ -19,14 +20,16 @@ pub fn tokenize<'a>(input: &'a [u8], strings: &mut StringTable<'a>, parse: &mut 
 }
 
 
-pub struct Tokenizer<'me, 'a> {
-    pub strings: &'me mut StringTable<'a>,
+pub struct Tokenizer<'me, 'str, 'i, 'a> {
+    pub alloc: &'a Arena,
+
+    pub strings: &'me mut StringTable<'str>,
     pub parse: &'me mut Parse<'a>,
 
-    pub reader: Reader<'a, u8>,
+    pub reader: Reader<'i, u8>,
 }
 
-impl<'me, 'a> Tokenizer<'me, 'a> {
+impl<'me, 'str, 'i, 'a> Tokenizer<'me, 'str, 'i, 'a> {
     pub fn next(&mut self) -> bool {
         loop {
             self.skip_ws();
@@ -172,6 +175,7 @@ impl<'me, 'a> Tokenizer<'me, 'a> {
 
                 let value = unsafe { core::str::from_utf8_unchecked(value) };
 
+                let value = self.alloc.alloc_str(value);
                 TokenKind::String(self.parse.strings.push(value))
             }
             // f-strings.
@@ -254,6 +258,7 @@ impl<'me, 'a> Tokenizer<'me, 'a> {
                 let value = &self.reader.consumed_slice()[begin_offset..];
                 let value = unsafe { core::str::from_utf8_unchecked(value) };
 
+                let value = self.alloc.alloc_str(value);
                 TokenKind::Number(self.parse.numbers.push(value))
             }
             // error.
@@ -317,8 +322,8 @@ impl Default for ParseExprFlags {
 
 
 pub struct Parser<'me, 'err, 'a> {
-    pub arena:  &'a Arena,
-    pub strings: &'me StringTable<'a>,
+    pub alloc:  &'a Arena,
+    pub strings: &'me StringTable<'me>,
     pub errors: &'me ErrorCtx<'err>,
 
     pub parse_id: ParseId,
@@ -327,10 +332,6 @@ pub struct Parser<'me, 'err, 'a> {
 }
 
 impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
-    pub fn new(parse_id: ParseId, parse: &'me mut Parse<'a>, errors: &'me ErrorCtx<'err>, strings: &'me StringTable<'a>, arena: &'a Arena) -> Self {
-        Self { arena, strings, errors, parse_id, parse, token_cursor: 0 }
-    }
-
     pub fn parse_item(&mut self, parent: AstParent) -> Option<ItemId> {
         let (at, source_begin) = self.next()?;
 
@@ -857,7 +858,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
             break;
         }
-        return Some(binders.move_into(self.arena).leak());
+        return Some(binders.move_into(self.alloc).leak());
     }
 
     fn parse_typed_binders<'res>(&mut self, this_parent: AstParent, terminator: TokenKind, binders: &mut Vec<Binder<'a>, &'res Arena>) -> Option<()> {
@@ -889,7 +890,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 if names.len() == 0 {
                     unimplemented!()
                 }
-                names.clone_in(self.arena).leak()
+                names.clone_in(self.alloc).leak()
             };
 
             self.expect(TokenKind::Colon)?;
@@ -934,7 +935,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
     fn parse_ident_or_path(&mut self, start: Atom) -> Option<IdentOrPath<'a>> {
         if self.consume_if_eq(TokenKind::ColonColon) {
-            let mut parts = Vec::with_cap_in(self.arena, 4);
+            let mut parts = Vec::with_cap_in(self.alloc, 4);
             parts.push(start);
 
             loop { // don't use `self.arena` in here.
@@ -990,7 +991,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
             last_had_sep = self.consume_if_eq(sep);
         }
 
-        let result = buffer.move_into(self.arena).leak();
+        let result = buffer.move_into(self.alloc).leak();
         (result, last_had_sep, had_error)
     }
 

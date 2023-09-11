@@ -27,33 +27,23 @@
           and otherwise, query functions lazily update the compiler state.
 
 - todo:
-    - source range rework.
-        - for now only lazy query mode.
-        - so we add a source. and have a function to query its tokens.
-        - thinking we expose `SourceId`, so we don't need those strings everywhere.
-        - todo:
-            - maintain `SourceId <-> Path` mapping.
-            - parse on change.
-                - `SourceId -> [ParseId]` (or just single for now).
-                - debug validate total parse.
-            - `vfs::mem`, `vfs::std`.
-    - some syntax sugar for fun & profit (arrow, eq, add).
+    - `parse_file`.
+        - debug validate total parse.
+    - `parse_datas`.
+    - lsp document sync.
+
+    - `vfs::mem`, `vfs::std`.
     - don't `print!`.
         - sti.
         - spall:
             - support non-init (drop everything).
             - counters & drop util w/ callback for debugging.
-    - lsp syntax highlighting.
-        - attach to buffer.
-        - doc sync (just one file for now).
-        - specify capability.
-        - tokenize & stuff.
-        - fix memory leak in compiler.
-            - remove elab, box other stuff (can keep in arena).
-
-    - debug tracing.
+        - debug tracing.
     - json display: string escapes.
     - vfs directories, create/delete/write.
+    - self-reference safety.
+
+    - some syntax sugar for fun & profit (arrow, eq, add).
 
     - cleanup.
         - assert last item's end is parser prev token's end.

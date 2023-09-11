@@ -1,25 +1,174 @@
+use sti::arena::Arena;
+use sti::vec::Vec;
+use sti::string::String;
+use sti::boks::Box;
 use sti::rc::Rc;
+use sti::keyed::KVec;
+use sti::hash::HashMap;
 
+use crate::string_table::StringTable;
+use crate::error::ErrorCtx;
+use crate::ast::{SourceId, ParseId, Parse, SourceRange};
+use crate::parser::{self, Parser};
 use crate::vfs::Vfs;
 
 
 pub struct Compiler {
+    #[allow(dead_code)]
+    persistent: Box<Arena>,
+
+    inner: Inner<'static>,
+}
+
+struct Inner<'c> {
     vfs: Rc<dyn Vfs>,
+
+    path_to_source: HashMap<String, SourceId>,
+    sources: KVec<SourceId, Source>,
+    parses: KVec<ParseId, ParseData>,
+
+    strings: StringTable<'c>,
+    errors: ErrorCtx<'c>,
+}
+
+struct Source {
+    dirty: bool,
+    path: String,
+    data: Vec<u8>,
+    parses: Vec<ParseId>,
+}
+
+struct ParseData {
+    #[allow(dead_code)]
+    arena: Arena,
+
+    parse: Parse<'static>,
 }
 
 impl Compiler {
     pub fn new(vfs: &Rc<impl 'static + Vfs>) -> Self {
-        Self {
+        let persistent = Box::new(Arena::new());
+
+        let inner = Inner {
             vfs: unsafe { vfs.clone().cast(|p| p as *mut sti::rc::RcInner<dyn Vfs>) },
-        }
+            path_to_source: HashMap::new(),
+            sources: KVec::new(),
+            parses: KVec::new(),
+            strings: StringTable::new(&*persistent),
+            errors: ErrorCtx::new(&*persistent),
+        };
+        let inner = unsafe { core::mem::transmute(inner) };
+
+        Self { persistent, inner }
     }
 
-    pub fn add_source(&mut self, path: &str) {
-        let _ = (path, &self.vfs);
+    pub fn add_source(&mut self, path: &str) -> SourceId {
+        self.inner.add_source(path)
     }
 
     pub fn file_changed(&mut self, path: &str) {
-        let _ = (path, &self.vfs);
+        self.inner.file_changed(path)
+    }
+
+    pub fn update(&mut self) {
+        self.inner.update()
+    }
+}
+
+impl<'c> Inner<'c> {
+    pub fn add_source(&mut self, path: &str) -> SourceId {
+        *self.path_to_source.get_or_insert_with_key(path, |_| {
+            let source = Source {
+                dirty: true,
+                path: path.into(),
+                data: Vec::new(),
+                parses: Vec::new(),
+            };
+            (path.into(), self.sources.push(source))
+        })
+    }
+
+    pub fn file_changed(&mut self, path: &str) {
+        if let Some(id) = self.path_to_source.get(path) {
+            self.sources[*id].dirty = true;
+        }
+        else {
+            self.add_source(path);
+        }
+    }
+
+
+    pub fn update(&mut self) {
+        for id in self.sources.range() {
+            self.update_source(id);
+        }
+    }
+
+    fn update_source(&mut self, source_id: SourceId) {
+        let source = &mut self.sources[source_id];
+        if !source.dirty {
+            return;
+        }
+
+        source.data = match self.vfs.read(&source.path) {
+            Ok(data) => data,
+            Err(_) => {
+                // @todo: error.
+                return;
+            }
+        };
+
+        if source.data.len() > u32::MAX as usize {
+            // @todo: error.
+            return;
+        }
+
+
+        let arena = Arena::new();
+
+        let parse_id = self.parses.next_key();
+
+        let mut parse = Parse {
+            source: source_id,
+            source_range: SourceRange {
+                begin: 0,
+                end: source.data.len() as u32,
+            },
+            numbers: KVec::new(),
+            strings: KVec::new(),
+            tokens:  KVec::new(),
+            items:  KVec::new(),
+            levels: KVec::new(),
+            exprs:  KVec::new(),
+        };
+
+        parser::tokenize(&source.data, &mut self.strings, &mut parse, &arena);
+
+        let mut parser = Parser {
+            parse_id,
+            parse: &mut parse,
+            errors: &mut self.errors,
+            strings: &mut self.strings,
+            alloc: &arena,
+            token_cursor: 0,
+        };
+
+        // @todo: `parse_file`.
+        while parser.token_cursor < parser.parse.tokens.len() {
+            if parser.parse_item(crate::ast::AstParent::None).is_none() {
+                break;
+            }
+            dbg!(&parser.parse.items);
+        }
+
+        // @todo: make this safer.
+        let parse = unsafe { core::mem::transmute(parse) };
+
+        let id = self.parses.push(ParseData { arena, parse });
+        assert_eq!(id, parse_id);
+
+        source.parses.clear();
+        source.parses.push(parse_id);
     }
 }
 
