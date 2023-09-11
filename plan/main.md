@@ -11,15 +11,47 @@
     - basic proof inference.
 
 
+- compiler rework.
+    - each "parse" has a unique `ParseId`.
+    - "parse" source: `(SourceId, SourceRange)`
+        - token source: `ParseRange`.
+        - expr source: `TokenRange`.
+        - these are local to a "parse".
+    - ir node source: `(ParseId, ExprId)`.
+    - query functions either call update (but what about the changes),
+      or require compiler to be up-to-date (panic if not).
+        - could also keep an internal queue of `Delta`s.
+        - hmm, or it could be modal. in incremental mode, you have to
+          call update (to get the deltas) before making queries (else panic).
+          and otherwise, query functions lazily update the compiler state.
+
 - todo:
+    - source range rework.
+        - for now only lazy query mode.
+        - so we add a source. and have a function to query its tokens.
+        - thinking we expose `SourceId`, so we don't need those strings everywhere.
+        - todo:
+            - maintain `SourceId <-> Path` mapping.
+            - whatever we need for tokens.
+            - store stuff per source.
+            - flat tokens & exprs.
+    - some syntax sugar for fun & profit (arrow, eq, add).
+    - don't `print!`.
+        - sti.
+        - spall:
+            - support non-init (drop everything).
+            - counters & drop util w/ callback for debugging.
     - lsp syntax highlighting.
         - attach to buffer.
+        - doc sync (just one file for now).
         - specify capability.
         - tokenize & stuff.
         - fix memory leak in compiler.
             - remove elab, box other stuff (can keep in arena).
-    - json display: string escapes.
+
     - debug tracing.
+    - json display: string escapes.
+    - vfs directories.
 
     - cleanup.
         - assert last item's end is parser prev token's end.

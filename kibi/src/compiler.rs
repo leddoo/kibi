@@ -1,3 +1,30 @@
+use sti::rc::Rc;
+
+use crate::vfs::Vfs;
+
+
+pub struct Compiler {
+    vfs: Rc<dyn Vfs>,
+}
+
+impl Compiler {
+    pub fn new(vfs: Rc<dyn Vfs>) -> Self {
+        Self {
+            vfs,
+        }
+    }
+
+    pub fn add_source(&mut self, path: &str) {
+        let _ = (path, &self.vfs);
+    }
+
+    pub fn file_changed(&mut self, path: &str) {
+        let _ = (path, &self.vfs);
+    }
+}
+
+
+/*
 use sti::arena::Arena;
 use sti::vec::Vec;
 use sti::boks::Box;
@@ -414,4 +441,6 @@ impl<'a> Inner<'a> {
         });
     }
 }
+
+*/
 
