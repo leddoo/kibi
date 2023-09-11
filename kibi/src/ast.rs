@@ -13,6 +13,7 @@ sti::define_key!(pub, u32, ParseId);
 
 sti::define_key!(pub, u32, TokenId, rng: TokenRange);
 sti::define_key!(pub, u32, ItemId);
+sti::define_key!(pub, u32, LevelId);
 sti::define_key!(pub, u32, ExprId, opt: OptExprId);
 
 
@@ -20,6 +21,7 @@ sti::define_key!(pub, u32, ExprId, opt: OptExprId);
 pub enum AstParent {
     None,
     Item(ItemId),
+    Level(LevelId),
     Expr(ExprId),
 }
 
@@ -96,8 +98,9 @@ pub struct Parse<'a> {
     pub strings: KVec<ParseStringId, &'a str>,
     pub tokens:  KVec<TokenId, Token>,
 
-    pub items: KVec<ItemId, Item<'a>>,
-    pub exprs: KVec<ExprId, Expr<'a>>,
+    pub items:  KVec<ItemId,  Item<'a>>,
+    pub levels: KVec<LevelId, Level>,
+    pub exprs:  KVec<ExprId,  Expr<'a>>,
 }
 
 
@@ -394,7 +397,7 @@ pub enum ExprKind<'a> {
     Path(Path<'a>),
 
     Levels(expr::Levels<'a>),
-    Sort(LevelRef<'a>),
+    Sort(LevelId),
     Forall(expr::Forall<'a>),
     Lambda(expr::Lambda<'a>),
 
@@ -612,25 +615,26 @@ pub mod expr {
 // levels
 //
 
-pub type LevelRef<'a> = &'a Level<'a>;
-
-pub type LevelList<'a> = &'a [Level<'a>];
+pub type LevelList<'a> = &'a [LevelId];
 
 #[derive(Clone, Copy, Debug)]
-pub struct Level<'a> {
+pub struct Level {
+    pub parent: AstParent,
     pub source: TokenRange,
-    pub kind: LevelKind<'a>,
+    pub kind: LevelKind,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum LevelKind<'a> {
+pub enum LevelKind {
+    Uninit,
+
     Hole,
     Ident(Atom),
 
     Nat(u32),
-    Add((LevelRef<'a>, u32)),
-    Max((LevelRef<'a>, LevelRef<'a>)),
-    IMax((LevelRef<'a>, LevelRef<'a>)),
+    Add((LevelId, u32)),
+    Max((LevelId, LevelId)),
+    IMax((LevelId, LevelId)),
 }
 
 

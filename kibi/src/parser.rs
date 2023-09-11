@@ -523,7 +523,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                         };
 
                         let levels = self.sep_by(TokenKind::Comma, TokenKind::RCurly, |this| {
-                            this.parse_level()
+                            this.parse_level(this_parent)
                         })?;
 
                         ExprKind::Levels(expr::Levels { symbol, levels })
@@ -595,21 +595,29 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
                 TokenKind::KwSort => {
                     self.expect(TokenKind::LParen)?;
-                    let level = self.arena.alloc_new(self.parse_level()?);
+                    let level = self.parse_level(this_parent)?;
                     self.expect(TokenKind::RParen)?;
                     ExprKind::Sort(level)
                 }
 
                 TokenKind::KwProp => {
                     let source = self.token_range_from(source_begin);
-                    ExprKind::Sort(self.arena.alloc_new(
-                        Level { source, kind: LevelKind::Nat(0) }))
+                    let level = self.parse.levels.push(Level {
+                        parent: this_parent,
+                        source,
+                        kind: LevelKind::Nat(0),
+                    });
+                    ExprKind::Sort(level)
                 }
 
                 TokenKind::KwType => {
                     let source = self.token_range_from(source_begin);
-                    ExprKind::Sort(self.arena.alloc_new(
-                        Level { source, kind: LevelKind::Nat(1) }))
+                    let level = self.parse.levels.push(Level {
+                        parent: this_parent,
+                        source,
+                        kind: LevelKind::Nat(1),
+                    });
+                    ExprKind::Sort(level)
                 }
 
                 TokenKind::KwPi => {
@@ -748,10 +756,17 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
     }
 
 
-    fn parse_level(&mut self) -> Option<Level<'a>> {
+    fn parse_level(&mut self, parent: AstParent) -> Option<LevelId> {
         let (at, source_begin) = self.next()?;
 
-        let mut kind = match at.kind {
+        let this_level = self.parse.levels.push(Level {
+            parent,
+            source: TokenRange::ZERO,
+            kind: LevelKind::Uninit,
+        });
+        let this_parent = AstParent::Level(this_level);
+
+        let kind = match at.kind {
             TokenKind::Hole => {
                 LevelKind::Hole
             }
@@ -759,9 +774,9 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
             TokenKind::Ident(v) => {
                 if v == atoms::max || v == atoms::imax {
                     self.expect(TokenKind::LParen)?;
-                    let lhs = self.arena.alloc_new(self.parse_level()?);
+                    let lhs = self.parse_level(this_parent)?;
                     self.expect(TokenKind::Comma)?;
-                    let rhs = self.arena.alloc_new(self.parse_level()?);
+                    let rhs = self.parse_level(this_parent)?;
                     self.expect(TokenKind::RParen)?;
 
                     if v == atoms::max {
@@ -790,23 +805,35 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
         };
 
         let source = self.token_range_from(source_begin);
+        let this = &mut self.parse.levels[this_level];
+        this.source = source;
+        this.kind = kind;
+
+
+        let mut result = this_level;
 
         if self.consume_if_eq(TokenKind::Add) {
             let (at, at_src) = self.next()?;
+
             let TokenKind::Number(v) = at.kind else {
                 self.error_expect(at_src, "number");
                 return None;
             };
-
-            let l = self.arena.alloc_new(Level { source, kind });
             let v = self.parse.numbers[v];
             let v = u32::from_str_radix(v, 10).ok()?;
-            kind = LevelKind::Add((l, v));
+
+            let this_level = self.parse.levels.push(Level {
+                parent,
+                source,
+                kind: LevelKind::Add((result, v))
+            });
+
+            self.parse.levels[result].parent = AstParent::Level(this_level);
+
+            result = this_level;
         }
 
-        let source = self.token_range_from(source_begin);
-
-        return Some(Level { source, kind });
+        return Some(result);
     }
 
     fn parse_binders(&mut self, this_parent: AstParent, allow_ident: bool) -> Option<BinderList<'a>> {

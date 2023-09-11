@@ -32,7 +32,6 @@
         - so we add a source. and have a function to query its tokens.
         - thinking we expose `SourceId`, so we don't need those strings everywhere.
         - todo:
-            - flat levels.
             - eof error. validate total parse.
             - remove `ArgKind`.
             - maintain `SourceId <-> Path` mapping.
