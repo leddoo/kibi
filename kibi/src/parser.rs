@@ -15,6 +15,7 @@ pub fn tokenize<'a>(input: &'a [u8], strings: &mut StringTable<'a>, parse: &mut 
         reader: Reader::new(input),
     };
     while tok.next() {}
+    debug_assert_eq!(tok.reader.remaining(), 0);
 }
 
 
@@ -548,9 +549,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
 
                 let args = self.sep_by(TokenKind::Comma, TokenKind::RParen, |this| {
-                    // @temp: named args.
                     this.parse_expr(this_parent)
-                    .map(|value| expr::CallArg::Positional(value))
                 })?;
 
                 self.expr_init_from(this_expr, token_begin,
@@ -1034,7 +1033,13 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
             Some((*at, src))
         }
         else {
-            // unexpected eof.
+            self.errors.with(|errors| {
+                errors.report(Error {
+                    parse: self.parse_id,
+                    source: ErrorSource::TokenRange(TokenRange::from_key(src)),
+                    kind: ErrorKind::Parse(ParseError::UnexpectedEof),
+                });
+            });
             None
         }
     }

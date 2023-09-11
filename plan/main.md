@@ -32,10 +32,10 @@
         - so we add a source. and have a function to query its tokens.
         - thinking we expose `SourceId`, so we don't need those strings everywhere.
         - todo:
-            - eof error. validate total parse.
-            - remove `ArgKind`.
             - maintain `SourceId <-> Path` mapping.
             - parse on change.
+                - `SourceId -> [ParseId]` (or just single for now).
+                - debug validate total parse.
             - `vfs::mem`, `vfs::std`.
     - some syntax sugar for fun & profit (arrow, eq, add).
     - don't `print!`.

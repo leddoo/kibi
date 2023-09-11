@@ -518,21 +518,7 @@ pub mod expr {
     pub struct Call<'a> {
         //pub self_post_eval: bool,
         pub func: ExprId,
-        pub args: CallArgList<'a>,
-    }
-
-    pub type CallArgList<'a> = &'a [CallArg];
-
-    #[derive(Clone, Copy, Debug)]
-    pub enum CallArg {
-        Positional(ExprId),
-        Named(NamedArg),
-    }
-
-    #[derive(Clone, Copy, Debug)]
-    pub struct NamedArg {
-        pub name:  Atom,
-        pub value: ExprId,
+        pub args: ExprList<'a>,
     }
 
 

@@ -41,6 +41,7 @@ pub enum ErrorKind<'a> {
 pub enum ParseError<'a> {
     Expected(&'a str),
     Unexpected(&'a str),
+    UnexpectedEof, // todo: while parsing.
 }
 
 
