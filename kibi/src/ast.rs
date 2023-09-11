@@ -22,15 +22,15 @@ pub enum IdentOrPath<'a> {
 }
 
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum Binder<'a> {
     Ident(OptAtom),
     Typed(TypedBinder<'a>),
 }
 
-pub type BinderList<'a> = &'a mut [Binder<'a>];
+pub type BinderList<'a> = &'a [Binder<'a>];
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct TypedBinder<'a> {
     pub implicit: bool,
     pub names:   &'a[OptAtom],
@@ -45,13 +45,13 @@ pub struct TypedBinder<'a> {
 // tokens
 //
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Token<'a> {
     pub source: SourceRange,
     pub kind: TokenKind<'a>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TokenKind<'a> {
     Error,
 
@@ -273,16 +273,16 @@ pub mod item {
 // stmts
 //
 
-pub type StmtRef<'a> = &'a mut Stmt<'a>;
+pub type StmtRef<'a> = &'a Stmt<'a>;
 
-pub type StmtList<'a> = &'a mut [StmtRef<'a>];
+pub type StmtList<'a> = &'a [StmtRef<'a>];
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Stmt<'a> {
     pub kind: StmtKind<'a>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum StmtKind<'a> {
     Let(stmt::Let<'a>),
     Expr(Expr<'a>),
@@ -293,7 +293,7 @@ pub mod stmt {
     use super::*;
 
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct Let<'a> {
         pub is_var: bool,
         pub ident:  &'a str,
@@ -308,17 +308,17 @@ pub mod stmt {
 // exprs
 //
 
-pub type ExprRef<'a> = &'a mut Expr<'a>;
+pub type ExprRef<'a> = &'a Expr<'a>;
 
-pub type ExprList<'a> = &'a mut [Expr<'a>];
+pub type ExprList<'a> = &'a [Expr<'a>];
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Expr<'a> {
     pub source: SourceRange,
     pub kind: ExprKind<'a>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum ExprKind<'a> {
     Error,
 
@@ -366,27 +366,27 @@ pub mod expr {
     use super::*;
 
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct Levels<'a> {
         pub symbol: IdentOrPath<'a>,
         pub levels: LevelList<'a>,
     }
 
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct Forall<'a> {
         pub binders: BinderList<'a>,
         pub ret:     ExprRef<'a>,
     }
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct Lambda<'a> {
         pub binders: BinderList<'a>,
         pub value:   ExprRef<'a>,
     }
 
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct Block<'a> {
         pub is_do: bool,
         pub stmts: StmtList<'a>,
@@ -400,7 +400,7 @@ pub mod expr {
         Negate, // the real negate.
     }
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct Op1<'a> {
         pub op:   Op1Kind,
         pub expr: ExprRef<'a>,
@@ -425,7 +425,7 @@ pub mod expr {
         CmpGt,
     }
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct Op2<'a> {
         pub op:  Op2Kind,
         pub lhs: ExprRef<'a>,
@@ -433,76 +433,76 @@ pub mod expr {
     }
 
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct Field<'a> {
         pub base: ExprRef<'a>,
         pub name: Atom,
     }
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct Index<'a> {
         pub base:  ExprRef<'a>,
         pub index: ExprRef<'a>,
     }
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct Call<'a> {
         //pub self_post_eval: bool,
         pub func: ExprRef<'a>,
         pub args: CallArgList<'a>,
     }
 
-    pub type CallArgList<'a> = &'a mut [CallArg<'a>];
+    pub type CallArgList<'a> = &'a [CallArg<'a>];
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub enum CallArg<'a> {
         Positional(Expr<'a>),
         Named(NamedArg<'a>),
     }
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct NamedArg<'a> {
         pub name:  &'a str,
         pub value: Expr<'a>,
     }
 
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct Assign<'a> {
         pub lhs: ExprRef<'a>,
         pub rhs: ExprRef<'a>,
     }
 
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct Map<'a> {
         pub entries: MapEntryList<'a>,
     }
 
-    pub type MapEntryList<'a> = &'a mut [MapEntry<'a>];
+    pub type MapEntryList<'a> = &'a [MapEntry<'a>];
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct MapEntry<'a> {
         pub key:   &'a str,
         pub value: ExprRef<'a>,
     }
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct MapType<'a> {
         pub key:   ExprRef<'a>,
         pub value: ExprRef<'a>,
     }
 
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct Match<'a> {
         pub expr: ExprRef<'a>,
         pub cases: MatchCaseList<'a>,
     }
 
-    pub type MatchCaseList<'a> = &'a mut [MatchCase<'a>];
+    pub type MatchCaseList<'a> = &'a [MatchCase<'a>];
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct MatchCase<'a> {
         //pub ctor:    GenericIdent<'a>,
         pub binding: Option<&'a str>,
@@ -510,30 +510,30 @@ pub mod expr {
     }
 
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct If<'a> {
         pub cond:  ExprRef<'a>,
         pub then:  Block<'a>,
         pub els:   Option<ExprRef<'a>>,
     }
 
-    pub type IfCaseList<'a> = &'a mut [IfCase<'a>];
+    pub type IfCaseList<'a> = &'a [IfCase<'a>];
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct IfCase<'a> {
         pub cond: ExprRef<'a>,
         pub then: Block<'a>,
     }
 
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct Loop<'a> {
         pub cond: Option<ExprRef<'a>>,
         pub body: Block<'a>,
     }
 
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct TypeHint<'a> {
         pub expr: ExprRef<'a>,
         pub ty:   ExprRef<'a>,
@@ -546,17 +546,17 @@ pub mod expr {
 // levels
 //
 
-pub type LevelRef<'a> = &'a mut Level<'a>;
+pub type LevelRef<'a> = &'a Level<'a>;
 
-pub type LevelList<'a> = &'a mut [Level<'a>];
+pub type LevelList<'a> = &'a [Level<'a>];
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Level<'a> {
     pub source: SourceRange,
     pub kind: LevelKind<'a>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum LevelKind<'a> {
     Hole,
     Ident(Atom),
@@ -586,7 +586,7 @@ pub mod adt {
     }
 
 
-    #[derive(Debug)]
+    #[derive(Clone, Copy, Debug)]
     pub struct Ctor<'a> {
         pub name: Atom,
         pub args: BinderList<'a>,

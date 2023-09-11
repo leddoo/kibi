@@ -870,7 +870,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
             let mut default = None;
             if self.tokens.consume_if(|at| at.kind == TokenKind::ColonEq) {
-                default = Some(self.arena.alloc_new(self.parse_expr()?));
+                default = Some(&*self.arena.alloc_new(self.parse_expr()?));
             }
 
             binders.push(Binder::Typed(TypedBinder { implicit, names, ty, default }));
