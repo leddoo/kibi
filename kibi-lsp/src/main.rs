@@ -2,6 +2,10 @@ use kibi::sti;
 use sti::arena_pool::ArenaPool;
 use sti::vec::Vec;
 use sti::string::String;
+use sti::rc::Rc;
+
+use kibi::vfs::MemFs;
+use kibi::compiler::Compiler;
 
 mod json;
 
@@ -16,16 +20,23 @@ struct Lsp {
 
     message: Vec<u8>,
     initialized: bool,
+
+    vfs: Rc<MemFs>,
+    compiler: Compiler,
 }
 
 impl Lsp {
     pub fn new() -> Self {
+        let vfs = Rc::new(MemFs::new());
+        let compiler = Compiler::new(&vfs);
         Self {
             stdin: File::create("target/lsp.stdin").unwrap(),
             stdout: File::create("target/lsp.stdout").unwrap(),
             log: File::create("target/lsp.log").unwrap(),
             message: Vec::new(),
             initialized: false,
+            vfs,
+            compiler,
         }
     }
 
@@ -188,6 +199,7 @@ impl Lsp {
             "shutdown" => {
                 let id = id.unwrap();
                 self.send_response(id, Ok(json::Value::Null));
+                return true;
             }
 
             "exit" => {
@@ -195,11 +207,58 @@ impl Lsp {
                 return false;
             }
 
+            "textDocument/didOpen" => {
+                let doc = params["textDocument"];
+
+                let lang = doc["languageId"];
+                if lang != "kibi".into() {
+                    return true;
+                }
+
+                let path = doc["uri"].as_string();
+                let text = doc["text"].as_string();
+
+                self.vfs.write(path, text.as_bytes());
+
+                self.compiler.add_source(path);
+
+                return true;
+            }
+
+            "textDocument/didClose" => {
+                let doc = params["textDocument"];
+
+                let path = doc["uri"].as_string();
+                self.compiler.remove_source(path);
+
+                return true;
+            }
+
+            "textDocument/didChange" => {
+                let doc = params["textDocument"];
+
+                let path = doc["uri"].as_string();
+
+                let changes = params["contentChanges"].as_array();
+                assert_eq!(changes.len(), 1);
+
+                let change = changes[0];
+                assert_eq!(change.get("range"), None);
+
+                let text = change["text"].as_string();
+
+                self.vfs.write(path, text.as_bytes());
+
+                self.compiler.file_changed(path);
+
+                return true;
+            }
+
             _ => {
                 _ = writeln!(self.log, "[warn]: message not supported {method:?}");
+                return true;
             }
         }
-        return true;
     }
 
     fn send_response(&mut self, id: i32, result: Result<json::Value, json::Value>) {

@@ -23,10 +23,6 @@
           and otherwise, query functions lazily update the compiler state.
 
 - todo:
-    - lsp document sync.
-        - store file data in a memfs.
-        - add/remove source files on `didOpen` & `didClose`.
-        - update on `didChange`.
     - lsp semantic tokens.
         - extract, encode, send.
     - elab.

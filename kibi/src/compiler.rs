@@ -25,7 +25,8 @@ struct Inner<'c> {
     vfs: Rc<dyn Vfs>,
 
     path_to_source: HashMap<String, SourceId>,
-    sources: KVec<SourceId, Source>,
+    sources: KVec<SourceId, OptSourceDataId>,
+    source_datas: KFreeVec<SourceDataId, SourceData>,
     parses: KVec<ParseId, OptParseDataId>,
     parse_datas: KFreeVec<ParseDataId, ParseData>,
 
@@ -33,7 +34,9 @@ struct Inner<'c> {
     errors: ErrorCtx<'c>,
 }
 
-struct Source {
+sti::define_key!(u32, SourceDataId, opt: OptSourceDataId);
+
+struct SourceData {
     dirty: bool,
     path: String,
     data: Vec<u8>,
@@ -58,6 +61,7 @@ impl Compiler {
             vfs: unsafe { vfs.clone().cast(|p| p as *mut sti::rc::RcInner<dyn Vfs>) },
             path_to_source: HashMap::new(),
             sources: KVec::new(),
+            source_datas: KFreeVec::new(),
             parses: KVec::new(),
             parse_datas: KFreeVec::new(),
             strings: StringTable::new(&*persistent),
@@ -72,6 +76,10 @@ impl Compiler {
         self.inner.add_source(path)
     }
 
+    pub fn remove_source(&mut self, path: &str) -> bool {
+        self.inner.remove_source(path)
+    }
+
     pub fn file_changed(&mut self, path: &str) {
         self.inner.file_changed(path)
     }
@@ -84,19 +92,41 @@ impl Compiler {
 impl<'c> Inner<'c> {
     pub fn add_source(&mut self, path: &str) -> SourceId {
         *self.path_to_source.get_or_insert_with_key(path, |_| {
-            let source = Source {
+            let data_id = self.source_datas.alloc(SourceData {
                 dirty: true,
                 path: path.into(),
                 data: Vec::new(),
                 parses: Vec::new(),
-            };
-            (path.into(), self.sources.push(source))
+            });
+            (path.into(), self.sources.push(data_id.some()))
         })
     }
 
+    pub fn remove_source(&mut self, path: &str) -> bool {
+        let Some(source_id) = self.path_to_source.get(path).copied() else { return false };
+
+        let data_id = self.sources[source_id].take().unwrap();
+
+        // @todo: kfreevec drop & unwrap.
+        let source = &mut self.source_datas[data_id];
+        for parse_id in source.parses.copy_it() {
+            let data_id = self.parses[parse_id].take().unwrap();
+            self.parse_datas.free(data_id);
+        }
+        // @todo: string free.
+        source.path = String::new();
+        source.data.free();
+        source.parses.free();
+
+        self.source_datas.free(data_id);
+
+        return true;
+    }
+
     pub fn file_changed(&mut self, path: &str) {
-        if let Some(id) = self.path_to_source.get(path) {
-            self.sources[*id].dirty = true;
+        if let Some(id) = self.path_to_source.get(path).copied() {
+            let data_id = self.sources[id].unwrap();
+            self.source_datas[data_id].dirty = true;
         }
         else {
             self.add_source(path);
@@ -111,7 +141,8 @@ impl<'c> Inner<'c> {
     }
 
     fn update_source(&mut self, source_id: SourceId) {
-        let source = &mut self.sources[source_id];
+        let data_id = self.sources[source_id].unwrap();
+        let source = &mut self.source_datas[data_id];
         if !source.dirty {
             return;
         }
