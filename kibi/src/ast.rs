@@ -119,6 +119,7 @@ pub struct Token {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TokenKind {
     Error,
+    EndOfFile,
 
     Hole,
     Ident(Atom),
@@ -202,6 +203,7 @@ impl TokenKind {
     pub fn repr(&self) -> &'static str {
         match self {
             TokenKind::Error => unreachable!(),
+            TokenKind::EndOfFile => "eof",
             TokenKind::Hole => "hole",
             TokenKind::Ident(_) => "ident",
             TokenKind::Bool(_) => "bool",

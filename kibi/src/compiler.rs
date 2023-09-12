@@ -302,6 +302,7 @@ impl<'c> Inner<'c> {
                 use crate::ast::TokenKind as T; 
                 match token.kind {
                     T::Error => TokenClass::Error,
+                    T::EndOfFile => TokenClass::Punctuation,
                     T::Hole => TokenClass::Variable,
                     T::Ident(_) => TokenClass::Variable,
                     T::Bool(_) => TokenClass::Variable,

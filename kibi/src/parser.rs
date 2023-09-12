@@ -47,6 +47,11 @@ pub fn tokenize<'a>(input: &[u8], parse: &mut Parse<'a>, strings: &mut StringTab
     };
     while tok.next() {}
     debug_assert_eq!(tok.reader.remaining(), 0);
+
+    parse.tokens.push(Token {
+        source: ParseRange { begin: input.len() as u32, end: input.len() as u32 },
+        kind: TokenKind::EndOfFile,
+    });
 }
 
 
@@ -327,7 +332,7 @@ pub struct Parser<'me, 'err, 'a> {
 
 impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
     pub fn parse_item(&mut self, parent: AstParent) -> Option<ItemId> {
-        let (at, source_begin) = self.next()?;
+        let (at, source_begin) = self.next();
 
         let this_item = self.parse.items.push(Item {
             parent,
@@ -450,7 +455,9 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
         let mut result = self.parse_leading_expr(parent, flags, prec)?;
 
-        while let Some(at) = self.peek() {
+        loop {
+            let at = self.peek();
+
             // infix operators.
             if let Some(op) = InfixOp::from_token(at) {
                 let allowed = !flags.no_cmp || (
@@ -496,7 +503,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                 let (this_expr, this_parent) = self.new_expr_uninit(parent);
                 self.parse.exprs[result].parent = this_parent;
 
-                let (at, at_src) = self.next()?;
+                let (at, at_src) = self.next();
                 let kind = match at.kind {
                     // field.
                     TokenKind::Ident(name) => {
@@ -564,7 +571,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
     }
 
     fn parse_leading_expr(&mut self, parent: AstParent, flags: ParseExprFlags, prec: u32) -> Option<ExprId> {
-        let (at, source_begin) = self.next()?;
+        let (at, source_begin) = self.next();
 
         let (this_expr, this_parent) = self.new_expr_uninit(parent);
 
@@ -751,7 +758,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
 
     fn parse_level(&mut self, parent: AstParent) -> Option<LevelId> {
-        let (at, source_begin) = self.next()?;
+        let (at, source_begin) = self.next();
 
         let this_level = self.parse.levels.push(Level {
             parent,
@@ -807,7 +814,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
         let mut result = this_level;
 
         if self.consume_if_eq(TokenKind::Add) {
-            let (at, at_src) = self.next()?;
+            let (at, at_src) = self.next();
 
             let TokenKind::Number(v) = at.kind else {
                 self.error_expect(at_src, "number");
@@ -882,7 +889,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
                     names.push(ident);
                 }
                 if names.len() == 0 {
-                    unimplemented!()
+                    self.error_expect(self.current_token_id(), "ident | hole");
                 }
                 names.clone_in(self.alloc).leak()
             };
@@ -906,7 +913,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
     #[inline(always)]
     fn expect_ident(&mut self) -> Option<Atom> {
-        let (at, at_src) = self.next()?;
+        let (at, at_src) = self.next();
         if let TokenKind::Ident(ident) = at.kind {
             return Some(ident);
         }
@@ -915,7 +922,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
     }
 
     fn parse_ident_or_hole(&mut self) -> Option<OptAtom> {
-        let at = self.peek()?;
+        let at = self.peek();
         if let TokenKind::Hole = at.kind {
             self.consume(1);
             return Some(None.into())
@@ -933,7 +940,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
             parts.push(start);
 
             loop { // don't use `self.arena` in here.
-                let (at, _) = self.next()?;
+                let (at, _) = self.next();
                 let TokenKind::Ident(part) = at.kind else { return None };
                 parts.push(part);
 
@@ -1013,30 +1020,18 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
 
     #[inline(always)]
-    fn peek(&self) -> Option<Token> {
-        if let Some(at) = self.parse.tokens.inner().get(self.token_cursor) {
-            Some(*at)
-        }
-        else { None }
+    fn peek(&self) -> Token {
+        self.parse.tokens.inner()[self.token_cursor]
     }
 
     #[inline(always)]
-    fn next(&mut self) -> Option<(Token, TokenId)> {
+    fn next(&mut self) -> (Token, TokenId) {
         let src = self.current_token_id();
-        if let Some(at) = self.parse.tokens.inner().get(self.token_cursor) {
+        let at = self.parse.tokens.inner()[self.token_cursor];
+        if at.kind != TokenKind::EndOfFile {
             self.token_cursor += 1;
-            Some((*at, src))
         }
-        else {
-            self.errors.with(|errors| {
-                errors.report(Error {
-                    parse: self.parse_id,
-                    source: ErrorSource::TokenRange(TokenRange::from_key(src)),
-                    kind: ErrorKind::Parse(ParseError::UnexpectedEof),
-                });
-            });
-            None
-        }
+        return (at, src);
     }
 
     #[inline(always)]
@@ -1060,7 +1055,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
     #[must_use]
     #[inline(always)]
     fn expect(&mut self, kind: TokenKind) -> Option<()> {
-        let (at, at_src) = self.next()?;
+        let (at, at_src) = self.next();
         if at.kind == kind {
             return Some(());
         }
