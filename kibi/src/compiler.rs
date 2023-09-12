@@ -88,11 +88,13 @@ impl Compiler {
     }
 
     pub fn update(&mut self) {
+        spall::trace_scope!("kibi/update");
         self.inner.update()
     }
 
 
     pub fn query_semantic_tokens(&mut self, path: &str) -> Vec<SemanticToken> {
+        spall::trace_scope!("kibi/query_semantic_tokens"; "{}", path);
         self.inner.query_semantic_tokens(path)
     }
 }
@@ -154,6 +156,8 @@ impl<'c> Inner<'c> {
     fn update_source(&mut self, source_id: SourceId) {
         let data_id = self.sources[source_id].unwrap();
         let source = &mut self.source_datas[data_id];
+
+        spall::trace_scope!("kibi/update_source"; "{}", source.path);
 
         if !source.dirty { return }
         source.dirty = false;

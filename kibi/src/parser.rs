@@ -15,23 +15,30 @@ pub fn parse_file<'a>(
     parse_id: ParseId, parse: &mut Parse<'a>,
     strings: &mut StringTable, errors: &mut ErrorCtx, alloc: &'a Arena)
 {
+    spall::trace_scope!("kibi/parse_file");
+
     tokenize(input, parse, strings, alloc);
 
-    let mut parser = Parser {
-        parse_id, parse,
-        errors, strings, alloc,
-        token_cursor: 0,
-    };
+    {
+        spall::trace_scope!("kibi/parse");
+        let mut parser = Parser {
+            parse_id, parse,
+            errors, strings, alloc,
+            token_cursor: 0,
+        };
 
-    while parser.token_cursor < parser.parse.tokens.len() {
-        if parser.parse_item(crate::ast::AstParent::None).is_none() {
-            break;
+        while parser.token_cursor < parser.parse.tokens.len() {
+            if parser.parse_item(crate::ast::AstParent::None).is_none() {
+                break;
+            }
         }
     }
 }
 
 
 pub fn tokenize<'a>(input: &[u8], parse: &mut Parse<'a>, strings: &mut StringTable, alloc: &'a Arena) {
+    spall::trace_scope!("kibi/tok");
+
     let mut tok = Tokenizer {
         alloc,
         strings,

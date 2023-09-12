@@ -1,4 +1,6 @@
 use kibi::sti;
+use kibi::spall;
+
 use sti::traits::CopyIt;
 use sti::arena_pool::ArenaPool;
 use sti::vec::Vec;
@@ -42,6 +44,8 @@ impl Lsp {
     }
 
     pub fn process_bytes(&mut self, bytes: &[u8]) -> bool {
+        spall::trace_scope!("kibi_lsp/process_bytes");
+
         _ = self.stdin.write(bytes);
 
         self.message.extend_from_slice(bytes);
@@ -97,7 +101,6 @@ impl Lsp {
             }
             let dt = t0.elapsed();
             _ = writeln!(self.log, "[debug] responded in {:?}", dt);
-            _ = self.log.flush();
 
             let consumed = end_headers + 4 + content_length;
             unsafe {
@@ -116,6 +119,8 @@ impl Lsp {
     }
 
     fn process_message(&mut self, msg: json::Value) -> bool {
+        spall::trace_scope!("kibi_lsp/process_message"; "{}", msg["method"].as_string());
+
         _ = writeln!(self.log, "[debug] {:?} message: {:#}", time(), msg);
 
         assert_eq!(msg["jsonrpc"], "2.0".into());
@@ -125,7 +130,7 @@ impl Lsp {
             id as i32
         });
 
-        let method = msg["method"].try_string().unwrap();
+        let method = msg["method"].as_string();
 
         let params = msg.get("params").unwrap_or(&json::Value::Null);
         assert!(params.is_object() || params.is_array() || params.is_null());
@@ -266,6 +271,8 @@ impl Lsp {
     }
 
     fn send_response(&mut self, id: i32, result: Result<json::Value, json::Value>) {
+        spall::trace_scope!("kibi_lsp/send_response"; "id: {}", id);
+
         use core::fmt::Write;
 
         let temp = unsafe { ArenaPool::tls_get_scoped(&[]) };
@@ -295,6 +302,8 @@ fn time() -> std::time::Duration {
 
 fn main() {
     use std::io::Read;
+
+    kibi::spall::init("target/trace-lsp.spall").unwrap();
 
 
     let mut lsp = Lsp::new();
