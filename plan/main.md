@@ -1,23 +1,19 @@
 
 - road map:
-    - basic traits.
+    - lsp.
+    - incremental.
+    - modules.
+    - unordered decls.
     - codegen.
     - nat literals.
-    - unordered decls & compiler rework.
     - references.
     - multi-threading.
-    - modules.
     - macros.
     - basic proof inference.
+    - crates.
 
 
 - compiler rework.
-    - each "parse" has a unique `ParseId`.
-    - "parse" source: `(SourceId, SourceRange)`
-        - token source: `ParseRange`.
-        - expr source: `TokenRange`.
-        - these are local to a "parse".
-    - ir node source: `(ParseId, ExprId)`.
     - don't expose `ParseId`. instead have opaque `ExprSource`, `TermSource`, etc.
     - query functions either call update (but what about the changes),
       or require compiler to be up-to-date (panic if not).
@@ -27,10 +23,18 @@
           and otherwise, query functions lazily update the compiler state.
 
 - todo:
-    - `parse_file`.
-        - debug validate total parse.
-    - `parse_datas`.
+    - `parse_datas` to reduce leakage. free prev source parses.
     - lsp document sync.
+    - lsp semantic tokens.
+    - elab.
+    - lsp hover info.
+    - incremental parse.
+        - each item is a `Parse`.
+        - if token range dirty, re-parse, otherwise, keep old result.
+        - option for non-incr -> items don't start new `Parse`.
+    - incremental elab.
+        - track dependencies.
+        - re-elab if dependencies or item changed.
 
     - `vfs::mem`, `vfs::std`.
     - don't `print!`.
@@ -42,13 +46,15 @@
     - json display: string escapes.
     - vfs directories, create/delete/write.
     - self-reference safety.
+    - incremental testing.
+        - serialization or hash function.
+        - do non-incr compile & compare.
+    - compiler: id based functions (alternative to strings).
 
     - some syntax sugar for fun & profit (arrow, eq, add).
 
     - cleanup.
-        - assert last item's end is parser prev token's end.
         - `SymbolKind::Axiom`.
-        - parser eof errors.
         - proper errors for elab stuff.
 
     - ident -> elab as app with no args.

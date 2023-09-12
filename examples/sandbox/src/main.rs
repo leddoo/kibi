@@ -9,15 +9,11 @@ use kibi::compiler::Compiler;
 fn main() {
     kibi::spall::init("target/trace.spall").unwrap();
 
-    let input = include_bytes!("../../../hello.kb");
-
-
     let fs = Rc::new(MemFs::new());
+    fs.write("hello.kb", include_bytes!("../../../hello.kb"));
 
-    let mut kc = Compiler::new(&fs); 
-
-    fs.write("hello.kb", input);
-    kc.add_source("hello.kb");
-    kc.update();
+    let mut c = Compiler::new(&fs);
+    c.add_source("hello.kb");
+    c.update();
 }
 

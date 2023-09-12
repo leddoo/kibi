@@ -8,7 +8,30 @@ use crate::error::*;
 use crate::ast::*;
 
 
-pub fn tokenize<'a>(input: &[u8], strings: &mut StringTable, parse: &mut Parse<'a>, alloc: &'a Arena) {
+
+// @todo: return `ItemId`.
+pub fn parse_file<'a>(
+    input: &[u8],
+    parse_id: ParseId, parse: &mut Parse<'a>,
+    strings: &mut StringTable, errors: &mut ErrorCtx, alloc: &'a Arena)
+{
+    tokenize(input, parse, strings, alloc);
+
+    let mut parser = Parser {
+        parse_id, parse,
+        errors, strings, alloc,
+        token_cursor: 0,
+    };
+
+    while parser.token_cursor < parser.parse.tokens.len() {
+        if parser.parse_item(crate::ast::AstParent::None).is_none() {
+            break;
+        }
+    }
+}
+
+
+pub fn tokenize<'a>(input: &[u8], parse: &mut Parse<'a>, strings: &mut StringTable, alloc: &'a Arena) {
     let mut tok = Tokenizer {
         alloc,
         strings,
@@ -281,42 +304,6 @@ impl<'me, 'str, 'i, 'a> Tokenizer<'me, 'str, 'i, 'a> {
     fn skip_ws(&mut self) {
         self.reader.consume_while(|at|
             at.is_ascii_whitespace());
-    }
-}
-
-
-
-#[derive(Clone, Copy, Debug)]
-pub struct ParseExprFlags {
-    pub tuple: bool,
-    pub type_hint: bool,
-    pub ty: bool,
-    pub no_cmp: bool,
-}
-
-impl ParseExprFlags {
-    #[inline(always)]
-    pub fn with_tuple(self) -> Self { Self { tuple: true, ..self } }
-
-    #[inline(always)]
-    pub fn with_type_hint(self) -> Self { Self { type_hint: true, ..self } }
-
-    #[inline(always)]
-    pub fn with_ty(self) -> Self { Self { ty: true, ..self } }
-
-    #[inline(always)]
-    pub fn with_no_cmp(self) -> Self { Self { no_cmp: true, ..self } }
-}
-
-impl Default for ParseExprFlags {
-    #[inline(always)]
-    fn default() -> Self {
-        Self {
-            tuple: false,
-            type_hint: false,
-            ty: false,
-            no_cmp: false,
-        }
     }
 }
 
@@ -1125,6 +1112,42 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
         this.source = source;
         this.kind = kind;
+    }
+}
+
+
+
+#[derive(Clone, Copy, Debug)]
+pub struct ParseExprFlags {
+    pub tuple: bool,
+    pub type_hint: bool,
+    pub ty: bool,
+    pub no_cmp: bool,
+}
+
+impl ParseExprFlags {
+    #[inline(always)]
+    pub fn with_tuple(self) -> Self { Self { tuple: true, ..self } }
+
+    #[inline(always)]
+    pub fn with_type_hint(self) -> Self { Self { type_hint: true, ..self } }
+
+    #[inline(always)]
+    pub fn with_ty(self) -> Self { Self { ty: true, ..self } }
+
+    #[inline(always)]
+    pub fn with_no_cmp(self) -> Self { Self { no_cmp: true, ..self } }
+}
+
+impl Default for ParseExprFlags {
+    #[inline(always)]
+    fn default() -> Self {
+        Self {
+            tuple: false,
+            type_hint: false,
+            ty: false,
+            no_cmp: false,
+        }
     }
 }
 

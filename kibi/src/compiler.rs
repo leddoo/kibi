@@ -9,7 +9,7 @@ use sti::hash::HashMap;
 use crate::string_table::StringTable;
 use crate::error::ErrorCtx;
 use crate::ast::{SourceId, ParseId, Parse, SourceRange};
-use crate::parser::{self, Parser};
+use crate::parser;
 use crate::vfs::Vfs;
 
 
@@ -142,24 +142,8 @@ impl<'c> Inner<'c> {
             exprs:  KVec::new(),
         };
 
-        parser::tokenize(&source.data, &mut self.strings, &mut parse, &arena);
-
-        let mut parser = Parser {
-            parse_id,
-            parse: &mut parse,
-            errors: &mut self.errors,
-            strings: &mut self.strings,
-            alloc: &arena,
-            token_cursor: 0,
-        };
-
-        // @todo: `parse_file`.
-        while parser.token_cursor < parser.parse.tokens.len() {
-            if parser.parse_item(crate::ast::AstParent::None).is_none() {
-                break;
-            }
-            dbg!(&parser.parse.items);
-        }
+        parser::parse_file(&source.data, parse_id, &mut parse,
+            &mut self.strings, &mut self.errors, &arena);
 
         // @todo: make this safer.
         let parse = unsafe { core::mem::transmute(parse) };
