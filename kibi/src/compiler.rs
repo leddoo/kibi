@@ -114,7 +114,9 @@ impl<'c> Inner<'c> {
     }
 
     pub fn remove_source(&mut self, path: &str) -> bool {
-        let Some(source_id) = self.path_to_source.get(path).copied() else { return false };
+        let Some(source_id) = self.path_to_source.remove_value(path) else {
+            return false;
+        };
 
         let data_id = self.sources[source_id].take().unwrap();
 
@@ -148,20 +150,19 @@ impl<'c> Inner<'c> {
         if !self.dirty { return }
         self.dirty = false;
 
-        for id in self.sources.range() {
-            self.update_source(id);
+        for source_id in self.sources.range() {
+            if let Some(data_id) = self.sources[source_id].to_option() {
+                self.update_source(source_id, data_id);
+            }
         }
     }
 
-    fn update_source(&mut self, source_id: SourceId) {
-        let data_id = self.sources[source_id].unwrap();
-        let source = &mut self.source_datas[data_id];
-
-        spall::trace_scope!("kibi/update_source"; "{}", source.path);
-
+    fn update_source(&mut self, source_id: SourceId, source: SourceDataId) {
+        let source = &mut self.source_datas[source];
         if !source.dirty { return }
         source.dirty = false;
 
+        spall::trace_scope!("kibi/update_source"; "{}", source.path);
 
         source.data = match self.vfs.read(&source.path) {
             Ok(data) => {

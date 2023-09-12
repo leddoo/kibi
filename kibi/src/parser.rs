@@ -27,7 +27,7 @@ pub fn parse_file<'a>(
             token_cursor: 0,
         };
 
-        while parser.token_cursor < parser.parse.tokens.len() {
+        while parser.peek().kind != TokenKind::EndOfFile {
             if parser.parse_item(crate::ast::AstParent::None).is_none() {
                 break;
             }
@@ -315,7 +315,7 @@ impl<'me, 'str, 'i, 'a> Tokenizer<'me, 'str, 'i, 'a> {
 
     fn skip_ws(&mut self) {
         self.reader.consume_while(|at|
-            at.is_ascii_whitespace());
+            *at == b' ' || *at == b'\n' || *at == b'\r');
     }
 }
 
@@ -1085,6 +1085,8 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
     }
 
     fn error_unexpected(&mut self, token: Token, source: TokenId) {
+        if token.kind == TokenKind::Error { return }
+
         self.errors.with(|errors| {
             errors.report(Error {
                 parse: self.parse_id,

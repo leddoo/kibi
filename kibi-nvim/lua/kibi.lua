@@ -8,6 +8,7 @@ vim.filetype.add({
 
 
 vim.cmd([[
+    hi link @lsp.type.error.kibi            Error
     hi link @lsp.type.keyword.kibi          Keyword
     hi link @lsp.type.punctuation.kibi      Delimiter
     hi link @lsp.type.operator.kibi         Operator

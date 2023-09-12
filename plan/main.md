@@ -24,7 +24,9 @@
 
 - todo:
     - elab.
+    - diagnostics.
     - lsp hover info.
+    - proper semantic tokens.
     - incremental parse.
         - each item is a `Parse`.
         - if token range dirty, re-parse, otherwise, keep old result.

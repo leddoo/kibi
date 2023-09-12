@@ -397,7 +397,7 @@ fn time() -> std::time::Duration {
 fn main() {
     use std::io::Read;
 
-    kibi::spall::init("target/trace-lsp.spall").unwrap();
+    kibi::spall::init(&format!("target/trace-lsp-{}.spall", std::process::id())).unwrap();
 
 
     let mut lsp = Lsp::new();
