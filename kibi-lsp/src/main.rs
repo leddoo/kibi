@@ -1,4 +1,5 @@
 use kibi::sti;
+use sti::traits::CopyIt;
 use sti::arena_pool::ArenaPool;
 use sti::vec::Vec;
 use sti::string::String;
@@ -90,11 +91,13 @@ impl Lsp {
                 assert_eq!(json::parse(&*temp, buf.as_bytes()), Ok(content));
             }
 
-            let ok = self.process_message(content);
-            _ = self.log.flush();
-            if !ok {
+            let t0 = std::time::Instant::now();
+            if !self.process_message(content) {
                 return false;
             }
+            let dt = t0.elapsed();
+            _ = writeln!(self.log, "[debug] responded in {:?}", dt);
+            _ = self.log.flush();
 
             let consumed = end_headers + 4 + content_length;
             unsafe {
@@ -142,47 +145,24 @@ impl Lsp {
                     ("positionEncoding", "utf-8".into()),
 
                     ("textDocumentSync", 1.0.into()), // full sync
-                                                      //
-                    // @temp: select from client's list.
                     ("semanticTokensProvider", json::Value::Object(&[
                         ("legend", json::Value::Object(&[
                             ("tokenTypes", json::Value::Array(&[
-                                "namespace".into(),
+                                "error".into(),
+                                "comment".into(),
+                                "keyword".into(),
+                                "punctuation".into(),
+                                "operator".into(),
+                                "string".into(),
+                                "number".into(),
                                 "type".into(),
-                                "class".into(),
-                                "enum".into(),
-                                "interface".into(),
-                                "struct".into(),
-                                "typeParameter".into(),
                                 "parameter".into(),
                                 "variable".into(),
                                 "property".into(),
-                                "enumMember".into(),
-                                "event".into(),
                                 "function".into(),
                                 "method".into(),
-                                "macro".into(),
-                                "keyword".into(),
-                                "modifier".into(),
-                                "comment".into(),
-                                "string".into(),
-                                "number".into(),
-                                "regexp".into(),
-                                "operator".into(),
-                                "decorator".into(),
                             ])),
-                            ("tokenModifiers", json::Value::Array(&[
-                                "declaration".into(),
-                                "definition".into(),
-                                "readonly".into(),
-                                "static".into(),
-                                "deprecated".into(),
-                                "abstract".into(),
-                                "async".into(),
-                                "modification".into(),
-                                "documentation".into(),
-                                "defaultLibrary".into(),
-                            ])),
+                            ("tokenModifiers", json::Value::Array(&[])),
                         ])),
                         ("full", json::Value::Object(&[
                             ("delta", false.into()),
@@ -250,6 +230,30 @@ impl Lsp {
                 self.vfs.write(path, text.as_bytes());
 
                 self.compiler.file_changed(path);
+
+                return true;
+            }
+
+            "textDocument/semanticTokens/full" => {
+                let doc = params["textDocument"];
+                let path = doc["uri"].as_string();
+
+                let id = id.unwrap();
+
+                let tokens = self.compiler.query_semantic_tokens(path);
+
+                let mut encoded = Vec::with_cap(5*tokens.len());
+                for token in tokens.copy_it() {
+                    encoded.push(json::Value::Number(token.delta_line as f64));
+                    encoded.push(json::Value::Number(token.delta_col as f64));
+                    encoded.push(json::Value::Number(token.len as f64));
+                    encoded.push(json::Value::Number((token.class as u32) as f64));
+                    encoded.push(json::Value::Number(0.0));
+                }
+
+                self.send_response(id, Ok(json::Value::Object(&[
+                    ("data", json::Value::Array(&encoded)),
+                ])));
 
                 return true;
             }

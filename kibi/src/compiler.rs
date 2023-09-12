@@ -24,6 +24,8 @@ pub struct Compiler {
 struct Inner<'c> {
     vfs: Rc<dyn Vfs>,
 
+    dirty: bool,
+
     path_to_source: HashMap<String, SourceId>,
     sources: KVec<SourceId, OptSourceDataId>,
     source_datas: KFreeVec<SourceDataId, SourceData>,
@@ -59,6 +61,7 @@ impl Compiler {
 
         let inner = Inner {
             vfs: unsafe { vfs.clone().cast(|p| p as *mut sti::rc::RcInner<dyn Vfs>) },
+            dirty: false,
             path_to_source: HashMap::new(),
             sources: KVec::new(),
             source_datas: KFreeVec::new(),
@@ -87,6 +90,11 @@ impl Compiler {
     pub fn update(&mut self) {
         self.inner.update()
     }
+
+
+    pub fn query_semantic_tokens(&mut self, path: &str) -> Vec<SemanticToken> {
+        self.inner.query_semantic_tokens(path)
+    }
 }
 
 impl<'c> Inner<'c> {
@@ -98,6 +106,7 @@ impl<'c> Inner<'c> {
                 data: Vec::new(),
                 parses: Vec::new(),
             });
+            self.dirty = true;
             (path.into(), self.sources.push(data_id.some()))
         })
     }
@@ -119,6 +128,7 @@ impl<'c> Inner<'c> {
         source.parses.free();
 
         self.source_datas.free(data_id);
+        self.dirty = true;
 
         return true;
     }
@@ -127,14 +137,15 @@ impl<'c> Inner<'c> {
         if let Some(id) = self.path_to_source.get(path).copied() {
             let data_id = self.sources[id].unwrap();
             self.source_datas[data_id].dirty = true;
-        }
-        else {
-            self.add_source(path);
+            self.dirty = true;
         }
     }
 
 
     pub fn update(&mut self) {
+        if !self.dirty { return }
+        self.dirty = false;
+
         for id in self.sources.range() {
             self.update_source(id);
         }
@@ -143,9 +154,9 @@ impl<'c> Inner<'c> {
     fn update_source(&mut self, source_id: SourceId) {
         let data_id = self.sources[source_id].unwrap();
         let source = &mut self.source_datas[data_id];
-        if !source.dirty {
-            return;
-        }
+
+        if !source.dirty { return }
+        source.dirty = false;
 
 
         source.data = match self.vfs.read(&source.path) {
@@ -201,6 +212,164 @@ impl<'c> Inner<'c> {
 
         source.parses.clear();
         source.parses.push(parse_id);
+    }
+}
+
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TokenClass {
+    Error,
+    Comment,
+    Keyword,
+    Punctuation,
+    Operator,
+    String,
+    Number,
+    Type,
+    Parameter,
+    Variable,
+    Property,
+    Function,
+    Method,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SemanticToken {
+    pub delta_line: u32,
+    pub delta_col:  u32,
+    pub len: u32,
+    pub class: TokenClass,
+}
+
+impl<'c> Inner<'c> {
+    pub fn query_semantic_tokens(&mut self, path: &str) -> Vec<SemanticToken> {
+        self.update();
+
+        let Some(id) = self.path_to_source.get(path).copied() else {
+            // @todo: diagnostic.
+            return Vec::new();
+        };
+
+        let source = &self.source_datas[self.sources[id].unwrap()];
+        debug_assert!(!source.dirty);
+
+        let parses = &source.parses;
+        debug_assert_eq!(parses.len(), 1);
+
+        let parse = &self.parse_datas[self.parses[parses[0]].unwrap()].parse;
+        debug_assert_eq!(parse.source_range.begin, 0);
+        debug_assert_eq!(parse.source_range.end,   source.data.len() as u32);
+
+
+        // @todo: line table thing.
+        let code = source.data.as_slice();
+        let mut next_newline =
+            code.copy_it().position(|x| x == b'\n')
+            .unwrap_or(code.len());
+
+        let mut line = 0;
+        let mut prev_begin = 0;
+
+        let mut result = Vec::with_cap(parse.tokens.len());
+        for token in parse.tokens.inner().copy_it() {
+            let mut next_line = line;
+            let mut delta_col = token.source.begin - prev_begin;
+            while token.source.begin > next_newline as u32 {
+                delta_col = token.source.begin - next_newline as u32 - 1;
+
+                next_newline += 1;
+                while next_newline < code.len() {
+                    if code[next_newline] == b'\n' {
+                        break;
+                    }
+                    next_newline += 1;
+                }
+                next_line += 1;
+            }
+
+            let delta_line = next_line - line;
+
+            line = next_line;
+            prev_begin = token.source.begin;
+
+            let len = token.source.end - token.source.begin;
+
+            let class = {
+                use crate::ast::TokenKind as T; 
+                match token.kind {
+                    T::Error => TokenClass::Error,
+                    T::Hole => TokenClass::Variable,
+                    T::Ident(_) => TokenClass::Variable,
+                    T::Bool(_) => TokenClass::Variable,
+                    T::Number(_) => TokenClass::Number,
+                    T::String(_) => TokenClass::String,
+                    T::KwSort => TokenClass::Type,
+                    T::KwProp => TokenClass::Type,
+                    T::KwType => TokenClass::Type,
+                    T::KwLam => TokenClass::Keyword,
+                    T::KwPi => TokenClass::Type,
+                    T::KwInductive => TokenClass::Keyword,
+                    T::KwStruct => TokenClass::Keyword,
+                    T::KwEnum => TokenClass::Keyword,
+                    T::KwDef => TokenClass::Keyword,
+                    T::KwTrait => TokenClass::Keyword,
+                    T::KwImpl => TokenClass::Keyword,
+                    T::KwLet => TokenClass::Keyword,
+                    T::KwVar => TokenClass::Keyword,
+                    T::KwDo => TokenClass::Keyword,
+                    T::KwIf => TokenClass::Keyword,
+                    T::KwElif => TokenClass::Keyword,
+                    T::KwElse => TokenClass::Keyword,
+                    T::KwWhile => TokenClass::Keyword,
+                    T::KwFor => TokenClass::Keyword,
+                    T::KwIn => TokenClass::Keyword,
+                    T::KwBreak => TokenClass::Keyword,
+                    T::KwContinue => TokenClass::Keyword,
+                    T::KwReturn => TokenClass::Keyword,
+                    T::KwFn => TokenClass::Keyword,
+                    T::KwAnd => TokenClass::Keyword,
+                    T::KwOr => TokenClass::Keyword,
+                    T::KwNot => TokenClass::Keyword,
+                    T::LParen => TokenClass::Punctuation,
+                    T::RParen => TokenClass::Punctuation,
+                    T::LBracket => TokenClass::Punctuation,
+                    T::RBracket => TokenClass::Punctuation,
+                    T::LCurly => TokenClass::Punctuation,
+                    T::RCurly => TokenClass::Punctuation,
+                    T::Dot => TokenClass::Punctuation,
+                    T::Comma => TokenClass::Punctuation,
+                    T::Semicolon => TokenClass::Punctuation,
+                    T::Colon => TokenClass::Punctuation,
+                    T::ColonColon => TokenClass::Punctuation,
+                    T::ColonEq => TokenClass::Punctuation,
+                    T::Arrow => TokenClass::Punctuation,
+                    T::FatArrow => TokenClass::Punctuation,
+                    T::Add => TokenClass::Operator,
+                    T::AddAssign => TokenClass::Operator,
+                    T::Minus => TokenClass::Operator,
+                    T::SubAssign => TokenClass::Operator,
+                    T::Star => TokenClass::Operator,
+                    T::MulAssign => TokenClass::Operator,
+                    T::Div => TokenClass::Operator,
+                    T::DivAssign => TokenClass::Operator,
+                    T::FloorDiv => TokenClass::Operator,
+                    T::FloorDivAssign => TokenClass::Operator,
+                    T::Rem => TokenClass::Operator,
+                    T::RemAssign => TokenClass::Operator,
+                    T::Eq => TokenClass::Operator,
+                    T::EqEq => TokenClass::Operator,
+                    T::Not => TokenClass::Operator,
+                    T::NotEq => TokenClass::Operator,
+                    T::Le => TokenClass::Operator,
+                    T::Lt => TokenClass::Operator,
+                    T::Ge => TokenClass::Operator,
+                    T::Gt => TokenClass::Operator,
+                }
+            };
+
+            result.push(SemanticToken { delta_line, delta_col, len, class });
+        }
+        return result;
     }
 }
 

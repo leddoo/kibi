@@ -15,5 +15,7 @@ fn main() {
     let mut c = Compiler::new(&fs);
     c.add_source("hello.kb");
     c.update();
+
+    println!("{:#?}", c.query_semantic_tokens("hello.kb"));
 }
 

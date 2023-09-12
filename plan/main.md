@@ -23,8 +23,6 @@
           and otherwise, query functions lazily update the compiler state.
 
 - todo:
-    - lsp semantic tokens.
-        - extract, encode, send.
     - elab.
     - lsp hover info.
     - incremental parse.
