@@ -33,74 +33,77 @@ impl Lsp {
         _ = self.stdin.write(bytes);
 
         self.message.extend_from_slice(bytes);
-        if self.message.len() == 0 {
-            return true;
-        }
 
-        let mut msg = self.message.take();
+        while self.message.len() > 0 {
+            let mut msg = self.message.take();
 
-        let bytes = msg.as_slice();
+            let bytes = msg.as_slice();
 
-        let Some(end_headers) = bytes.windows(4).position(|w| w == b"\r\n\r\n") else {
-            return true;
-        };
+            let Some(end_headers) = bytes.windows(4).position(|w| w == b"\r\n\r\n") else {
+                return true;
+            };
 
-        let headers = &bytes[..end_headers];
-        let content = &bytes[end_headers+4..];
+            let headers = &bytes[..end_headers];
+            let content = &bytes[end_headers+4..];
 
-        let headers = core::str::from_utf8(headers).unwrap();
+            let headers = core::str::from_utf8(headers).unwrap();
 
-        let mut content_length = None;
-        for header in headers.lines() {
-            let (key, value) = header.split_once(": ").unwrap();
+            let mut content_length = None;
+            for header in headers.lines() {
+                let (key, value) = header.split_once(": ").unwrap();
 
-            if key == "Content-Length" {
-                let value = usize::from_str_radix(value, 10).unwrap();
-                content_length = Some(value);
+                if key == "Content-Length" {
+                    let value = usize::from_str_radix(value, 10).unwrap();
+                    content_length = Some(value);
+                }
             }
-        }
 
-        let content_length = content_length.unwrap();
+            let content_length = content_length.unwrap();
 
-        if content_length > content.len() {
-            return true;
-        }
+            if content_length > content.len() {
+                return true;
+            }
 
-        let content = &content[..content_length];
-
-        let temp = unsafe { ArenaPool::tls_get_scoped(&[]) };
-        let content = json::parse(&*temp, content).unwrap();
-
-        {
-            use core::fmt::Write;
+            let content = &content[..content_length];
 
             let temp = unsafe { ArenaPool::tls_get_scoped(&[]) };
-            let mut buf = String::new_in(&*temp);
-            write!(&mut buf, "{}", content).unwrap();
+            let content = json::parse(&*temp, content).unwrap();
 
-            assert_eq!(json::parse(&*temp, buf.as_bytes()).unwrap(), content);
-        }
+            {
+                use core::fmt::Write;
 
-        if !self.process_message(content) {
-            return false;
-        }
+                let temp = unsafe { ArenaPool::tls_get_scoped(&[]) };
+                let mut buf = String::new_in(&*temp);
+                write!(&mut buf, "{}", content).unwrap();
 
-        let consumed = end_headers + 4 + content_length;
-        unsafe {
-            let remaining = msg.len() - consumed;
-            let ptr = msg.as_mut_ptr();
-            core::ptr::copy(
-                ptr.add(consumed),
-                ptr,
-                remaining);
-            msg.set_len(remaining);
+                assert_eq!(json::parse(&*temp, buf.as_bytes()), Ok(content));
+            }
+
+            let ok = self.process_message(content);
+            _ = self.log.flush();
+            if !ok {
+                return false;
+            }
+
+            let consumed = end_headers + 4 + content_length;
+            unsafe {
+                let remaining = msg.len() - consumed;
+                let ptr = msg.as_mut_ptr();
+                core::ptr::copy(
+                    ptr.add(consumed),
+                    ptr,
+                    remaining);
+                msg.set_len(remaining);
+            }
+            self.message = msg;
         }
-        self.message = msg;
 
         return true;
     }
 
     fn process_message(&mut self, msg: json::Value) -> bool {
+        _ = writeln!(self.log, "[debug] {:?} message: {:#}", time(), msg);
+
         assert_eq!(msg["jsonrpc"], "2.0".into());
 
         let id = msg.get("id").and_then(|id| id.try_number()).map(|id| {
@@ -115,13 +118,66 @@ impl Lsp {
 
         if !self.initialized {
             if method != "initialize" {
-                _ = write!(self.log, "[error]: received {method:?} message before \"initialize\"");
+                _ = writeln!(self.log, "[error]: received {method:?} message before \"initialize\"");
             }
 
             let id = id.unwrap();
 
+            //let client_cap = params["capabilities"];
+
+
             self.send_response(id, Ok(json::Value::Object(&[
-                ("capabilities", json::Value::Object(&[])),
+                ("capabilities", json::Value::Object(&[
+                    ("positionEncoding", "utf-8".into()),
+
+                    ("textDocumentSync", 1.0.into()), // full sync
+                                                      //
+                    // @temp: select from client's list.
+                    ("semanticTokensProvider", json::Value::Object(&[
+                        ("legend", json::Value::Object(&[
+                            ("tokenTypes", json::Value::Array(&[
+                                "namespace".into(),
+                                "type".into(),
+                                "class".into(),
+                                "enum".into(),
+                                "interface".into(),
+                                "struct".into(),
+                                "typeParameter".into(),
+                                "parameter".into(),
+                                "variable".into(),
+                                "property".into(),
+                                "enumMember".into(),
+                                "event".into(),
+                                "function".into(),
+                                "method".into(),
+                                "macro".into(),
+                                "keyword".into(),
+                                "modifier".into(),
+                                "comment".into(),
+                                "string".into(),
+                                "number".into(),
+                                "regexp".into(),
+                                "operator".into(),
+                                "decorator".into(),
+                            ])),
+                            ("tokenModifiers", json::Value::Array(&[
+                                "declaration".into(),
+                                "definition".into(),
+                                "readonly".into(),
+                                "static".into(),
+                                "deprecated".into(),
+                                "abstract".into(),
+                                "async".into(),
+                                "modification".into(),
+                                "documentation".into(),
+                                "defaultLibrary".into(),
+                            ])),
+                        ])),
+                        ("full", json::Value::Object(&[
+                            ("delta", false.into()),
+                        ])),
+                    ])),
+                ])),
             ])));
 
             self.initialized = true;
@@ -132,15 +188,15 @@ impl Lsp {
             "shutdown" => {
                 let id = id.unwrap();
                 self.send_response(id, Ok(json::Value::Null));
-                return true;
             }
 
             "exit" => {
+                _ = writeln!(self.log, "[debug] exit received");
                 return false;
             }
 
             _ => {
-                _ = write!(self.log, "[warn]: message not supported {method:?}");
+                _ = writeln!(self.log, "[warn]: message not supported {method:?}");
             }
         }
         return true;
@@ -169,6 +225,11 @@ impl Lsp {
 }
 
 
+fn time() -> std::time::Duration {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap()
+}
+
+
 fn main() {
     use std::io::Read;
 
@@ -180,12 +241,13 @@ fn main() {
         match std::io::stdin().lock().read(&mut buffer) {
             Ok(n) => {
                 if !lsp.process_bytes(&buffer[..n]) {
+                    _ = writeln!(lsp.log, "[debug] exiting");
                     return;
                 }
             }
 
             Err(_) => {
-                _ = lsp.log.write(b"reading stdin failed. exiting.");
+                _ = write!(lsp.log, "reading stdin failed. exiting.");
                 return;
             }
         }

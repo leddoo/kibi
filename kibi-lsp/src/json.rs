@@ -31,6 +31,13 @@ impl<'a> Value<'a> {
     #[inline(always)] pub fn try_array(self)  -> Option<&'a [Value<'a>]>            { if let Value::Array(it)  = self { Some(it) } else { None } }
     #[inline(always)] pub fn try_object(self) -> Option<&'a [(&'a str, Value<'a>)]> { if let Value::Object(it) = self { Some(it) } else { None } }
 
+    #[track_caller] #[inline(always)] pub fn as_null(self)   -> ()                         { if let Value::Null       = self { () } else { unreachable!() } }
+    #[track_caller] #[inline(always)] pub fn as_bool(self)   -> bool                       { if let Value::Bool(it)   = self { it } else { unreachable!() } }
+    #[track_caller] #[inline(always)] pub fn as_number(self) -> f64                        { if let Value::Number(it) = self { it } else { unreachable!() } }
+    #[track_caller] #[inline(always)] pub fn as_string(self) -> &'a str                    { if let Value::String(it) = self { it } else { unreachable!() } }
+    #[track_caller] #[inline(always)] pub fn as_array(self)  -> &'a [Value<'a>]            { if let Value::Array(it)  = self { it } else { unreachable!() } }
+    #[track_caller] #[inline(always)] pub fn as_object(self) -> &'a [(&'a str, Value<'a>)] { if let Value::Object(it) = self { it } else { unreachable!() } }
+
     #[inline(always)]
     pub fn get(self, key: &str) -> Option<&'a Value<'a>> {
         if let Value::Object(entries) = self {
@@ -60,7 +67,7 @@ impl<'a> core::ops::Index<&str> for Value<'a> {
 }
 
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Error {
     UnexpectedEof,
     Expected(usize, &'static str),
@@ -223,7 +230,7 @@ impl<'a> Parser<'a> {
                             b'f'  => buffer.push_char('\x0C'),
                             b'n'  => buffer.push_char('\n'),
                             b'r'  => buffer.push_char('\r'),
-                            b't'  => buffer.push_char('\r'),
+                            b't'  => buffer.push_char('\t'),
 
                             b'u' => {
                                 unimplemented!()
@@ -293,7 +300,7 @@ impl<'a> core::fmt::Display for Value<'a> {
                     write!(f, "{}", v),
 
                 Value::String(v) =>
-                    write!(f, "\"{}\"", v),
+                    write!(f, "{:?}", v),
 
                 Value::Array(values) => {
                     if values.len() == 0 {
