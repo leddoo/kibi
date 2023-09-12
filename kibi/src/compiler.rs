@@ -1,9 +1,10 @@
+use sti::traits::CopyIt;
 use sti::arena::Arena;
 use sti::vec::Vec;
 use sti::string::String;
 use sti::boks::Box;
 use sti::rc::Rc;
-use sti::keyed::KVec;
+use sti::keyed::{KVec, KFreeVec};
 use sti::hash::HashMap;
 
 use crate::string_table::StringTable;
@@ -25,7 +26,8 @@ struct Inner<'c> {
 
     path_to_source: HashMap<String, SourceId>,
     sources: KVec<SourceId, Source>,
-    parses: KVec<ParseId, ParseData>,
+    parses: KVec<ParseId, OptParseDataId>,
+    parse_datas: KFreeVec<ParseDataId, ParseData>,
 
     strings: StringTable<'c>,
     errors: ErrorCtx<'c>,
@@ -37,6 +39,9 @@ struct Source {
     data: Vec<u8>,
     parses: Vec<ParseId>,
 }
+
+
+sti::define_key!(u32, ParseDataId, opt: OptParseDataId);
 
 struct ParseData {
     #[allow(dead_code)]
@@ -54,6 +59,7 @@ impl Compiler {
             path_to_source: HashMap::new(),
             sources: KVec::new(),
             parses: KVec::new(),
+            parse_datas: KFreeVec::new(),
             strings: StringTable::new(&*persistent),
             errors: ErrorCtx::new(&*persistent),
         };
@@ -110,18 +116,28 @@ impl<'c> Inner<'c> {
             return;
         }
 
+
         source.data = match self.vfs.read(&source.path) {
-            Ok(data) => data,
+            Ok(data) => {
+                if source.data.len() > u32::MAX as usize {
+                    // @todo: error.
+                    return;
+                }
+                data
+            }
+
             Err(_) => {
                 // @todo: error.
                 return;
             }
         };
 
-        if source.data.len() > u32::MAX as usize {
-            // @todo: error.
-            return;
+
+        for parse_id in source.parses.copy_it() {
+            let data_id = self.parses[parse_id].take().unwrap();
+            self.parse_datas.free(data_id);
         }
+        source.parses.clear();
 
 
         let arena = Arena::new();
@@ -148,7 +164,8 @@ impl<'c> Inner<'c> {
         // @todo: make this safer.
         let parse = unsafe { core::mem::transmute(parse) };
 
-        let id = self.parses.push(ParseData { arena, parse });
+        let data_id = self.parse_datas.alloc(ParseData { arena, parse });
+        let id = self.parses.push(data_id.some());
         assert_eq!(id, parse_id);
 
         source.parses.clear();

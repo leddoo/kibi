@@ -23,7 +23,6 @@
           and otherwise, query functions lazily update the compiler state.
 
 - todo:
-    - `parse_datas` to reduce leakage. free prev source parses.
     - lsp document sync.
     - lsp semantic tokens.
     - elab.
