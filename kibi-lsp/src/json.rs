@@ -1,4 +1,5 @@
 use kibi::sti;
+use sti::traits::CopyIt;
 use sti::arena::Arena;
 use sti::string::String;
 use sti::utf8;
@@ -39,11 +40,11 @@ impl<'a> Value<'a> {
     #[track_caller] #[inline(always)] pub fn as_object(self) -> &'a [(&'a str, Value<'a>)] { if let Value::Object(it) = self { it } else { unreachable!() } }
 
     #[inline(always)]
-    pub fn get(self, key: &str) -> Option<&'a Value<'a>> {
+    pub fn get(self, key: &str) -> Option<Value<'a>> {
         if let Value::Object(entries) = self {
             let mut result = None;
-            for (k, v) in entries {
-                if *k == key {
+            for (k, v) in entries.copy_it() {
+                if k == key {
                     if result.is_some() {
                         return None;
                     }
@@ -62,7 +63,17 @@ impl<'a> core::ops::Index<&str> for Value<'a> {
     #[track_caller]
     #[inline(always)]
     fn index(&self, key: &str) -> &Self::Output {
-        self.get(key).unwrap()
+        let entries = self.as_object();
+        let mut result = None;
+        for (k, v) in entries {
+            if *k == key {
+                if result.is_some() {
+                    unreachable!();
+                }
+                result = Some(v);
+            }
+        }
+        return result.unwrap();
     }
 }
 

@@ -29,9 +29,15 @@ configs.kibi_lsp = {
     default_config = {
         name = "kibi-lsp",
         filetypes = { "kibi" },
+
         cmd = { "target/debug/kibi-lsp" },
         --cmd = { "target/release/kibi-lsp" },
+
         single_file_support = true,
+
+        on_new_config = function(new_config)
+            new_config.flags = { debounce_text_changes = 10 }
+        end,
     },
 }
 lspconfig.kibi_lsp.setup({})

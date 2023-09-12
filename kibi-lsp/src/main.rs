@@ -4,6 +4,7 @@ use kibi::spall;
 use sti::traits::CopyIt;
 use sti::arena_pool::ArenaPool;
 use sti::vec::Vec;
+use sti::hash::HashMap;
 use sti::string::String;
 use sti::rc::Rc;
 
@@ -24,6 +25,9 @@ struct Lsp {
     message: Vec<u8>,
     initialized: bool,
 
+    next_request_id: u32,
+    active_requests: HashMap<u32, ()>,
+
     vfs: Rc<MemFs>,
     compiler: Compiler,
 }
@@ -38,6 +42,8 @@ impl Lsp {
             log: File::create("target/lsp.log").unwrap(),
             message: Vec::new(),
             initialized: false,
+            next_request_id: 1,
+            active_requests: HashMap::new(),
             vfs,
             compiler,
         }
@@ -51,6 +57,8 @@ impl Lsp {
         self.message.extend_from_slice(bytes);
 
         while self.message.len() > 0 {
+            spall::trace_scope!("kibi_lsp/parse_message");
+
             let mut msg = self.message.take();
 
             let bytes = msg.as_slice();
@@ -83,17 +91,21 @@ impl Lsp {
             let content = &content[..content_length];
 
             let temp = unsafe { ArenaPool::tls_get_scoped(&[]) };
-            let content = json::parse(&*temp, content).unwrap();
+            let content = {
+                spall::trace_scope!("kibi_lsp/parse_content");
 
-            {
-                use core::fmt::Write;
+                let content = json::parse(&*temp, content).unwrap();
+                {
+                    use core::fmt::Write;
 
-                let temp = unsafe { ArenaPool::tls_get_scoped(&[]) };
-                let mut buf = String::new_in(&*temp);
-                write!(&mut buf, "{}", content).unwrap();
+                    let temp = unsafe { ArenaPool::tls_get_scoped(&[]) };
+                    let mut buf = String::new_in(&*temp);
+                    write!(&mut buf, "{}", content).unwrap();
 
-                assert_eq!(json::parse(&*temp, buf.as_bytes()), Ok(content));
-            }
+                    assert_eq!(json::parse(&*temp, buf.as_bytes()), Ok(content));
+                }
+                content
+            };
 
             let t0 = std::time::Instant::now();
             if !self.process_message(content) {
@@ -119,28 +131,53 @@ impl Lsp {
     }
 
     fn process_message(&mut self, msg: json::Value) -> bool {
-        spall::trace_scope!("kibi_lsp/process_message"; "{}", msg["method"].as_string());
-
-        _ = writeln!(self.log, "[debug] {:?} message: {:#}", time(), msg);
+        {
+            spall::trace_scope!("kibi_lsp/log_message");
+            _ = writeln!(self.log, "[debug] {:?} message: {:#}", time(), msg);
+        }
 
         assert_eq!(msg["jsonrpc"], "2.0".into());
 
-        let id = msg.get("id").and_then(|id| id.try_number()).map(|id| {
-            assert_eq!(id as i32 as f64, id);
-            id as i32
-        });
+        if let Some(method) = msg.get("method") {
+            let method = method.as_string();
 
-        let method = msg["method"].as_string();
+            let params = msg.get("params").unwrap_or(().into());
+            assert!(params.is_object() || params.is_array() || params.is_null());
 
-        let params = msg.get("params").unwrap_or(&json::Value::Null);
-        assert!(params.is_object() || params.is_array() || params.is_null());
+            if let Some(id) = msg.get("id") {
+                let id = id.as_number();
+                assert_eq!(id as u32 as f64, id);
+                let id = id as u32;
+
+                self.process_request(method, id, params)
+            }
+            else {
+                self.process_notification(method, params)
+            }
+        }
+        else {
+            let id = msg["id"].as_number();
+            assert_eq!(id as u32 as f64, id);
+            let id = id as u32;
+
+            let result =
+                if let Some(result) = msg.get("result") {
+                    Ok(result)
+                }
+                else { Err(msg["error"]) };
+
+            self.process_response(id, result)
+        }
+    }
+
+    fn process_request(&mut self, method: &str, id: u32, params: json::Value) -> bool {
+        spall::trace_scope!("kibi_lsp/process_request"; "{method} ({id})");
 
         if !self.initialized {
             if method != "initialize" {
-                _ = writeln!(self.log, "[error]: received {method:?} message before \"initialize\"");
+                _ = writeln!(self.log, "[error]: received {method:?} request before \"initialize\"");
+                return true;
             }
-
-            let id = id.unwrap();
 
             //let client_cap = params["capabilities"];
 
@@ -182,11 +219,48 @@ impl Lsp {
 
         match method {
             "shutdown" => {
-                let id = id.unwrap();
                 self.send_response(id, Ok(json::Value::Null));
                 return true;
             }
 
+            "textDocument/semanticTokens/full" => {
+                let doc = params["textDocument"];
+                let path = doc["uri"].as_string();
+
+                let tokens = self.compiler.query_semantic_tokens(path);
+
+                let mut encoded = Vec::with_cap(5*tokens.len());
+                for token in tokens.copy_it() {
+                    encoded.push(json::Value::Number(token.delta_line as f64));
+                    encoded.push(json::Value::Number(token.delta_col as f64));
+                    encoded.push(json::Value::Number(token.len as f64));
+                    encoded.push(json::Value::Number((token.class as u32) as f64));
+                    encoded.push(json::Value::Number(0.0));
+                }
+
+                self.send_response(id, Ok(json::Value::Object(&[
+                    ("data", json::Value::Array(&encoded)),
+                ])));
+
+                return true;
+            }
+
+            _ => {
+                _ = writeln!(self.log, "[warn]: request not supported {method:?}");
+                return true;
+            }
+        }
+    }
+
+    fn process_notification(&mut self, method: &str, params: json::Value) -> bool {
+        spall::trace_scope!("kibi_lsp/process_notification"; "{method}");
+
+        if !self.initialized {
+            _ = writeln!(self.log, "[error]: received {method:?} notification before \"initialize\"");
+            return true;
+        }
+
+        match method {
             "exit" => {
                 _ = writeln!(self.log, "[debug] exit received");
                 return false;
@@ -236,44 +310,65 @@ impl Lsp {
 
                 self.compiler.file_changed(path);
 
-                return true;
-            }
-
-            "textDocument/semanticTokens/full" => {
-                let doc = params["textDocument"];
-                let path = doc["uri"].as_string();
-
-                let id = id.unwrap();
-
-                let tokens = self.compiler.query_semantic_tokens(path);
-
-                let mut encoded = Vec::with_cap(5*tokens.len());
-                for token in tokens.copy_it() {
-                    encoded.push(json::Value::Number(token.delta_line as f64));
-                    encoded.push(json::Value::Number(token.delta_col as f64));
-                    encoded.push(json::Value::Number(token.len as f64));
-                    encoded.push(json::Value::Number((token.class as u32) as f64));
-                    encoded.push(json::Value::Number(0.0));
-                }
-
-                self.send_response(id, Ok(json::Value::Object(&[
-                    ("data", json::Value::Array(&encoded)),
-                ])));
+                self.send_request("workspace/semanticTokens/refresh", ().into());
 
                 return true;
             }
 
             _ => {
-                _ = writeln!(self.log, "[warn]: message not supported {method:?}");
+                _ = writeln!(self.log, "[warn]: notification not supported {method:?}");
                 return true;
             }
         }
     }
 
-    fn send_response(&mut self, id: i32, result: Result<json::Value, json::Value>) {
-        spall::trace_scope!("kibi_lsp/send_response"; "id: {}", id);
+    fn process_response(&mut self, id: u32, result: Result<json::Value, json::Value>) -> bool {
+        spall::trace_scope!("kibi_lsp/process_response"; "{id}");
 
+        if !self.initialized {
+            _ = writeln!(self.log, "[error]: received response before \"initialize\"");
+            return true;
+        }
+
+        if self.active_requests.remove(&id).is_none() {
+            _ = writeln!(self.log, "[error]: received response for inactive request {id}");
+        }
+
+        let _ = result;
+
+        true
+    }
+
+
+    fn send_request(&mut self, method: &str, params: json::Value) {
         use core::fmt::Write;
+
+        let id = self.next_request_id;
+        self.next_request_id += 1;
+
+        spall::trace_scope!("kibi_lsp/send_request"; "{} ({})", method, id);
+
+        let temp = unsafe { ArenaPool::tls_get_scoped(&[]) };
+
+        let mut content = String::new_in(&*temp);
+        sti::write!(&mut content, "{}", json::Value::Object(&[
+            ("jsonrpc", "2.0".into()),
+            ("id", (id as f64).into()),
+            ("method", method.into()),
+            ("params", params),
+        ]));
+
+        print!("Content-Length: {}\r\n\r\n{}", content.len(), content);
+
+        _ = write!(self.stdout, "Content-Length: {}\r\n\r\n{}", content.len(), content);
+
+        self.active_requests.insert(id, ());
+    }
+
+    fn send_response(&mut self, id: u32, result: Result<json::Value, json::Value>) {
+        use core::fmt::Write;
+
+        spall::trace_scope!("kibi_lsp/send_response"; "id: {}", id);
 
         let temp = unsafe { ArenaPool::tls_get_scoped(&[]) };
 
@@ -288,7 +383,6 @@ impl Lsp {
         ]));
 
         print!("Content-Length: {}\r\n\r\n{}", content.len(), content);
-        std::io::stdout().flush().unwrap();
 
         _ = write!(self.stdout, "Content-Length: {}\r\n\r\n{}", content.len(), content);
     }
@@ -316,6 +410,7 @@ fn main() {
                     _ = writeln!(lsp.log, "[debug] exiting");
                     return;
                 }
+                std::io::stdout().flush().unwrap();
             }
 
             Err(_) => {
