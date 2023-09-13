@@ -3,7 +3,7 @@ use crate::tt::*;
 use super::*;
 
 
-impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
+impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
     pub fn abstracc(&self, t: Term<'a>, id: ScopeId) -> Term<'a> {
         self.abstracc_ex(t, id, 0)
     }

@@ -3,17 +3,16 @@ use sti::vec::Vec;
 use sti::keyed::KVec;
 
 use crate::string_table::{StringTable, Atom};
-use crate::error::*;
+use crate::diagnostics::*;
 use crate::parser::Parse;
 use crate::tt::{ScopeId, LocalCtx};
 use crate::env::*;
 use crate::traits::Traits;
 
 
-pub struct Elab<'me, 'err, 'a> {
+pub struct Elab<'me, 'out, 'a> {
     pub alloc: &'a Arena,
     pub strings: &'me mut StringTable<'a>,
-    pub errors: &'me ErrorCtx<'err>,
     pub env: &'me mut Env<'a>,
     pub traits: &'me mut Traits,
 
@@ -28,6 +27,8 @@ pub struct Elab<'me, 'err, 'a> {
     locals: Vec<(Atom, ScopeId)>,
 
     ivars: ivars::IVarCtx<'a>,
+
+    foo: &'out (),
 }
 
 
@@ -50,12 +51,11 @@ mod impls;
 
 
 
-impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
-    pub fn new(env: &'me mut Env<'a>, traits: &'me mut Traits, parse: &'me Parse<'me>, root_symbol: SymbolId, errors: &'me ErrorCtx<'err>, strings: &'me mut StringTable<'a>, alloc: &'a Arena) -> Self {
+impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
+    pub fn new(env: &'me mut Env<'a>, traits: &'me mut Traits, parse: &'me Parse<'me>, root_symbol: SymbolId, strings: &'me mut StringTable<'a>, alloc: &'a Arena) -> Self {
         Self {
             alloc,
             strings,
-            errors,
             env,
             traits,
             parse,
@@ -64,18 +64,23 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             locals: Vec::new(),
             level_params: Vec::new(),
             ivars: ivars::IVarCtx::new(),
+            foo: &(),
         }
     }
 
     fn error<S, F>(&self, source: S, f: F)
-    where S: Into<ErrorSource>, F: FnOnce(&'err Arena) -> ElabError<'err> {
+    where S: Into<DiagnosticSource>, F: FnOnce(&'out Arena) -> ElabError<'out> {
+        let _ = (source, f);
+        unimplemented!()
+        /*
         self.errors.with(|errors| {
-            errors.report(Error {
+            errors.report(Diagnostic {
                 parse: self.parse.id,
                 source: source.into(),
-                kind: ErrorKind::Elab(f(errors.alloc)),
+                kind: DiagnosticKind::ElabError(f(errors.alloc)),
             });
         });
+        */
     }
 
     pub fn reset(&mut self) {
@@ -132,7 +137,7 @@ struct SavePoint {
     ivar_ctx: ivars::SavePoint,
 }
 
-impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
+impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
     fn save(&self) -> SavePoint {
         SavePoint {
             local_ctx: self.lctx.save(),

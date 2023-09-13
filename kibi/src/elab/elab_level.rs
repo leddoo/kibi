@@ -4,7 +4,7 @@ use crate::tt::{self, *};
 use super::*;
 
 
-impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
+impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
     pub fn elab_level(&mut self, level_id: ast::LevelId) -> Option<tt::Level<'a>> {
         let level = self.parse.levels[level_id];
         Some(match level.kind {

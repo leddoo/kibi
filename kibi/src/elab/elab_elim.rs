@@ -8,7 +8,7 @@ use crate::tt::inductive::{ElimArgKind, ElimInfo};
 use super::*;
 
 
-impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
+impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
     pub fn try_elab_as_elim(&mut self,
         func: Term<'a>,
         func_ty: Term<'a>,

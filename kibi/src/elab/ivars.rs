@@ -83,7 +83,7 @@ impl<'a> IVarCtx<'a> {
 }
 
 
-impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
+impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
     pub fn new_level_var_id(&mut self) -> LevelVarId {
         self.ivars.level_vars.push(LevelVar {
             value: None,

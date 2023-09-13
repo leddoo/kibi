@@ -7,7 +7,7 @@ use crate::tt::*;
 use super::*;
 
 
-impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
+impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
     pub fn lookup_local(&self, name: Atom) -> Option<ScopeId> {
         for (n, id) in self.locals.iter().rev().copied() {
             if n == name {
@@ -17,7 +17,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         None
     }
 
-    pub fn lookup_symbol_ident(&self, source: ErrorSource, name: Atom) -> Option<SymbolId> {
+    pub fn lookup_symbol_ident(&self, source: DiagnosticSource, name: Atom) -> Option<SymbolId> {
         let Some(symbol) = self.env.lookup(self.root_symbol, name) else {
             self.error(source, |alloc|
                 ElabError::UnresolvedName { base: "",
@@ -27,7 +27,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         Some(symbol)
     }
 
-    pub fn lookup_symbol_path(&self, source: ErrorSource, local: bool, parts: &[Atom]) -> Option<SymbolId> {
+    pub fn lookup_symbol_path(&self, source: DiagnosticSource, local: bool, parts: &[Atom]) -> Option<SymbolId> {
         if local {
             let mut result = self.lookup_symbol_ident(source, parts[0])?;
 
@@ -51,7 +51,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
 
-    pub fn elab_symbol(&mut self, source: ErrorSource, id: SymbolId, levels: &[ast::LevelId]) -> Option<(Term<'a>, Term<'a>)> {
+    pub fn elab_symbol(&mut self, source: DiagnosticSource, id: SymbolId, levels: &[ast::LevelId]) -> Option<(Term<'a>, Term<'a>)> {
         let symbol = self.env.symbol(id);
         Some(match symbol.kind {
             SymbolKind::Root |

@@ -6,7 +6,7 @@ use crate::env::SymbolKind;
 use super::*;
 
 
-impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
+impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
     // supports ptr_eq for change detection.
     pub fn whnf(&mut self, t: Term<'a>) -> Term<'a> {
         assert!(t.closed());

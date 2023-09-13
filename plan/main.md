@@ -15,7 +15,15 @@
 
 - todo:
     - diagnostics.
+        - report to lsp.
     - run elab.
+        - `Elab -> Elaborator`.
+        - `Elab ~ Parse` with diagnostics.
+        - `elab_item`.
+        - reduce diagnostic.
+    - don't print.
+        - errors -> diagnostics.
+        - otherwise `eprint!`.
     - some syntax sugar for fun & profit (arrow, eq, add).
     - lsp stuff:
         - hover info.
@@ -43,13 +51,7 @@
     - maybe always store elab on elab error -> can use term refs.
     - `validate_string`: `>= 0x20`. do we need simd?
     - `vfs::mem`, `vfs::std`.
-    - don't `print!`.
-        - but can `eprint!`.
-        - sti.
-        - spall:
-            - support non-init (drop everything).
-            - counters & drop util w/ callback for debugging.
-        - debug tracing.
+    - debug tracing.
     - json display: string escapes.
     - vfs directories, create/delete/write.
     - self-reference safety.

@@ -7,7 +7,7 @@ use crate::tt::{self, *};
 use super::*;
 
 
-impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
+impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
     pub fn elab_expr(&mut self, expr: ExprId) -> Option<(Term<'a>, Term<'a>)> {
         self.elab_expr_ex(expr, None)
     }

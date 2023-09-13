@@ -6,7 +6,7 @@ use crate::tt::*;
 use super::*;
 
 
-impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
+impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
     pub fn elab_axiom(&mut self, axiom: &item::Axiom<'a>) -> Option<SymbolId> {
         assert_eq!(self.locals.len(), 0);
         assert_eq!(self.level_params.len(), 0);

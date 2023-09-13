@@ -8,7 +8,7 @@ use sti::keyed::{KVec, KFreeVec};
 use sti::hash::HashMap;
 
 use crate::string_table::StringTable;
-use crate::error::ErrorCtx;
+use crate::diagnostics::Diagnostics;
 use crate::ast::{SourceId, ParseId, SourceRange};
 use crate::parser::{self, Parse};
 use crate::vfs::Vfs;
@@ -33,7 +33,6 @@ struct Inner<'c> {
     parse_datas: KFreeVec<ParseDataId, ParseData>,
 
     strings: StringTable<'c>,
-    errors: ErrorCtx<'c>,
 }
 
 sti::define_key!(u32, SourceDataId, opt: OptSourceDataId);
@@ -68,7 +67,6 @@ impl Compiler {
             parses: KVec::new(),
             parse_datas: KFreeVec::new(),
             strings: StringTable::new(&*persistent),
-            errors: ErrorCtx::new(&*persistent),
         };
         let inner = unsafe { core::mem::transmute(inner) };
 
@@ -198,6 +196,7 @@ impl<'c> Inner<'c> {
                 begin: 0,
                 end: source.data.len() as u32,
             },
+            diagnostics: Diagnostics::new(),
             numbers: KVec::new(),
             strings: KVec::new(),
             tokens:  KVec::new(),
@@ -207,7 +206,7 @@ impl<'c> Inner<'c> {
         };
 
         parser::parse_file(&source.data, &mut parse,
-            &mut self.strings, &mut self.errors, &arena);
+            &mut self.strings, &arena);
 
         // @todo: make this safer.
         let parse = unsafe { core::mem::transmute(parse) };

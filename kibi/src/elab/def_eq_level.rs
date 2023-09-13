@@ -3,7 +3,7 @@ use crate::tt::*;
 use super::*;
 
 
-impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
+impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
     pub fn ensure_level_def_eq(&mut self, a: Level<'a>, b: Level<'a>) -> bool {
         if self.ivars.level_vars.len() > 0 {
             // we currently don't implement the proper level equivalence test.
