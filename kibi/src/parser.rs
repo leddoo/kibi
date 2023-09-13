@@ -1,11 +1,28 @@
 use sti::arena::Arena;
 use sti::arena_pool::ArenaPool;
 use sti::vec::Vec;
+use sti::keyed::KVec;
 use sti::reader::Reader;
 
 use crate::string_table::{Atom, OptAtom, StringTable, atoms};
 use crate::error::*;
 use crate::ast::*;
+
+
+
+pub struct Parse<'a> {
+    pub id: ParseId,
+    pub source: SourceId,
+    pub source_range: SourceRange,
+
+    pub numbers: KVec<ParseNumberId, &'a str>,
+    pub strings: KVec<ParseStringId, &'a str>,
+    pub tokens:  KVec<TokenId, Token>,
+
+    pub items:  KVec<ItemId,  Item<'a>>,
+    pub levels: KVec<LevelId, Level>,
+    pub exprs:  KVec<ExprId,  Expr<'a>>,
+}
 
 
 

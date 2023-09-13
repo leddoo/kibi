@@ -4,7 +4,7 @@ use sti::keyed::KVec;
 
 use crate::string_table::{StringTable, Atom};
 use crate::error::*;
-use crate::ast::Parse;
+use crate::parser::Parse;
 use crate::tt::{ScopeId, LocalCtx};
 use crate::env::*;
 use crate::traits::Traits;
@@ -48,8 +48,6 @@ mod elab_def;
 mod elab_inductive;
 mod impls;
 
-
-pub use ivars::{LevelVarId, TermVarId};
 
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {

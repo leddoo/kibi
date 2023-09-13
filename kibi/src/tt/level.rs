@@ -2,12 +2,13 @@ use sti::arena::Arena;
 
 
 pub use crate::string_table::Atom;
-pub use crate::elab::LevelVarId;
 
 
 pub type Level<'a> = impel::Level<'a>;
 
 pub type LevelList<'a> = &'a [Level<'a>];
+
+sti::define_key!(pub, u32, LevelVarId);
 
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

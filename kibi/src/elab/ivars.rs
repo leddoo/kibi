@@ -4,15 +4,11 @@ use local_ctx::OptScopeId;
 use super::*;
 
 
-sti::define_key!(pub, u32, LevelVarId);
-
 pub struct LevelVar<'a> {
     value: Option<Level<'a>>,
     assignment_gen: u32,
 }
 
-
-sti::define_key!(pub, u32, TermVarId);
 
 pub struct TermVar<'a> {
     scope: OptScopeId,

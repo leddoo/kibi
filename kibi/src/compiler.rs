@@ -9,8 +9,8 @@ use sti::hash::HashMap;
 
 use crate::string_table::StringTable;
 use crate::error::ErrorCtx;
-use crate::ast::{SourceId, ParseId, Parse, SourceRange};
-use crate::parser;
+use crate::ast::{SourceId, ParseId, SourceRange};
+use crate::parser::{self, Parse};
 use crate::vfs::Vfs;
 
 

@@ -1,16 +1,16 @@
 use sti::arena::Arena;
 use sti::vec::Vec;
 
+use super::level::*;
 
 pub use crate::string_table::{Atom, atoms};
 pub use crate::env::SymbolId;
-pub use crate::elab::TermVarId;
-
 pub use super::local_ctx::ScopeId;
-use super::level::*;
 
 
 pub type Term<'a> = impel::Term<'a>;
+
+sti::define_key!(pub, u32, TermVarId);
 
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

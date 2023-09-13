@@ -1,6 +1,3 @@
-use sti::traits::CopyIt;
-use sti::keyed::KVec;
-
 use crate::string_table::{Atom, OptAtom, StringTable};
 
 
@@ -9,7 +6,10 @@ use crate::string_table::{Atom, OptAtom, StringTable};
 //
 
 sti::define_key!(pub, u32, SourceId);
+
 sti::define_key!(pub, u32, ParseId);
+sti::define_key!(pub, u32, ParseStringId);
+sti::define_key!(pub, u32, ParseNumberId);
 
 sti::define_key!(pub, u32, TokenId, rng: TokenRange);
 sti::define_key!(pub, u32, ItemId);
@@ -84,26 +84,6 @@ impl ParseRange {
         SourceRange { begin: self.begin, end: other.end }
     }
 }
-
-
-
-sti::define_key!(pub, u32, ParseStringId);
-sti::define_key!(pub, u32, ParseNumberId);
-
-pub struct Parse<'a> {
-    pub id: ParseId,
-    pub source: SourceId,
-    pub source_range: SourceRange,
-
-    pub numbers: KVec<ParseNumberId, &'a str>,
-    pub strings: KVec<ParseStringId, &'a str>,
-    pub tokens:  KVec<TokenId, Token>,
-
-    pub items:  KVec<ItemId,  Item<'a>>,
-    pub levels: KVec<LevelId, Level>,
-    pub exprs:  KVec<ExprId,  Expr<'a>>,
-}
-
 
 
 
@@ -682,7 +662,7 @@ impl<'a, 's> core::fmt::Display for IdentOrPathDisplay<'a, 's> {
 
             IdentOrPath::Path(parts) => {
                 let mut first = true;
-                for part in parts.parts.copy_it() {
+                for part in parts.parts.iter().copied() {
                     if !first { sti::write!(f, "::"); }
                     first = false;
                     sti::write!(f, "{}", &self.strings[part]);
