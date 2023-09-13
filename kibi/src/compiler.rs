@@ -8,8 +8,8 @@ use sti::keyed::{KVec, KFreeVec};
 use sti::hash::HashMap;
 
 use crate::string_table::StringTable;
-use crate::diagnostics::Diagnostics;
-use crate::ast::{SourceId, ParseId, SourceRange};
+use crate::diagnostics::{self, Diagnostics};
+use crate::ast::{SourceId, ParseId, SourceRange, UserSourcePos, UserSourceRange};
 use crate::parser::{self, Parse};
 use crate::vfs::Vfs;
 
@@ -94,6 +94,11 @@ impl Compiler {
     pub fn query_semantic_tokens(&mut self, path: &str) -> Vec<SemanticToken> {
         spall::trace_scope!("kibi/query_semantic_tokens"; "{}", path);
         self.inner.query_semantic_tokens(path)
+    }
+
+    pub fn query_diagnostics<'out>(&mut self, alloc: &'out Arena) -> Vec<FileDiagnostics<'out>> {
+        spall::trace_scope!("kibi/query_diagnostics");
+        self.inner.query_diagnostics(alloc)
     }
 }
 
@@ -190,7 +195,6 @@ impl<'c> Inner<'c> {
         let parse_id = self.parses.next_key();
 
         let mut parse = Parse {
-            id: parse_id,
             source: source_id,
             source_range: SourceRange {
                 begin: 0,
@@ -374,6 +378,119 @@ impl<'c> Inner<'c> {
             };
 
             result.push(SemanticToken { delta_line, delta_col, len, class });
+        }
+        return result;
+    }
+}
+
+
+#[derive(Debug)]
+pub struct FileDiagnostics<'a> {
+    pub path: &'a str,
+    pub diagnostics: Vec<FileDiagnostic<'a>>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct FileDiagnostic<'a> {
+    pub range: UserSourceRange,
+    pub message: &'a str,
+}
+
+impl<'c> Inner<'c> {
+    pub fn query_diagnostics<'out>(&mut self, alloc: &'out Arena) -> Vec<FileDiagnostics<'out>> {
+        self.update();
+
+        let mut result = Vec::new();
+        for source_id in self.sources.range() {
+            let Some(data_id) = self.sources[source_id].to_option() else { continue };
+            let source = &self.source_datas[data_id];
+
+            let mut file_diagnostics = Vec::new();
+
+            for parse_id in source.parses.copy_it() {
+                let parse = &self.parse_datas[self.parses[parse_id].unwrap()].parse;
+
+                use core::fmt::Write;
+
+                for d in parse.diagnostics.diagnostics.iter() {
+                    let range = d.source.resolve_source_range(parse);
+
+                    let range = {
+                        let code = &source.data;
+                        // @temp: line table.
+                        let mut line = 0;
+                        let mut line_begin = 0;
+                        let mut i = 0;
+                        loop {
+                            while i < code.len() && code[i] != b'\n' {
+                                i += 1;
+                            }
+                            if range.begin as usize <= i {
+                                break;
+                            }
+                            if i < code.len() {
+                                i += 1;
+                                line += 1;
+                                line_begin = i;
+                            }
+                        }
+                        let begin = UserSourcePos { line, col: range.begin - line_begin as u32 };
+                        // @temp: line table.
+                        let mut line = 0;
+                        let mut line_begin = 0;
+                        let mut i = 0;
+                        loop {
+                            while i < code.len() && code[i] != b'\n' {
+                                i += 1;
+                            }
+                            if range.end as usize <= i {
+                                break;
+                            }
+                            if i < code.len() {
+                                i += 1;
+                                line += 1;
+                                line_begin = i;
+                            }
+                        }
+                        let end = UserSourcePos { line, col: range.end - line_begin as u32 };
+                        UserSourceRange { begin, end }
+                    };
+
+                    use diagnostics::DiagnosticKind as DK;
+                    let message = match d.kind {
+                        DK::ParseError(e) => {
+                            use diagnostics::ParseError as PE;
+                            match e {
+                                PE::Expected(what) => {
+                                    // @cleanup: sti temp formatting.
+                                    let mut buf = String::new_in(alloc);
+                                    _ = write!(&mut buf, "expected: {what}");
+                                    buf.leak()
+                                }
+
+                                PE::Unexpected(what) => {
+                                    // @cleanup: sti temp formatting.
+                                    let mut buf = String::new_in(alloc);
+                                    _ = write!(&mut buf, "unexpected: {what}");
+                                    buf.leak()
+                                }
+                            }
+                        }
+
+                        DK::ElabError(_) => todo!(),
+                    };
+
+                    file_diagnostics.push(FileDiagnostic {
+                        range,
+                        message,
+                    });
+                }
+            }
+
+            result.push(FileDiagnostics {
+                path: alloc.alloc_str(&source.path),
+                diagnostics: file_diagnostics,
+            });
         }
         return result;
     }

@@ -312,6 +312,8 @@ impl Lsp {
 
                 self.send_request("workspace/semanticTokens/refresh", ().into());
 
+                self.send_diagnostics();
+
                 return true;
             }
 
@@ -340,11 +342,39 @@ impl Lsp {
     }
 
 
+    fn send_diagnostics(&mut self) {
+        let temp = unsafe { ArenaPool::tls_get_scoped(&[]) };
+        let files = self.compiler.query_diagnostics(&*temp);
+
+        for file in files.iter() {
+            use core::fmt::Write;
+
+            let mut result = String::with_cap_in(&*temp, file.diagnostics.len()*64);
+
+            sti::write!(&mut result, "{{\"uri\":{:?},\"diagnostics\":[", file.path);
+
+            for (i, d) in file.diagnostics.iter().enumerate() {
+                if i != 0 { _ = write!(&mut result, ","); }
+                sti::write!(&mut result, "{{");
+                sti::write!(&mut result, "\"range\":{{\"start\":{{\"line\":{},\"character\":{}}},\"end\":{{\"line\":{},\"character\":{}}}}}",
+                    d.range.begin.line, d.range.begin.col, d.range.end.line, d.range.end.col);
+                sti::write!(&mut result, ",\"message\":{:?}", d.message);
+                sti::write!(&mut result, "}}");
+            }
+
+            sti::write!(&mut result, "]}}");
+
+            self.send_notification("textDocument/publishDiagnostics", json::Value::Encoded(&result));
+        }
+    }
+
+
     fn send_request(&mut self, method: &str, params: json::Value) {
         use core::fmt::Write;
 
         let id = self.next_request_id;
         self.next_request_id += 1;
+        self.active_requests.insert(id, ());
 
         spall::trace_scope!("kibi_lsp/send_request"; "{} ({})", method, id);
 
@@ -361,8 +391,25 @@ impl Lsp {
         print!("Content-Length: {}\r\n\r\n{}", content.len(), content);
 
         _ = write!(self.stdout, "Content-Length: {}\r\n\r\n{}", content.len(), content);
+    }
 
-        self.active_requests.insert(id, ());
+    fn send_notification(&mut self, method: &str, params: json::Value) {
+        use core::fmt::Write;
+
+        spall::trace_scope!("kibi_lsp/send_notification"; "{}", method);
+
+        let temp = unsafe { ArenaPool::tls_get_scoped(&[]) };
+
+        let mut content = String::new_in(&*temp);
+        sti::write!(&mut content, "{}", json::Value::Object(&[
+            ("jsonrpc", "2.0".into()),
+            ("method", method.into()),
+            ("params", params),
+        ]));
+
+        print!("Content-Length: {}\r\n\r\n{}", content.len(), content);
+
+        _ = write!(self.stdout, "Content-Length: {}\r\n\r\n{}", content.len(), content);
     }
 
     fn send_response(&mut self, id: u32, result: Result<json::Value, json::Value>) {

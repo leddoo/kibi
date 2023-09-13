@@ -56,6 +56,19 @@ pub struct TypedBinder<'a> {
 }
 
 
+/// zero based.
+#[derive(Clone, Copy, Debug)]
+pub struct UserSourcePos {
+    pub line: u32,
+    pub col:  u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct UserSourceRange {
+    pub begin: UserSourcePos,
+    pub end:   UserSourcePos,
+}
+
 
 #[derive(Clone, Copy, Debug)]
 pub struct SourceRange {
@@ -71,18 +84,6 @@ pub struct ParseRange {
 
 impl ParseRange {
     pub const UNKNOWN: ParseRange = ParseRange { begin: 0, end: 0 };
-
-    #[inline(always)]
-    pub fn collapsed(pos: u32) -> SourceRange {
-        SourceRange { begin: pos, end: pos }
-    }
-
-    #[track_caller]
-    #[inline(always)]
-    pub fn join(self, other: SourceRange) -> SourceRange {
-        debug_assert!(self.begin <= other.end);
-        SourceRange { begin: self.begin, end: other.end }
-    }
 }
 
 

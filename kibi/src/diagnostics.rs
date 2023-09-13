@@ -1,17 +1,17 @@
 use sti::vec::Vec;
 
-use crate::ast::{ParseId, ParseRange, TokenId, TokenRange, ItemId, LevelId, ExprId};
+use crate::ast::{ParseRange, TokenId, TokenRange, ItemId, LevelId, ExprId, SourceRange};
+use crate::parser::Parse;
 use crate::pp::DocRef;
 
 
 pub struct Diagnostics<'a> {
-    diagnostics: Vec<Diagnostic<'a>>,
+    pub diagnostics: Vec<Diagnostic<'a>>,
 }
 
 
 #[derive(Clone, Copy, Debug)]
 pub struct Diagnostic<'a> {
-    pub parse: ParseId,
     pub source: DiagnosticSource,
     pub kind: DiagnosticKind<'a>,
 }
@@ -61,6 +61,21 @@ impl<'a> Diagnostics<'a> {
     #[inline(always)]
     pub fn push(&mut self, diagnostic: Diagnostic<'a>) {
         self.diagnostics.push(diagnostic);
+    }
+}
+
+
+impl DiagnosticSource {
+    pub fn resolve_source_range(self, parse: &Parse) -> SourceRange {
+        use DiagnosticSource as DS;
+        match self {
+            DS::ParseRange(it) => parse.resolve_parse_range(it),
+            DS::Token(it)      => parse.resolve_token_range(TokenRange::from_key(it)),
+            DS::TokenRange(it) => parse.resolve_token_range(it),
+            DS::Item(it)  => parse.resolve_token_range(parse.items[it].source),
+            DS::Level(it) => parse.resolve_token_range(parse.levels[it].source),
+            DS::Expr(it)  => parse.resolve_token_range(parse.exprs[it].source),
+        }
     }
 }
 

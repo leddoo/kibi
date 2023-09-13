@@ -14,8 +14,6 @@
 
 
 - todo:
-    - diagnostics.
-        - report to lsp.
     - run elab.
         - `Elab -> Elaborator`.
         - `Elab ~ Parse` with diagnostics.
@@ -38,6 +36,9 @@
         - use indentation for recovery of unmatched parens errors.
         - single line strings. (indented, multi-line later)
         - can we get neovim to draw skipped tokens in italics? maybe w/ modifiers.
+    - error resilient elab.
+        - error to sorry.
+        - type unknown for env -> treat as silent error in uses.
     - incremental parse.
         - each item is a `Parse`.
         - if token range dirty, re-parse, otherwise, keep old result.

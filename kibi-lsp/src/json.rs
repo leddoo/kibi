@@ -15,6 +15,7 @@ pub enum Value<'a> {
     String(&'a str),
     Array(&'a [Value<'a>]),
     Object(&'a [(&'a str, Value<'a>)]),
+    Encoded(&'a str),
 }
 
 impl<'a> Value<'a> {
@@ -364,6 +365,10 @@ impl<'a> core::fmt::Display for Value<'a> {
                         for _ in 0..indent { write!(f, "    ")?; }
                     }
                     write!(f, "}}")
+                }
+
+                Value::Encoded(v) => {
+                    write!(f, "{}", v)
                 }
             }
         }

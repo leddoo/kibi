@@ -11,7 +11,6 @@ use crate::ast::*;
 
 
 pub struct Parse<'a> {
-    pub id: ParseId,
     pub source: SourceId,
     pub source_range: SourceRange,
 
@@ -24,6 +23,28 @@ pub struct Parse<'a> {
     pub items:  KVec<ItemId,  Item<'a>>,
     pub levels: KVec<LevelId, Level>,
     pub exprs:  KVec<ExprId,  Expr<'a>>,
+}
+
+impl<'a> Parse<'a> {
+    #[inline]
+    pub fn resolve_parse_range(&self, range: ParseRange) -> SourceRange {
+        debug_assert!(range.begin <= range.end);
+        debug_assert!(range.end <= self.source_range.end - self.source_range.begin);
+        SourceRange {
+            begin: self.source_range.begin + range.begin,
+            end:   self.source_range.begin + range.end,
+        }
+    }
+
+    #[inline]
+    pub fn resolve_token_range(&self, range: TokenRange) -> SourceRange {
+        let first = range.idx(0);
+        let last  = range.rev(0);
+        SourceRange {
+            begin: self.source_range.begin + self.tokens[first].source.begin,
+            end:   self.source_range.begin + self.tokens[last].source.end,
+        }
+    }
 }
 
 
@@ -1077,7 +1098,6 @@ impl<'me, 'out> Parser<'me, 'out> {
     fn error_expect(&mut self, source: TokenId, what: &'out str) {
         self.parse.diagnostics.push(
             Diagnostic {
-                parse: self.parse.id,
                 source: DiagnosticSource::TokenRange(TokenRange::from_key(source)),
                 kind: DiagnosticKind::ParseError(ParseError::Expected(what)),
             });
@@ -1086,7 +1106,6 @@ impl<'me, 'out> Parser<'me, 'out> {
     fn error_expect_expr(&mut self, source: ExprId, what: &'out str) {
         self.parse.diagnostics.push(
             Diagnostic {
-                parse: self.parse.id,
                 source: DiagnosticSource::Expr(source),
                 kind: DiagnosticKind::ParseError(ParseError::Expected(what)),
             });
@@ -1097,7 +1116,6 @@ impl<'me, 'out> Parser<'me, 'out> {
 
         self.parse.diagnostics.push(
             Diagnostic {
-                parse: self.parse.id,
                 source: DiagnosticSource::TokenRange(TokenRange::from_key(source)),
                 kind: DiagnosticKind::ParseError(ParseError::Unexpected(token.kind.repr())),
             });
