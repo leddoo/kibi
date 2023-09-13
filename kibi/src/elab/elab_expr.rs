@@ -1,3 +1,4 @@
+use sti::traits::CopyIt;
 use sti::arena_pool::ArenaPool;
 
 use crate::ast::*;
@@ -7,11 +8,11 @@ use super::*;
 
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
-    pub fn elab_expr(&mut self, expr: &Expr<'a>) -> Option<(Term<'a>, Term<'a>)> {
+    pub fn elab_expr(&mut self, expr: ExprId) -> Option<(Term<'a>, Term<'a>)> {
         self.elab_expr_ex(expr, None)
     }
 
-    pub fn elab_expr_checking_type(&mut self, expr: &Expr<'a>, expected_ty: Option<Term<'a>>) -> Option<(Term<'a>, Term<'a>)> {
+    pub fn elab_expr_checking_type(&mut self, expr: ExprId, expected_ty: Option<Term<'a>>) -> Option<(Term<'a>, Term<'a>)> {
         let (term, ty) = self.elab_expr_ex(expr, expected_ty)?;
 
         if let Some(expected) = expected_ty {
@@ -20,7 +21,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                 let ty       = self.instantiate_term_vars(ty);
                 let expected = self.reduce_ex(expected, false);
                 let ty       = self.reduce_ex(ty, false);
-                self.error(expr.source, |alloc| {
+                self.error(expr, |alloc| {
                     let mut pp = TermPP::new(self.env, &self.strings, alloc);
                     let expected = pp.pp_term(expected);
                     let found    = pp.pp_term(ty);
@@ -33,7 +34,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         Some((term, ty))
     }
 
-    pub fn elab_expr_as_type(&mut self, expr: &Expr<'a>) -> Option<(Term<'a>, tt::Level<'a>)> {
+    pub fn elab_expr_as_type(&mut self, expr: ExprId) -> Option<(Term<'a>, tt::Level<'a>)> {
         let (term, ty) = self.elab_expr_ex(expr, None)?;
 
         let ty = self.whnf(ty);
@@ -46,7 +47,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             return Some((ty_var, l));
         }
 
-        self.error(expr.source, |alloc| {
+        self.error(expr, |alloc| {
             let mut pp = TermPP::new(self.env, &self.strings, alloc);
             let found = pp.pp_term(ty);
             ElabError::TypeExpected { found }
@@ -55,7 +56,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
 
-    fn elab_expr_ex(&mut self, expr: &Expr<'a>, expected_ty: Option<Term<'a>>) -> Option<(Term<'a>, Term<'a>)> {
+    fn elab_expr_ex(&mut self, expr: ExprId, expected_ty: Option<Term<'a>>) -> Option<(Term<'a>, Term<'a>)> {
         let result = self.elab_expr_core(expr, expected_ty);
 
         #[cfg(debug_assertions)]
@@ -75,46 +76,47 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         return result;
     }
 
-    fn elab_expr_core(&mut self, expr: &Expr<'a>, expected_ty: Option<Term<'a>>) -> Option<(Term<'a>, Term<'a>)> {
-        Some(match &expr.kind {
+    fn elab_expr_core(&mut self, expr_id: ExprId, expected_ty: Option<Term<'a>>) -> Option<(Term<'a>, Term<'a>)> {
+        let expr = self.parse.exprs[expr_id];
+        Some(match expr.kind {
             ExprKind::Hole => {
                 self.new_term_var()
             }
 
             ExprKind::Ident(name) => {
-                if let Some(local) = self.lookup_local(*name) {
+                if let Some(local) = self.lookup_local(name) {
                     let ty = self.lctx.lookup(local).ty;
                     (self.alloc.mkt_local(local), ty)
                 }
                 else {
-                    let symbol = self.lookup_symbol_ident(expr.source, *name)?;
-                    self.elab_symbol(expr.source, symbol, &[])?
+                    let symbol = self.lookup_symbol_ident(expr_id.into(), name)?;
+                    self.elab_symbol(expr_id.into(), symbol, &[])?
                 }
             }
 
             ExprKind::Path(path) => {
-                let symbol = self.lookup_symbol_path(expr.source, path.local, path.parts)?;
-                self.elab_symbol(expr.source, symbol, &[])?
+                let symbol = self.lookup_symbol_path(expr_id.into(), path.local, path.parts)?;
+                self.elab_symbol(expr_id.into(), symbol, &[])?
             }
 
             ExprKind::Levels(it) => {
-                let symbol = match &it.symbol {
+                let symbol = match it.symbol {
                     IdentOrPath::Ident(name) => {
-                        if self.lookup_local(*name).is_some() {
-                            self.error(expr.source, |alloc|
+                        if self.lookup_local(name).is_some() {
+                            self.error(expr_id, |alloc|
                                 ElabError::SymbolShadowedByLocal(
-                                    alloc.alloc_str(&self.strings[*name])));
+                                    alloc.alloc_str(&self.strings[name])));
                         }
 
-                        self.lookup_symbol_ident(expr.source, *name)?
+                        self.lookup_symbol_ident(expr_id.into(), name)?
                     }
 
                     IdentOrPath::Path(path) => {
-                        self.lookup_symbol_path(expr.source, path.local, path.parts)?
+                        self.lookup_symbol_path(expr_id.into(), path.local, path.parts)?
                     }
                 };
 
-                self.elab_symbol(expr.source, symbol, it.levels)?
+                self.elab_symbol(expr_id.into(), symbol, it.levels)?
             }
 
             ExprKind::Sort(l) => {
@@ -188,7 +190,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
                 let mut impl_args = Vec::new_in(&*temp);
 
-                let mut args = it.args.iter();
+                let mut args = it.args.copy_it();
                 let mut result    = func;
                 let mut result_ty = func_ty;
                 let mut expected_ty = expected_ty;
@@ -220,7 +222,6 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                             }
 
                             let Some(arg) = args.next() else { break };
-                            let expr::CallArg::Positional(arg) = arg else { unimplemented!() };
 
                             let (arg, _) = self.elab_expr_checking_type(arg, Some(pi.ty))?;
                             arg
@@ -246,7 +247,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
                     result_ty = pi.val.instantiate(arg, self.alloc);
                 }
                 if args.next().is_some() {
-                    self.error(expr.source, |_| { ElabError::TooManyArgs });
+                    self.error(expr_id, |_| { ElabError::TooManyArgs });
                     return None;
                 }
 
@@ -261,6 +262,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             }
 
             ExprKind::Number(n) => {
+                let n = self.parse.numbers[n];
                 let n = u32::from_str_radix(n, 10).unwrap();
                 (self.alloc.mkt_nat_val(n), Term::NAT)
             }

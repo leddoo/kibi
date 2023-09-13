@@ -2,9 +2,7 @@ use sti::arena::Arena;
 
 
 pub use crate::string_table::Atom;
-// @temp
-//pub use crate::elab::LevelVarId;
-sti::define_key!(pub, u32, LevelVarId);
+pub use crate::elab::LevelVarId;
 
 
 pub type Level<'a> = impel::Level<'a>;

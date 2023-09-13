@@ -192,6 +192,7 @@ impl<'c> Inner<'c> {
         let parse_id = self.parses.next_key();
 
         let mut parse = Parse {
+            id: parse_id,
             source: source_id,
             source_range: SourceRange {
                 begin: 0,
@@ -205,7 +206,7 @@ impl<'c> Inner<'c> {
             exprs:  KVec::new(),
         };
 
-        parser::parse_file(&source.data, parse_id, &mut parse,
+        parser::parse_file(&source.data, &mut parse,
             &mut self.strings, &mut self.errors, &arena);
 
         // @todo: make this safer.

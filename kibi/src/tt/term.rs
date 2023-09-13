@@ -4,9 +4,7 @@ use sti::vec::Vec;
 
 pub use crate::string_table::{Atom, atoms};
 pub use crate::env::SymbolId;
-// @temp
-//pub use crate::elab::TermVarId;
-sti::define_key!(pub, u32, TermVarId);
+pub use crate::elab::TermVarId;
 
 pub use super::local_ctx::ScopeId;
 use super::level::*;

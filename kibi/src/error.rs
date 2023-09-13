@@ -2,7 +2,7 @@ use core::cell::RefCell;
 use sti::arena::*;
 use sti::vec::Vec;
 
-use crate::ast::{ParseId, ParseRange, TokenRange, ExprId};
+use crate::ast::{ParseId, ParseRange, TokenId, TokenRange, ItemId, LevelId, ExprId};
 use crate::pp::DocRef;
 
 
@@ -26,7 +26,10 @@ pub struct Error<'a> {
 #[derive(Clone, Copy, Debug)]
 pub enum ErrorSource {
     ParseRange(ParseRange),
+    Token(TokenId),
     TokenRange(TokenRange),
+    Item(ItemId),
+    Level(LevelId),
     Expr(ExprId),
 }
 
@@ -89,4 +92,12 @@ impl<'err> ErrorCtxMut<'err> {
         }
     }
 }
+
+
+impl Into<ErrorSource> for ParseRange { #[inline(always)] fn into(self) -> ErrorSource { ErrorSource::ParseRange(self) } }
+impl Into<ErrorSource> for TokenId    { #[inline(always)] fn into(self) -> ErrorSource { ErrorSource::Token(self)      } }
+impl Into<ErrorSource> for TokenRange { #[inline(always)] fn into(self) -> ErrorSource { ErrorSource::TokenRange(self) } }
+impl Into<ErrorSource> for ItemId     { #[inline(always)] fn into(self) -> ErrorSource { ErrorSource::Item(self)       } }
+impl Into<ErrorSource> for LevelId    { #[inline(always)] fn into(self) -> ErrorSource { ErrorSource::Level(self)      } }
+impl Into<ErrorSource> for ExprId     { #[inline(always)] fn into(self) -> ErrorSource { ErrorSource::Expr(self)       } }
 

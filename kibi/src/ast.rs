@@ -70,7 +70,7 @@ pub struct ParseRange {
 }
 
 impl ParseRange {
-    pub const UNKNOWN: SourceRange = SourceRange { begin: 0, end: 0 };
+    pub const UNKNOWN: ParseRange = ParseRange { begin: 0, end: 0 };
 
     #[inline(always)]
     pub fn collapsed(pos: u32) -> SourceRange {
@@ -91,6 +91,7 @@ sti::define_key!(pub, u32, ParseStringId);
 sti::define_key!(pub, u32, ParseNumberId);
 
 pub struct Parse<'a> {
+    pub id: ParseId,
     pub source: SourceId,
     pub source_range: SourceRange,
 

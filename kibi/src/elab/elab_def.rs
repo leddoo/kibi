@@ -20,7 +20,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         let locals = self.elab_binders(axiom.params, &*temp)?;
 
         // type.
-        let mut ty = self.elab_expr_as_type(&axiom.ty)?.0;
+        let mut ty = self.elab_expr_as_type(axiom.ty)?.0;
 
         assert_eq!(self.locals.len(), locals.len());
         for (_, id) in self.locals.iter().copied().rev() {
@@ -39,7 +39,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             IdentOrPath::Path(path) => {
                 let (name, parts) = path.parts.split_last().unwrap();
                 // @temp: missing source range.
-                let parent = self.lookup_symbol_path(SourceRange::UNKNOWN, path.local, parts)?;
+                let parent = self.lookup_symbol_path(ParseRange::UNKNOWN.into(), path.local, parts)?;
                 (parent, *name)
             }
         };
@@ -74,7 +74,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         Some(symbol)
     }
 
-    pub fn elab_def_core(&mut self, levels: &[Atom], params: &[ast::Binder<'a>], ty: Option<&Expr<'a>>, value: &Expr<'a>) -> Option<(Term<'a>, Term<'a>)> {
+    pub fn elab_def_core(&mut self, levels: &[Atom], params: &[ast::Binder<'a>], ty: OptExprId, value: ExprId) -> Option<(Term<'a>, Term<'a>)> {
         assert_eq!(self.locals.len(), 0);
         assert_eq!(self.level_params.len(), 0);
 
@@ -88,13 +88,13 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         // type.
         let ty =
-            if let Some(t) = &ty {
-                Some(self.elab_expr_as_type(&t)?.0)
+            if let Some(t) = ty.to_option() {
+                Some(self.elab_expr_as_type(t)?.0)
             }
             else { None };
 
         // value.
-        let (mut val, val_ty) = self.elab_expr_checking_type(&value, ty)?;
+        let (mut val, val_ty) = self.elab_expr_checking_type(value, ty)?;
 
 
         let mut ty = ty.unwrap_or(val_ty);
@@ -143,7 +143,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     }
 
     pub fn elab_def(&mut self, def: &item::Def<'a>) -> Option<SymbolId> {
-        let (ty, val) = self.elab_def_core(def.levels, def.params, def.ty.as_ref(), &def.value)?;
+        let (ty, val) = self.elab_def_core(def.levels, def.params, def.ty, def.value)?;
 
         let (parent, name) = match &def.name {
             IdentOrPath::Ident(name) => (self.root_symbol, *name),
@@ -151,7 +151,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             IdentOrPath::Path(path) => {
                 let (name, parts) = path.parts.split_last().unwrap();
                 // @temp: missing source range.
-                let parent = self.lookup_symbol_path(SourceRange::UNKNOWN, path.local, parts)?;
+                let parent = self.lookup_symbol_path(ParseRange::UNKNOWN.into(), path.local, parts)?;
                 (parent, *name)
             }
         };

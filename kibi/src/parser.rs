@@ -12,7 +12,7 @@ use crate::ast::*;
 // @todo: return `ItemId`.
 pub fn parse_file<'a>(
     input: &[u8],
-    parse_id: ParseId, parse: &mut Parse<'a>,
+    parse: &mut Parse<'a>,
     strings: &mut StringTable, errors: &mut ErrorCtx, alloc: &'a Arena)
 {
     spall::trace_scope!("kibi/parse_file");
@@ -22,7 +22,7 @@ pub fn parse_file<'a>(
     {
         spall::trace_scope!("kibi/parse");
         let mut parser = Parser {
-            parse_id, parse,
+            parse,
             errors, strings, alloc,
             token_cursor: 0,
         };
@@ -325,7 +325,6 @@ pub struct Parser<'me, 'err, 'a> {
     pub strings: &'me StringTable<'me>,
     pub errors: &'me ErrorCtx<'err>,
 
-    pub parse_id: ParseId,
     pub parse: &'me mut Parse<'a>,
     pub token_cursor: usize,
 }
@@ -1067,7 +1066,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
     fn error_expect(&mut self, source: TokenId, what: &'err str) {
         self.errors.with(|errors| {
             errors.report(Error {
-                parse: self.parse_id,
+                parse: self.parse.id,
                 source: ErrorSource::TokenRange(TokenRange::from_key(source)),
                 kind: ErrorKind::Parse(ParseError::Expected(what)),
             });
@@ -1077,7 +1076,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
     fn error_expect_expr(&mut self, source: ExprId, what: &'err str) {
         self.errors.with(|errors| {
             errors.report(Error {
-                parse: self.parse_id,
+                parse: self.parse.id,
                 source: ErrorSource::Expr(source),
                 kind: ErrorKind::Parse(ParseError::Expected(what)),
             });
@@ -1089,7 +1088,7 @@ impl<'me, 'err, 'a> Parser<'me, 'err, 'a> {
 
         self.errors.with(|errors| {
             errors.report(Error {
-                parse: self.parse_id,
+                parse: self.parse.id,
                 source: ErrorSource::TokenRange(TokenRange::from_key(source)),
                 kind: ErrorKind::Parse(ParseError::Unexpected(token.kind.repr())),
             });

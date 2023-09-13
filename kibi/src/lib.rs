@@ -11,7 +11,7 @@ pub mod parser;
 pub mod tt;
 pub mod env;
 pub mod traits;
-//pub mod elab;
+pub mod elab;
 pub mod vfs;
 pub mod compiler;
 

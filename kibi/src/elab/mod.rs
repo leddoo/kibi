@@ -4,7 +4,7 @@ use sti::keyed::KVec;
 
 use crate::string_table::{StringTable, Atom};
 use crate::error::*;
-use crate::ast::SourceRange;
+use crate::ast::Parse;
 use crate::tt::{ScopeId, LocalCtx};
 use crate::env::*;
 use crate::traits::Traits;
@@ -16,6 +16,8 @@ pub struct Elab<'me, 'err, 'a> {
     pub errors: &'me ErrorCtx<'err>,
     pub env: &'me mut Env<'a>,
     pub traits: &'me mut Traits,
+
+    pub parse: &'me Parse<'me>,
 
     root_symbol: SymbolId,
 
@@ -51,13 +53,14 @@ pub use ivars::{LevelVarId, TermVarId};
 
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
-    pub fn new(env: &'me mut Env<'a>, traits: &'me mut Traits, root_symbol: SymbolId, errors: &'me ErrorCtx<'err>, strings: &'me mut StringTable<'a>, alloc: &'a Arena) -> Self {
+    pub fn new(env: &'me mut Env<'a>, traits: &'me mut Traits, parse: &'me Parse<'me>, root_symbol: SymbolId, errors: &'me ErrorCtx<'err>, strings: &'me mut StringTable<'a>, alloc: &'a Arena) -> Self {
         Self {
             alloc,
             strings,
             errors,
             env,
             traits,
+            parse,
             root_symbol,
             lctx: LocalCtx::new(alloc),
             locals: Vec::new(),
@@ -66,9 +69,14 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         }
     }
 
-    fn error<F: FnOnce(&'err Arena) -> ElabError<'err>>(&self, source: SourceRange, f: F) {
+    fn error<S, F>(&self, source: S, f: F)
+    where S: Into<ErrorSource>, F: FnOnce(&'err Arena) -> ElabError<'err> {
         self.errors.with(|errors| {
-            errors.report(Error { source, kind: ErrorKind::Elab(f(errors.alloc)) });
+            errors.report(Error {
+                parse: self.parse.id,
+                source: source.into(),
+                kind: ErrorKind::Elab(f(errors.alloc)),
+            });
         });
     }
 

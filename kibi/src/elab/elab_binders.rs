@@ -6,7 +6,7 @@ use super::*;
 
 
 impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
-    pub fn elab_binders<'res>(&mut self, binders: &[ast::Binder<'a>], alloc: &'res Arena)
+    pub fn elab_binders<'res>(&mut self, binders: &[ast::Binder], alloc: &'res Arena)
     -> Option<Vec<(ScopeId, tt::Term<'a>, tt::Level<'a>), &'res Arena>> {
         let mut locals = Vec::with_cap_in(alloc, binders.len());
 

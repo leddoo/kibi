@@ -13,20 +13,23 @@
     - crates.
 
 
-- compiler rework.
-    - don't expose `ParseId`. instead have opaque `ExprSource`, `TermSource`, etc.
-    - query functions either call update (but what about the changes),
-      or require compiler to be up-to-date (panic if not).
-        - could also keep an internal queue of `Delta`s.
-        - hmm, or it could be modal. in incremental mode, you have to
-          call update (to get the deltas) before making queries (else panic).
-          and otherwise, query functions lazily update the compiler state.
-
 - todo:
-    - elab.
     - diagnostics.
-    - lsp hover info.
+    - run elab.
+    - some syntax sugar for fun & profit (arrow, eq, add).
+    - lsp stuff:
+        - hover info.
+        - go to definition.
+        - document highlights.
+        - completions.
     - proper semantic tokens.
+    - error resilient parsing.
+        - parser skips comment tokens (add) & error tokens.
+        - unterminated `/-` is error token and does not consume input until eof.
+        - sep-by until terminator, but not if sync point in between.
+        - use indentation for recovery of unmatched parens errors.
+        - single line strings. (indented, multi-line later)
+        - can we get neovim to draw skipped tokens in italics? maybe w/ modifiers.
     - incremental parse.
         - each item is a `Parse`.
         - if token range dirty, re-parse, otherwise, keep old result.
@@ -34,9 +37,14 @@
     - incremental elab.
         - track dependencies.
         - re-elab if dependencies or item changed.
+        - should be able to keep refs into env,
+          cause need to rerun if anything used from env changed.
 
+    - maybe always store elab on elab error -> can use term refs.
+    - `validate_string`: `>= 0x20`. do we need simd?
     - `vfs::mem`, `vfs::std`.
     - don't `print!`.
+        - but can `eprint!`.
         - sti.
         - spall:
             - support non-init (drop everything).
@@ -49,8 +57,10 @@
         - serialization or hash function.
         - do non-incr compile & compare.
     - compiler: id based functions (alternative to strings).
-
-    - some syntax sugar for fun & profit (arrow, eq, add).
+    - callgraph for:
+        - termination checking.
+        - find references.
+        - "highlight everything that can allocate."
 
     - cleanup.
         - `SymbolKind::Axiom`.

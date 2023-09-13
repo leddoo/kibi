@@ -26,7 +26,9 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         // check type.
         let type_former =
-            if let Some(ty) = &ind.ty { self.elab_expr_as_type(ty)?.0 }
+            if let Some(ty) = ind.ty.to_option() {
+                self.elab_expr_as_type(ty)?.0
+            }
             else { Term::SORT_1 };
 
         let has_indices = self.whnf_forall(type_former).is_some();
@@ -61,7 +63,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
         for ctor in ind.ctors {
             let args = self.elab_binders(&ctor.args, &*temp)?;
 
-            let mut ty = match &ctor.ty {
+            let mut ty = match ctor.ty.to_option() {
                 Some(ty) => self.elab_expr_as_type(ty)?.0,
                 None => {
                     if has_indices {

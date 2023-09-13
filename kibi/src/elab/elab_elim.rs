@@ -1,3 +1,4 @@
+use sti::traits::CopyIt;
 use sti::arena_pool::ArenaPool;
 
 use crate::ast::*;
@@ -11,7 +12,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
     pub fn try_elab_as_elim(&mut self,
         func: Term<'a>,
         func_ty: Term<'a>,
-        args: &[expr::CallArg<'a>],
+        args: &[ExprId],
         expected_ty: Term<'a>
     ) -> (Option<Option<(Term<'a>, Term<'a>)>>,)
     {
@@ -39,7 +40,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
         // apply args to func.
         // create vars for motive and non-target args.
-        let mut arg_iter = args.iter();
+        let mut arg_iter = args.copy_it();
         let mut result    = func;
         let mut result_ty = func_ty;
         let mut param_idx = 0;
@@ -53,10 +54,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
 
             let arg = match pi.kind {
                 BinderKind::Explicit => {
-                    if let Some(arg) = arg_iter.next() {
-                        let expr::CallArg::Positional(arg) = arg else { unimplemented!() };
-                        Some(arg)
-                    }
+                    if let Some(arg) = arg_iter.next() { Some(arg) }
                     else { break }
                 }
 
@@ -68,7 +66,7 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             let arg = match info.args[param_idx] {
                 ElimArgKind::Motive => {
                     if let Some(arg) = arg {
-                        assert!(matches!(arg.kind, ExprKind::Hole));
+                        assert!(matches!(self.parse.exprs[arg].kind, ExprKind::Hole));
                     }
 
                     //println!("motive: {}", self.pp(pi.ty, 80));
@@ -166,7 +164,6 @@ impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
             debug_assert!(rem_locals.len() == 0);
 
             for arg in arg_iter.rev() {
-                let expr::CallArg::Positional(arg) = arg else { unimplemented!() };
                 let Some((arg, arg_ty)) = self.elab_expr(arg) else {
                     return (Some(None),);
                 };
