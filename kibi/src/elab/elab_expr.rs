@@ -1,4 +1,3 @@
-use sti::traits::CopyIt;
 use sti::arena_pool::ArenaPool;
 
 use crate::ast::*;
@@ -178,88 +177,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
             }
 
             ExprKind::Call(it) => {
-                let (func, func_ty) = self.elab_expr(it.func)?;
-
-                if let Some(expected_ty) = expected_ty {
-                    if let Some(result) = self.try_elab_as_elim(expr_id, func, func_ty, it.args, expected_ty).0 {
-                        return result;
-                    }
-                }
-
-                let temp = ArenaPool::tls_get_rec();
-
-                let mut impl_args = Vec::new_in(&*temp);
-
-                let mut args = it.args.copy_it();
-                let mut result    = func;
-                let mut result_ty = func_ty;
-                let mut expected_ty = expected_ty;
-                while let Some(pi) = self.whnf_forall(result_ty) {
-                    let arg = match pi.kind {
-                        BinderKind::Explicit => {
-                            // propagate expected type.
-                            if let Some(expected) = expected_ty {
-                                let mut args_remaining = args.len();
-                                let mut f_ty = result_ty;
-                                while let Some(pi) = f_ty.try_forall() {
-                                    if pi.kind == BinderKind::Explicit {
-                                        // not enough args.
-                                        if args_remaining == 0 {
-                                            // prevent def_eq below.
-                                            args_remaining = 1;
-                                            expected_ty = None;
-                                            break;
-                                        }
-                                        args_remaining -= 1;
-                                    }
-                                    f_ty = pi.val;
-                                }
-                                if args_remaining == 0 && f_ty.closed() {
-                                    if self.is_def_eq(f_ty, expected) {
-                                        expected_ty = None;
-                                    }
-                                }
-                            }
-
-                            let Some(arg) = args.next() else { break };
-
-                            let (arg, _) = self.elab_expr_checking_type(arg, Some(pi.ty))?;
-                            arg
-                        }
-
-                        BinderKind::Implicit => {
-                            let var = self.new_term_var_of_type(pi.ty);
-
-                            // impl implicit
-                            // @todo: also for explicit holes.
-                            let (head, _) = pi.ty.app_fun();
-                            if let Some(global) = head.try_global() {
-                                if self.traits.is_trait(global.id) {
-                                    impl_args.push((global.id, var));
-                                }
-                            }
-
-                            var
-                        }
-                    };
-
-                    result    = self.alloc.mkt_apply(result, arg);
-                    result_ty = pi.val.instantiate(arg, self.alloc);
-                }
-                if args.next().is_some() {
-                    self.error(expr_id, ElabError::TooManyArgs);
-                    return None;
-                }
-
-                for (trayt, ivar) in impl_args.iter().copied() {
-                    if !self.resolve_impl(trayt, ivar) {
-                        // @todo: better source, context.
-                        self.error(expr_id, ElabError::TraitResolutionFailed { trayt });
-                        return None;
-                    }
-                }
-
-                (result, result_ty)
+                self.elab_app(expr_id, ExprOrTerm::Expr(it.func), it.args, expected_ty)?
             }
 
             ExprKind::Number(n) => {
@@ -268,8 +186,16 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
                 (self.alloc.mkt_nat_val(n), Term::NAT)
             }
 
+            ExprKind::Eq(a, b) => {
+                let eq = self.alloc.mkt_global(
+                    SymbolId::EQ,
+                    &self.alloc.alloc_new([self.new_level_var()])[..]);
+                self.elab_app(expr_id, ExprOrTerm::Term(eq), &[a, b], expected_ty)?
+            }
+
             _ => {
                 eprintln!("unimp expr kind {:?}", expr);
+                self.error(expr_id, ElabError::TempUnimplemented);
                 return None
             }
         })

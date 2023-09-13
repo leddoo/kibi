@@ -8,7 +8,7 @@ use sti::keyed::{KVec, KFreeVec};
 use sti::hash::HashMap;
 
 use crate::string_table::StringTable;
-use crate::diagnostics::{self, Diagnostics, Diagnostic};
+use crate::diagnostics::{Diagnostics, Diagnostic};
 use crate::ast::{SourceId, ParseId, SourceRange, UserSourcePos, UserSourceRange};
 use crate::parser::{self, Parse};
 use crate::env::{Env, SymbolId};
@@ -620,6 +620,10 @@ impl<'c> Inner<'c> {
 
                         ElabError::TempCtorArgLevelCouldBeTooLarge => {
                             sti::write!(&mut buf, "(temp): maybe ctor arg level too large");
+                        }
+
+                        ElabError::TempUnimplemented => {
+                            sti::write!(&mut buf, "(temp): unimplemented");
                         }
                     }
                     buf.leak()

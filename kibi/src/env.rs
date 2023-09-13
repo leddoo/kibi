@@ -113,6 +113,17 @@ impl<'a> Env<'a> {
         symbols[SymbolId::NAT].children.insert(atoms::succ, nat_succ);
         assert_eq!(nat_succ, SymbolId::NAT_SUCC);
 
+
+        let eq = symbols.push(Symbol {
+            parent: SymbolId::ROOT,
+            kind: SymbolKind::Predeclared,
+            name: atoms::Eq,
+            children: HashMap::new(),
+        });
+        symbols[SymbolId::ROOT].children.insert(atoms::Eq, eq);
+        assert_eq!(eq, SymbolId::EQ);
+
+
         return Env { symbols };
     }
 

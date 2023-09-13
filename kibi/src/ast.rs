@@ -391,6 +391,8 @@ pub enum ExprKind<'a> {
     Parens(ExprId),
     Block(expr::Block<'a>),
 
+    // @cleanup: how to handle operators & prop types?
+    Eq(ExprId, ExprId),
     Op1(expr::Op1),
     Op2(expr::Op2),
     Op2Assign(expr::Op2),

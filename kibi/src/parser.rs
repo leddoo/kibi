@@ -388,7 +388,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                 let params = self.parse_binders(this_parent, false)?;
 
                 self.expect(TokenKind::Colon)?;
-                let ty = self.parse_expr(this_parent)?;
+                let ty = self.parse_type(this_parent)?;
 
                 ItemKind::Axiom(item::Axiom { name, levels, params, ty })
             }
@@ -413,7 +413,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
 
                 let mut ty = None.into();
                 if self.consume_if_eq(TokenKind::Colon) {
-                    ty = self.parse_expr(this_parent)?.some();
+                    ty = self.parse_type(this_parent)?.some();
                 }
 
                 self.expect(TokenKind::ColonEq)?;
@@ -443,7 +443,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                 let params = self.parse_binders(this_parent, false)?;
 
                 self.expect(TokenKind::Colon)?;
-                let ty = self.parse_expr(this_parent)?;
+                let ty = self.parse_type(this_parent)?;
 
                 self.expect(TokenKind::ColonEq)?;
 
@@ -481,6 +481,14 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
         self.parse_expr_exw(parent, ParseExprFlags::default(), prec)
     }
 
+    pub fn parse_type(&mut self, parent: AstParent) -> Option<ExprId> {
+        self.parse_expr_exw(parent, ParseExprFlags::default().with_ty(), 0)
+    }
+
+    pub fn parse_type_ex(&mut self, parent: AstParent, prec: u32) -> Option<ExprId> {
+        self.parse_expr_exw(parent, ParseExprFlags::default().with_ty(), prec)
+    }
+
     pub fn parse_expr_exw(&mut self, parent: AstParent, flags: ParseExprFlags, prec: u32) -> Option<ExprId> {
         let token_begin = self.current_token_id();
 
@@ -488,6 +496,24 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
 
         loop {
             let at = self.peek();
+
+            // equality type.
+            if flags.ty && at.kind == TokenKind::Eq && PREC_EQ >= prec {
+                self.consume(1);
+
+                let (this_expr, this_parent) = self.new_expr_uninit(parent);
+                self.parse.exprs[result].parent = this_parent;
+
+                let lhs = result;
+                let rhs = self.parse_expr_ex(this_parent, PREC_EQ)?;
+
+                let kind = ExprKind::Eq(lhs, rhs);
+
+                self.expr_init_from(this_expr, token_begin, kind);
+
+                result = this_expr;
+                continue;
+            }
 
             // infix operators.
             if let Some(op) = InfixOp::from_token(at) {
@@ -532,7 +558,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                 self.parse.exprs[result].parent = this_parent;
 
                 let lhs = result;
-                let rhs = self.parse_expr_ex(this_parent, PREC_ARROW)?;
+                let rhs = self.parse_type_ex(this_parent, PREC_ARROW)?;
 
                 let kind = ExprKind::Forall(expr::Forall {
                     binders: &self.alloc.alloc_new([
@@ -686,7 +712,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
 
                     self.expect(TokenKind::Arrow)?;
 
-                    let ret = self.parse_expr(this_parent)?;
+                    let ret = self.parse_type(this_parent)?;
                     ExprKind::Forall(expr::Forall { binders, ret })
                 }
 
@@ -955,8 +981,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
             };
 
             self.expect(TokenKind::Colon)?;
-
-            let flags = ParseExprFlags::default().with_no_cmp();
+            let flags = ParseExprFlags::default().with_no_cmp().with_ty();
             let ty = self.parse_expr_exw(this_parent, flags, 0)?;
 
             let mut default = None.into();
@@ -1325,4 +1350,5 @@ impl InfixOp {
 }
 
 pub const PREC_ARROW: u32 = 50;
+pub const PREC_EQ:    u32 = 60;
 

@@ -51,6 +51,7 @@ mod elab_symbol;
 mod elab_level;
 mod elab_expr;
 mod elab_binders;
+mod elab_app;
 mod elab_elim;
 mod elab_def;
 mod elab_inductive;
@@ -58,6 +59,10 @@ mod elab_item;
 mod impls;
 
 
+pub enum ExprOrTerm<'a> {
+    Expr(crate::ast::ExprId),
+    Term(crate::tt::Term<'a>),
+}
 
 impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
     pub fn new(elab: &'me mut Elab<'out>, env: &'me mut Env<'a>, traits: &'me mut Traits, parse: &'me Parse<'me>, root_symbol: SymbolId, strings: &'me mut StringTable<'c>, alloc_out: &'out Arena, alloc: &'a Arena) -> Self {
