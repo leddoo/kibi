@@ -3,7 +3,7 @@ use crate::tt::*;
 use super::*;
 
 
-impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
+impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
     pub fn instantiate_level_vars(&self, l: Level<'a>) -> Level<'a> {
         l.replace(self.alloc, |at, _| {
             let var = at.try_ivar()?;

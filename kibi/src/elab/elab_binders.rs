@@ -5,7 +5,7 @@ use crate::tt;
 use super::*;
 
 
-impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
+impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
     pub fn elab_binders<'res>(&mut self, binders: &[ast::Binder], alloc: &'res Arena)
     -> Option<Vec<(ScopeId, tt::Term<'a>, tt::Level<'a>), &'res Arena>> {
         let mut locals = Vec::with_cap_in(alloc, binders.len());

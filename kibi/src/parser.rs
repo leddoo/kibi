@@ -88,16 +88,16 @@ pub fn tokenize<'out>(input: &[u8], parse: &mut Parse<'out>, strings: &mut Strin
 }
 
 
-pub struct Tokenizer<'me, 'str, 'i, 'out> {
+pub struct Tokenizer<'me, 'c, 'i, 'out> {
     pub alloc: &'out Arena,
 
-    pub strings: &'me mut StringTable<'str>,
+    pub strings: &'me mut StringTable<'c>,
     pub parse: &'me mut Parse<'out>,
 
     pub reader: Reader<'i, u8>,
 }
 
-impl<'me, 'str, 'i, 'out> Tokenizer<'me, 'str, 'i, 'out> {
+impl<'me, 'c, 'i, 'out> Tokenizer<'me, 'c, 'i, 'out> {
     pub fn next(&mut self) -> bool {
         loop {
             self.skip_ws();
@@ -353,22 +353,22 @@ impl<'me, 'str, 'i, 'out> Tokenizer<'me, 'str, 'i, 'out> {
 }
 
 
-pub struct Parser<'me, 'out> {
+pub struct Parser<'me, 'c, 'out> {
     pub alloc:  &'out Arena,
-    pub strings: &'me StringTable<'me>,
+    pub strings: &'me StringTable<'c>,
 
     pub parse: &'me mut Parse<'out>,
     pub token_cursor: usize,
 }
 
-impl<'me, 'out> Parser<'me, 'out> {
+impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
     pub fn parse_item(&mut self, parent: AstParent) -> Option<ItemId> {
         let (at, source_begin) = self.next();
 
         let this_item = self.parse.items.push(Item {
             parent,
             source: TokenRange::ZERO,
-            kind: ItemKind::Uninit,
+            kind: ItemKind::Error,
         });
         let this_parent = AstParent::Item(this_item);
 
@@ -794,7 +794,7 @@ impl<'me, 'out> Parser<'me, 'out> {
         let this_level = self.parse.levels.push(Level {
             parent,
             source: TokenRange::ZERO,
-            kind: LevelKind::Uninit,
+            kind: LevelKind::Error,
         });
         let this_parent = AstParent::Level(this_level);
 
@@ -1127,7 +1127,7 @@ impl<'me, 'out> Parser<'me, 'out> {
         let id = self.parse.exprs.push(Expr {
             parent,
             source: TokenRange::ZERO,
-            kind: ExprKind::Uninit,
+            kind: ExprKind::Error,
         });
         (id, AstParent::Expr(id))
     }
@@ -1137,7 +1137,8 @@ impl<'me, 'out> Parser<'me, 'out> {
         let source = self.token_range_from(from);
 
         let this = &mut self.parse.exprs[id];
-        debug_assert!(matches!(this.kind, ExprKind::Uninit));
+        debug_assert_eq!(this.source, TokenRange::ZERO);
+        debug_assert!(matches!(this.kind, ExprKind::Error));
 
         this.source = source;
         this.kind = kind;

@@ -3,7 +3,7 @@ use crate::tt::*;
 use super::*;
 
 
-impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
+impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
     pub fn abstract_eq(&mut self, t: Term<'a>, pat: Term<'a>) -> Term<'a> {
         let pat = self.instantiate_term_vars(pat);
 

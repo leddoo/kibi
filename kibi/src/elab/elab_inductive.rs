@@ -7,8 +7,8 @@ use crate::tt::*;
 use super::*;
 
 
-impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
-    pub fn elab_inductive(&mut self, ind: &Inductive<'a>) -> Option<SymbolId> {
+impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
+    pub fn elab_inductive(&mut self, ind: &Inductive) -> Option<SymbolId> {
         assert_eq!(self.locals.len(), 0);
         assert_eq!(self.level_params.len(), 0);
 

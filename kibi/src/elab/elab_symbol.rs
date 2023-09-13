@@ -7,7 +7,7 @@ use crate::tt::*;
 use super::*;
 
 
-impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
+impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
     pub fn lookup_local(&self, name: Atom) -> Option<ScopeId> {
         for (n, id) in self.locals.iter().rev().copied() {
             if n == name {
@@ -17,26 +17,26 @@ impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
         None
     }
 
-    pub fn lookup_symbol_ident(&self, source: DiagnosticSource, name: Atom) -> Option<SymbolId> {
+    pub fn lookup_symbol_ident(&mut self, source: DiagnosticSource, name: Atom) -> Option<SymbolId> {
         let Some(symbol) = self.env.lookup(self.root_symbol, name) else {
-            self.error(source, |alloc|
+            self.error(source,
                 ElabError::UnresolvedName { base: "",
-                    name: alloc.alloc_str(&self.strings[name]) });
+                    name: self.alloc_out.alloc_str(&self.strings[name]) });
             return None;
         };
         Some(symbol)
     }
 
-    pub fn lookup_symbol_path(&self, source: DiagnosticSource, local: bool, parts: &[Atom]) -> Option<SymbolId> {
+    pub fn lookup_symbol_path(&mut self, source: DiagnosticSource, local: bool, parts: &[Atom]) -> Option<SymbolId> {
         if local {
             let mut result = self.lookup_symbol_ident(source, parts[0])?;
 
             for part in parts[1..].iter().copied() {
                 let Some(symbol) = self.env.lookup(result, part) else {
                     // @todo: proper base.
-                    self.error(source, |alloc|
+                    self.error(source,
                         ElabError::UnresolvedName { base: "",
-                            name: alloc.alloc_str(&self.strings[part]) });
+                            name: self.alloc_out.alloc_str(&self.strings[part]) });
                     return None;
                 };
 
@@ -69,8 +69,8 @@ impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
                 }
                 else {
                     if levels.len() != num_levels {
-                        self.error(source, |_|
-                            ElabError::LevelMismatch {
+                        self.error(source,
+                            ElabError::LevelCountMismatch {
                                 expected: it.num_levels, found: levels.len() as u32 });
                         return None;
                     }
@@ -97,8 +97,8 @@ impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
                 }
                 else {
                     if levels.len() != num_levels {
-                        self.error(source, |_|
-                            ElabError::LevelMismatch {
+                        self.error(source,
+                            ElabError::LevelCountMismatch {
                                 expected: def.num_levels, found: levels.len() as u32 });
                         return None;
                     }

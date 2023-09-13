@@ -5,7 +5,7 @@ use sti::vec::Vec;
 
 use crate::string_table::Atom;
 use crate::env::{SymbolKind, symbol::{IndAxiomKind, IndAxiom}};
-use crate::elab::Elab;
+use crate::elab::Elaborator;
 
 use super::level::*;
 use super::term::*;
@@ -66,12 +66,12 @@ pub struct InductiveInfo<'a> {
 }
 
 
-pub struct Check<'me, 'temp, 'out, 'a> {
+pub struct Check<'me, 'temp, 'c, 'out, 'a> {
     alloc: &'a Arena,
     temp: &'me Arena,
 
     // @temp: @inductive_uses_elab.
-    elab: &'me mut Elab<'temp, 'out, 'a>,
+    elab: &'me mut Elaborator<'temp, 'c, 'out, 'a>,
 
     spec: MutualSpec<'me, 'a>,
 
@@ -97,8 +97,8 @@ struct RecArg<'me, 'a> {
     indices: &'me [Term<'a>],
 }
 
-impl<'me, 'temp, 'out, 'a> Check<'me, 'temp, 'out, 'a> {
-    pub fn check(elab: &mut Elab<'temp, 'out, 'a>, spec: MutualSpec<'_, 'a>) -> Option<()> {
+impl<'me, 'temp, 'c, 'out, 'a> Check<'me, 'temp, 'c, 'out, 'a> {
+    pub fn check(elab: &mut Elaborator<'temp, 'c, 'out, 'a>, spec: MutualSpec<'_, 'a>) -> Option<()> {
         let num_types = spec.types.len();
         assert!(num_types > 0);
 

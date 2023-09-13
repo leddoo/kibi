@@ -8,9 +8,12 @@ use sti::keyed::{KVec, KFreeVec};
 use sti::hash::HashMap;
 
 use crate::string_table::StringTable;
-use crate::diagnostics::{self, Diagnostics};
+use crate::diagnostics::{self, Diagnostics, Diagnostic};
 use crate::ast::{SourceId, ParseId, SourceRange, UserSourcePos, UserSourceRange};
 use crate::parser::{self, Parse};
+use crate::env::{Env, SymbolId};
+use crate::traits::Traits;
+use crate::elab::{Elaborator, Elab};
 use crate::vfs::Vfs;
 
 
@@ -31,6 +34,7 @@ struct Inner<'c> {
     source_datas: KFreeVec<SourceDataId, SourceData>,
     parses: KVec<ParseId, OptParseDataId>,
     parse_datas: KFreeVec<ParseDataId, ParseData>,
+    elab_datas: KFreeVec<ElabDataId, ElabData>,
 
     strings: StringTable<'c>,
 }
@@ -41,7 +45,8 @@ struct SourceData {
     dirty: bool,
     path: String,
     data: Vec<u8>,
-    parses: Vec<ParseId>,
+    parse: OptParseDataId,
+    elab: OptElabDataId,
 }
 
 
@@ -52,6 +57,18 @@ struct ParseData {
     arena: Arena,
 
     parse: Parse<'static>,
+}
+
+
+sti::define_key!(u32, ElabDataId, opt: OptElabDataId);
+
+struct ElabData {
+    #[allow(dead_code)]
+    arena: Arena,
+
+    env: Env<'static>,
+    traits: Traits,
+    elab: Elab<'static>,
 }
 
 impl Compiler {
@@ -66,6 +83,7 @@ impl Compiler {
             source_datas: KFreeVec::new(),
             parses: KVec::new(),
             parse_datas: KFreeVec::new(),
+            elab_datas: KFreeVec::new(),
             strings: StringTable::new(&*persistent),
         };
         let inner = unsafe { core::mem::transmute(inner) };
@@ -109,7 +127,8 @@ impl<'c> Inner<'c> {
                 dirty: true,
                 path: path.into(),
                 data: Vec::new(),
-                parses: Vec::new(),
+                parse: None.into(),
+                elab: None.into(),
             });
             self.dirty = true;
             (path.into(), self.sources.push(data_id.some()))
@@ -125,14 +144,15 @@ impl<'c> Inner<'c> {
 
         // @todo: kfreevec drop & unwrap.
         let source = &mut self.source_datas[data_id];
-        for parse_id in source.parses.copy_it() {
-            let data_id = self.parses[parse_id].take().unwrap();
-            self.parse_datas.free(data_id);
+        if let Some(parse_id) = source.parse.take() {
+            self.parse_datas.free(parse_id);
+        }
+        if let Some(elab_id) = source.elab.take() {
+            self.elab_datas.free(elab_id);
         }
         // @todo: string free.
         source.path = String::new();
         source.data.free();
-        source.parses.free();
 
         self.source_datas.free(data_id);
         self.dirty = true;
@@ -183,16 +203,15 @@ impl<'c> Inner<'c> {
         };
 
 
-        for parse_id in source.parses.copy_it() {
-            let data_id = self.parses[parse_id].take().unwrap();
-            self.parse_datas.free(data_id);
+        if let Some(parse_id) = source.parse.take() {
+            self.parse_datas.free(parse_id);
         }
-        source.parses.clear();
+        if let Some(elab_id) = source.elab.take() {
+            self.elab_datas.free(elab_id);
+        }
 
 
-        let arena = Arena::new();
-
-        let parse_id = self.parses.next_key();
+        let parse_arena = Arena::new();
 
         let mut parse = Parse {
             source: source_id,
@@ -210,17 +229,42 @@ impl<'c> Inner<'c> {
         };
 
         parser::parse_file(&source.data, &mut parse,
-            &mut self.strings, &arena);
+            &mut self.strings, &parse_arena);
+
+
+        let elab_arena = Arena::new();
+
+        let mut elab = Elab {
+            diagnostics: Diagnostics::new(),
+        };
+
+        let mut env = Env::new();
+        let mut traits = Traits::new();
+
+        for item in parse.items.range() {
+            let mut elaborator = Elaborator::new(
+                &mut elab,
+                &mut env,
+                &mut traits,
+                &parse,
+                SymbolId::ROOT,
+                &mut self.strings,
+                &elab_arena,
+                &elab_arena);
+            if elaborator.elab_item(item).is_none() {
+                break;
+            }
+        }
 
         // @todo: make this safer.
         let parse = unsafe { core::mem::transmute(parse) };
+        let parse_id = self.parse_datas.alloc(ParseData { arena: parse_arena, parse });
+        source.parse = parse_id.some();
 
-        let data_id = self.parse_datas.alloc(ParseData { arena, parse });
-        let id = self.parses.push(data_id.some());
-        assert_eq!(id, parse_id);
-
-        source.parses.clear();
-        source.parses.push(parse_id);
+        // @todo: make this safer.
+        let (env, elab) = unsafe { core::mem::transmute((env, elab)) };
+        let elab_id = self.elab_datas.alloc(ElabData { arena: elab_arena, env, traits, elab });
+        source.elab = elab_id.some();
     }
 }
 
@@ -262,10 +306,7 @@ impl<'c> Inner<'c> {
         let source = &self.source_datas[self.sources[id].unwrap()];
         debug_assert!(!source.dirty);
 
-        let parses = &source.parses;
-        debug_assert_eq!(parses.len(), 1);
-
-        let parse = &self.parse_datas[self.parses[parses[0]].unwrap()].parse;
+        let parse = &self.parse_datas[source.parse.unwrap()].parse;
         debug_assert_eq!(parse.source_range.begin, 0);
         debug_assert_eq!(parse.source_range.end,   source.data.len() as u32);
 
@@ -407,84 +448,16 @@ impl<'c> Inner<'c> {
 
             let mut file_diagnostics = Vec::new();
 
-            for parse_id in source.parses.copy_it() {
-                let parse = &self.parse_datas[self.parses[parse_id].unwrap()].parse;
+            let parse_id = source.parse.unwrap();
+            let parse = &self.parse_datas[parse_id].parse;
+            for d in parse.diagnostics.diagnostics.iter() {
+                file_diagnostics.push(mk_file_diagnostic(d, source, parse, alloc));
+            }
 
-                use core::fmt::Write;
-
-                for d in parse.diagnostics.diagnostics.iter() {
-                    let range = d.source.resolve_source_range(parse);
-
-                    let range = {
-                        let code = &source.data;
-                        // @temp: line table.
-                        let mut line = 0;
-                        let mut line_begin = 0;
-                        let mut i = 0;
-                        loop {
-                            while i < code.len() && code[i] != b'\n' {
-                                i += 1;
-                            }
-                            if range.begin as usize <= i {
-                                break;
-                            }
-                            if i < code.len() {
-                                i += 1;
-                                line += 1;
-                                line_begin = i;
-                            }
-                        }
-                        let begin = UserSourcePos { line, col: range.begin - line_begin as u32 };
-                        // @temp: line table.
-                        let mut line = 0;
-                        let mut line_begin = 0;
-                        let mut i = 0;
-                        loop {
-                            while i < code.len() && code[i] != b'\n' {
-                                i += 1;
-                            }
-                            if range.end as usize <= i {
-                                break;
-                            }
-                            if i < code.len() {
-                                i += 1;
-                                line += 1;
-                                line_begin = i;
-                            }
-                        }
-                        let end = UserSourcePos { line, col: range.end - line_begin as u32 };
-                        UserSourceRange { begin, end }
-                    };
-
-                    use diagnostics::DiagnosticKind as DK;
-                    let message = match d.kind {
-                        DK::ParseError(e) => {
-                            use diagnostics::ParseError as PE;
-                            match e {
-                                PE::Expected(what) => {
-                                    // @cleanup: sti temp formatting.
-                                    let mut buf = String::new_in(alloc);
-                                    _ = write!(&mut buf, "expected: {what}");
-                                    buf.leak()
-                                }
-
-                                PE::Unexpected(what) => {
-                                    // @cleanup: sti temp formatting.
-                                    let mut buf = String::new_in(alloc);
-                                    _ = write!(&mut buf, "unexpected: {what}");
-                                    buf.leak()
-                                }
-                            }
-                        }
-
-                        DK::ElabError(_) => todo!(),
-                    };
-
-                    file_diagnostics.push(FileDiagnostic {
-                        range,
-                        message,
-                    });
-                }
+            let elab_id = source.elab.unwrap();
+            let elab = &self.elab_datas[elab_id].elab;
+            for d in elab.diagnostics.diagnostics.iter() {
+                file_diagnostics.push(mk_file_diagnostic(d, source, parse, alloc));
             }
 
             result.push(FileDiagnostics {
@@ -493,427 +466,136 @@ impl<'c> Inner<'c> {
             });
         }
         return result;
-    }
-}
 
 
-/*
-use sti::arena::Arena;
-use sti::vec::Vec;
-use sti::boks::Box;
+        fn mk_file_diagnostic<'out>(d: &Diagnostic, source: &SourceData, parse: &Parse, alloc: &'out Arena) -> FileDiagnostic<'out> {
+            use core::fmt::Write;
+            use crate::diagnostics::*;
 
-use crate::string_table::StringTable;
-use crate::source_map::SourceMap;
-use crate::error::ErrorCtx;
-use crate::parser::{Parser, Tokenizer};
-use crate::env::{Env, SymbolId};
-use crate::elab::Elab;
-use crate::traits::Traits;
+            let range = d.source.resolve_source_range(parse);
 
-
-pub struct Compiler {
-    #[allow(dead_code)]
-    alloc: Box<Arena>,
-    inner: Inner<'static>,
-}
-
-struct Inner<'a> {
-    alloc: &'a Arena,
-    source_map: SourceMap<'a>,
-    elab: Elab<'a, 'a, 'a>,
-}
-
-impl Compiler {
-    pub fn new() -> Self {
-        let alloc = Box::new(Arena::new());
-        alloc.min_block_size.set(1*1024*1024);
-
-        let strings = alloc.alloc_new(StringTable::new(&alloc));
-
-        let source_map = SourceMap::new();
-
-        let errors = alloc.alloc_new(ErrorCtx::new(&alloc));
-
-        let env = alloc.alloc_new(Env::new());
-
-        let traits = alloc.alloc_new(Traits::new());
-
-        let elab = Elab::new(env, traits, SymbolId::ROOT, errors, strings, &alloc);
-
-        let inner = Inner {
-            alloc: &alloc,
-            source_map,
-            elab,
-        };
-
-        let inner: Inner<'static> = unsafe { core::mem::transmute(inner) };
-
-        Self {
-            alloc,
-            inner,
-        }
-    }
-
-    pub fn do_file(&mut self, name: &str, source: &[u8]) -> Result<(), ()> {
-        self.inner.do_file(name, source)?;
-        self.inner.dump_errors();
-        Ok(())
-    }
-
-    #[inline(always)]
-    pub fn with_elab<R, F: FnOnce(&mut Elab) -> R>(&mut self, f: F) -> R {
-        f(&mut self.inner.elab)
-    }
-}
-
-impl<'a> Inner<'a> {
-    fn do_file(&mut self, name: &str, source: &[u8]) -> Result<(), ()> {
-        let name   = self.alloc.alloc_str(name);
-        let source = Vec::from_slice_in(self.alloc, source).leak();
-
-        let offset = self.source_map.add_file(name, source).ok_or(())?;
-
-        let tokens = {
-            spall::trace_scope!("kibi/tok");
-
-            Tokenizer::tokenize(source, offset, self.elab.strings, &self.alloc)
-        };
-
-        let mut items = Vec::new();
-        {
-            spall::trace_scope!("kibi/parse");
-
-            let mut parser = Parser::new(&tokens,
-                self.elab.errors, self.elab.strings, &self.alloc);
-
-            while !parser.tokens.is_empty() {
-                if let Some(item) = parser.parse_item() {
-                    items.push(item);
-                }
-            }
-        }
-
-        let printing = false;
-
-        for item in &items {
-            use crate::ast::*;
-            use crate::env::*;
-            use crate::tt::TermPP;
-
-            self.elab.reset();
-
-            match &item.kind {
-                ItemKind::Axiom(axiom) => {
-                    spall::trace_scope!("kibi/elab/axiom"; "{}",
-                        axiom.name.display(self.elab.strings));
-
-                    let Some(_) = self.elab.elab_axiom(axiom) else { break };
-
-                    if printing {
-                        print!("axiom ");
-                        match axiom.name {
-                            IdentOrPath::Ident(name) => {
-                                println!("{}", &self.elab.strings[name]);
-                            }
-
-                            IdentOrPath::Path(path) => {
-                                print!("{}", &self.elab.strings[path.parts[0]]);
-                                for part in path.parts[1..].iter().copied() {
-                                    print!("::{}", &self.elab.strings[part]);
-                                }
-                                println!();
-                            }
-                        }
+            let range = {
+                let code = &source.data;
+                // @temp: line table.
+                let mut line = 0;
+                let mut line_begin = 0;
+                let mut i = 0;
+                loop {
+                    while i < code.len() && code[i] != b'\n' {
+                        i += 1;
                     }
-
-                    let Some(()) = self.elab.check_no_unassigned_variables() else {
-                        println!("error: unassigned inference variables");
-                        break;
-                    };
-                }
-
-                ItemKind::Def(def) => {
-                    spall::trace_scope!("kibi/elab/def"; "{}",
-                        def.name.display(self.elab.strings));
-
-                    let Some(_) = self.elab.elab_def(def) else { break };
-
-                    if printing {
-                        print!("def ");
-                        match def.name {
-                            IdentOrPath::Ident(name) => {
-                                println!("{}", &self.elab.strings[name]);
-                            }
-
-                            IdentOrPath::Path(path) => {
-                                print!("{}", &self.elab.strings[path.parts[0]]);
-                                for part in path.parts[1..].iter().copied() {
-                                    print!("::{}", &self.elab.strings[part]);
-                                }
-                                println!();
-                            }
-                        }
-                    }
-
-                    let Some(()) = self.elab.check_no_unassigned_variables() else {
-                        println!("error: unassigned inference variables");
-                        break;
-                    };
-                }
-
-                ItemKind::Reduce(expr) => {
-                    spall::trace_scope!("kibi/elab/reduce");
-
-                    let Some((term, _)) = self.elab.elab_expr(expr) else { break };
-                    let r = self.elab.reduce(term);
-
-                    if printing {
-                        let temp = sti::arena_pool::ArenaPool::tls_get_temp();
-                        let mut pp = TermPP::new(&self.elab.env, &self.elab.strings, &*temp);
-                        let r = pp.pp_term(r);
-                        let r = pp.indent(9, r);
-                        let r = pp.render(r, 80);
-                        let r = r.layout_string();
-                        println!("reduced: {}", r);
-                    }
-                }
-
-                ItemKind::Inductive(ind) => {
-                    spall::trace_scope!("kibi/elab/inductive"; "{}",
-                        &self.elab.strings[ind.name]);
-
-                    let Some(_) = self.elab.elab_inductive(ind) else { break };
-
-                    if printing {
-                        println!("inductive {}", &self.elab.strings[ind.name]);
-                    }
-                }
-
-                ItemKind::Trait(trayt) => {
-                    match trayt {
-                        item::Trait::Inductive(ind) => {
-                            spall::trace_scope!("kibi/elab/trait-ind",
-                                &self.elab.strings[ind.name]);
-
-                            let Some(symbol) = self.elab.elab_inductive(ind) else { break };
-
-                            self.elab.traits.new_trait(symbol);
-
-                            if printing {
-                                println!("trait inductive {}", &self.elab.strings[ind.name]);
-                            }
-                        }
-                    }
-                }
-
-                ItemKind::Impl(impel) => {
-                    spall::trace_scope!("kibi/elab/impl");
-
-                    let Some((ty, val)) = self.elab.elab_def_core(
-                        impel.levels, impel.params, Some(&impel.ty), &impel.value) else { break };
-
-                    let trayt = ty.forall_ret().0.app_fun().0;
-                    if let Some(g) = trayt.try_global() {
-                        if self.elab.traits.is_trait(g.id) {
-                            let impls = self.elab.traits.impls(g.id);
-                            // @speed: arena.
-                            let name = self.elab.strings.insert(&format!("impl_{}", impls.len()));
-                            let symbol = self.elab.env.new_symbol(g.id, name, SymbolKind::Def(symbol::Def {
-                                num_levels: impel.levels.len() as u32,
-                                ty,
-                                val: Some(val),
-                            })).unwrap();
-                            self.elab.traits.add_impl(g.id, symbol);
-                        }
-                        else {
-                            println!("error: must impl a trait");
-                            break;
-                        }
-                    }
-                    else {
-                        println!("error: must impl a trait");
+                    if range.begin as usize <= i {
                         break;
                     }
-
-                    if printing {
-                        println!("impl");
-                    }
-
-                    let Some(()) = self.elab.check_no_unassigned_variables() else {
-                        println!("error: unassigned inference variables");
-                        break;
-                    };
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    fn dump_errors(&self) {
-        use crate::error::*;
-
-        self.elab.errors.with(|errors| {
-            errors.iter(|e| {
-                // error line:
-                {
-                    print!("error: ");
-
-                    match e.kind {
-                        ErrorKind::Parse(e) => {
-                            match e {
-                                ParseError::Expected(what) => {
-                                    println!("expected: {what}");
-                                }
-
-                                ParseError::Unexpected(what) => {
-                                    println!("unexpected: {what}");
-                                }
-                            }
-                        }
-
-                        ErrorKind::Elab(e) => {
-                            match e {
-                                ElabError::SymbolShadowedByLocal(name) => {
-                                    println!("symbol {:?} shadowed by a local variable", name);
-                                }
-
-                                ElabError::UnresolvedLevel(name) => {
-                                    println!("unresolved level: {name:?}");
-                                }
-
-                                ElabError::UnresolvedName { base, name } => {
-                                    if base != "" {
-                                        println!("unresolved name. cannot find {name:?} in {base:?}");
-                                    }
-                                    else {
-                                        println!("unresolved name: {name:?}");
-                                    }
-                                }
-
-                                ElabError::LevelMismatch { expected, found } => {
-                                    println!("level count mismatch. expected {expected} levels, found {found}");
-                                }
-
-                                ElabError::TypeMismatch {..} => {
-                                    println!("type mismatch.");
-                                }
-
-                                ElabError::TypeExpected {..} => {
-                                    println!("type expected.");
-                                }
-
-                                ElabError::TooManyArgs => {
-                                    println!("too many args.");
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // code:
-                {
-                    let (_, input) = self.source_map.lookup(e.source.begin);
-
-                    let err_begin = e.source.begin as usize;
-                    let err_end   = e.source.end   as usize;
-                    let mut begin = err_begin;
-                    let mut end   = err_end;
-                    while begin > 0 && input[begin - 1] != b'\n' { begin -= 1 }
-                    while end < input.len() && input[end] != b'\n' { end += 1 }
-
-                    let begin_line = {
-                        let mut line = 1;
-                        let mut at = begin;
-                        while at > 0 {
-                            if input[at] == b'\n' { line += 1 }
-                            at -= 1;
-                        }
-                        line
-                    };
-
-                    let string = unsafe { core::str::from_utf8_unchecked(&input[begin..end]) };
-
-                    let mut line = begin_line;
-                    let mut at = begin;
-                    for l in string.lines() {
-                        println!("{:4} | {}", line, l);
-
-                        let end = at + l.len();
-                        if err_begin < end && err_end > at {
-                            let b = err_begin.max(at) - at;
-                            let e = err_end.min(end)  - at;
-                            for _ in 0..b+7 { print!(" ") }
-                            for _ in 0..(e-b).max(1) { print!("^") }
-                            println!();
-                        }
-
+                    if i < code.len() {
+                        i += 1;
                         line += 1;
-                        at = end + 1;
+                        line_begin = i;
                     }
                 }
+                let begin = UserSourcePos { line, col: range.begin - line_begin as u32 };
+                // @temp: line table.
+                let mut line = 0;
+                let mut line_begin = 0;
+                let mut i = 0;
+                loop {
+                    while i < code.len() && code[i] != b'\n' {
+                        i += 1;
+                    }
+                    if range.end as usize <= i {
+                        break;
+                    }
+                    if i < code.len() {
+                        i += 1;
+                        line += 1;
+                        line_begin = i;
+                    }
+                }
+                let end = UserSourcePos { line, col: range.end - line_begin as u32 };
+                UserSourceRange { begin, end }
+            };
 
-                // extra info.
-                {
-                    use crate::pp::PP;
-                    let temp = sti::arena_pool::ArenaPool::tls_get_temp();
-
-                    match e.kind {
-                        ErrorKind::Parse(e) => {
-                            match e {
-                                ParseError::Expected(_) => {}
-                                ParseError::Unexpected(_) => {}
-                            }
+            let message = match d.kind {
+                DiagnosticKind::ParseError(e) => {
+                    match e {
+                        ParseError::Expected(what) => {
+                            // @cleanup: sti temp formatting.
+                            let mut buf = String::new_in(alloc);
+                            sti::write!(&mut buf, "expected: {what}");
+                            buf.leak()
                         }
 
-                        ErrorKind::Elab(e) => {
-                            match e {
-                                ElabError::SymbolShadowedByLocal(_) => {
-                                }
-
-                                ElabError::UnresolvedName {..} => {}
-
-                                ElabError::UnresolvedLevel(_) => {}
-
-                                ElabError::LevelMismatch {..} => {}
-
-                                ElabError::TypeMismatch { expected, found } => {
-                                    let pp = PP::new(&*temp);
-                                    let expected = pp.render(expected, 50);
-                                    let expected = expected.layout_string();
-                                    let found = pp.render(found, 50);
-                                    let found = found.layout_string();
-                                    println!("expected: {}", expected.lines().next().unwrap());
-                                    for line in expected.lines().skip(1) {
-                                        println!("          {}", line);
-                                    }
-                                    println!("found:    {}", found.lines().next().unwrap());
-                                    for line in found.lines().skip(1) {
-                                        println!("          {}", line);
-                                    }
-                                }
-
-                                ElabError::TypeExpected { found } => {
-                                    let pp = PP::new(&*temp);
-                                    let found = pp.render(found, 50);
-                                    let found = found.layout_string();
-                                    println!("found: {}", found.lines().next().unwrap());
-                                    for line in found.lines().skip(1) {
-                                        println!("       {}", line);
-                                    }
-                                }
-
-                                ElabError::TooManyArgs => (),
-                            }
+                        ParseError::Unexpected(what) => {
+                            // @cleanup: sti temp formatting.
+                            let mut buf = String::new_in(alloc);
+                            sti::write!(&mut buf, "unexpected: {what}");
+                            buf.leak()
                         }
                     }
                 }
 
-                println!();
-            });
-        });
+                DiagnosticKind::ElabError(e) => {
+                    match e {
+                        ElabError::SymbolShadowedByLocal(name) => {
+                            // @cleanup: sti temp formatting.
+                            let mut buf = String::new_in(alloc);
+                            sti::write!(&mut buf, "symbol {name:?} shadowed");
+                            buf.leak()
+                        }
+
+                        ElabError::UnresolvedName { base: _, name } => {
+                            // @cleanup: sti temp formatting.
+                            let mut buf = String::new_in(alloc);
+                            sti::write!(&mut buf, "unknown symbol {name:?}");
+                            buf.leak()
+                        }
+
+                        ElabError::UnresolvedLevel(name) => {
+                            // @cleanup: sti temp formatting.
+                            let mut buf = String::new_in(alloc);
+                            sti::write!(&mut buf, "unknown level {name:?}");
+                            buf.leak()
+                        }
+
+                        ElabError::LevelCountMismatch { expected, found } => {
+                            // @cleanup: sti temp formatting.
+                            let mut buf = String::new_in(alloc);
+                            sti::write!(&mut buf, "expected {expected} levels, found {found}");
+                            buf.leak()
+                        }
+
+                        ElabError::TypeMismatch { expected, found } => {
+                            let pp = crate::pp::PP::new(alloc);
+                            // @cleanup: sti temp formatting.
+                            let mut buf = String::new_in(alloc);
+                            sti::write!(&mut buf, "expected ");
+                            pp.render(expected, 50).layout_into_string(&mut buf);
+                            sti::write!(&mut buf, ", found ");
+                            pp.render(found, 50).layout_into_string(&mut buf);
+                            buf.leak()
+                        }
+
+                        ElabError::TypeExpected { found } => {
+                            let pp = crate::pp::PP::new(alloc);
+                            // @cleanup: sti temp formatting.
+                            let mut buf = String::new_in(alloc);
+                            sti::write!(&mut buf, "type expected, found ");
+                            pp.render(found, 50).layout_into_string(&mut buf);
+                            buf.leak()
+                        }
+
+                        ElabError::TooManyArgs => {
+                            // @cleanup: sti temp formatting.
+                            let mut buf = String::new_in(alloc);
+                            sti::write!(&mut buf, "too many args");
+                            buf.leak()
+                        }
+                    }
+                }
+            };
+
+            FileDiagnostic { range, message }
+        }
     }
 }
-
-*/
 

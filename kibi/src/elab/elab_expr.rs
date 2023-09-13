@@ -7,7 +7,7 @@ use crate::tt::{self, *};
 use super::*;
 
 
-impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
+impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
     pub fn elab_expr(&mut self, expr: ExprId) -> Option<(Term<'a>, Term<'a>)> {
         self.elab_expr_ex(expr, None)
     }
@@ -21,8 +21,8 @@ impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
                 let ty       = self.instantiate_term_vars(ty);
                 let expected = self.reduce_ex(expected, false);
                 let ty       = self.reduce_ex(ty, false);
-                self.error(expr, |alloc| {
-                    let mut pp = TermPP::new(self.env, &self.strings, alloc);
+                self.error(expr, {
+                    let mut pp = TermPP::new(self.env, &self.strings, self.alloc_out);
                     let expected = pp.pp_term(expected);
                     let found    = pp.pp_term(ty);
                     ElabError::TypeMismatch { expected, found }
@@ -47,8 +47,8 @@ impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
             return Some((ty_var, l));
         }
 
-        self.error(expr, |alloc| {
-            let mut pp = TermPP::new(self.env, &self.strings, alloc);
+        self.error(expr, {
+            let mut pp = TermPP::new(self.env, &self.strings, self.alloc_out);
             let found = pp.pp_term(ty);
             ElabError::TypeExpected { found }
         });
@@ -103,9 +103,9 @@ impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
                 let symbol = match it.symbol {
                     IdentOrPath::Ident(name) => {
                         if self.lookup_local(name).is_some() {
-                            self.error(expr_id, |alloc|
+                            self.error(expr_id,
                                 ElabError::SymbolShadowedByLocal(
-                                    alloc.alloc_str(&self.strings[name])));
+                                    self.alloc_out.alloc_str(&self.strings[name])));
                         }
 
                         self.lookup_symbol_ident(expr_id.into(), name)?
@@ -247,7 +247,7 @@ impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
                     result_ty = pi.val.instantiate(arg, self.alloc);
                 }
                 if args.next().is_some() {
-                    self.error(expr_id, |_| { ElabError::TooManyArgs });
+                    self.error(expr_id, ElabError::TooManyArgs);
                     return None;
                 }
 

@@ -1,6 +1,7 @@
 use sti::arena::Arena;
 use sti::vec::Vec;
 use sti::keyed::KVec;
+use sti::string::String;
 
 use crate::string_table::{StringTable, Atom};
 use crate::diagnostics::*;
@@ -10,13 +11,21 @@ use crate::env::*;
 use crate::traits::Traits;
 
 
-pub struct Elab<'me, 'out, 'a> {
+pub struct Elab<'a> {
+    pub diagnostics: Diagnostics<'a>
+}
+
+
+pub struct Elaborator<'me, 'c, 'out, 'a> {
     pub alloc: &'a Arena,
-    pub strings: &'me mut StringTable<'a>,
+    pub strings: &'me mut StringTable<'c>,
     pub env: &'me mut Env<'a>,
     pub traits: &'me mut Traits,
 
     pub parse: &'me Parse<'me>,
+
+    pub alloc_out: &'out Arena,
+    pub elab: &'me mut Elab<'out>,
 
     root_symbol: SymbolId,
 
@@ -27,8 +36,6 @@ pub struct Elab<'me, 'out, 'a> {
     locals: Vec<(Atom, ScopeId)>,
 
     ivars: ivars::IVarCtx<'a>,
-
-    foo: &'out (),
 }
 
 
@@ -47,40 +54,36 @@ mod elab_binders;
 mod elab_elim;
 mod elab_def;
 mod elab_inductive;
+mod elab_item;
 mod impls;
 
 
 
-impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
-    pub fn new(env: &'me mut Env<'a>, traits: &'me mut Traits, parse: &'me Parse<'me>, root_symbol: SymbolId, strings: &'me mut StringTable<'a>, alloc: &'a Arena) -> Self {
+impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
+    pub fn new(elab: &'me mut Elab<'out>, env: &'me mut Env<'a>, traits: &'me mut Traits, parse: &'me Parse<'me>, root_symbol: SymbolId, strings: &'me mut StringTable<'c>, alloc_out: &'out Arena, alloc: &'a Arena) -> Self {
         Self {
             alloc,
             strings,
             env,
             traits,
             parse,
+            alloc_out,
+            elab,
             root_symbol,
             lctx: LocalCtx::new(alloc),
             locals: Vec::new(),
             level_params: Vec::new(),
             ivars: ivars::IVarCtx::new(),
-            foo: &(),
         }
     }
 
-    fn error<S, F>(&self, source: S, f: F)
-    where S: Into<DiagnosticSource>, F: FnOnce(&'out Arena) -> ElabError<'out> {
-        let _ = (source, f);
-        unimplemented!()
-        /*
-        self.errors.with(|errors| {
-            errors.report(Diagnostic {
-                parse: self.parse.id,
+    #[inline]
+    fn error(&mut self, source: impl Into<DiagnosticSource>, error: ElabError<'out>) {
+        self.elab.diagnostics.push(
+            Diagnostic {
                 source: source.into(),
-                kind: DiagnosticKind::ElabError(f(errors.alloc)),
+                kind: DiagnosticKind::ElabError(error),
             });
-        });
-        */
     }
 
     pub fn reset(&mut self) {
@@ -137,7 +140,7 @@ struct SavePoint {
     ivar_ctx: ivars::SavePoint,
 }
 
-impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
+impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
     fn save(&self) -> SavePoint {
         SavePoint {
             local_ctx: self.lctx.save(),

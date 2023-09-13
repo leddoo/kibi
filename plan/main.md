@@ -14,18 +14,13 @@
 
 
 - todo:
-    - run elab.
-        - `Elab -> Elaborator`.
-        - `Elab ~ Parse` with diagnostics.
-        - `elab_item`.
-        - 1 parse, 1 elab per source for now, cause we don't support multiple atm anyway.
-        - reduce diagnostic.
     - don't print.
         - errors -> diagnostics.
         - otherwise `eprint!`.
     - some syntax sugar for fun & profit (arrow, eq, add).
     - lsp stuff:
         - hover info.
+            - reduce.
         - go to definition.
         - document highlights.
         - completions.

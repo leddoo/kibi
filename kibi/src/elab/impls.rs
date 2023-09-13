@@ -5,7 +5,7 @@ use crate::tt::*;
 use super::*;
 
 
-impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
+impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
     #[must_use]
     pub fn resolve_impl(&mut self, trayt: SymbolId, ivar: Term<'a>) -> bool {
         let temp = ArenaPool::tls_get_rec();

@@ -83,7 +83,7 @@ impl<'a> IVarCtx<'a> {
 }
 
 
-impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
+impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
     pub fn new_level_var_id(&mut self) -> LevelVarId {
         self.ivars.level_vars.push(LevelVar {
             value: None,
@@ -132,14 +132,14 @@ impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
 
 impl LevelVarId {
     #[inline(always)]
-    pub fn value<'a>(self, elab: &Elab<'_, '_, 'a>) -> Option<Level<'a>> {
+    pub fn value<'a>(self, elab: &Elaborator<'_, '_, '_, 'a>) -> Option<Level<'a>> {
         elab.ivars.level_vars[self].value
     }
 
 
     #[track_caller]
     #[inline]
-    pub unsafe fn assign_core<'a>(self, value: Level<'a>, elab: &mut Elab<'_, '_, 'a>) {
+    pub unsafe fn assign_core<'a>(self, value: Level<'a>, elab: &mut Elaborator<'_, '_, '_, 'a>) {
         debug_assert!(self.value(elab).is_none());
         let var = &mut elab.ivars.level_vars[self];
         var.value = Some(value);
@@ -149,7 +149,7 @@ impl LevelVarId {
 
     #[track_caller]
     #[must_use]
-    pub fn assign<'a>(self, value: Level<'a>, elab: &mut Elab<'_, '_, 'a>) -> bool {
+    pub fn assign<'a>(self, value: Level<'a>, elab: &mut Elaborator<'_, '_, '_, 'a>) -> bool {
         let value = elab.instantiate_level_vars(value);
 
         // occurs check.
@@ -165,24 +165,24 @@ impl LevelVarId {
 
 impl TermVarId {
     #[inline(always)]
-    pub fn scope(self, elab: &Elab) -> OptScopeId {
+    pub fn scope(self, elab: &Elaborator) -> OptScopeId {
         elab.ivars.term_vars[self].scope
     }
 
     #[inline(always)]
-    pub fn ty<'a>(self, elab: &Elab<'_, '_, 'a>) -> Term<'a> {
+    pub fn ty<'a>(self, elab: &Elaborator<'_, '_, '_, 'a>) -> Term<'a> {
         elab.ivars.term_vars[self].ty
     }
 
     #[inline(always)]
-    pub fn value<'a>(self, elab: &Elab<'_, '_, 'a>) -> Option<Term<'a>> {
+    pub fn value<'a>(self, elab: &Elaborator<'_, '_, '_, 'a>) -> Option<Term<'a>> {
         elab.ivars.term_vars[self].value
     }
 
 
     #[track_caller]
     #[inline]
-    pub unsafe fn assign_core<'a>(self, value: Term<'a>, elab: &mut Elab<'_, '_, 'a>) {
+    pub unsafe fn assign_core<'a>(self, value: Term<'a>, elab: &mut Elaborator<'_, '_, '_, 'a>) {
         debug_assert!(self.value(elab).is_none());
         debug_assert!(value.closed());
         debug_assert!(elab.lctx.all_locals_in_scope(value, self.scope(elab)));
@@ -195,7 +195,7 @@ impl TermVarId {
 
     // process `var(args) := value`
     #[must_use]
-    pub fn assign<'a>(self, args: &[ScopeId], mut value: Term<'a>, elab: &mut Elab<'_, '_, 'a>) -> Option<bool> {
+    pub fn assign<'a>(self, args: &[ScopeId], mut value: Term<'a>, elab: &mut Elaborator<'_, '_, '_, 'a>) -> Option<bool> {
         //println!("{:?}({:?}) := {:?}", var, args, value);
 
         // abstract out `args`.
@@ -232,7 +232,7 @@ impl TermVarId {
 }
 
 
-impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
+impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
     pub fn term_var_in_scope(&self, var: TermVarId, scope: OptScopeId) -> bool {
         self.lctx.scope_is_prefix(var.scope(self), scope)
     }

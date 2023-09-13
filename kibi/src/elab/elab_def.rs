@@ -6,8 +6,11 @@ use crate::tt::*;
 use super::*;
 
 
-impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
-    pub fn elab_axiom(&mut self, axiom: &item::Axiom<'a>) -> Option<SymbolId> {
+impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
+    pub fn elab_axiom(&mut self, axiom: &item::Axiom) -> Option<SymbolId> {
+        spall::trace_scope!("kibi/elab/axiom"; "{}",
+            axiom.name.display(self.strings));
+
         assert_eq!(self.locals.len(), 0);
         assert_eq!(self.level_params.len(), 0);
 
@@ -74,7 +77,7 @@ impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
         Some(symbol)
     }
 
-    pub fn elab_def_core(&mut self, levels: &[Atom], params: &[ast::Binder<'a>], ty: OptExprId, value: ExprId) -> Option<(Term<'a>, Term<'a>)> {
+    pub fn elab_def_core(&mut self, levels: &[Atom], params: &[ast::Binder], ty: OptExprId, value: ExprId) -> Option<(Term<'a>, Term<'a>)> {
         assert_eq!(self.locals.len(), 0);
         assert_eq!(self.level_params.len(), 0);
 
@@ -142,7 +145,10 @@ impl<'me, 'out, 'a> Elab<'me, 'out, 'a> {
         Some((ty, val))
     }
 
-    pub fn elab_def(&mut self, def: &item::Def<'a>) -> Option<SymbolId> {
+    pub fn elab_def(&mut self, def: &item::Def) -> Option<SymbolId> {
+        spall::trace_scope!("kibi/elab/def"; "{}",
+            def.name.display(self.strings));
+
         let (ty, val) = self.elab_def_core(def.levels, def.params, def.ty, def.value)?;
 
         let (parent, name) = match &def.name {

@@ -1,4 +1,6 @@
+use sti::alloc::Alloc;
 use sti::arena::Arena;
+use sti::string::String;
 
 
 // impl of "A prettier printer" by Philip Wadler
@@ -85,22 +87,22 @@ impl<'a> RDoc<'a> {
         return buffer;
     }
 
-    pub fn layout_into_string(&self, buffer: &mut String) {
+    pub fn layout_into_string<A: Alloc>(&self, buffer: &mut String<A>) {
         let mut at = self;
         loop {
             match at.kind {
                 RDocKind::Nil => return,
 
                 RDocKind::Text(string, rest) => {
-                    buffer.push_str(string);
+                    buffer.push(string);
                     at = rest;
                 }
 
                 RDocKind::Line(indent, rest) => {
-                    buffer.push('\n');
+                    buffer.push_char('\n');
                     buffer.reserve(indent as usize);
                     for _ in 0..indent {
-                        buffer.push(' ');
+                        buffer.push_char(' ');
                     }
                     at = rest;
                 }

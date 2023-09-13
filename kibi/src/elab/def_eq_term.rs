@@ -5,7 +5,7 @@ use crate::tt::*;
 use super::*;
 
 
-impl<'me, 'err, 'a> Elab<'me, 'err, 'a> {
+impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
     pub fn is_def_eq(&mut self, a: Term<'a>, b: Term<'a>) -> bool {
         let save = self.save();
 

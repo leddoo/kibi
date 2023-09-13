@@ -272,7 +272,7 @@ pub struct Item<'a> {
 
 #[derive(Debug)]
 pub enum ItemKind<'a> {
-    Uninit,
+    Error,
     Axiom(item::Axiom<'a>),
     Def(item::Def<'a>),
     Reduce(ExprId),
@@ -372,7 +372,6 @@ pub struct Expr<'a> {
 
 #[derive(Clone, Copy, Debug)]
 pub enum ExprKind<'a> {
-    Uninit,
     Error,
 
     Hole,
@@ -596,7 +595,7 @@ pub struct Level {
 
 #[derive(Clone, Copy, Debug)]
 pub enum LevelKind {
-    Uninit,
+    Error,
 
     Hole,
     Ident(Atom),
