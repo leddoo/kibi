@@ -14,7 +14,8 @@
 
 
 - todo:
-    - some syntax sugar for fun & profit (arrow, eq, add).
+    - reducing trait resolution.
+    - simple fix for those massive `Add::R` terms?
     - lsp stuff:
         - hover info.
             - reduce.

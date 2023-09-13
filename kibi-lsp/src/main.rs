@@ -85,6 +85,7 @@ impl Lsp {
             let content_length = content_length.unwrap();
 
             if content_length > content.len() {
+                self.message = msg;
                 return true;
             }
 
