@@ -94,7 +94,7 @@ impl<'a> Level<'a> {
     }
 
     #[inline(always)]
-    pub fn to_nat(&self) -> Option<u32> {
+    pub fn try_nat(&self) -> Option<u32> {
         let (l, offset) = self.to_offset();
         l.is_zero().then_some(offset)
     }
@@ -116,23 +116,59 @@ impl<'a> Level<'a> {
 
     #[inline(always)]
     pub fn max(self, other: Level<'a>, alloc: &'a Arena) -> Level<'a> {
-        // @temp: proper impl.
-        alloc.mkl_max(self, other)
+        let (a, b) = (self, other);
+        let (a_base, a_offset) = a.to_offset();
+        let (b_base, b_offset) = b.to_offset();
+
+        // nat
+        if a_base.is_zero() && b_base.is_zero() {
+            return alloc.mkl_nat(a_offset.max(b_offset));
+        }
+
+        // max(a 0) = a
+        if b.is_zero()  { return a; }
+
+        // max(0 b) = b
+        if a.is_zero() { return b; }
+
+        // max(a a) = a
+        if a.syntax_eq(b) { return a; }
+
+        // max(a max(a b)) = max(a b)
+        if let Some(max) = b.try_max() {
+            if a.syntax_eq(max.lhs) || a.syntax_eq(max.rhs) {
+                return b;
+            }
+        }
+
+        // max(max(a b) a) = max(a b)
+        if let Some(max) = a.try_max() {
+            if b.syntax_eq(max.lhs) || b.syntax_eq(max.rhs) {
+                return a;
+            }
+        }
+
+        // max((succ^i a) (succ^j a)) = succ^max(i j) a
+        if a_base.syntax_eq(b_base) {
+            return if a_offset >= b_offset { a } else { b };
+        }
+
+        alloc.mkl_max(a, b)
     }
 
     #[inline(always)]
     pub fn imax(self, other: Level<'a>, alloc: &'a Arena) -> Level<'a> {
         let (a, b) = (self, other);
 
+        // imax(a (succ b)) = max(a (succ b))
+        // note: this handles the numeric cases.
+        if b.non_zero() { return a.max(b, alloc); }
+
         // imax(a 0) = 0
         if b.is_zero() { return b; /*aka zero*/ }
 
         // imax(0 b) = b
         if a.is_zero() { return b; }
-
-        // imax(a (succ b)) = max(a (succ b))
-        // note: this handles the numeric cases.
-        if b.non_zero() { return alloc.mkl_max(a, b); }
 
         // imax(a a) = a
         if a.syntax_eq(b) { return a; }

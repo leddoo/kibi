@@ -16,7 +16,7 @@ fn main() {
     c.add_source("hello.kb");
     c.update();
 
-    println!("{:#?}", c.query_semantic_tokens("hello.kb"));
+    //println!("{:#?}", c.query_semantic_tokens("hello.kb"));
     println!("{:#?}", c.query_diagnostics(&*sti::arena_pool::ArenaPool::tls_get_temp()));
 }
 

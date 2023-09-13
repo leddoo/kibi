@@ -215,7 +215,7 @@ impl<'me, 'temp, 'c, 'out, 'a> Check<'me, 'temp, 'c, 'out, 'a> {
                     };
 
                     if !ind_level.is_zero() {
-                        if let (Some(arg_level), Some(ind_level)) = (arg_level.to_nat(), ind_level.to_nat()) {
+                        if let (Some(arg_level), Some(ind_level)) = (arg_level.try_nat(), ind_level.try_nat()) {
                             if arg_level > ind_level {
                                 println!("error: arg level too large");
                                 return None;

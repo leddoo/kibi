@@ -21,10 +21,10 @@
     - lsp stuff:
         - hover info.
             - reduce.
+            - symbol, type.
         - go to definition.
         - document highlights.
         - completions.
-    - proper semantic tokens.
     - error resilient parsing.
         - parser skips comment tokens (add) & error tokens.
         - unterminated `/-` is error token and does not consume input until eof.
@@ -35,6 +35,7 @@
     - error resilient elab.
         - error to sorry.
         - type unknown for env -> treat as silent error in uses.
+    - proper semantic tokens.
     - incremental parse.
         - each item is a `Parse`.
         - if token range dirty, re-parse, otherwise, keep old result.

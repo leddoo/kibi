@@ -77,7 +77,7 @@ impl<'me, 'a> TermPP<'me, 'a> {
                 if l.is_zero() {
                     self.pp.text("Prop")
                 }
-                else if let Some(1) = l.to_nat() {
+                else if let Some(1) = l.try_nat() {
                     self.pp.text("Type")
                 }
                 else {
