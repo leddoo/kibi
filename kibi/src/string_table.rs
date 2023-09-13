@@ -42,6 +42,7 @@ impl<'a> StringTable<'a> {
             (atoms::n, "n"), (atoms::ih, "ih"), (atoms::mp, "mp"),
             (atoms::T, "T"), (atoms::a, "a"), (atoms::b, "b"),
             (atoms::m_refl, "m_refl"), (atoms::axiom, "axiom"), (atoms::r, "r"),
+            (atoms::Add, "Add"), (atoms::add, "add"),
         ];
 
         for (atom, string) in init.iter().copied() {
@@ -104,6 +105,8 @@ pub mod atoms {
     pub const m_refl:   Atom = Atom(20);
     pub const axiom:    Atom = Atom(21);
     pub const r:        Atom = Atom(22);
+    pub const Add:      Atom = Atom(23);
+    pub const add:      Atom = Atom(24);
 }
 
 

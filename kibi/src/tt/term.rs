@@ -137,13 +137,13 @@ impl<'a> Term<'a> {
 
 
     #[inline(always)]
-    pub fn is_nat(self) -> bool { if let Some(g) = self.try_global() { g.id == SymbolId::NAT } else { false } }
+    pub fn is_nat(self) -> bool { if let Some(g) = self.try_global() { g.id == SymbolId::Nat } else { false } }
 
     #[inline(always)]
-    pub fn is_nat_zero(self) -> bool { if let Some(g) = self.try_global() { g.id == SymbolId::NAT_ZERO } else { false } }
+    pub fn is_nat_zero(self) -> bool { if let Some(g) = self.try_global() { g.id == SymbolId::Nat_zero } else { false } }
 
     #[inline(always)]
-    pub fn is_nat_succ(self) -> bool { if let Some(g) = self.try_global() { g.id == SymbolId::NAT_SUCC } else { false } }
+    pub fn is_nat_succ(self) -> bool { if let Some(g) = self.try_global() { g.id == SymbolId::Nat_succ } else { false } }
 
 
     #[inline(always)]
@@ -490,9 +490,11 @@ mod impel {
         pub const SORT_0: Term<'static> = Term(&Data { data: TermData::Sort(Level::L0), max_succ_bvar: 0, max_succ_local: 0 });
         pub const SORT_1: Term<'static> = Term(&Data { data: TermData::Sort(Level::L1), max_succ_bvar: 0, max_succ_local: 0 });
 
-        pub const NAT:      Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::NAT,      levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
-        pub const NAT_ZERO: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::NAT_ZERO, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
-        pub const NAT_SUCC: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::NAT_SUCC, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const NAT:      Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Nat,      levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const NAT_ZERO: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Nat_zero, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const NAT_SUCC: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Nat_succ, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
+
+        pub const ADD_ADD: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Add_add, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
 
 
         #[inline(always)]

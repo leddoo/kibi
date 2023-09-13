@@ -12,12 +12,13 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
 
         let goal = self.infer_type(ivar).unwrap();
         let goal = self.instantiate_term_vars(goal);
+
+        //eprintln!("impl resolution for {}", self.pp(goal, 80));
+
         if goal.has_ivars() {
             eprintln!("error: impl resolution doesn't support ivars rn, sorry");
             return false;
         }
-
-        //println!("impl resolution for {}", self.pp(goal, 80));
 
         // local impls.
         let mut scope = self.lctx.current;

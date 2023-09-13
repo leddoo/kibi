@@ -30,13 +30,28 @@ inductive Subtype.{t} <T: Sort(t)> (P: T -> Prop): Sort(max(1, t)) {
 }
 
 
+trait inductive Add (A B: Type): Sort(2) {
+    mk (R: Type) (add: A -> B -> R)
+}
+
+def Add::R <A B: Type> (self: Add(A, B)): Type :=
+    Add::rec(lam R add => R, self)
+
+def Add::add <A B: Type, self: Add(A, B)>: A -> B -> Add::R(self) :=
+    Add::rec(lam R add => add, self)
+
+
+
 def Nat::add (a b: Nat): Nat :=
     Nat::rec(a, lam _ r => Nat::succ(r), b)
 
-reduce Nat::add(1, 2)
+impl: Add(Nat, Nat) :=
+    Add::mk(Nat, Nat::add)
+
+reduce 1 + 2
 
 
-def quick_maffs: Nat::add(2, 2) = 4 := Eq::refl()
+def quick_maffs: 2 + 2 = 4 := Eq::refl()
 
 
 axiom ax_sorry.{l} (T: Sort(l)): T
@@ -80,18 +95,18 @@ def Nat::succ_inj <a b: Nat>
     := lam h => Nat::no_confusion(h, lam eq => eq)
 
 
-def Nat::add_zero (n: Nat): Nat::add(n, 0) = n :=
+def Nat::add_zero (n: Nat): n + 0 = n :=
     Eq::refl()
 
-def Nat::zero_add (n: Nat): Nat::add(0, n) = n :=
+def Nat::zero_add (n: Nat): 0 + n = n :=
     Nat::rec(Eq::refl(), lam n ih => congr_arg(_, ih), n)
 
 -- a.succ + b = (a + b).succ
 def Nat::succ_add (a b: Nat)
-    : Nat::add(Nat::succ(a), b) = Nat::succ(Nat::add(a, b))
+    : Nat::succ(a) + b = Nat::succ(a + b)
     := Nat::rec(Eq::refl(), lam b ih => congr_arg(_, ih), b)
 
-def Nat::add_comm (a b: Nat): Nat::add(a, b) = Nat::add(b, a) :=
+def Nat::add_comm (a b: Nat): a + b = b + a :=
     Nat::rec(
         Eq::symm(Nat::zero_add(a)),
         lam b ih =>
@@ -99,21 +114,25 @@ def Nat::add_comm (a b: Nat): Nat::add(a, b) = Nat::add(b, a) :=
                 Eq::symm(Nat::succ_add(b, a))),
         b)
 
-def Nat::add_assoc (a b c: Nat)
-    : Nat::add(Nat::add(a, b), c) = Nat::add(a, Nat::add(b, c))
+
+-- @temp: reducing trait resolution.
+impl: Add(Add::R(Add::mk(Nat, Nat::add)), Nat) :=
+    Add::mk(Nat, Nat::add)
+impl: Add(Nat, Add::R(Add::mk(Nat, Nat::add))) :=
+    Add::mk(Nat, Nat::add)
+
+def Nat::add_assoc (a b c: Nat): (a + b) + c = a + (b + c)
     := Nat::rec(Eq::refl(), lam c ih => congr_arg(Nat::succ, ih), c)
 
 
-def Nat::add_left_comm (a b k: Nat)
-    : Nat::add(a, Nat::add(b, k)) = Nat::add(b, Nat::add(a, k))
+def Nat::add_left_comm (a b k: Nat): a + (b + k) = b + (a + k)
     := Eq::rec(Eq::rec(Eq::rec(
         Eq::refl(),
         Eq::symm(Nat::add_assoc(b, a, k))),
         Nat::add_comm(b, a)),
         Nat::add_assoc(a, b, k))
 
-def Nat::add_right_comm (a b k: Nat)
-    : Nat::add(Nat::add(k, a), b) = Nat::add(Nat::add(k, b), a)
+def Nat::add_right_comm (a b k: Nat): (k + a) + b = (k + b) + a
     := Eq::rec(Eq::rec(Eq::rec(
         Eq::refl(),
         Nat::add_assoc(k, b, a)),
@@ -121,17 +140,15 @@ def Nat::add_right_comm (a b k: Nat)
         Eq::symm(Nat::add_assoc(k, a, b)))
 
 
-def Nat::add_left_cancel (a b k: Nat)
-    : Nat::add(k, a) = Nat::add(k, b) -> a = b
+def Nat::add_left_cancel (a b k: Nat): k + a = k + b -> a = b
     := ax_sorry(_)
 
-def Nat::add_right_cancel (a b k: Nat)
-    : Nat::add(a, k) = Nat::add(b, k) -> a = b
+def Nat::add_right_cancel (a b k: Nat): a + k = b + k -> a = b
     := ax_sorry(_)
 
 
 
-def Nat::Le (a b: Nat) := Exists(Nat, lam k => Eq(Nat::add(k, a), b))
+def Nat::Le (a b: Nat) := Exists(Nat, lam k => Eq(k + a, b))
 
 def Nat::zero_le (n: Nat): Nat::Le(0, n) := Exists::mk(n, Eq::refl())
 
@@ -204,29 +221,10 @@ def elim_under_applied_2: Pi(n: Nat) -> Nat::add(0, n) = n :=
     Nat::rec(Eq::refl(), lam n ih => congr_arg(_, ih))
 
 
-trait inductive Add (A B: Type): Sort(2) {
-    mk (R: Type) (add: A -> B -> R)
-}
-
-def Add::R <A B: Type> (self: Add(A, B)): Type :=
-    Add::rec(lam R add => R, self)
-
-def Add::add <A B: Type> (self: Add(A, B)): A -> B -> Add::R(self) :=
-    Add::rec(lam R add => add, self)
+def double<A: Type, add_impl: Add(A, A)>(a: A): Add::R(add_impl) := a + a
 
 
-def add<A B: Type, self: Add(A, B)>(a: A, b: B): Add::R(self) :=
-    Add::add(self)(a, b)
-
-
-def double<A: Type, add_impl: Add(A, A)>(a: A): Add::R(add_impl) :=
-    add(a, a)
-
-
-impl: Add(Nat, Nat) := Add::mk(Nat, Nat::add)
-
-def do_some_doubling(a: Nat): Nat :=
-    double(a)
+def do_some_doubling(a: Nat): Nat := double(a)
 
 reduce do_some_doubling(3)
 
@@ -247,21 +245,21 @@ impl<A1 A2 B1 B2: Type, add_a: Add(A1, A2), add_b: Add(B1, B2)>:
     := Add::mk(
         Pair(Add::R(add_a), Add::R(add_b)),
         lam p1 p2 => Pair::mk(
-            add(Pair::fst(p1), Pair::fst(p2)),
-            add(Pair::snd(p1), Pair::snd(p2))))
+            Pair::fst(p1) + Pair::fst(p2),
+            Pair::snd(p1) + Pair::snd(p2)))
 
 impl<A B C: Type, add_a: Add(A, C), add_b: Add(B, C)>:
     Add(Pair(A, B), C)
     := Add::mk(
         Pair(Add::R(add_a), Add::R(add_b)),
         lam p c => Pair::mk(
-            add(Pair::fst(p), c),
-            add(Pair::snd(p), c)))
+            Pair::fst(p) + c,
+            Pair::snd(p) + c))
 
 
-reduce add(33, 36)
-reduce add(Pair::mk(1, 2), 3)
-reduce add(Pair::mk(3, 3), Pair::mk(3, 6))
+reduce 33 + 36
+reduce Pair::mk(1, 2) + 3
+reduce Pair::mk(3, 3) + Pair::mk(3, 6)
 
 reduce double(7)
 reduce double(Pair::mk(1, 2))

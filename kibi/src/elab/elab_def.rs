@@ -152,6 +152,8 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         spall::trace_scope!("kibi/elab/def"; "{}",
             def.name.display(self.strings));
 
+        //eprintln!("!!! {}", def.name.display(self.strings));
+
         let (ty, val) = self.elab_def_core(item_id, def.levels, def.params, def.ty, def.value)?;
 
         let (parent, name) = match &def.name {

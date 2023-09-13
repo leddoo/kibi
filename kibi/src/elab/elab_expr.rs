@@ -76,6 +76,8 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
     }
 
     fn elab_expr_core(&mut self, expr_id: ExprId, expected_ty: Option<Term<'a>>) -> Option<(Term<'a>, Term<'a>)> {
+        //if let Some(ex) = expected_ty { eprintln!("expect: {}", self.pp(ex, 1000000)); }
+
         let expr = self.parse.exprs[expr_id];
         Some(match expr.kind {
             ExprKind::Hole => {
@@ -188,9 +190,13 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
 
             ExprKind::Eq(a, b) => {
                 let eq = self.alloc.mkt_global(
-                    SymbolId::EQ,
+                    SymbolId::Eq,
                     &self.alloc.alloc_new([self.new_level_var()])[..]);
                 self.elab_app(expr_id, ExprOrTerm::Term(eq), &[a, b], expected_ty)?
+            }
+
+            ExprKind::Op2(expr::Op2 { op: expr::Op2Kind::Add, lhs, rhs }) => {
+                self.elab_app(expr_id, ExprOrTerm::Term(Term::ADD_ADD), &[lhs, rhs], expected_ty)?
             }
 
             _ => {

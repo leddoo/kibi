@@ -34,14 +34,18 @@ pub enum SymbolKind<'a> {
 }
 
 
+#[allow(non_upper_case_globals)]
 impl SymbolId {
     pub const ROOT: SymbolId = SymbolId(0);
 
-    pub const NAT: SymbolId = SymbolId(1);
-    pub const NAT_ZERO: SymbolId = SymbolId(2);
-    pub const NAT_SUCC: SymbolId = SymbolId(3);
+    pub const Nat: SymbolId = SymbolId(1);
+    pub const Nat_zero: SymbolId = SymbolId(2);
+    pub const Nat_succ: SymbolId = SymbolId(3);
 
-    pub const EQ: SymbolId = SymbolId(4);
+    pub const Eq: SymbolId = SymbolId(4);
+
+    pub const Add: SymbolId = SymbolId(5);
+    pub const Add_add: SymbolId = SymbolId(6);
 }
 
 
@@ -93,25 +97,25 @@ impl<'a> Env<'a> {
             children: HashMap::new(),
         });
         symbols[SymbolId::ROOT].children.insert(atoms::Nat, nat);
-        assert_eq!(nat, SymbolId::NAT);
+        assert_eq!(nat, SymbolId::Nat);
 
         let nat_zero = symbols.push(Symbol {
-            parent: SymbolId::NAT,
+            parent: SymbolId::Nat,
             kind: SymbolKind::Predeclared,
             name: atoms::zero,
             children: HashMap::new(),
         });
-        symbols[SymbolId::NAT].children.insert(atoms::zero, nat_zero);
-        assert_eq!(nat_zero, SymbolId::NAT_ZERO);
+        symbols[SymbolId::Nat].children.insert(atoms::zero, nat_zero);
+        assert_eq!(nat_zero, SymbolId::Nat_zero);
 
         let nat_succ = symbols.push(Symbol {
-            parent: SymbolId::NAT,
+            parent: SymbolId::Nat,
             kind: SymbolKind::Predeclared,
             name: atoms::succ,
             children: HashMap::new(),
         });
-        symbols[SymbolId::NAT].children.insert(atoms::succ, nat_succ);
-        assert_eq!(nat_succ, SymbolId::NAT_SUCC);
+        symbols[SymbolId::Nat].children.insert(atoms::succ, nat_succ);
+        assert_eq!(nat_succ, SymbolId::Nat_succ);
 
 
         let eq = symbols.push(Symbol {
@@ -121,7 +125,26 @@ impl<'a> Env<'a> {
             children: HashMap::new(),
         });
         symbols[SymbolId::ROOT].children.insert(atoms::Eq, eq);
-        assert_eq!(eq, SymbolId::EQ);
+        assert_eq!(eq, SymbolId::Eq);
+
+
+        let add = symbols.push(Symbol {
+            parent: SymbolId::ROOT,
+            kind: SymbolKind::Predeclared,
+            name: atoms::Add,
+            children: HashMap::new(),
+        });
+        symbols[SymbolId::ROOT].children.insert(atoms::Add, add);
+        assert_eq!(add, SymbolId::Add);
+
+        let add_add = symbols.push(Symbol {
+            parent: SymbolId::Add,
+            kind: SymbolKind::Predeclared,
+            name: atoms::add,
+            children: HashMap::new(),
+        });
+        symbols[SymbolId::Add].children.insert(atoms::add, add_add);
+        assert_eq!(add_add, SymbolId::Add_add);
 
 
         return Env { symbols };
