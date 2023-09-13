@@ -21,11 +21,11 @@ inductive Array (T: Type) : Pi(n: Nat) -> Type {
 }
 
 
-inductive Exists.{t} (T: Sort(t), P: Pi(_: T) -> Prop): Prop {
+inductive Exists.{t} (T: Sort(t), P: T -> Prop): Prop {
     mk (value: T, h: P(value))
 }
 
-inductive Subtype.{t} <T: Sort(t)> (P: Pi(_: T) -> Prop): Sort(max(1, t)) {
+inductive Subtype.{t} <T: Sort(t)> (P: T -> Prop): Sort(max(1, t)) {
     mk (value: T, h: P(value))
 }
 
@@ -42,17 +42,17 @@ def quick_maffs: Eq(Nat::add(2, 2), 4) := Eq::refl()
 axiom ax_sorry.{l} (T: Sort(l)): T
 
 
-def Not (P: Prop): Prop := Pi(_: P) -> False
+def Not (P: Prop): Prop := P -> False
 
 
-def Eq::symm.{t} <T: Sort(t), a b: T>: Pi(_: Eq(a, b)) -> Eq(b, a) :=
+def Eq::symm.{t} <T: Sort(t), a b: T>: Eq(a, b) -> Eq(b, a) :=
     lam heq => Eq::rec(Eq::refl(), heq)
 
-def Eq::trans.{t} <T: Sort(t), a b c: T>: Pi(_: Eq(a, b), _: Eq(b, c)) -> Eq(a, c) :=
+def Eq::trans.{t} <T: Sort(t), a b c: T>: Eq(a, b) -> Eq(b, c) -> Eq(a, c) :=
     lam hab hbc => Eq::rec(Eq::rec(Eq::refl(), hab), hbc)
 
 
-def congr_arg.{a, b} <A: Sort(a), B: Sort(b), a1 a2: A> (f: Pi(_: A) -> B)
+def congr_arg.{a, b} <A: Sort(a), B: Sort(b), a1 a2: A> (f: A -> B)
     : Pi (_: Eq(a1, a2)) -> Eq(f(a1), f(a2))
     := lam heq => Eq::rec(Eq::refl(), heq)
 
@@ -63,11 +63,11 @@ def Nat::cases_on.{r} <M: Sort(r)> (n: Nat) (m_zero: M) (m_succ: Pi(n: Nat) -> M
 
 def Nat::No_Confusion.{p} (P: Sort(p), a b: Nat): Sort(p) :=
     Nat::rec(
-        Nat::rec(Pi(_: P) -> P, lam _ _ => P, a),
-        lam b _ => Nat::rec(P, lam a _ => Pi(_: Pi(_: Eq(a, b)) -> P) -> P, a),
+        Nat::rec(P -> P, lam _ _ => P, a),
+        lam b _ => Nat::rec(P, lam a _ => (Eq(a, b) -> P) -> P, a),
         b)
 
-def Nat::no_confusion.{p} <P: Sort(p), a b: Nat>: Pi(_: Eq(a, b)) -> Nat::No_Confusion(P, a, b) :=
+def Nat::no_confusion.{p} <P: Sort(p), a b: Nat>: Eq(a, b) -> Nat::No_Confusion(P, a, b) :=
     lam h => Eq::rec(Nat::rec(lam p => p, lam _ _ => lam p => p(Eq::refl()), a), h)
 
 
@@ -76,7 +76,7 @@ def Nat::zero_ne_succ <n: Nat>: Not(Eq(0, Nat::succ(n))) :=
 
 
 def Nat::succ_inj <a b: Nat>
-    : Pi(_: Eq(Nat::succ(a), Nat::succ(b))) -> Eq(a, b)
+    : Eq(Nat::succ(a), Nat::succ(b)) -> Eq(a, b)
     := lam h => Nat::no_confusion(h, lam eq => eq)
 
 
@@ -122,11 +122,11 @@ def Nat::add_right_comm (a b k: Nat)
 
 
 def Nat::add_left_cancel (a b k: Nat)
-    : Pi(_: Eq(Nat::add(k, a), Nat::add(k, b))) -> Eq(a, b)
+    : Eq(Nat::add(k, a), Nat::add(k, b)) -> Eq(a, b)
     := ax_sorry(_)
 
 def Nat::add_right_cancel (a b k: Nat)
-    : Pi(_: Eq(Nat::add(a, k), Nat::add(b, k))) -> Eq(a, b)
+    : Eq(Nat::add(a, k), Nat::add(b, k)) -> Eq(a, b)
     := ax_sorry(_)
 
 
@@ -144,7 +144,7 @@ def Nat::not_lt_zero (n: Nat): Not(Nat::Lt(n, 0)) :=
             Nat::zero_ne_succ(Eq::symm(heq)),
         hlt)
 
-def Nat::lt_of_succ_lt_succ <a b: Nat>: Pi(_: Nat::Lt(Nat::succ(a), Nat::succ(b))) -> Nat::Lt(a, b) :=
+def Nat::lt_of_succ_lt_succ <a b: Nat>: Nat::Lt(Nat::succ(a), Nat::succ(b)) -> Nat::Lt(a, b) :=
     Exists::rec(
         lam k (h: Eq(Nat::add(k, Nat::succ(Nat::succ(a))), Nat::succ(b))) =>
             Exists::mk(k, Nat::succ_inj(h)))
@@ -205,13 +205,13 @@ def elim_under_applied_2: Pi(n: Nat) -> Eq(Nat::add(0, n), n) :=
 
 
 trait inductive Add (A B: Type): Sort(2) {
-    mk (R: Type) (add: Pi(_: A, _: B) -> R)
+    mk (R: Type) (add: A -> B -> R)
 }
 
 def Add::R <A B: Type> (self: Add(A, B)): Type :=
     Add::rec(lam R add => R, self)
 
-def Add::add <A B: Type> (self: Add(A, B)): Pi(_: A, _: B) -> Add::R(self) :=
+def Add::add <A B: Type> (self: Add(A, B)): A -> B -> Add::R(self) :=
     Add::rec(lam R add => add, self)
 
 

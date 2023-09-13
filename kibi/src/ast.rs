@@ -50,7 +50,7 @@ pub type BinderList<'a> = &'a [Binder<'a>];
 #[derive(Clone, Copy, Debug)]
 pub struct TypedBinder<'a> {
     pub implicit: bool,
-    pub names:   &'a[OptAtom],
+    pub names:   &'a [OptAtom],
     pub ty:      ExprId,
     pub default: OptExprId,
 }

@@ -523,6 +523,35 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                 }
             }
 
+            // arrow function.
+            // @speed: merge multiple arrows.
+            if at.kind == TokenKind::Arrow && PREC_ARROW >= prec {
+                self.consume(1);
+
+                let (this_expr, this_parent) = self.new_expr_uninit(parent);
+                self.parse.exprs[result].parent = this_parent;
+
+                let lhs = result;
+                let rhs = self.parse_expr_ex(this_parent, PREC_ARROW)?;
+
+                let kind = ExprKind::Forall(expr::Forall {
+                    binders: &self.alloc.alloc_new([
+                        Binder::Typed(TypedBinder {
+                            implicit: false,
+                            names: &self.alloc.alloc_new([None.into()])[..],
+                            ty: lhs,
+                            default: None.into(),
+                        }),
+                    ])[..],
+                    ret: rhs,
+                });
+
+                self.expr_init_from(this_expr, token_begin, kind);
+
+                result = this_expr;
+                continue;
+            }
+
             // postfix operators.
             if PREC_POSTFIX < prec {
                 break;
@@ -1294,4 +1323,6 @@ impl InfixOp {
         }
     }
 }
+
+pub const PREC_ARROW: u32 = 50;
 
