@@ -8,9 +8,9 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         match &item.kind {
             ItemKind::Error => None,
 
-            ItemKind::Axiom(it) => self.elab_axiom(it).map(|_| ()),
+            ItemKind::Axiom(it) => self.elab_axiom(item_id, it).map(|_| ()),
 
-            ItemKind::Def(it) => self.elab_def(it).map(|_| ()),
+            ItemKind::Def(it) => self.elab_def(item_id, it).map(|_| ()),
 
             ItemKind::Reduce(it) => {
                 spall::trace_scope!("kibi/elab/reduce");
@@ -59,7 +59,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
             ItemKind::Impl(it) => {
                 spall::trace_scope!("kibi/elab/impl");
 
-                let (ty, val) = self.elab_def_core(
+                let (ty, val) = self.elab_def_core(item_id,
                     it.levels, it.params, it.ty.some(), it.value)?;
 
                 let trayt = ty.forall_ret().0.app_fun().0;

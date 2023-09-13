@@ -7,7 +7,7 @@ use super::*;
 
 
 impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
-    pub fn elab_axiom(&mut self, axiom: &item::Axiom) -> Option<SymbolId> {
+    pub fn elab_axiom(&mut self, item_id: ItemId, axiom: &item::Axiom) -> Option<SymbolId> {
         spall::trace_scope!("kibi/elab/axiom"; "{}",
             axiom.name.display(self.strings));
 
@@ -63,8 +63,10 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
             let ty  = self.instantiate_term_vars(ty);
             let ty  = pp.pp_term(ty);
             eprintln!("{}", pp.render(ty,  50).layout_string());
-            return None;
+            //return None;
         }
+
+        let _ = self.check_no_unassigned_variables(item_id.into())?;
 
         let symbol = self.env.new_symbol(parent, name,
             SymbolKind::Def(symbol::Def {
@@ -77,7 +79,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         Some(symbol)
     }
 
-    pub fn elab_def_core(&mut self, levels: &[Atom], params: &[ast::Binder], ty: OptExprId, value: ExprId) -> Option<(Term<'a>, Term<'a>)> {
+    pub fn elab_def_core(&mut self, item_id: ItemId, levels: &[Atom], params: &[ast::Binder], ty: OptExprId, value: ExprId) -> Option<(Term<'a>, Term<'a>)> {
         assert_eq!(self.locals.len(), 0);
         assert_eq!(self.level_params.len(), 0);
 
@@ -139,17 +141,18 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
             let val = pp.pp_term(val);
             eprintln!("{}", pp.render(ty,  50).layout_string());
             eprintln!("{}", pp.render(val, 50).layout_string());
-            return None;
         }
+
+        let _ = self.check_no_unassigned_variables(item_id.into())?;
 
         Some((ty, val))
     }
 
-    pub fn elab_def(&mut self, def: &item::Def) -> Option<SymbolId> {
+    pub fn elab_def(&mut self, item_id: ItemId, def: &item::Def) -> Option<SymbolId> {
         spall::trace_scope!("kibi/elab/def"; "{}",
             def.name.display(self.strings));
 
-        let (ty, val) = self.elab_def_core(def.levels, def.params, def.ty, def.value)?;
+        let (ty, val) = self.elab_def_core(item_id, def.levels, def.params, def.ty, def.value)?;
 
         let (parent, name) = match &def.name {
             IdentOrPath::Ident(name) => (self.root_symbol, *name),
