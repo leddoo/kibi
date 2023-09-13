@@ -37,9 +37,9 @@ impl Lsp {
         let vfs = Rc::new(MemFs::new());
         let compiler = Compiler::new(&vfs);
         Self {
-            stdin: File::create("target/lsp.stdin").unwrap(),
-            stdout: File::create("target/lsp.stdout").unwrap(),
-            log: File::create("target/lsp.log").unwrap(),
+            stdin: File::create(&format!("target/lsp-{}.stdin", std::process::id())).unwrap(),
+            stdout: File::create(&format!("target/lsp-{}.stdout", std::process::id())).unwrap(),
+            log: File::create(&format!("target/lsp-{}.log", std::process::id())).unwrap(),
             message: Vec::new(),
             initialized: false,
             next_request_id: 1,
@@ -229,17 +229,20 @@ impl Lsp {
 
                 let tokens = self.compiler.query_semantic_tokens(path);
 
-                let mut encoded = Vec::with_cap(5*tokens.len());
-                for token in tokens.copy_it() {
-                    encoded.push(json::Value::Number(token.delta_line as f64));
-                    encoded.push(json::Value::Number(token.delta_col as f64));
-                    encoded.push(json::Value::Number(token.len as f64));
-                    encoded.push(json::Value::Number((token.class as u32) as f64));
-                    encoded.push(json::Value::Number(0.0));
+                let mut encoded = String::with_cap(5*5*tokens.len());
+                use core::fmt::Write;
+
+                sti::write!(&mut encoded, "[");
+                for (i, token) in tokens.copy_it().enumerate() {
+                    if i != 0 { sti::write!(&mut encoded, ",") }
+                    sti::write!(&mut encoded, "{},{},{},{},{}",
+                        token.delta_line, token.delta_col, token.len,
+                        token.class as u32, 0);
                 }
+                sti::write!(&mut encoded, "]");
 
                 self.send_response(id, Ok(json::Value::Object(&[
-                    ("data", json::Value::Array(&encoded)),
+                    ("data", json::Value::Encoded(&encoded)),
                 ])));
 
                 return true;
@@ -444,7 +447,7 @@ fn time() -> std::time::Duration {
 fn main() {
     use std::io::Read;
 
-    kibi::spall::init(&format!("target/trace-lsp-{}.spall", std::process::id())).unwrap();
+    kibi::spall::init(&format!("target/lsp-{}.spall", std::process::id())).unwrap();
 
 
     let mut lsp = Lsp::new();

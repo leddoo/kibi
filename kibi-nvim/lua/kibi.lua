@@ -20,7 +20,7 @@ vim.cmd([[
 ]])
 
 
-vim.lsp.set_log_level("debug")
+--vim.lsp.set_log_level("debug")
 
 
 local lspconfig = require 'lspconfig'

@@ -18,6 +18,7 @@
         - `Elab -> Elaborator`.
         - `Elab ~ Parse` with diagnostics.
         - `elab_item`.
+        - 1 parse, 1 elab per source for now, cause we don't support multiple atm anyway.
         - reduce diagnostic.
     - don't print.
         - errors -> diagnostics.
@@ -49,6 +50,7 @@
         - should be able to keep refs into env,
           cause need to rerun if anything used from env changed.
 
+    - query semantic tokens: option to split multi-line tokens.
     - maybe always store elab on elab error -> can use term refs.
     - `validate_string`: `>= 0x20`. do we need simd?
     - `vfs::mem`, `vfs::std`.
