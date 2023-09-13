@@ -14,9 +14,6 @@
 
 
 - todo:
-    - don't print.
-        - errors -> diagnostics.
-        - otherwise `eprint!`.
     - some syntax sugar for fun & profit (arrow, eq, add).
     - lsp stuff:
         - hover info.
@@ -62,6 +59,7 @@
         - termination checking.
         - find references.
         - "highlight everything that can allocate."
+    - better error sources + tests.
 
     - cleanup.
         - `SymbolKind::Axiom`.

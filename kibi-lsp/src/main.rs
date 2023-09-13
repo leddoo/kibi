@@ -284,6 +284,8 @@ impl Lsp {
 
                 self.compiler.add_source(path);
 
+                self.send_diagnostics();
+
                 return true;
             }
 

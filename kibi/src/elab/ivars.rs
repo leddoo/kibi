@@ -209,18 +209,18 @@ impl TermVarId {
 
         if args.len() > 0 {
             // type correct check.
-            println!("@todo: check lambda type correct");
+            eprintln!("@todo: check lambda type correct");
         }
 
         // type check.
         let var_ty = self.ty(elab);
         let value_ty = elab.infer_type(value).unwrap();
         if !elab.ensure_def_eq(var_ty, value_ty) {
-            println!("type check failed");
+            eprintln!("type check failed");
             let var_ty   = elab.instantiate_term_vars(var_ty);
             let value_ty = elab.instantiate_term_vars(value_ty);
-            println!("{}", elab.pp(var_ty,   80));
-            println!("{}", elab.pp(value_ty, 80));
+            eprintln!("{}", elab.pp(var_ty,   80));
+            eprintln!("{}", elab.pp(value_ty, 80));
             return Some(false);
         }
 
@@ -250,7 +250,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
                 // scope check.
                 let scope = var.scope(self);
                 if !self.lctx.local_in_scope(id, scope) {
-                    println!("scope check failed (for local)");
+                    eprintln!("scope check failed (for local)");
                     return None;
                 }
 
@@ -265,7 +265,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
 
                 // occurs check.
                 if other == var {
-                    println!("occurs check failed");
+                    eprintln!("occurs check failed");
                     return None;
                 }
 

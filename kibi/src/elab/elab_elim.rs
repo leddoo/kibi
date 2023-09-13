@@ -10,6 +10,7 @@ use super::*;
 
 impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
     pub fn try_elab_as_elim(&mut self,
+        app_expr: ExprId,
         func: Term<'a>,
         func_ty: Term<'a>,
         args: &[ExprId],
@@ -46,7 +47,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         let mut param_idx = 0;
         while let Some(pi) = result_ty.try_forall() {
             if 0==1 {
-                println!("param {:?} {:?} {:?}",
+                eprintln!("param {:?} {:?} {:?}",
                     &self.strings[pi.name],
                     pi.kind,
                     pi.ty);
@@ -116,7 +117,8 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         let result_ty = result_ty;
 
         let Some(motive) = motive else {
-            println!("no motive");
+            // todo: uh, can this happen?
+            eprintln!("no motive");
             return (Some(None),);
         };
 
@@ -147,7 +149,8 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
 
             for rem in rem_locals.iter().copied() {
                 let Some(pi) = expected_ty.try_forall() else {
-                    println!("error: tbd");
+                    // @todo: better source, what went wrong here?
+                    self.error(app_expr, ElabError::TempTBD);
                     return (Some(None),);
                 };
 
@@ -197,28 +200,29 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
 
         if 0==1 {
             let val = self.instantiate_term_vars(motive_val);
-            println!("motive: {}", self.pp(val, 80));
+            eprintln!("motive: {}", self.pp(val, 80));
         }
 
         // assign.
         if !self.ensure_def_eq(motive, motive_val) {
             let motive     = self.instantiate_term_vars(motive);
             let motive_val = self.instantiate_term_vars(motive_val);
-            println!("motive failed");
-            println!("motive:     {}", self.pp(motive,     80));
-            println!("motive_val: {}", self.pp(motive_val, 80));
+            eprintln!("motive failed");
+            eprintln!("motive:     {}", self.pp(motive,     80));
+            eprintln!("motive_val: {}", self.pp(motive_val, 80));
             return (Some(None),);
         }
 
         // elab remaining args.
-        for (arg, var, expected_ty) in postponed.iter().copied() {
+        for (arg_expr, var, expected_ty) in postponed.iter().copied() {
             let expected_ty = self.instantiate_term_vars(expected_ty);
-            let Some((arg, _)) = self.elab_expr_checking_type(arg, Some(expected_ty)) else {
+            let Some((arg, _)) = self.elab_expr_checking_type(arg_expr, Some(expected_ty)) else {
                 return (Some(None),);
             };
 
             if !self.ensure_def_eq(var, arg) {
-                println!("arg failed");
+                // @todo: context.
+                self.error(arg_expr, ElabError::TempArgFailed);
                 return (Some(None),);
             }
         }

@@ -78,7 +78,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
     }
 
     #[inline]
-    fn error(&mut self, source: impl Into<DiagnosticSource>, error: ElabError<'out>) {
+    pub fn error(&mut self, source: impl Into<DiagnosticSource>, error: ElabError<'out>) {
         self.elab.diagnostics.push(
             Diagnostic {
                 source: source.into(),
@@ -96,17 +96,17 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
     // @mega@temp below this line.
 
     // @temp: `Compiler` rework.
-    pub fn check_no_unassigned_variables(&self) -> Option<()> {
+    pub fn check_no_unassigned_variables(&mut self, source: DiagnosticSource) -> Option<()> {
         for var in self.ivars.level_vars.range() {
             if var.value(self).is_none() {
-                println!("{:?} unassigned", var);
+                self.error(source, ElabError::UnassignedIvars);
                 return None;
             }
         }
 
         for var in self.ivars.term_vars.range() {
             if var.value(self).is_none() {
-                println!("{:?} unassigned", var);
+                self.error(source, ElabError::UnassignedIvars);
                 return None;
             }
         }

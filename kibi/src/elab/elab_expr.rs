@@ -64,7 +64,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
             let n = self.ivars.assignment_gen;
             let inferred = self.infer_type(res).unwrap();
             if !self.ensure_def_eq(ty, inferred) {
-                println!("---\nbug: elab_expr_core returned term\n{}\nwith type\n{}\nbut has type\n{}\n---",
+                eprintln!("---\nbug: elab_expr_core returned term\n{}\nwith type\n{}\nbut has type\n{}\n---",
                     self.pp(res, 80),
                     self.pp(ty, 80),
                     self.pp(inferred, 80));
@@ -181,7 +181,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
                 let (func, func_ty) = self.elab_expr(it.func)?;
 
                 if let Some(expected_ty) = expected_ty {
-                    if let Some(result) = self.try_elab_as_elim(func, func_ty, it.args, expected_ty).0 {
+                    if let Some(result) = self.try_elab_as_elim(expr_id, func, func_ty, it.args, expected_ty).0 {
                         return result;
                     }
                 }
@@ -253,7 +253,8 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
 
                 for (trayt, ivar) in impl_args.iter().copied() {
                     if !self.resolve_impl(trayt, ivar) {
-                        println!("error: no matching impl found");
+                        // @todo: better source, context.
+                        self.error(expr_id, ElabError::TraitResolutionFailed { trayt });
                         return None;
                     }
                 }
@@ -268,7 +269,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
             }
 
             _ => {
-                println!("unimp expr kind {:?}", expr);
+                eprintln!("unimp expr kind {:?}", expr);
                 return None
             }
         })

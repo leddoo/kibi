@@ -1,6 +1,7 @@
 use sti::vec::Vec;
 
 use crate::ast::{ParseRange, TokenId, TokenRange, ItemId, LevelId, ExprId, SourceRange};
+use crate::env::SymbolId;
 use crate::parser::Parse;
 use crate::pp::DocRef;
 
@@ -49,6 +50,21 @@ pub enum ElabError<'a> {
     TypeMismatch { expected: DocRef<'a>, found: DocRef<'a> },
     TypeExpected { found: DocRef<'a> },
     TooManyArgs,
+    UnassignedIvars,
+    TypeFormerHasIvars,
+    CtorTypeHasIvars,
+    CtorNeedsTypeCauseIndices,
+    CtorArgLevelTooLarge,
+    CtorInvalidRecursion,
+    CtorRecArgUsed,
+    CtorNotRetSelf,
+    TraitResolutionFailed { trayt: SymbolId },
+    ImplTypeIsNotTrait,
+
+    // @temp
+    TempTBD,
+    TempArgFailed,
+    TempCtorArgLevelCouldBeTooLarge,
 }
 
 

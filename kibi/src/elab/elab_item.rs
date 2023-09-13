@@ -36,13 +36,8 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
                 spall::trace_scope!("kibi/elab/inductive"; "{}",
                     &self.strings[it.name]);
 
-                let _ = self.elab_inductive(it)?;
+                let _ = self.elab_inductive(item_id, it)?;
 
-                /*
-                if printing {
-                    println!("inductive {}", &self.elab.strings[ind.name]);
-                }
-                */
                 Some(())
             }
 
@@ -52,15 +47,10 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
                         spall::trace_scope!("kibi/elab/trait-ind",
                             &self.strings[ind.name]);
 
-                        let symbol = self.elab_inductive(&ind)?;
+                        let symbol = self.elab_inductive(item_id, &ind)?;
 
                         self.traits.new_trait(symbol);
 
-                        /*
-                        if printing {
-                            println!("trait inductive {}", &self.elab.strings[ind.name]);
-                        }
-                        */
                         Some(())
                     }
                 }
@@ -73,8 +63,11 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
                     it.levels, it.params, it.ty.some(), it.value)?;
 
                 let trayt = ty.forall_ret().0.app_fun().0;
+                let mut is_trait = false;
                 if let Some(g) = trayt.try_global() {
                     if self.traits.is_trait(g.id) {
+                        is_trait = true;
+
                         let impls = self.traits.impls(g.id);
                         // @speed: arena.
                         let name = self.strings.insert(&format!("impl_{}", impls.len()));
@@ -85,23 +78,15 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
                         })).unwrap();
                         self.traits.add_impl(g.id, symbol);
                     }
-                    else {
-                        println!("error: must impl a trait");
-                        return None;
-                    }
                 }
-                else {
-                    println!("error: must impl a trait");
+                if !is_trait {
+                    // @todo: better source, type.
+                    self.error(item_id, ElabError::ImplTypeIsNotTrait);
                     return None;
                 }
 
-                /*
-                if printing {
-                    println!("impl");
-                }
-                */
-
-                let _ = self.check_no_unassigned_variables()?;
+                // @todo: better source.
+                let _ = self.check_no_unassigned_variables(item_id.into())?;
 
                 Some(())
             }

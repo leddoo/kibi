@@ -13,7 +13,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         let goal = self.infer_type(ivar).unwrap();
         let goal = self.instantiate_term_vars(goal);
         if goal.has_ivars() {
-            println!("error: impl resolution doesn't support ivars rn, sorry");
+            eprintln!("error: impl resolution doesn't support ivars rn, sorry");
             return false;
         }
 
@@ -28,7 +28,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
             if entry.ty.syntax_eq(goal) {
                 let val = self.alloc.mkt_local(local);
                 if !self.ensure_def_eq(ivar, val) {
-                    println!("error: something went wrong");
+                    eprintln!("error: something went wrong");
                     return false;
                 }
                 return true;
@@ -70,7 +70,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
                 //println!("simple case");
                 if def.ty.syntax_eq(goal) {
                     if matched.is_some() {
-                        println!("error: multiple matching impls");
+                        eprintln!("error: multiple matching impls");
                         return false;
                     }
 
@@ -107,7 +107,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
                     }
                     if success {
                         if matched.is_some() {
-                            println!("error: multiple matching impls");
+                            eprintln!("error: multiple matching impls");
                             return false;
                         }
 
@@ -131,7 +131,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         };
 
         if !self.ensure_def_eq(ivar, matched) {
-            println!("error: something went wrong");
+            eprintln!("error: something went wrong");
             return false;
         }
 

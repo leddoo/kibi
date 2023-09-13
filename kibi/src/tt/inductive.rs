@@ -4,6 +4,8 @@ use sti::traits::{CopyIt, FromIn};
 use sti::vec::Vec;
 
 use crate::string_table::Atom;
+use crate::ast::ItemId;
+use crate::diagnostics::ElabError;
 use crate::env::{SymbolKind, symbol::{IndAxiomKind, IndAxiom}};
 use crate::elab::Elaborator;
 
@@ -18,6 +20,8 @@ pub struct MutualSpec<'me, 'a> {
     pub levels: &'me [Atom],
     pub params: &'me [ScopeId],
     pub types: &'me [TypeSpec<'me, 'a>],
+    // @todo: better sources.
+    pub temp_source: ItemId,
 }
 
 pub struct TypeSpec<'me, 'a> {
@@ -210,21 +214,19 @@ impl<'me, 'temp, 'c, 'out, 'a> Check<'me, 'temp, 'c, 'out, 'a> {
                 while let Some(pi) = this.elab.whnf_forall(ty) {
                     // check level.
                     let Some(arg_level) = this.elab.infer_type_as_sort(pi.ty) else {
-                        println!("this shouldn't have happened...");
+                        eprintln!("this shouldn't have happened...");
                         return None;
                     };
 
                     if !ind_level.is_zero() {
                         if let (Some(arg_level), Some(ind_level)) = (arg_level.try_nat(), ind_level.try_nat()) {
                             if arg_level > ind_level {
-                                println!("error: arg level too large");
+                                this.elab.error(this.spec.temp_source, ElabError::CtorArgLevelTooLarge);
                                 return None;
                             }
                         }
                         else {
-                            println!("warn: need to validate {} <= {}",
-                                this.elab.pp_level(arg_level, 80),
-                                this.elab.pp_level(ind_level, 80));
+                            this.elab.error(this.spec.temp_source, ElabError::TempCtorArgLevelCouldBeTooLarge);
                         }
                     }
 
@@ -235,7 +237,7 @@ impl<'me, 'temp, 'c, 'out, 'a> Check<'me, 'temp, 'c, 'out, 'a> {
                         while let Some(pi) = this.elab.whnf_forall(ret) {
                             // check positivity.
                             if this.has_ind_occ(pi.ty) {
-                                println!("invalid recursion");
+                                this.elab.error(this.spec.temp_source, ElabError::CtorInvalidRecursion);
                                 return None;
                             }
                             ret = pi.val;
@@ -258,7 +260,7 @@ impl<'me, 'temp, 'c, 'out, 'a> Check<'me, 'temp, 'c, 'out, 'a> {
                         // ensure rec arg not used.
                         ty = pi.val;
                         if !ty.closed() {
-                            println!("error: recursive argument used");
+                            this.elab.error(this.spec.temp_source, ElabError::CtorRecArgUsed);
                             return None;
                         }
                     }
@@ -272,7 +274,7 @@ impl<'me, 'temp, 'c, 'out, 'a> Check<'me, 'temp, 'c, 'out, 'a> {
 
                 // check indices.
                 let Some((_, indices)) = this.is_valid_inductive_app(ty, Some((spec_idx, spec.local)))? else {
-                    println!("error: ctor ret must be the inductive type");
+                    this.elab.error(this.spec.temp_source, ElabError::CtorNotRetSelf);
                     return None;
                 };
 
@@ -645,7 +647,7 @@ impl<'me, 'temp, 'c, 'out, 'a> Check<'me, 'temp, 'c, 'out, 'a> {
         }).is_some()
     }
 
-    fn is_valid_inductive_app(&self, app: Term<'a>, ind: Option<(usize, ScopeId)>)
+    fn is_valid_inductive_app(&mut self, app: Term<'a>, ind: Option<(usize, ScopeId)>)
         -> Option<Option<(usize, &'me [Term<'a>])>>
     {
         // find app target.
@@ -654,7 +656,7 @@ impl<'me, 'temp, 'c, 'out, 'a> Check<'me, 'temp, 'c, 'out, 'a> {
         while let Some(app) = target.try_apply() {
             // check no recursion in arguments.
             if self.has_ind_occ(app.arg) {
-                println!("error: invalid recursion");
+                self.elab.error(self.spec.temp_source, ElabError::CtorInvalidRecursion);
                 return None;
             }
 

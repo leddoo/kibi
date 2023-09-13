@@ -1,14 +1,14 @@
 use sti::arena_pool::ArenaPool;
 use sti::traits::{FromIn, CopyIt};
 
-use crate::ast::adt::Inductive;
+use crate::ast::{ItemId, adt::Inductive};
 use crate::tt::*;
 
 use super::*;
 
 
 impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
-    pub fn elab_inductive(&mut self, ind: &Inductive) -> Option<SymbolId> {
+    pub fn elab_inductive(&mut self, item_id: ItemId, ind: &Inductive) -> Option<SymbolId> {
         assert_eq!(self.locals.len(), 0);
         assert_eq!(self.level_params.len(), 0);
 
@@ -35,7 +35,8 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
 
         // check type former has no ivars.
         if type_former.has_ivars() {
-            println!("error: type has ivars");
+            // @todo: better source, context.
+            self.error(item_id, ElabError::TypeFormerHasIvars);
             return None;
         }
 
@@ -43,7 +44,8 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         for (param, ty, _) in params.iter().copied() {
             let ty = self.instantiate_term_vars(ty);
             if ty.has_ivars() {
-                println!("error: type has ivars");
+                // @todo: better source, context.
+                self.error(item_id, ElabError::TypeFormerHasIvars);
                 return None;
             }
             self.lctx.lookup_mut(param).ty = ty;
@@ -67,7 +69,8 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
                 Some(ty) => self.elab_expr_as_type(ty)?.0,
                 None => {
                     if has_indices {
-                        println!("error: ctor needs type cause indices mkay");
+                        // @todo: better source.
+                        self.error(item_id, ElabError::CtorNeedsTypeCauseIndices);
                         return None;
                     }
                     ind_local
@@ -84,7 +87,8 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
             let ty = self.instantiate_term_vars(ty);
 
             if ty.has_ivars() {
-                println!("error: ctor type has ivars");
+                // @todo: better source.
+                self.error(item_id, ElabError::CtorTypeHasIvars);
                 return None;
             }
 
@@ -99,6 +103,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
 
         // check spec.
         let spec = inductive::MutualSpec {
+            temp_source: item_id,
             levels: ind.levels,
             params: &param_ids,
             types: &[

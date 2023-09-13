@@ -50,7 +50,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         if !ty.closed() || ty.has_locals() {
             let mut pp = TermPP::new(self.env, &self.strings, self.alloc);
             let ty  = pp.pp_term(self.instantiate_term_vars(ty));
-            println!("{}", pp.render(ty,  50).layout_string());
+            eprintln!("{}", pp.render(ty,  50).layout_string());
         }
 
         assert!(ty.closed());
@@ -58,11 +58,11 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         assert!(!ty.has_locals());
 
         if ty.has_ivars() {
-            println!("unresolved inference variables");
+            eprintln!("unresolved inference variables");
             let mut pp = TermPP::new(self.env, &self.strings, self.alloc);
             let ty  = self.instantiate_term_vars(ty);
             let ty  = pp.pp_term(ty);
-            println!("{}", pp.render(ty,  50).layout_string());
+            eprintln!("{}", pp.render(ty,  50).layout_string());
             return None;
         }
 
@@ -120,8 +120,8 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
             let mut pp = TermPP::new(self.env, &self.strings, self.alloc);
             let ty  = pp.pp_term(self.instantiate_term_vars(ty));
             let val = pp.pp_term(self.instantiate_term_vars(val));
-            println!("{}", pp.render(ty,  50).layout_string());
-            println!("{}", pp.render(val, 50).layout_string());
+            eprintln!("{}", pp.render(ty,  50).layout_string());
+            eprintln!("{}", pp.render(val, 50).layout_string());
         }
 
         assert!(ty.closed());
@@ -131,14 +131,14 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         assert!(!val.has_locals());
 
         if ty.has_ivars() || val.has_ivars() {
-            println!("unresolved inference variables");
+            eprintln!("unresolved inference variables");
             let mut pp = TermPP::new(self.env, &self.strings, self.alloc);
             let ty  = self.instantiate_term_vars(ty);
             let val = self.instantiate_term_vars(val);
             let ty  = pp.pp_term(ty);
             let val = pp.pp_term(val);
-            println!("{}", pp.render(ty,  50).layout_string());
-            println!("{}", pp.render(val, 50).layout_string());
+            eprintln!("{}", pp.render(ty,  50).layout_string());
+            eprintln!("{}", pp.render(val, 50).layout_string());
             return None;
         }
 

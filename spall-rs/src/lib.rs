@@ -301,7 +301,7 @@ impl ThreadCtx {
         if remaining < this.half_len {
             // wait until writer is ready.
             while !this.writer_ptr.load(Ordering::SeqCst).is_null() {
-                println!("waiting for writer");
+                eprintln!("waiting for writer");
                 std::thread::yield_now();
             }
 
@@ -337,7 +337,7 @@ impl ThreadCtx {
         if remaining < size {
             // writer still busy?
             if !this.writer_ptr.load(Ordering::SeqCst).is_null() {
-                println!("!!write dropped!!");
+                eprintln!("!!write dropped!!");
                 CTX.dropped.store(true, Ordering::Relaxed);
                 return None;
             }
