@@ -115,12 +115,6 @@ def Nat::add_comm (a b: Nat): a + b = b + a :=
         b)
 
 
--- @temp: reducing trait resolution.
-impl: Add(Add::R(Add::mk(Nat, Nat::add)), Nat) :=
-    Add::mk(Nat, Nat::add)
-impl: Add(Nat, Add::R(Add::mk(Nat, Nat::add))) :=
-    Add::mk(Nat, Nat::add)
-
 def Nat::add_assoc (a b c: Nat): (a + b) + c = a + (b + c)
     := Nat::rec(Eq::refl(), lam c ih => congr_arg(Nat::succ, ih), c)
 

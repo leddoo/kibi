@@ -11,7 +11,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         let temp = ArenaPool::tls_get_rec();
 
         let goal = self.infer_type(ivar).unwrap();
-        let goal = self.instantiate_term_vars(goal);
+        let goal = self.reduce(goal);
 
         //eprintln!("impl resolution for {}", self.pp(goal, 80));
 
