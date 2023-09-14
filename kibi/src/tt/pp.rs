@@ -8,14 +8,16 @@ use super::*;
 
 pub struct TermPP<'me, 'a> {
     pub strings: &'me StringTable<'me>,
+    pub lctx: &'me LocalCtx<'me>,
     pub pp: PP<'a>,
     pub env: &'me Env<'me>,
 }
 
 impl<'me, 'a> TermPP<'me, 'a> {
-    pub fn new(env: &'me Env<'me>, strings: &'me StringTable<'me>, arena: &'a Arena) -> Self {
+    pub fn new(env: &'me Env<'me>, strings: &'me StringTable<'me>, lctx: &'me LocalCtx<'me>, arena: &'a Arena) -> Self {
         Self {
             strings,
+            lctx,
             pp: PP::new(arena),
             env,
         }
@@ -97,7 +99,9 @@ impl<'me, 'a> TermPP<'me, 'a> {
 
             TermData::Local(i) => {
                 // @temp: sti string module.
-                self.pp.text(self.pp.alloc_str(&format!("%{}", i.inner())))
+                let name = self.lctx.lookup(i).name;
+                let name = if name == Atom::NULL { "_" } else { &self.strings[name] };
+                self.pp.text(self.pp.alloc_str(&format!("{}", name)))
             }
 
             TermData::Global(g) => {

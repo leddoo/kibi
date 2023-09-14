@@ -18,12 +18,17 @@ sti::define_key!(pub, u32, ExprId, opt: OptExprId);
 
 
 #[derive(Clone, Copy, Debug)]
-pub enum AstParent {
-    None,
+pub enum AstId {
     Item(ItemId),
     Level(LevelId),
     Expr(ExprId),
 }
+
+pub type AstParent = Option<AstId>;
+
+impl Into<AstId> for ItemId  { #[inline(always)] fn into(self) -> AstId { AstId::Item(self) } }
+impl Into<AstId> for LevelId { #[inline(always)] fn into(self) -> AstId { AstId::Level(self) } }
+impl Into<AstId> for ExprId  { #[inline(always)] fn into(self) -> AstId { AstId::Expr(self) } }
 
 
 #[derive(Clone, Copy, Debug)]

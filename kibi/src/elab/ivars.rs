@@ -43,6 +43,46 @@ impl<'a> IVarCtx<'a> {
         self.term_vars.inner_mut_unck().clear();
         self.assignment_gen = 0;
     }
+
+
+    pub fn instantiate_level_vars<'out>(&self, l: Level<'a>, alloc: &'out Arena) -> Level<'out>
+    where 'a: 'out {
+        l.replace(alloc, |at, alloc| {
+            let var = at.try_ivar()?;
+            let value = self.level_vars[var].value?;
+            return Some(self.instantiate_level_vars(value, alloc));
+        })
+    }
+
+    pub fn instantiate_term_vars<'out>(&self, t: Term<'a>, alloc: &'out Arena) -> Term<'out>
+    where 'a: 'out {
+        t.replace(alloc, |at, _, alloc| {
+            if let Some(app) = at.try_apply() {
+                let was_ivar = app.fun.is_ivar();
+
+                let new_fun = self.instantiate_term_vars(app.fun, alloc);
+                let new_arg = self.instantiate_term_vars(app.arg, alloc);
+
+                if was_ivar {
+                    if let Some(lam) = new_fun.try_lambda() {
+                        return Some(lam.val.instantiate(new_arg, alloc));
+                    }
+                }
+                return Some(app.update(at, alloc, new_fun, new_arg));
+            }
+
+            if let Some(var) = at.try_ivar() {
+                if let Some(value) = self.term_vars[var].value {
+                    return Some(self.instantiate_term_vars(value, alloc));
+                }
+            }
+
+            at.replace_levels_flat(alloc, |l, _| {
+                let new_l = self.instantiate_level_vars(l, alloc);
+                (!new_l.ptr_eq(l)).then_some(new_l)
+            })
+        })
+    }
 }
 
 
@@ -129,6 +169,15 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         let l = self.new_level_var();
         let ty = self.alloc.mkt_sort(l);
         (self.new_term_var_core(ty, self.lctx.current()), l)
+    }
+
+
+    pub fn instantiate_level_vars(&self, l: Level<'out>) -> Level<'out> {
+        self.ivars.instantiate_level_vars(l, self.alloc)
+    }
+
+    pub fn instantiate_term_vars(&self, t: Term<'out>) -> Term<'out> {
+        self.ivars.instantiate_term_vars(t, self.alloc)
     }
 }
 

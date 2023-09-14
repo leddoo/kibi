@@ -1,3 +1,5 @@
+use core::fmt::Write;
+
 use kibi::sti;
 use kibi::spall;
 
@@ -15,7 +17,7 @@ mod json;
 
 
 use std::fs::File;
-use std::io::Write;
+use std::io::Write as IoWrite;
 
 struct Lsp {
     stdin: File,
@@ -97,8 +99,6 @@ impl Lsp {
 
                 let content = json::parse(&*temp, content).unwrap();
                 {
-                    use core::fmt::Write;
-
                     let temp = unsafe { ArenaPool::tls_get_scoped(&[]) };
                     let mut buf = String::new_in(&*temp);
                     write!(&mut buf, "{}", content).unwrap();
@@ -211,6 +211,8 @@ impl Lsp {
                             ("delta", false.into()),
                         ])),
                     ])),
+
+                    ("hoverProvider", true.into()),
                 ])),
             ])));
 
@@ -231,8 +233,6 @@ impl Lsp {
                 let tokens = self.compiler.query_semantic_tokens(path);
 
                 let mut encoded = String::with_cap(5*5*tokens.len());
-                use core::fmt::Write;
-
                 sti::write!(&mut encoded, "[");
                 for (i, token) in tokens.copy_it().enumerate() {
                     if i != 0 { sti::write!(&mut encoded, ",") }
@@ -245,6 +245,36 @@ impl Lsp {
                 self.send_response(id, Ok(json::Value::Object(&[
                     ("data", json::Value::Encoded(&encoded)),
                 ])));
+
+                return true;
+            }
+
+            "textDocument/hover" => {
+                let doc = params["textDocument"];
+                let path = doc["uri"].as_string();
+
+                let pos = params["position"];
+                let line = pos["line"].as_number() as u32;
+                let col  = pos["character"].as_number() as u32;
+
+                let temp = unsafe { ArenaPool::tls_get_scoped(&[]) };
+                let infos = self.compiler.query_hover_info(path, line, col, &*temp);
+
+                let mut encoded = String::with_cap_in(&*temp, 256*infos.len());
+                sti::write!(&mut encoded, "{{\"contents\":[");
+                for (i, info) in infos.iter().enumerate() {
+                    if i != 0 { sti::write!(&mut encoded, ",") }
+                    if let Some(lang) = info.lang {
+                        sti::write!(&mut encoded, "{{\"language\":{lang:?},\"value\":{:?}}}", info.content);
+                    }
+                    else {
+                        sti::write!(&mut encoded, "{:?}", info.content);
+                    }
+                }
+                sti::write!(&mut encoded, "]}}");
+
+
+                self.send_response(id, Ok(json::Value::Encoded(&encoded)));
 
                 return true;
             }
@@ -353,8 +383,6 @@ impl Lsp {
         let files = self.compiler.query_diagnostics(&*temp);
 
         for file in files.iter() {
-            use core::fmt::Write;
-
             let mut result = String::with_cap_in(&*temp, file.diagnostics.len()*64);
 
             sti::write!(&mut result, "{{\"uri\":{:?},\"diagnostics\":[", file.path);
@@ -376,8 +404,6 @@ impl Lsp {
 
 
     fn send_request(&mut self, method: &str, params: json::Value) {
-        use core::fmt::Write;
-
         let id = self.next_request_id;
         self.next_request_id += 1;
         self.active_requests.insert(id, ());
@@ -400,8 +426,6 @@ impl Lsp {
     }
 
     fn send_notification(&mut self, method: &str, params: json::Value) {
-        use core::fmt::Write;
-
         spall::trace_scope!("kibi_lsp/send_notification"; "{}", method);
 
         let temp = unsafe { ArenaPool::tls_get_scoped(&[]) };
@@ -419,8 +443,6 @@ impl Lsp {
     }
 
     fn send_response(&mut self, id: u32, result: Result<json::Value, json::Value>) {
-        use core::fmt::Write;
-
         spall::trace_scope!("kibi_lsp/send_response"; "id: {}", id);
 
         let temp = unsafe { ArenaPool::tls_get_scoped(&[]) };

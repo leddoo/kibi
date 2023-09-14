@@ -1,3 +1,5 @@
+use core::fmt::Write;
+
 use sti::traits::CopyIt;
 use sti::arena::Arena;
 use sti::vec::Vec;
@@ -9,7 +11,7 @@ use sti::hash::HashMap;
 
 use crate::string_table::StringTable;
 use crate::diagnostics::{Diagnostics, Diagnostic};
-use crate::ast::{SourceId, SourceRange, UserSourcePos, UserSourceRange};
+use crate::ast::{SourceId, SourceRange, UserSourcePos, UserSourceRange, TokenId, AstId};
 use crate::parser::{self, Parse};
 use crate::env::Env;
 use crate::traits::Traits;
@@ -43,7 +45,7 @@ sti::define_key!(u32, SourceDataId, opt: OptSourceDataId);
 struct SourceData {
     dirty: bool,
     path: String,
-    data: Vec<u8>,
+    code: Vec<u8>,
     parse: OptParseDataId,
     elab: OptElabDataId,
 }
@@ -116,6 +118,11 @@ impl Compiler {
         spall::trace_scope!("kibi/query_diagnostics");
         self.inner.query_diagnostics(alloc)
     }
+
+    pub fn query_hover_info<'out>(&mut self, path: &str, line: u32, col: u32, alloc: &'out Arena) -> Vec<HoverInfo<'out>> {
+        spall::trace_scope!("kibi/query_hover_info");
+        self.inner.query_hover_info(path, line, col, alloc)
+    }
 }
 
 impl<'c> Inner<'c> {
@@ -124,7 +131,7 @@ impl<'c> Inner<'c> {
             let data_id = self.source_datas.alloc(SourceData {
                 dirty: true,
                 path: path.into(),
-                data: Vec::new(),
+                code: Vec::new(),
                 parse: None.into(),
                 elab: None.into(),
             });
@@ -150,7 +157,7 @@ impl<'c> Inner<'c> {
         }
         // @todo: string free.
         source.path = String::new();
-        source.data.free();
+        source.code.free();
 
         self.source_datas.free(data_id);
         self.dirty = true;
@@ -185,9 +192,9 @@ impl<'c> Inner<'c> {
 
         spall::trace_scope!("kibi/update_source"; "{}", source.path);
 
-        source.data = match self.vfs.read(&source.path) {
+        source.code = match self.vfs.read(&source.path) {
             Ok(data) => {
-                if source.data.len() > u32::MAX as usize {
+                if source.code.len() > u32::MAX as usize {
                     // @todo: error.
                     return;
                 }
@@ -215,7 +222,7 @@ impl<'c> Inner<'c> {
             source: source_id,
             source_range: SourceRange {
                 begin: 0,
-                end: source.data.len() as u32,
+                end: source.code.len() as u32,
             },
             diagnostics: Diagnostics::new(),
             numbers: KVec::new(),
@@ -226,7 +233,7 @@ impl<'c> Inner<'c> {
             exprs:  KVec::new(),
             root_items: Vec::new(),
         };
-        parser::parse_file(&source.data, &mut parse, &mut self.strings, &parse_arena);
+        parser::parse_file(&source.code, &mut parse, &mut self.strings, &parse_arena);
 
 
         let elab_arena = Arena::new();
@@ -285,21 +292,21 @@ impl<'c> Inner<'c> {
     pub fn query_semantic_tokens(&mut self, path: &str) -> Vec<SemanticToken> {
         self.update();
 
-        let Some(id) = self.path_to_source.get(path).copied() else {
+        let Some(source_id) = self.path_to_source.get(path).copied() else {
             // @todo: diagnostic.
             return Vec::new();
         };
 
-        let source = &self.source_datas[self.sources[id].unwrap()];
+        let source = &self.source_datas[self.sources[source_id].unwrap()];
         debug_assert!(!source.dirty);
 
         let parse = &self.parse_datas[source.parse.unwrap()].parse;
         debug_assert_eq!(parse.source_range.begin, 0);
-        debug_assert_eq!(parse.source_range.end,   source.data.len() as u32);
+        debug_assert_eq!(parse.source_range.end,   source.code.len() as u32);
 
 
         // @todo: line table thing.
-        let code = source.data.as_slice();
+        let code = source.code.as_slice();
         let mut next_newline =
             code.copy_it().position(|x| x == b'\n')
             .unwrap_or(code.len());
@@ -456,13 +463,12 @@ impl<'c> Inner<'c> {
 
 
         fn mk_file_diagnostic<'out>(d: &Diagnostic, source: &SourceData, parse: &Parse, alloc: &'out Arena) -> FileDiagnostic<'out> {
-            use core::fmt::Write;
             use crate::diagnostics::*;
 
             let range = d.source.resolve_source_range(parse);
 
             let range = {
-                let code = &source.data;
+                let code = &source.code;
                 // @temp: line table.
                 let mut line = 0;
                 let mut line_begin = 0;
@@ -619,6 +625,260 @@ impl<'c> Inner<'c> {
 
             FileDiagnostic { range, message }
         }
+    }
+}
+
+
+pub struct HoverInfo<'a> {
+    pub lang: Option<&'a str>,
+    pub content: &'a str,
+}
+
+impl<'c> Inner<'c> {
+    pub fn query_hover_info<'out>(&mut self, path: &str, line: u32, col: u32, alloc: &'out Arena) -> Vec<HoverInfo<'out>> {
+        self.update();
+
+        let Some(source_id) = self.path_to_source.get(path).copied() else {
+            // @todo: diagnostic.
+            return Vec::new();
+        };
+
+        let source = &self.source_datas[self.sources[source_id].unwrap()];
+        debug_assert!(!source.dirty);
+
+        let parse = &self.parse_datas[source.parse.unwrap()].parse;
+        debug_assert_eq!(parse.source_range.begin, 0);
+        debug_assert_eq!(parse.source_range.end,   source.code.len() as u32);
+
+        let elab_data = &self.elab_datas[source.elab.unwrap()];
+        let elab = &elab_data.elab;
+
+
+        // convert to offset.
+        // @temp line table.
+        let mut lines_i = 0;
+        let code = &*source.code;
+        let mut lines = core::iter::from_fn(|| {
+            let start = lines_i;
+            while lines_i < code.len() {
+                if code[lines_i] == b'\n' {
+                    lines_i += 1;
+                    return Some(lines_i - start);
+                }
+                lines_i += 1;
+            }
+            None
+        });
+        let mut offset = col;
+        for _ in 0..line {
+            let Some(len) = lines.next() else {
+                // @todo: diagnostic.
+                return Vec::new();
+            };
+            offset += len as u32;
+        }
+
+        // find token.
+        let mut token_id = None.into();
+        let mut is_hit = false;
+        for (id, token) in parse.tokens.iter() {
+            if offset < token.source.end {
+                token_id = id.some();
+                is_hit = offset >= token.source.begin;
+                break;
+            }
+        }
+        let Some(token_id) = token_id.to_option() else {
+            // @todo: diagnostic.
+            return Vec::new();
+        };
+
+        let mut result = Vec::new();
+
+        if is_hit { if let Some(info) = elab.token_infos.get(&token_id) {
+            // @temp: sti format_in.
+            let mut buf = String::new_in(alloc);
+            sti::write!(&mut buf, "todo: {:?}", info);
+            result.push(HoverInfo { lang: None, content: buf.leak() });
+        }}
+
+
+        use crate::ast::{ItemKind, LevelKind, ExprKind, Binder};
+
+        // @cleanup: visit children.
+        fn hit_test_ast(node: AstId, pos: TokenId, parse: &Parse) -> Option<AstId> {
+            match node {
+                AstId::Item(id) => {
+                    let item = &parse.items[id];
+                    if !item.source.contains(pos) { return None }
+
+                    let hit = match &item.kind {
+                        ItemKind::Error => None,
+
+                        ItemKind::Axiom(it) =>
+                            hit_test_binders(it.params, pos, parse).or_else(||
+                            hit_test_ast(it.ty.into(), pos, parse)),
+
+                        ItemKind::Def(it) =>
+                            hit_test_binders(it.params, pos, parse).or_else(||
+                            it.ty.to_option().and_then(|ty|
+                                hit_test_ast(ty.into(), pos, parse))).or_else(||
+                            hit_test_ast(it.value.into(), pos, parse)),
+
+                        ItemKind::Reduce(it) =>
+                            hit_test_ast((*it).into(), pos, parse),
+
+                        ItemKind::Inductive(_) =>
+                            None,
+
+                        ItemKind::Trait(_) =>
+                            None,
+
+                        ItemKind::Impl(_) =>
+                            None,
+                    };
+                    Some(hit.unwrap_or(id.into()))
+                }
+
+                AstId::Level(id) => {
+                    let level = parse.levels[id];
+                    if !level.source.contains(pos) { return None }
+
+                    let hit = match level.kind {
+                        LevelKind::Error => None,
+                        LevelKind::Hole => None,
+                        LevelKind::Ident(_) => None,
+                        LevelKind::Nat(_) => None,
+
+                        LevelKind::Add((lhs, _)) =>
+                            hit_test_ast(lhs.into(), pos, parse),
+
+                        LevelKind::Max((lhs, rhs)) |
+                        LevelKind::IMax((lhs, rhs)) =>
+                            hit_test_ast(lhs.into(), pos, parse).or_else(||
+                            hit_test_ast(rhs.into(), pos, parse)),
+                    };
+                    Some(hit.unwrap_or(id.into()))
+                }
+
+                AstId::Expr(id) => {
+                    let expr = parse.exprs[id];
+                    if !expr.source.contains(pos) { return None }
+
+                    let hit = match expr.kind {
+                        ExprKind::Error => None,
+                        ExprKind::Hole => None,
+                        ExprKind::Ident(_) => None,
+                        ExprKind::DotIdent(_) => None,
+                        ExprKind::Path(_) => None,
+                        ExprKind::Levels(_) => None,
+                        ExprKind::Sort(_) => None,
+                        ExprKind::Bool(_) => None,
+                        ExprKind::Number(_) => None,
+                        ExprKind::String(_) => None,
+                        ExprKind::Parens(it) => hit_test_ast(it.into(), pos, parse),
+
+                        ExprKind::Forall(it) =>
+                            hit_test_binders(it.binders, pos, parse).or_else(||
+                            hit_test_ast(it.ret.into(), pos, parse)),
+
+                        ExprKind::Lambda(it) =>
+                            hit_test_binders(it.binders, pos, parse).or_else(||
+                            hit_test_ast(it.value.into(), pos, parse)),
+
+                        ExprKind::Eq(lhs, rhs) =>
+                            hit_test_ast(lhs.into(), pos, parse).or_else(||
+                            hit_test_ast(rhs.into(), pos, parse)),
+
+                        ExprKind::Call(it) =>
+                            hit_test_ast(it.func.into(), pos, parse).or_else(||
+                            it.args.copy_it().find_map(|arg|
+                                hit_test_ast(arg.into(), pos, parse))),
+
+                        ExprKind::Op2(it) =>
+                            hit_test_ast(it.lhs.into(), pos, parse).or_else(||
+                            hit_test_ast(it.rhs.into(), pos, parse)),
+
+                        _ => {
+                            eprintln!("unimp! {expr:?}");
+                            None
+                        }
+                    };
+                    Some(hit.unwrap_or(id.into()))
+                }
+            }
+        }
+
+        fn hit_test_binders(binders: &[Binder], pos: TokenId, parse: &Parse) -> Option<AstId> {
+            for binder in binders {
+                let hit = match binder {
+                    Binder::Ident(_) => None,
+
+                    Binder::Typed(it) =>
+                        hit_test_ast(it.ty.into(), pos, parse)
+                };
+                if hit.is_some() {
+                    return hit;
+                }
+            }
+            None
+        }
+
+        for item in parse.root_items.copy_it() {
+            let Some(ctx) = &elab.item_ctxs[item] else { continue };
+
+            let Some(hit) = hit_test_ast(item.into(), token_id, parse) else { continue };
+            match hit {
+                AstId::Item(id) => {
+                    if let Some(info) = elab.item_infos[id] {
+                        match info {
+                            elab::ItemInfo::Symbol(_) => (),
+                            elab::ItemInfo::Reduce(value) => {
+                                let mut buf = String::new_in(alloc);
+
+                                let mut pp = crate::tt::TermPP::new(&elab_data.env, &self.strings, &ctx.local_ctx, alloc);
+                                let v = ctx.ivar_ctx.instantiate_term_vars(value, alloc);
+                                let v = pp.pp_term(v);
+                                let v = pp.render(v, 50);
+                                v.layout_into_string(&mut buf);
+
+                                result.push(HoverInfo { lang: Some("kibi"), content: buf.leak() });
+                            }
+                        }
+                    }
+                }
+
+                AstId::Level(_) => (),
+
+                AstId::Expr(id) => {
+                    if let Some(info) = elab.expr_infos[id] {
+                        let mut buf = String::new_in(alloc);
+
+                        let term_begin = buf.len();
+                        let mut pp = crate::tt::TermPP::new(&elab_data.env, &self.strings, &ctx.local_ctx, alloc);
+                        let term = ctx.ivar_ctx.instantiate_term_vars(info.term, alloc);
+                        let term = pp.pp_term(term);
+                        let term = pp.render(term, 50);
+                        term.layout_into_string(&mut buf);
+
+                        if buf.len() - term_begin > 40 {
+                            sti::write!(&mut buf, "\n");
+                        }
+                        sti::write!(&mut buf, ": ");
+
+                        let ty = ctx.ivar_ctx.instantiate_term_vars(info.ty, alloc);
+                        let ty = pp.pp_term(ty);
+                        let ty = pp.render(ty, 50);
+                        ty.layout_into_string(&mut buf);
+
+                        result.push(HoverInfo { lang: Some("kibi"), content: buf.leak() });
+                    }
+                }
+            }
+            break;
+        }
+
+        return result;
     }
 }
 

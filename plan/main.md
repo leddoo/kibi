@@ -15,12 +15,8 @@
 
 
 - todo:
-    - hover info.
-        - impl for:
-            - reduce.
-            - token.
-            - (innermost) expr ty.
-        - `Ident(name, token)` -> lookup does token info.
+    - `Ident(Atom, TokenId)`.
+    - use token info for binder name info.
     - lsp stuff:
         - completions.
         - go to definition.
@@ -46,6 +42,11 @@
         - should be able to keep refs into env,
           cause need to rerun if anything used from env changed.
 
+    - better source info: `Ident(name, token)`.
+    - post analysis elab.
+        - cause that's useful.
+        - and for stuff like type sensitive completions.
+        - kinda tricky w/ current setup, but should be trivial with incr setup.
     - errors use `Term`.
     - query semantic tokens: option to split multi-line tokens.
     - maybe always store elab on elab error -> can use term refs.

@@ -368,7 +368,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
             source: TokenRange::ZERO,
             kind: ItemKind::Error,
         });
-        let this_parent = AstParent::Item(this_item);
+        let this_parent = Some(AstId::Item(this_item));
 
         let kind = match at.kind {
             TokenKind::Ident(atoms::axiom) => {
@@ -849,7 +849,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
             source: TokenRange::ZERO,
             kind: LevelKind::Error,
         });
-        let this_parent = AstParent::Level(this_level);
+        let this_parent = Some(AstId::Level(this_level));
 
         let kind = match at.kind {
             TokenKind::Hole => {
@@ -913,7 +913,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                 kind: LevelKind::Add((result, v))
             });
 
-            self.parse.levels[result].parent = AstParent::Level(this_level);
+            self.parse.levels[result].parent = Some(AstId::Level(this_level));
 
             result = this_level;
         }
@@ -1181,7 +1181,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
             source: TokenRange::ZERO,
             kind: ExprKind::Error,
         });
-        (id, AstParent::Expr(id))
+        (id, Some(AstId::Expr(id)))
     }
 
     #[inline]

@@ -21,7 +21,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 let expected = self.reduce_ex(expected, false);
                 let ty       = self.reduce_ex(ty, false);
                 self.error(expr, {
-                    let mut pp = TermPP::new(self.env, &self.strings, self.alloc);
+                    let mut pp = TermPP::new(self.env, &self.strings, &self.lctx, self.alloc);
                     let expected = pp.pp_term(expected);
                     let found    = pp.pp_term(ty);
                     ElabError::TypeMismatch { expected, found }
@@ -47,7 +47,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         }
 
         self.error(expr, {
-            let mut pp = TermPP::new(self.env, &self.strings, self.alloc);
+            let mut pp = TermPP::new(self.env, &self.strings, &self.lctx, self.alloc);
             let found = pp.pp_term(ty);
             ElabError::TypeExpected { found }
         });
@@ -93,18 +93,11 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 debug_assert_eq!(expr.source.len(), 1);
 
                 if let Some(local) = self.lookup_local(name) {
-                    let none = self.elab.token_infos.insert(expr.source.idx(0), TokenInfo::Local(local));
-                    debug_assert!(none.is_none());
-
                     let ty = self.lctx.lookup(local).ty;
                     (self.alloc.mkt_local(local), ty)
                 }
                 else {
                     let symbol = self.lookup_symbol_ident(expr_id.into(), name)?;
-
-                    let none = self.elab.token_infos.insert(expr.source.idx(0), TokenInfo::Symbol(symbol));
-                    debug_assert!(none.is_none());
-
                     self.elab_symbol(expr_id.into(), symbol, &[])?
                 }
             }

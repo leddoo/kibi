@@ -48,7 +48,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         };
 
         if !ty.closed() || ty.has_locals() {
-            let mut pp = TermPP::new(self.env, &self.strings, self.alloc);
+            let mut pp = TermPP::new(self.env, &self.strings, &self.lctx, self.alloc);
             let ty  = pp.pp_term(self.instantiate_term_vars(ty));
             eprintln!("{}", pp.render(ty,  50).layout_string());
         }
@@ -59,7 +59,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         if ty.has_ivars() {
             eprintln!("unresolved inference variables");
-            let mut pp = TermPP::new(self.env, &self.strings, self.alloc);
+            let mut pp = TermPP::new(self.env, &self.strings, &self.lctx, self.alloc);
             let ty  = self.instantiate_term_vars(ty);
             let ty  = pp.pp_term(ty);
             eprintln!("{}", pp.render(ty,  50).layout_string());
@@ -119,7 +119,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         debug_assert!(val.syntax_eq(self.instantiate_term_vars(val)));
 
         if !ty.closed() || !val.closed() || ty.has_locals() || val.has_locals() {
-            let mut pp = TermPP::new(self.env, &self.strings, self.alloc);
+            let mut pp = TermPP::new(self.env, &self.strings, &self.lctx, self.alloc);
             let ty  = pp.pp_term(self.instantiate_term_vars(ty));
             let val = pp.pp_term(self.instantiate_term_vars(val));
             eprintln!("{}", pp.render(ty,  50).layout_string());
@@ -134,7 +134,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         if ty.has_ivars() || val.has_ivars() {
             eprintln!("unresolved inference variables");
-            let mut pp = TermPP::new(self.env, &self.strings, self.alloc);
+            let mut pp = TermPP::new(self.env, &self.strings, &self.lctx, self.alloc);
             let ty  = self.instantiate_term_vars(ty);
             let val = self.instantiate_term_vars(val);
             let ty  = pp.pp_term(ty);

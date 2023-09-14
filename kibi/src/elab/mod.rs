@@ -23,7 +23,6 @@ pub struct Elab<'a> {
 
 #[derive(Clone, Copy, Debug)]
 pub enum TokenInfo {
-    Local(ScopeId),
     Symbol(SymbolId),
 }
 
@@ -93,7 +92,6 @@ pub struct Elaborator<'me, 'c, 'out> {
 
 mod ivars;
 mod abstracc;
-mod instantiate;
 mod whnf;
 mod infer_type;
 mod def_eq_level;
@@ -172,7 +170,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
     pub fn pp_level(&self, l: crate::tt::Level, width: i32) -> String {
         let temp = sti::arena_pool::ArenaPool::tls_get_temp();
-        let mut pp = crate::tt::TermPP::new(&self.env, &self.strings, &*temp);
+        let mut pp = crate::tt::TermPP::new(&self.env, &self.strings, &self.lctx, &*temp);
         let val = pp.pp_level(l);
         let val = pp.render(val, width);
         let val = val.layout_string();
@@ -181,7 +179,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
     pub fn pp(&self, t: crate::tt::Term, width: i32) -> String {
         let temp = sti::arena_pool::ArenaPool::tls_get_temp();
-        let mut pp = crate::tt::TermPP::new(&self.env, &self.strings, &*temp);
+        let mut pp = crate::tt::TermPP::new(&self.env, &self.strings, &self.lctx, &*temp);
         let val = pp.pp_term(t);
         let val = pp.render(val, width);
         let val = val.layout_string();
