@@ -6,9 +6,9 @@ use crate::env::SymbolKind;
 use super::*;
 
 
-impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
+impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     // supports ptr_eq for change detection.
-    pub fn whnf(&mut self, t: Term<'a>) -> Term<'a> {
+    pub fn whnf(&mut self, t: Term<'out>) -> Term<'out> {
         assert!(t.closed());
 
         let (t, done) = self.whnf_no_unfold(t);
@@ -23,12 +23,12 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         return t;
     }
 
-    pub fn whnf_forall(&mut self, t: Term<'a>) -> Option<term::Binder<'a>> {
+    pub fn whnf_forall(&mut self, t: Term<'out>) -> Option<term::Binder<'out>> {
         if let Some(binder) = t.try_forall() { return Some(binder) }
         self.whnf(t).try_forall()
     }
 
-    pub fn whnf_sort(&mut self, t: Term<'a>) -> Option<Level<'a>> {
+    pub fn whnf_sort(&mut self, t: Term<'out>) -> Option<Level<'out>> {
         if let Some(level) = t.try_sort() { return Some(level) }
         self.whnf(t).try_sort()
     }
@@ -36,7 +36,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
 
     // reductions: local.
     // supports ptr_eq for change detection.
-    pub fn whnf_basic(&self, e: Term<'a>) -> (Term<'a>, bool) {
+    pub fn whnf_basic(&self, e: Term<'out>) -> (Term<'out>, bool) {
         match e.data() {
             TermData::Sort (_) =>
                 (e, true),
@@ -75,7 +75,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
 
     // reductions: eta, let, beta, recursor.
     // supports ptr_eq for change detection.
-    pub fn whnf_no_unfold(&mut self, e: Term<'a>) -> (Term<'a>, bool) {
+    pub fn whnf_no_unfold(&mut self, e: Term<'out>) -> (Term<'out>, bool) {
         let (e, done) = self.whnf_basic(e);
         if done {
             return (e, true);
@@ -150,7 +150,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         return (e, false);
     }
 
-    fn try_reduce_recursor(&mut self, t: Term<'a>, fun: Term<'a>, num_args: usize) -> Option<Term<'a>> {
+    fn try_reduce_recursor(&mut self, t: Term<'out>, fun: Term<'out>, num_args: usize) -> Option<Term<'out>> {
         assert!(t.closed());
 
         // ensure is eliminator.
@@ -236,7 +236,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
     }
 
 
-    pub fn unfold(&self, t: Term<'a>) -> Option<Term<'a>> {
+    pub fn unfold(&self, t: Term<'out>) -> Option<Term<'out>> {
         let (fun, _) = t.app_fun();
 
         let g = fun.try_global()?;
@@ -261,11 +261,11 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
     }
 
 
-    pub fn reduce(&mut self, t: Term<'a>) -> Term<'a> {
+    pub fn reduce(&mut self, t: Term<'out>) -> Term<'out> {
         self.reduce_ex(t, true)
     }
 
-    pub fn reduce_ex(&mut self, t: Term<'a>, unfold: bool) -> Term<'a> {
+    pub fn reduce_ex(&mut self, t: Term<'out>, unfold: bool) -> Term<'out> {
         assert!(t.closed());
 
         let result = if unfold { self.whnf(t) } else { self.whnf_no_unfold(t).0 };

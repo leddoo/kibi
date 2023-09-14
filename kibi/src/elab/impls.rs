@@ -5,9 +5,9 @@ use crate::tt::*;
 use super::*;
 
 
-impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
+impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     #[must_use]
-    pub fn resolve_impl(&mut self, trayt: SymbolId, ivar: Term<'a>) -> bool {
+    pub fn resolve_impl(&mut self, trayt: SymbolId, ivar: Term<'out>) -> bool {
         let temp = ArenaPool::tls_get_rec();
 
         let goal = self.infer_type(ivar).unwrap();

@@ -7,7 +7,7 @@ use crate::tt::*;
 use super::*;
 
 
-impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
+impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     pub fn elab_inductive(&mut self, item_id: ItemId, ind: &Inductive) -> Option<SymbolId> {
         assert_eq!(self.locals.len(), 0);
         assert_eq!(self.level_params.len(), 0);

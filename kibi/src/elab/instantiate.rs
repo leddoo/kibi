@@ -3,8 +3,8 @@ use crate::tt::*;
 use super::*;
 
 
-impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
-    pub fn instantiate_level_vars(&self, l: Level<'a>) -> Level<'a> {
+impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
+    pub fn instantiate_level_vars(&self, l: Level<'out>) -> Level<'out> {
         l.replace(self.alloc, |at, _| {
             let var = at.try_ivar()?;
             let value = var.value(self)?;
@@ -12,7 +12,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         })
     }
 
-    pub fn instantiate_term_vars(&self, t: Term<'a>) -> Term<'a> {
+    pub fn instantiate_term_vars(&self, t: Term<'out>) -> Term<'out> {
         t.replace(self.alloc, |at, _, alloc| {
             if let Some(app) = at.try_apply() {
                 let was_ivar = app.fun.is_ivar();

@@ -6,6 +6,7 @@
     - unordered decls.
     - codegen.
     - nat literals.
+    - `Of_Nat` and default impls.
     - references.
     - multi-threading.
     - macros.
@@ -14,13 +15,16 @@
 
 
 - todo:
-    - lsp stuff:
-        - hover info.
+    - hover info.
+        - impl for:
             - reduce.
-            - symbol, type.
+            - token.
+            - (innermost) expr ty.
+        - `Ident(name, token)` -> lookup does token info.
+    - lsp stuff:
+        - completions.
         - go to definition.
         - document highlights.
-        - completions.
     - error resilient parsing.
         - parser skips comment tokens (add) & error tokens.
         - unterminated `/-` is error token and does not consume input until eof.
@@ -42,6 +46,7 @@
         - should be able to keep refs into env,
           cause need to rerun if anything used from env changed.
 
+    - errors use `Term`.
     - query semantic tokens: option to split multi-line tokens.
     - maybe always store elab on elab error -> can use term refs.
     - `validate_string`: `>= 0x20`. do we need simd?
@@ -101,7 +106,6 @@
     - string and formatting stuff, write trait.
     - KVec::truncate, clone.
     - reader `revert(n)`, rename `offset -> position`.
-    - vec collect.
 
 - features:
     - mutual inductive:
@@ -111,7 +115,6 @@
     - let.
     - named args.
     - explicit args.
-    - `A -> B` syntax.
     - check/print.
     - dot-idents.
     - method call syntax.
@@ -128,7 +131,6 @@
     - proper `abstract_def_eq`.
         - "key matching": only call `is_def_eq`, if the head symbol matches.
         - and try `syntax_eq` first, common case.
-    - parser eof errors.
 
 - cleanup:
     - `SymbolKind::Axiom`.
@@ -136,7 +138,6 @@
     - move `instantiate` into `ivars`.
     - `sep_by_ex` takes vec.
     - document inference.
-    - `Compiler` and immutability.
 
 - optimization:
     - metadata.

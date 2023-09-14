@@ -4,8 +4,8 @@ use crate::tt::{self, *};
 use super::*;
 
 
-impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
-    pub fn elab_level(&mut self, level_id: ast::LevelId) -> Option<tt::Level<'a>> {
+impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
+    pub fn elab_level(&mut self, level_id: ast::LevelId) -> Option<tt::Level<'out>> {
         let level = self.parse.levels[level_id];
         Some(match level.kind {
             ast::LevelKind::Error => return None,
@@ -22,7 +22,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
                 }
                 self.error(level_id,
                     ElabError::UnresolvedLevel(
-                        self.alloc_out.alloc_str(&self.strings[name])));
+                        self.alloc.alloc_str(&self.strings[name])));
                 return None;
             }
 

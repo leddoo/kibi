@@ -5,9 +5,9 @@ use crate::tt;
 use super::*;
 
 
-impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
+impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     pub fn elab_binders<'res>(&mut self, binders: &[ast::Binder], alloc: &'res Arena)
-    -> Option<Vec<(ScopeId, tt::Term<'a>, tt::Level<'a>), &'res Arena>> {
+    -> Option<Vec<(ScopeId, tt::Term<'out>, tt::Level<'out>), &'res Arena>> {
         let mut locals = Vec::with_cap_in(alloc, binders.len());
 
         for binder in binders.iter() {

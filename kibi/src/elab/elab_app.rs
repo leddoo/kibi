@@ -7,8 +7,8 @@ use crate::tt::*;
 use super::*;
 
 
-impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
-    pub fn elab_app(&mut self, app_expr: ExprId, func: ExprOrTerm<'a>, args: &[ExprId], expected_ty: Option<Term<'a>>) -> Option<(Term<'a>, Term<'a>)> {
+impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
+    pub fn elab_app(&mut self, app_expr: ExprId, func: ExprOrTerm<'out>, args: &[ExprId], expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
         let (func, func_ty) = match func {
             ExprOrTerm::Expr(expr) => self.elab_expr(expr)?,
             ExprOrTerm::Term(term) => (term, self.infer_type(term).unwrap()),

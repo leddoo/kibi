@@ -1,30 +1,82 @@
 use sti::arena::Arena;
 use sti::vec::Vec;
 use sti::keyed::KVec;
+use sti::hash::HashMap;
 use sti::string::String;
 
 use crate::string_table::{StringTable, Atom};
 use crate::diagnostics::*;
+use crate::ast::{TokenId, ItemId, ExprId};
 use crate::parser::Parse;
-use crate::tt::{ScopeId, LocalCtx};
+use crate::tt::{self, ScopeId, LocalCtx};
 use crate::env::*;
 use crate::traits::Traits;
 
 
 pub struct Elab<'a> {
-    pub diagnostics: Diagnostics<'a>
+    pub diagnostics: Diagnostics<'a>,
+    pub token_infos: HashMap<TokenId, TokenInfo>,
+    pub item_infos: KVec<ItemId, Option<ItemInfo<'a>>>,
+    pub item_ctxs:  KVec<ItemId, Option<ItemCtx<'a>>>,
+    pub expr_infos: KVec<ExprId, Option<ExprInfo<'a>>>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum TokenInfo {
+    Local(ScopeId),
+    Symbol(SymbolId),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum ItemInfo<'a> {
+    Symbol(SymbolId),
+    Reduce(tt::Term<'a>),
+}
+
+#[derive(Debug)]
+pub struct ItemCtx<'a> {
+    pub local_ctx: LocalCtx<'a>,
+    pub ivar_ctx:  ivars::IVarCtx<'a>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ExprInfo<'a> {
+    pub term: tt::Term<'a>,
+    pub ty:   tt::Term<'a>,
 }
 
 
-pub struct Elaborator<'me, 'c, 'out, 'a> {
-    pub alloc: &'a Arena,
+pub fn elab_file<'out>(
+    parse: &Parse,
+    elab: &mut Elab<'out>,
+    env: &mut Env<'out>, traits: &mut Traits, strings: &mut StringTable,
+    alloc: &'out Arena)
+{
+    *elab.item_infos.inner_mut_unck() = Vec::from_fn(|| None, parse.exprs.len());
+    *elab.item_ctxs.inner_mut_unck()  = Vec::from_fn(|| None, parse.exprs.len());
+    *elab.expr_infos.inner_mut_unck() = Vec::from_value(None, parse.exprs.len());
+
+    for item in parse.root_items.iter().copied() {
+        let mut elaborator = Elaborator::new(elab, env, traits, parse, SymbolId::ROOT, strings, alloc);
+        if elaborator.elab_item(item).is_none() {
+            break;
+        }
+
+        elab.item_ctxs[item] = Some(ItemCtx {
+            local_ctx: elaborator.lctx,
+            ivar_ctx:  elaborator.ivars,
+        });
+    }
+}
+
+
+pub struct Elaborator<'me, 'c, 'out> {
+    pub alloc: &'out Arena,
     pub strings: &'me mut StringTable<'c>,
-    pub env: &'me mut Env<'a>,
+    pub env: &'me mut Env<'out>,
     pub traits: &'me mut Traits,
 
     pub parse: &'me Parse<'me>,
-
-    pub alloc_out: &'out Arena,
     pub elab: &'me mut Elab<'out>,
 
     root_symbol: SymbolId,
@@ -32,10 +84,10 @@ pub struct Elaborator<'me, 'c, 'out, 'a> {
     level_params: Vec<Atom>,
 
     // @temp: @inductive_uses_elab.
-    pub(crate) lctx: LocalCtx<'a>,
+    pub(crate) lctx: LocalCtx<'out>,
     locals: Vec<(Atom, ScopeId)>,
 
-    ivars: ivars::IVarCtx<'a>,
+    ivars: ivars::IVarCtx<'out>,
 }
 
 
@@ -64,18 +116,17 @@ pub enum ExprOrTerm<'a> {
     Term(crate::tt::Term<'a>),
 }
 
-impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
-    pub fn new(elab: &'me mut Elab<'out>, env: &'me mut Env<'a>, traits: &'me mut Traits, parse: &'me Parse<'me>, root_symbol: SymbolId, strings: &'me mut StringTable<'c>, alloc_out: &'out Arena, alloc: &'a Arena) -> Self {
+impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
+    pub fn new(elab: &'me mut Elab<'out>, env: &'me mut Env<'out>, traits: &'me mut Traits, parse: &'me Parse<'me>, root_symbol: SymbolId, strings: &'me mut StringTable<'c>, alloc: &'out Arena) -> Self {
         Self {
             alloc,
             strings,
             env,
             traits,
             parse,
-            alloc_out,
             elab,
             root_symbol,
-            lctx: LocalCtx::new(alloc),
+            lctx: LocalCtx::new(),
             locals: Vec::new(),
             level_params: Vec::new(),
             ivars: ivars::IVarCtx::new(),
@@ -145,7 +196,7 @@ struct SavePoint {
     ivar_ctx: ivars::SavePoint,
 }
 
-impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
+impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     fn save(&self) -> SavePoint {
         SavePoint {
             local_ctx: self.lctx.save(),

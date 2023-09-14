@@ -7,7 +7,7 @@ use crate::tt::*;
 use super::*;
 
 
-impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
+impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     pub fn lookup_local(&self, name: Atom) -> Option<ScopeId> {
         for (n, id) in self.locals.iter().rev().copied() {
             if n == name {
@@ -21,7 +21,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         let Some(symbol) = self.env.lookup(self.root_symbol, name) else {
             self.error(source,
                 ElabError::UnresolvedName { base: "",
-                    name: self.alloc_out.alloc_str(&self.strings[name]) });
+                    name: self.alloc.alloc_str(&self.strings[name]) });
             return None;
         };
         Some(symbol)
@@ -36,7 +36,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
                     // @todo: proper base.
                     self.error(source,
                         ElabError::UnresolvedName { base: "",
-                            name: self.alloc_out.alloc_str(&self.strings[part]) });
+                            name: self.alloc.alloc_str(&self.strings[part]) });
                     return None;
                 };
 
@@ -51,7 +51,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
     }
 
 
-    pub fn elab_symbol(&mut self, source: DiagnosticSource, id: SymbolId, levels: &[ast::LevelId]) -> Option<(Term<'a>, Term<'a>)> {
+    pub fn elab_symbol(&mut self, source: DiagnosticSource, id: SymbolId, levels: &[ast::LevelId]) -> Option<(Term<'out>, Term<'out>)> {
         let symbol = self.env.symbol(id);
         Some(match symbol.kind {
             SymbolKind::Root |

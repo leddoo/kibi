@@ -9,11 +9,11 @@ use sti::hash::HashMap;
 
 use crate::string_table::StringTable;
 use crate::diagnostics::{Diagnostics, Diagnostic};
-use crate::ast::{SourceId, ParseId, SourceRange, UserSourcePos, UserSourceRange};
+use crate::ast::{SourceId, SourceRange, UserSourcePos, UserSourceRange};
 use crate::parser::{self, Parse};
-use crate::env::{Env, SymbolId};
+use crate::env::Env;
 use crate::traits::Traits;
-use crate::elab::{Elaborator, Elab};
+use crate::elab::{self, Elab};
 use crate::vfs::Vfs;
 
 
@@ -32,7 +32,6 @@ struct Inner<'c> {
     path_to_source: HashMap<String, SourceId>,
     sources: KVec<SourceId, OptSourceDataId>,
     source_datas: KFreeVec<SourceDataId, SourceData>,
-    parses: KVec<ParseId, OptParseDataId>,
     parse_datas: KFreeVec<ParseDataId, ParseData>,
     elab_datas: KFreeVec<ElabDataId, ElabData>,
 
@@ -81,7 +80,6 @@ impl Compiler {
             path_to_source: HashMap::new(),
             sources: KVec::new(),
             source_datas: KFreeVec::new(),
-            parses: KVec::new(),
             parse_datas: KFreeVec::new(),
             elab_datas: KFreeVec::new(),
             strings: StringTable::new(&*persistent),
@@ -226,35 +224,24 @@ impl<'c> Inner<'c> {
             items:  KVec::new(),
             levels: KVec::new(),
             exprs:  KVec::new(),
+            root_items: Vec::new(),
         };
-
-        parser::parse_file(&source.data, &mut parse,
-            &mut self.strings, &parse_arena);
+        parser::parse_file(&source.data, &mut parse, &mut self.strings, &parse_arena);
 
 
         let elab_arena = Arena::new();
 
         let mut elab = Elab {
             diagnostics: Diagnostics::new(),
+            token_infos: HashMap::new(),
+            item_infos: KVec::new(),
+            item_ctxs:  KVec::new(),
+            expr_infos: KVec::new(),
         };
-
         let mut env = Env::new();
         let mut traits = Traits::new();
+        elab::elab_file(&parse, &mut elab, &mut env, &mut traits, &mut self.strings, &elab_arena);
 
-        for item in parse.items.range() {
-            let mut elaborator = Elaborator::new(
-                &mut elab,
-                &mut env,
-                &mut traits,
-                &parse,
-                SymbolId::ROOT,
-                &mut self.strings,
-                &elab_arena,
-                &elab_arena);
-            if elaborator.elab_item(item).is_none() {
-                break;
-            }
-        }
 
         // @todo: make this safer.
         let parse = unsafe { core::mem::transmute(parse) };

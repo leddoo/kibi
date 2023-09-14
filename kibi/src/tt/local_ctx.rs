@@ -6,17 +6,16 @@ use crate::string_table::Atom;
 use super::term::*;
 
 
-// @todo: debug version with (global) generational indices.
 sti::define_key!(pub, u32, ScopeId, opt: OptScopeId);
 
 
+#[derive(Debug)]
 pub struct LocalCtx<'a> {
-    alloc: &'a Arena,
-
-    scopes: KVec<ScopeId, Scope<'a>>,
+    pub scopes: KVec<ScopeId, Scope<'a>>,
     pub current: OptScopeId,
 }
 
+#[derive(Clone, Debug)]
 pub struct Scope<'a> {
     pub parent: OptScopeId,
     pub binder_kind: BinderKind,
@@ -34,9 +33,8 @@ pub struct SavePoint {
 
 impl<'a> LocalCtx<'a> {
     #[inline(always)]
-    pub fn new(alloc: &'a Arena) -> Self {
+    pub fn new() -> Self {
         Self {
-            alloc,
             scopes: KVec::new(),
             current: None.into(),
         }
@@ -150,18 +148,18 @@ impl<'a> LocalCtx<'a> {
 
     #[track_caller]
     #[inline(always)]
-    pub fn abstract_forall(&self, ret: Term<'a>, id: ScopeId) -> Term<'a> {
+    pub fn abstract_forall(&self, ret: Term<'a>, id: ScopeId, alloc: &'a Arena) -> Term<'a> {
         let entry = self.lookup(id);
-        let ret = ret.abstracc(id, self.alloc);
-        self.alloc.mkt_forall(entry.binder_kind, entry.name, entry.ty, ret)
+        let ret = ret.abstracc(id, alloc);
+        alloc.mkt_forall(entry.binder_kind, entry.name, entry.ty, ret)
     }
 
     #[track_caller]
     #[inline(always)]
-    pub fn abstract_lambda(&self, value: Term<'a>, id: ScopeId) -> Term<'a> {
+    pub fn abstract_lambda(&self, value: Term<'a>, id: ScopeId, alloc: &'a Arena) -> Term<'a> {
         let entry = self.lookup(id);
-        let value = value.abstracc(id, self.alloc);
-        self.alloc.mkt_lambda(entry.binder_kind, entry.name, entry.ty, value)
+        let value = value.abstracc(id, alloc);
+        alloc.mkt_lambda(entry.binder_kind, entry.name, entry.ty, value)
     }
 
 

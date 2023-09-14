@@ -3,8 +3,8 @@ use crate::tt::*;
 use super::*;
 
 
-impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
-    pub fn infer_type(&mut self, t: Term<'a>) -> Option<Term<'a>> {
+impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
+    pub fn infer_type(&mut self, t: Term<'out>) -> Option<Term<'out>> {
         assert!(t.closed());
 
         let result = match t.data() {
@@ -94,13 +94,13 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         Some(result)
     }
 
-    pub fn infer_type_as_sort(&mut self, t: Term<'a>) -> Option<Level<'a>> {
+    pub fn infer_type_as_sort(&mut self, t: Term<'out>) -> Option<Level<'out>> {
         let ty = self.infer_type(t)?;
         let ty = self.whnf(ty);
         return Some(ty.try_sort()?);
     }
 
-    pub fn infer_type_as_forall(&mut self, t: Term<'a>) -> Option<term::Binder<'a>> {
+    pub fn infer_type_as_forall(&mut self, t: Term<'out>) -> Option<term::Binder<'out>> {
         let ty = self.infer_type(t)?;
         let ty = self.whnf(ty);
         return Some(ty.try_forall()?);

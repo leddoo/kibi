@@ -6,7 +6,7 @@ use crate::tt::*;
 use super::*;
 
 
-impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
+impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     pub fn elab_axiom(&mut self, item_id: ItemId, axiom: &item::Axiom) -> Option<SymbolId> {
         spall::trace_scope!("kibi/elab/axiom"; "{}",
             axiom.name.display(self.strings));
@@ -79,7 +79,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         Some(symbol)
     }
 
-    pub fn elab_def_core(&mut self, item_id: ItemId, levels: &[Atom], params: &[ast::Binder], ty: OptExprId, value: ExprId) -> Option<(Term<'a>, Term<'a>)> {
+    pub fn elab_def_core(&mut self, item_id: ItemId, levels: &[Atom], params: &[ast::Binder], ty: OptExprId, value: ExprId) -> Option<(Term<'out>, Term<'out>)> {
         assert_eq!(self.locals.len(), 0);
         assert_eq!(self.level_params.len(), 0);
 

@@ -3,12 +3,12 @@ use crate::tt::*;
 use super::*;
 
 
-impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
-    pub fn abstracc(&self, t: Term<'a>, id: ScopeId) -> Term<'a> {
+impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
+    pub fn abstracc(&self, t: Term<'out>, id: ScopeId) -> Term<'out> {
         self.abstracc_ex(t, id, 0)
     }
 
-    pub fn abstracc_ex(&self, t: Term<'a>, id: ScopeId, offset: u32) -> Term<'a> {
+    pub fn abstracc_ex(&self, t: Term<'out>, id: ScopeId, offset: u32) -> Term<'out> {
         t.replace_ex(offset, self.alloc, &mut |at, offset, alloc| {
             if let Some(local) = at.try_local() {
                 if local == id {
@@ -52,7 +52,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         })
     }
 
-    pub fn mk_binder(&self, val: Term<'a>, id: ScopeId, is_forall: bool) -> Term<'a> {
+    pub fn mk_binder(&self, val: Term<'out>, id: ScopeId, is_forall: bool) -> Term<'out> {
         let val = self.abstracc(val, id);
 
         // instantiate type after val, cause abstracc may
@@ -64,7 +64,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         else         { self.alloc.mkt_lambda(entry.binder_kind, entry.name, ty, val) }
     }
 
-    pub fn mk_binder_with_kind(&self, kind: BinderKind, val: Term<'a>, id: ScopeId, is_forall: bool) -> Term<'a> {
+    pub fn mk_binder_with_kind(&self, kind: BinderKind, val: Term<'out>, id: ScopeId, is_forall: bool) -> Term<'out> {
         let val = self.abstracc(val, id);
 
         // instantiate type after val, cause abstracc may

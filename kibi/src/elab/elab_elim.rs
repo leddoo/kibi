@@ -8,14 +8,14 @@ use crate::tt::inductive::{ElimArgKind, ElimInfo};
 use super::*;
 
 
-impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
+impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     pub fn try_elab_as_elim(&mut self,
         app_expr: ExprId,
-        func: Term<'a>,
-        func_ty: Term<'a>,
+        func: Term<'out>,
+        func_ty: Term<'out>,
         args: &[ExprId],
-        expected_ty: Term<'a>
-    ) -> (Option<Option<(Term<'a>, Term<'a>)>>,)
+        expected_ty: Term<'out>
+    ) -> (Option<Option<(Term<'out>, Term<'out>)>>,)
     {
         let Some(info) = self.elim_info(func) else { return (None,) };
 
@@ -237,7 +237,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         (Some(Some((result, result_ty))),)
     }
 
-    fn elim_info(&self, func: Term<'a>) -> Option<ElimInfo<'a>> {
+    fn elim_info(&self, func: Term<'out>) -> Option<ElimInfo<'out>> {
         let global = func.try_global()?;
 
         if let SymbolKind::IndAxiom(ind) = &self.env.symbol(global.id).kind {

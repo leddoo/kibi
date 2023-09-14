@@ -5,8 +5,8 @@ use crate::tt::*;
 use super::*;
 
 
-impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
-    pub fn is_def_eq(&mut self, a: Term<'a>, b: Term<'a>) -> bool {
+impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
+    pub fn is_def_eq(&mut self, a: Term<'out>, b: Term<'out>) -> bool {
         let save = self.save();
 
         let r = self.ensure_def_eq(a, b);
@@ -18,7 +18,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
     }
 
     /// - assumes `a` and `b` are well typed.
-    pub fn ensure_def_eq(&mut self, a: Term<'a>, b: Term<'a>) -> bool {
+    pub fn ensure_def_eq(&mut self, a: Term<'out>, b: Term<'out>) -> bool {
         // @todo: optimize. (eg: unfold def w/ higher depth)
 
         //println!("{}\n=?=\n{}\n", self.pp(a, 80), self.pp(b, 80));
@@ -74,7 +74,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         return false;
     }
 
-    fn def_eq_basic(&mut self, a: Term<'a>, b: Term<'a>) -> Option<bool> {
+    fn def_eq_basic(&mut self, a: Term<'out>, b: Term<'out>) -> Option<bool> {
         assert!(a.closed());
         assert!(b.closed());
         //println!("{}\n=?=\n{}\n", self.pp(a, 80), self.pp(b, 80));
@@ -157,7 +157,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
     }
 
     /// - assumes: `a.num_args = b.num_args`.
-    fn app_args_def_eq(&mut self, a: Term<'a>, b: Term<'a>) -> bool {
+    fn app_args_def_eq(&mut self, a: Term<'out>, b: Term<'out>) -> bool {
         let Some(a) = a.try_apply() else { return true };
         let Some(b) = b.try_apply() else { return true };
 

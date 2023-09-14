@@ -23,6 +23,8 @@ pub struct Parse<'a> {
     pub items:  KVec<ItemId,  Item<'a>>,
     pub levels: KVec<LevelId, Level>,
     pub exprs:  KVec<ExprId,  Expr<'a>>,
+
+    pub root_items: Vec<ItemId>,
 }
 
 impl<'a> Parse<'a> {
@@ -50,21 +52,17 @@ impl<'a> Parse<'a> {
 
 
 // @todo: return `ItemId`.
-pub fn parse_file<'out>(input: &[u8], parse: &mut Parse<'out>, strings: &mut StringTable, alloc: &'out Arena)
-{
-    spall::trace_scope!("kibi/parse_file");
-
+pub fn parse_file<'out>(input: &[u8], parse: &mut Parse<'out>, strings: &mut StringTable, alloc: &'out Arena) {
     tokenize(input, parse, strings, alloc);
 
-    {
-        spall::trace_scope!("kibi/parse");
-        let mut parser = Parser { parse, strings, alloc, token_cursor: 0 };
+    spall::trace_scope!("kibi/parse_file");
+    let mut parser = Parser { parse, strings, alloc, token_cursor: 0 };
 
-        while parser.peek().kind != TokenKind::EndOfFile {
-            if parser.parse_item(crate::ast::AstParent::None).is_none() {
-                break;
-            }
+    while parser.peek().kind != TokenKind::EndOfFile {
+        if let Some(item) = parser.parse_item(crate::ast::AstParent::None) {
+            parser.parse.root_items.push(item);
         }
+        else { break }
     }
 }
 

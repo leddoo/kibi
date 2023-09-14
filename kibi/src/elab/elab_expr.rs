@@ -6,12 +6,12 @@ use crate::tt::{self, *};
 use super::*;
 
 
-impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
-    pub fn elab_expr(&mut self, expr: ExprId) -> Option<(Term<'a>, Term<'a>)> {
+impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
+    pub fn elab_expr(&mut self, expr: ExprId) -> Option<(Term<'out>, Term<'out>)> {
         self.elab_expr_ex(expr, None)
     }
 
-    pub fn elab_expr_checking_type(&mut self, expr: ExprId, expected_ty: Option<Term<'a>>) -> Option<(Term<'a>, Term<'a>)> {
+    pub fn elab_expr_checking_type(&mut self, expr: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
         let (term, ty) = self.elab_expr_ex(expr, expected_ty)?;
 
         if let Some(expected) = expected_ty {
@@ -21,7 +21,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
                 let expected = self.reduce_ex(expected, false);
                 let ty       = self.reduce_ex(ty, false);
                 self.error(expr, {
-                    let mut pp = TermPP::new(self.env, &self.strings, self.alloc_out);
+                    let mut pp = TermPP::new(self.env, &self.strings, self.alloc);
                     let expected = pp.pp_term(expected);
                     let found    = pp.pp_term(ty);
                     ElabError::TypeMismatch { expected, found }
@@ -33,7 +33,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         Some((term, ty))
     }
 
-    pub fn elab_expr_as_type(&mut self, expr: ExprId) -> Option<(Term<'a>, tt::Level<'a>)> {
+    pub fn elab_expr_as_type(&mut self, expr: ExprId) -> Option<(Term<'out>, tt::Level<'out>)> {
         let (term, ty) = self.elab_expr_ex(expr, None)?;
 
         let ty = self.whnf(ty);
@@ -47,7 +47,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         }
 
         self.error(expr, {
-            let mut pp = TermPP::new(self.env, &self.strings, self.alloc_out);
+            let mut pp = TermPP::new(self.env, &self.strings, self.alloc);
             let found = pp.pp_term(ty);
             ElabError::TypeExpected { found }
         });
@@ -55,16 +55,16 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
     }
 
 
-    fn elab_expr_ex(&mut self, expr: ExprId, expected_ty: Option<Term<'a>>) -> Option<(Term<'a>, Term<'a>)> {
+    fn elab_expr_ex(&mut self, expr: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
         let result = self.elab_expr_core(expr, expected_ty);
 
         #[cfg(debug_assertions)]
-        if let Some((res, ty)) = result {
+        if let Some((term, ty)) = result {
             let n = self.ivars.assignment_gen;
-            let inferred = self.infer_type(res).unwrap();
+            let inferred = self.infer_type(term).unwrap();
             if !self.ensure_def_eq(ty, inferred) {
                 eprintln!("---\nbug: elab_expr_core returned term\n{}\nwith type\n{}\nbut has type\n{}\n---",
-                    self.pp(res, 80),
+                    self.pp(term, 80),
                     self.pp(ty, 80),
                     self.pp(inferred, 80));
                 assert!(false);
@@ -72,10 +72,15 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
             assert_eq!(n, self.ivars.assignment_gen);
         }
 
+        if let Some((term, ty)) = result {
+            debug_assert!(self.elab.expr_infos[expr].is_none());
+            self.elab.expr_infos[expr] = Some(ExprInfo { term, ty });
+        }
+
         return result;
     }
 
-    fn elab_expr_core(&mut self, expr_id: ExprId, expected_ty: Option<Term<'a>>) -> Option<(Term<'a>, Term<'a>)> {
+    fn elab_expr_core(&mut self, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
         //if let Some(ex) = expected_ty { eprintln!("expect: {}", self.pp(ex, 1000000)); }
 
         let expr = self.parse.exprs[expr_id];
@@ -85,12 +90,21 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
             }
 
             ExprKind::Ident(name) => {
+                debug_assert_eq!(expr.source.len(), 1);
+
                 if let Some(local) = self.lookup_local(name) {
+                    let none = self.elab.token_infos.insert(expr.source.idx(0), TokenInfo::Local(local));
+                    debug_assert!(none.is_none());
+
                     let ty = self.lctx.lookup(local).ty;
                     (self.alloc.mkt_local(local), ty)
                 }
                 else {
                     let symbol = self.lookup_symbol_ident(expr_id.into(), name)?;
+
+                    let none = self.elab.token_infos.insert(expr.source.idx(0), TokenInfo::Symbol(symbol));
+                    debug_assert!(none.is_none());
+
                     self.elab_symbol(expr_id.into(), symbol, &[])?
                 }
             }
@@ -106,7 +120,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
                         if self.lookup_local(name).is_some() {
                             self.error(expr_id,
                                 ElabError::SymbolShadowedByLocal(
-                                    self.alloc_out.alloc_str(&self.strings[name])));
+                                    self.alloc.alloc_str(&self.strings[name])));
                         }
 
                         self.lookup_symbol_ident(expr_id.into(), name)?

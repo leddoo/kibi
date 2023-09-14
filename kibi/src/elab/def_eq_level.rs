@@ -3,8 +3,8 @@ use crate::tt::*;
 use super::*;
 
 
-impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
-    pub fn ensure_level_def_eq(&mut self, a: Level<'a>, b: Level<'a>) -> bool {
+impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
+    pub fn ensure_level_def_eq(&mut self, a: Level<'out>, b: Level<'out>) -> bool {
         if self.ivars.level_vars.len() > 0 {
             // we currently don't implement the proper level equivalence test.
             // instead we just do syntax eq + var assignment.
@@ -20,7 +20,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         }
     }
 
-    fn level_def_eq_basic(&mut self, a: Level<'a>, b: Level<'a>) -> bool {
+    fn level_def_eq_basic(&mut self, a: Level<'out>, b: Level<'out>) -> bool {
         if a.syntax_eq(b) {
             return true;
         }
@@ -58,7 +58,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
         }
     }
 
-    pub fn ensure_levels_def_eq(&mut self, a: &[Level<'a>], b: &[Level<'a>]) -> bool {
+    pub fn ensure_levels_def_eq(&mut self, a: &[Level<'out>], b: &[Level<'out>]) -> bool {
         if a.len() != b.len() {
             return false;
         }

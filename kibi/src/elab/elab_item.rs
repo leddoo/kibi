@@ -2,43 +2,37 @@ use crate::ast::{ItemId, ItemKind, item};
 
 use super::*;
 
-impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
+impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     pub fn elab_item(&mut self, item_id: ItemId) -> Option<()> {
         let item = &self.parse.items[item_id];
-        match &item.kind {
-            ItemKind::Error => None,
 
-            ItemKind::Axiom(it) => self.elab_axiom(item_id, it).map(|_| ()),
+        let info = match &item.kind {
+            ItemKind::Error => return None,
 
-            ItemKind::Def(it) => self.elab_def(item_id, it).map(|_| ()),
+            ItemKind::Axiom(it) => {
+                let symbol = self.elab_axiom(item_id, it)?;
+                ItemInfo::Symbol(symbol)
+            }
+
+            ItemKind::Def(it) => {
+                let symbol = self.elab_def(item_id, it)?;
+                ItemInfo::Symbol(symbol)
+            }
 
             ItemKind::Reduce(it) => {
                 spall::trace_scope!("kibi/elab/reduce");
 
                 let (term, _) = self.elab_expr(*it)?;
-                let _r = self.reduce(term);
-
-                /*
-                if printing {
-                    let temp = sti::arena_pool::ArenaPool::tls_get_temp();
-                    let mut pp = TermPP::new(&self.elab.env, &self.elab.strings, &*temp);
-                    let r = pp.pp_term(r);
-                    let r = pp.indent(9, r);
-                    let r = pp.render(r, 80);
-                    let r = r.layout_string();
-                    println!("reduced: {}", r);
-                }
-                */
-                Some(())
+                let r = self.reduce(term);
+                ItemInfo::Reduce(r)
             }
 
             ItemKind::Inductive(it) => {
                 spall::trace_scope!("kibi/elab/inductive"; "{}",
                     &self.strings[it.name]);
 
-                let _ = self.elab_inductive(item_id, it)?;
-
-                Some(())
+                let symbol = self.elab_inductive(item_id, it)?;
+                ItemInfo::Symbol(symbol)
             }
 
             ItemKind::Trait(it) => {
@@ -51,7 +45,7 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
 
                         self.traits.new_trait(symbol);
 
-                        Some(())
+                        ItemInfo::Symbol(symbol)
                     }
                 }
             }
@@ -88,9 +82,15 @@ impl<'me, 'c, 'out, 'a> Elaborator<'me, 'c, 'out, 'a> {
                 // @todo: better source.
                 let _ = self.check_no_unassigned_variables(item_id.into())?;
 
-                Some(())
+                // @todo: item info.
+                return Some(());
             }
-        }
+        };
+
+        debug_assert!(self.elab.item_infos[item_id].is_none());
+        self.elab.item_infos[item_id] = Some(info);
+
+        Some(())
     }
 }
 

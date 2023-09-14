@@ -70,22 +70,22 @@ pub struct InductiveInfo<'a> {
 }
 
 
-pub struct Check<'me, 'temp, 'c, 'out, 'a> {
-    alloc: &'a Arena,
+pub struct Check<'me, 'temp, 'c, 'out> {
+    alloc: &'out Arena,
     temp: &'me Arena,
 
     // @temp: @inductive_uses_elab.
-    elab: &'me mut Elaborator<'temp, 'c, 'out, 'a>,
+    elab: &'me mut Elaborator<'temp, 'c, 'out>,
 
-    spec: MutualSpec<'me, 'a>,
+    spec: MutualSpec<'me, 'out>,
 
-    level_params: &'a [Level<'a>],
-    elim_levels: &'a [Level<'a>],
-    type_globals: Vec<Term<'a>, &'me Arena>,
-    type_global_param_apps: Vec<Term<'a>, &'me Arena>,
-    type_global_index_apps: Vec<Term<'a>, &'me Arena>,
+    level_params: &'out [Level<'out>],
+    elim_levels: &'out [Level<'out>],
+    type_globals: Vec<Term<'out>, &'me Arena>,
+    type_global_param_apps: Vec<Term<'out>, &'me Arena>,
+    type_global_index_apps: Vec<Term<'out>, &'me Arena>,
     indices: Vec<Vec<ScopeId, &'me Arena>, &'me Arena>,
-    ctor_infos: Vec<&'me [CtorInfo<'me, 'a>], &'me Arena>,
+    ctor_infos: Vec<&'me [CtorInfo<'me, 'out>], &'me Arena>,
 }
 
 #[derive(Clone, Copy)]
@@ -101,8 +101,8 @@ struct RecArg<'me, 'a> {
     indices: &'me [Term<'a>],
 }
 
-impl<'me, 'temp, 'c, 'out, 'a> Check<'me, 'temp, 'c, 'out, 'a> {
-    pub fn check(elab: &mut Elaborator<'temp, 'c, 'out, 'a>, spec: MutualSpec<'_, 'a>) -> Option<()> {
+impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
+    pub fn check(elab: &mut Elaborator<'temp, 'c, 'out>, spec: MutualSpec<'_, 'out>) -> Option<()> {
         let num_types = spec.types.len();
         assert!(num_types > 0);
 
@@ -161,7 +161,7 @@ impl<'me, 'temp, 'c, 'out, 'a> Check<'me, 'temp, 'c, 'out, 'a> {
             }
 
             for param in this.spec.params.iter().copied().rev() {
-                type_former = this.elab.lctx.abstract_forall(type_former, param);
+                type_former = this.elab.lctx.abstract_forall(type_former, param, this.alloc);
             }
             assert!(type_former.closed_no_local_no_ivar());
             type_formers.push(type_former);
@@ -285,7 +285,7 @@ impl<'me, 'temp, 'c, 'out, 'a> Check<'me, 'temp, 'c, 'out, 'a> {
                     (local == spec.local).then_some(this.type_global_param_apps[spec_idx])
                 });
                 for param in this.spec.params.iter().copied().rev() {
-                    ctor_type = this.elab.lctx.abstract_forall(ctor_type, param);
+                    ctor_type = this.elab.lctx.abstract_forall(ctor_type, param, this.alloc);
                 }
                 assert!(ctor_type.closed_no_local_no_ivar());
 
@@ -377,7 +377,7 @@ impl<'me, 'temp, 'c, 'out, 'a> Check<'me, 'temp, 'c, 'out, 'a> {
             m = this.alloc.mkt_forall(BinderKind::Explicit, atoms::mp, mp, m);
 
             for index in this.indices[spec_idx].iter().copied().rev() {
-                m = this.elab.lctx.abstract_forall(m, index);
+                m = this.elab.lctx.abstract_forall(m, index, this.alloc);
             }
 
             let name =
@@ -429,7 +429,7 @@ impl<'me, 'temp, 'c, 'out, 'a> Check<'me, 'temp, 'c, 'out, 'a> {
                         minor = this.alloc.mkt_forall(BinderKind::Explicit, Atom::NULL, rec_m, minor);
                     }
                     // @todo: binder explicit.
-                    minor = this.elab.lctx.abstract_forall(minor, arg);
+                    minor = this.elab.lctx.abstract_forall(minor, arg, this.alloc);
                 }
 
                 // @temp: `m_{ctor.name}`.
@@ -458,17 +458,17 @@ impl<'me, 'temp, 'c, 'out, 'a> Check<'me, 'temp, 'c, 'out, 'a> {
             elim_arg_kinds.push(ElimArgKind::Target);
 
             for index in this.indices[spec_idx].iter().copied().rev() {
-                ty = this.elab.lctx.abstract_forall(ty, index);
+                ty = this.elab.lctx.abstract_forall(ty, index, this.alloc);
                 elim_arg_kinds.push(ElimArgKind::Target);
             }
 
             for minor in minors.iter().copied().rev() {
-                ty = this.elab.lctx.abstract_forall(ty, minor);
+                ty = this.elab.lctx.abstract_forall(ty, minor, this.alloc);
                 elim_arg_kinds.push(ElimArgKind::Postpone);
             }
 
             for (i, motive) in motives.iter().copied().enumerate().rev() {
-                ty = this.elab.lctx.abstract_forall(ty, motive);
+                ty = this.elab.lctx.abstract_forall(ty, motive, this.alloc);
                 if i == spec_idx {
                     motive_pos = Some(elim_arg_kinds.len());
                     elim_arg_kinds.push(ElimArgKind::Motive);
@@ -479,7 +479,7 @@ impl<'me, 'temp, 'c, 'out, 'a> Check<'me, 'temp, 'c, 'out, 'a> {
             }
 
             for param in this.spec.params.iter().copied().rev() {
-                ty = this.elab.lctx.abstract_forall(ty, param);
+                ty = this.elab.lctx.abstract_forall(ty, param, this.alloc);
                 elim_arg_kinds.push(ElimArgKind::Postpone);
             }
 
@@ -498,7 +498,7 @@ impl<'me, 'temp, 'c, 'out, 'a> Check<'me, 'temp, 'c, 'out, 'a> {
         let elim_infos = elim_infos;
 
 
-        let mut comp_rules: Vec<&'a [Term<'a>], _> = Vec::with_cap_in(this.alloc, this.spec.types.len());
+        let mut comp_rules: Vec<&'out [Term<'out>], _> = Vec::with_cap_in(this.alloc, this.spec.types.len());
         let mut minors_offset = 0;
         for spec_idx in 0..this.spec.types.len() {
             let ctor_infos = &this.ctor_infos[spec_idx];
@@ -549,7 +549,7 @@ impl<'me, 'temp, 'c, 'out, 'a> Check<'me, 'temp, 'c, 'out, 'a> {
 
                         let mut rec_m = rec_ret;
                         for arg in rec_arg.args.iter().copied().rev() {
-                            rec_m = this.elab.lctx.abstract_lambda(rec_m, arg);
+                            rec_m = this.elab.lctx.abstract_lambda(rec_m, arg, this.alloc);
                         }
 
                         comp_ret = this.alloc.mkt_apply(comp_ret, rec_m);
@@ -560,22 +560,22 @@ impl<'me, 'temp, 'c, 'out, 'a> Check<'me, 'temp, 'c, 'out, 'a> {
 
                 // as
                 for (arg, _) in ctor_info.args.iter().copied().rev() {
-                    comp = this.elab.lctx.abstract_lambda(comp, arg);
+                    comp = this.elab.lctx.abstract_lambda(comp, arg, this.alloc);
                 }
 
                 // ms
                 for minor in minors.iter().copied().rev() {
-                    comp = this.elab.lctx.abstract_lambda(comp, minor);
+                    comp = this.elab.lctx.abstract_lambda(comp, minor, this.alloc);
                 }
 
                 // Ms
                 for motive in motives.iter().copied().rev() {
-                    comp = this.elab.lctx.abstract_lambda(comp, motive);
+                    comp = this.elab.lctx.abstract_lambda(comp, motive, this.alloc);
                 }
 
                 // ps
                 for param in this.spec.params.iter().copied().rev() {
-                    comp = this.elab.lctx.abstract_lambda(comp, param);
+                    comp = this.elab.lctx.abstract_lambda(comp, param, this.alloc);
                 }
 
                 assert!(comp.closed_no_local_no_ivar());
@@ -647,8 +647,8 @@ impl<'me, 'temp, 'c, 'out, 'a> Check<'me, 'temp, 'c, 'out, 'a> {
         }).is_some()
     }
 
-    fn is_valid_inductive_app(&mut self, app: Term<'a>, ind: Option<(usize, ScopeId)>)
-        -> Option<Option<(usize, &'me [Term<'a>])>>
+    fn is_valid_inductive_app(&mut self, app: Term<'out>, ind: Option<(usize, ScopeId)>)
+        -> Option<Option<(usize, &'me [Term<'out>])>>
     {
         // find app target.
         let mut target = app;
