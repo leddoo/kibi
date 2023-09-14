@@ -32,21 +32,32 @@ impl Into<AstId> for ExprId  { #[inline(always)] fn into(self) -> AstId { AstId:
 
 
 #[derive(Clone, Copy, Debug)]
+pub struct Ident {
+    pub source: TokenId,
+    pub value: Atom,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct OptIdent {
+    pub source: TokenId,
+    pub value: OptAtom,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct Path<'a> {
-    pub local: bool,
-    pub parts: &'a [Atom],
+    pub parts: &'a [Ident],
 }
 
 #[derive(Clone, Copy, Debug)]
 pub enum IdentOrPath<'a> {
-    Ident(Atom),
+    Ident(Ident),
     Path(Path<'a>),
 }
 
 
 #[derive(Clone, Copy, Debug)]
 pub enum Binder<'a> {
-    Ident(OptAtom),
+    Ident(OptIdent),
     Typed(TypedBinder<'a>),
 }
 
@@ -55,7 +66,7 @@ pub type BinderList<'a> = &'a [Binder<'a>];
 #[derive(Clone, Copy, Debug)]
 pub struct TypedBinder<'a> {
     pub implicit: bool,
-    pub names:   &'a [OptAtom],
+    pub names:   &'a [OptIdent],
     pub ty:      ExprId,
     pub default: OptExprId,
 }
@@ -294,7 +305,7 @@ pub mod item {
     #[derive(Debug)]
     pub struct Axiom<'a> {
         pub name:   IdentOrPath<'a>,
-        pub levels: &'a [Atom],
+        pub levels: &'a [Ident],
         pub params: BinderList<'a>,
         pub ty:     ExprId,
     }
@@ -302,7 +313,7 @@ pub mod item {
     #[derive(Debug)]
     pub struct Def<'a> {
         pub name:   IdentOrPath<'a>,
-        pub levels: &'a [Atom],
+        pub levels: &'a [Ident],
         pub params: BinderList<'a>,
         pub ty:     OptExprId,
         pub value:  ExprId,
@@ -315,7 +326,7 @@ pub mod item {
 
     #[derive(Debug)]
     pub struct Impl<'a> {
-        pub levels: &'a [Atom],
+        pub levels: &'a [Ident],
         pub params: BinderList<'a>,
         pub ty:     ExprId,
         pub value:  ExprId,
@@ -380,8 +391,8 @@ pub enum ExprKind<'a> {
     Error,
 
     Hole,
-    Ident(Atom),
-    DotIdent(Atom),
+    Ident(Ident),
+    DotIdent(Ident),
     Path(Path<'a>),
 
     Levels(expr::Levels<'a>),
@@ -495,7 +506,7 @@ pub mod expr {
     #[derive(Clone, Copy, Debug)]
     pub struct Field {
         pub base: ExprId,
-        pub name: Atom,
+        pub name: Ident,
     }
 
     #[derive(Clone, Copy, Debug)]
@@ -605,7 +616,7 @@ pub enum LevelKind {
     Error,
 
     Hole,
-    Ident(Atom),
+    Ident(Ident),
 
     Nat(u32),
     Add((LevelId, u32)),
@@ -624,8 +635,8 @@ pub mod adt {
 
     #[derive(Debug)]
     pub struct Inductive<'a> {
-        pub name:   Atom,
-        pub levels: &'a [Atom],
+        pub name:   Ident,
+        pub levels: &'a [Ident],
         pub params: BinderList<'a>,
         pub ty:     OptExprId,
         pub ctors:  CtorList<'a>,
@@ -634,7 +645,7 @@ pub mod adt {
 
     #[derive(Clone, Copy, Debug)]
     pub struct Ctor<'a> {
-        pub name: Atom,
+        pub name: Ident,
         pub args: BinderList<'a>,
         pub ty:   OptExprId,
     }
@@ -664,15 +675,15 @@ impl<'a, 's> core::fmt::Display for IdentOrPathDisplay<'a, 's> {
     #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match self.this {
-            IdentOrPath::Ident(name) =>
-                sti::write!(f, "{}", &self.strings[name]),
+            IdentOrPath::Ident(ident) =>
+                sti::write!(f, "{}", &self.strings[ident.value]),
 
             IdentOrPath::Path(parts) => {
                 let mut first = true;
                 for part in parts.parts.iter().copied() {
                     if !first { sti::write!(f, "::"); }
                     first = false;
-                    sti::write!(f, "{}", &self.strings[part]);
+                    sti::write!(f, "{}", &self.strings[part.value]);
                 }
             }
         }

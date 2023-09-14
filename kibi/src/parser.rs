@@ -4,7 +4,7 @@ use sti::vec::Vec;
 use sti::keyed::KVec;
 use sti::reader::Reader;
 
-use crate::string_table::{Atom, OptAtom, StringTable, atoms};
+use crate::string_table::{StringTable, Atom, atoms};
 use crate::diagnostics::*;
 use crate::ast::*;
 
@@ -58,7 +58,7 @@ pub fn parse_file<'out>(input: &[u8], parse: &mut Parse<'out>, strings: &mut Str
     spall::trace_scope!("kibi/parse_file");
     let mut parser = Parser { parse, strings, alloc, token_cursor: 0 };
 
-    while parser.peek().kind != TokenKind::EndOfFile {
+    while parser.peek().0.kind != TokenKind::EndOfFile {
         if let Some(item) = parser.parse_item(crate::ast::AstParent::None) {
             parser.parse.root_items.push(item);
         }
@@ -493,7 +493,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
         let mut result = self.parse_leading_expr(parent, flags, prec)?;
 
         loop {
-            let at = self.peek();
+            let (at, _) = self.peek();
 
             // equality type.
             if flags.ty && at.kind == TokenKind::Eq && PREC_EQ >= prec {
@@ -558,11 +558,16 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                 let lhs = result;
                 let rhs = self.parse_type_ex(this_parent, PREC_ARROW)?;
 
+                // @arrow_uses_null_ident
+                let name = OptIdent {
+                    source: self.parse.exprs[lhs].source.first(),
+                    value: Atom::NULL.some(),
+                };
                 let kind = ExprKind::Forall(expr::Forall {
                     binders: &self.alloc.alloc_new([
                         Binder::Typed(TypedBinder {
                             implicit: false,
-                            names: &self.alloc.alloc_new([None.into()])[..],
+                            names: &self.alloc.alloc_new([name])[..],
                             ty: lhs,
                             default: None.into(),
                         }),
@@ -592,7 +597,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     // field.
                     TokenKind::Ident(name) => {
                         ExprKind::Field(expr::Field {
-                            name,
+                            name: Ident { source: at_src, value: name },
                             base: result,
                         })
                     }
@@ -666,7 +671,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                 }
 
                 TokenKind::Ident(ident) => {
-                    match self.parse_ident_or_path(ident)? {
+                    match self.parse_ident_or_path(Ident { source: source_begin, value: ident })? {
                         IdentOrPath::Ident(ident) => ExprKind::Ident(ident),
                         IdentOrPath::Path(path) => ExprKind::Path(path),
                     }
@@ -856,24 +861,24 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                 LevelKind::Hole
             }
 
-            TokenKind::Ident(v) => {
-                if v == atoms::max || v == atoms::imax {
+            TokenKind::Ident(name) => {
+                if name == atoms::max || name == atoms::imax {
                     self.expect(TokenKind::LParen)?;
                     let lhs = self.parse_level(this_parent)?;
                     self.expect(TokenKind::Comma)?;
                     let rhs = self.parse_level(this_parent)?;
                     self.expect(TokenKind::RParen)?;
 
-                    if v == atoms::max {
+                    if name == atoms::max {
                         LevelKind::Max((lhs, rhs))
                     }
-                    else if v == atoms::imax {
+                    else if name == atoms::imax {
                         LevelKind::IMax((lhs, rhs))
                     }
                     else { unreachable!() }
                 }
                 else {
-                    LevelKind::Ident(v)
+                    LevelKind::Ident(Ident { source: source_begin, value: name })
                 }
             }
 
@@ -995,37 +1000,37 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
     }
 
     #[inline(always)]
-    fn expect_ident(&mut self) -> Option<Atom> {
+    fn expect_ident(&mut self) -> Option<Ident> {
         let (at, at_src) = self.next();
-        if let TokenKind::Ident(ident) = at.kind {
-            return Some(ident);
+        if let TokenKind::Ident(value) = at.kind {
+            return Some(Ident { source: at_src, value });
         }
         self.error_expect(at_src, "ident");
         return None;
     }
 
-    fn parse_ident_or_hole(&mut self) -> Option<OptAtom> {
-        let at = self.peek();
+    fn parse_ident_or_hole(&mut self) -> Option<OptIdent> {
+        let (at, at_src) = self.peek();
         if let TokenKind::Hole = at.kind {
             self.consume(1);
-            return Some(None.into())
+            return Some(OptIdent { source: at_src, value: None.into() })
         }
         if let TokenKind::Ident(ident) = at.kind {
             self.consume(1);
-            return Some(ident.some())
+            return Some(OptIdent { source: at_src, value: ident.some() })
         }
         return None;
     }
 
-    fn parse_ident_or_path(&mut self, start: Atom) -> Option<IdentOrPath<'out>> {
+    fn parse_ident_or_path(&mut self, start: Ident) -> Option<IdentOrPath<'out>> {
         if self.consume_if_eq(TokenKind::ColonColon) {
             let mut parts = Vec::with_cap_in(self.alloc, 4);
             parts.push(start);
 
             loop { // don't use `self.arena` in here.
-                let (at, _) = self.next();
+                let (at, at_src) = self.next();
                 let TokenKind::Ident(part) = at.kind else { return None };
-                parts.push(part);
+                parts.push(Ident { source: at_src, value: part });
 
                 if !self.consume_if_eq(TokenKind::ColonColon) {
                     break;
@@ -1033,7 +1038,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
             }
             parts.trim_exact();
 
-            return Some(IdentOrPath::Path(Path { local: true, parts: parts.leak() }));
+            return Some(IdentOrPath::Path(Path { parts: parts.leak() }));
         }
         else {
             return Some(IdentOrPath::Ident(start));
@@ -1103,8 +1108,8 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
 
 
     #[inline(always)]
-    fn peek(&self) -> Token {
-        self.parse.tokens.inner()[self.token_cursor]
+    fn peek(&self) -> (Token, TokenId) {
+        (self.parse.tokens.inner()[self.token_cursor], self.current_token_id())
     }
 
     #[inline(always)]

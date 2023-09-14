@@ -2,6 +2,7 @@ use core::fmt::Write;
 
 use sti::traits::CopyIt;
 use sti::arena::Arena;
+use sti::arena_pool::ArenaPool;
 use sti::vec::Vec;
 use sti::string::String;
 use sti::boks::Box;
@@ -9,11 +10,11 @@ use sti::rc::Rc;
 use sti::keyed::{KVec, KFreeVec};
 use sti::hash::HashMap;
 
-use crate::string_table::StringTable;
+use crate::string_table::{StringTable, Atom};
 use crate::diagnostics::{Diagnostics, Diagnostic};
 use crate::ast::{SourceId, SourceRange, UserSourcePos, UserSourceRange, TokenId, AstId};
 use crate::parser::{self, Parse};
-use crate::env::Env;
+use crate::env::{Env, SymbolId};
 use crate::traits::Traits;
 use crate::elab::{self, Elab};
 use crate::vfs::Vfs;
@@ -68,6 +69,7 @@ struct ElabData {
     arena: Arena,
 
     env: Env<'static>,
+    #[allow(dead_code)]
     traits: Traits,
     elab: Elab<'static>,
 }
@@ -528,15 +530,11 @@ impl<'c> Inner<'c> {
                     // @cleanup: sti temp formatting.
                     let mut buf = String::new_in(alloc);
                     match e {
-                        ElabError::SymbolShadowedByLocal(name) => {
-                            sti::write!(&mut buf, "symbol {name:?} shadowed");
-                        }
-
-                        ElabError::UnresolvedName { base: _, name } => {
+                        ElabError::UnresolvedName (name) => {
                             sti::write!(&mut buf, "unknown symbol {name:?}");
                         }
 
-                        ElabError::UnresolvedLevel(name) => {
+                        ElabError::UnresolvedLevel (name) => {
                             sti::write!(&mut buf, "unknown level {name:?}");
                         }
 
@@ -693,13 +691,40 @@ impl<'c> Inner<'c> {
             return Vec::new();
         };
 
-        let mut result = Vec::new();
-
         if is_hit { if let Some(info) = elab.token_infos.get(&token_id) {
             // @temp: sti format_in.
             let mut buf = String::new_in(alloc);
-            sti::write!(&mut buf, "todo: {:?}", info);
-            result.push(HoverInfo { lang: None, content: buf.leak() });
+            match *info {
+                elab::TokenInfo::Local(item_id, id) => {
+                    let ctx = elab.item_ctxs[item_id].as_ref().unwrap();
+
+                    let local = ctx.local_ctx.lookup(id);
+                    let name = if local.name == Atom::NULL { "_" } else { &self.strings[local.name] };
+                    sti::write!(&mut buf, "{name}: ");
+
+                    let mut pp = crate::tt::TermPP::new(&elab_data.env, &self.strings, &ctx.local_ctx, alloc);
+                    let ty = ctx.ivar_ctx.instantiate_term_vars(local.ty, alloc);
+                    let ty = pp.pp_term(ty);
+                    let ty = pp.render(ty, 50);
+                    ty.layout_into_string(&mut buf);
+                }
+
+                elab::TokenInfo::Symbol(id) => {
+                    let temp = ArenaPool::tls_get_temp();
+                    let mut parts = Vec::new_in(&*temp);
+                    let mut at = id;
+                    while at != SymbolId::ROOT {
+                        let symbol = elab_data.env.symbol(at);
+                        parts.push(symbol.name);
+                        at = symbol.parent;
+                    }
+                    for (i, part) in parts.copy_it().rev().enumerate() {
+                        if i != 0 { sti::write!(&mut buf, "::"); }
+                        sti::write!(&mut buf, "{}", &self.strings[part]);
+                    }
+                }
+            }
+            return sti::vec![HoverInfo { lang: Some("kibi"), content: buf.leak() }];
         }}
 
 
@@ -828,21 +853,19 @@ impl<'c> Inner<'c> {
             let Some(ctx) = &elab.item_ctxs[item] else { continue };
 
             let Some(hit) = hit_test_ast(item.into(), token_id, parse) else { continue };
+
+            let mut buf = String::new_in(alloc);
             match hit {
                 AstId::Item(id) => {
                     if let Some(info) = elab.item_infos[id] {
                         match info {
                             elab::ItemInfo::Symbol(_) => (),
                             elab::ItemInfo::Reduce(value) => {
-                                let mut buf = String::new_in(alloc);
-
                                 let mut pp = crate::tt::TermPP::new(&elab_data.env, &self.strings, &ctx.local_ctx, alloc);
                                 let v = ctx.ivar_ctx.instantiate_term_vars(value, alloc);
                                 let v = pp.pp_term(v);
                                 let v = pp.render(v, 50);
                                 v.layout_into_string(&mut buf);
-
-                                result.push(HoverInfo { lang: Some("kibi"), content: buf.leak() });
                             }
                         }
                     }
@@ -852,8 +875,6 @@ impl<'c> Inner<'c> {
 
                 AstId::Expr(id) => {
                     if let Some(info) = elab.expr_infos[id] {
-                        let mut buf = String::new_in(alloc);
-
                         let term_begin = buf.len();
                         let mut pp = crate::tt::TermPP::new(&elab_data.env, &self.strings, &ctx.local_ctx, alloc);
                         let term = ctx.ivar_ctx.instantiate_term_vars(info.term, alloc);
@@ -870,15 +891,14 @@ impl<'c> Inner<'c> {
                         let ty = pp.pp_term(ty);
                         let ty = pp.render(ty, 50);
                         ty.layout_into_string(&mut buf);
-
-                        result.push(HoverInfo { lang: Some("kibi"), content: buf.leak() });
                     }
                 }
             }
-            break;
+
+            return sti::vec![HoverInfo { lang: Some("kibi"), content: buf.leak() }];
         }
 
-        return result;
+        return Vec::new();
     }
 }
 

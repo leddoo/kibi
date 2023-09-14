@@ -23,6 +23,7 @@ pub struct Elab<'a> {
 
 #[derive(Clone, Copy, Debug)]
 pub enum TokenInfo {
+    Local(ItemId, ScopeId),
     Symbol(SymbolId),
 }
 
@@ -55,16 +56,31 @@ pub fn elab_file<'out>(
     *elab.item_ctxs.inner_mut_unck()  = Vec::from_fn(|| None, parse.exprs.len());
     *elab.expr_infos.inner_mut_unck() = Vec::from_value(None, parse.exprs.len());
 
-    for item in parse.root_items.iter().copied() {
-        let mut elaborator = Elaborator::new(elab, env, traits, parse, SymbolId::ROOT, strings, alloc);
-        if elaborator.elab_item(item).is_none() {
-            break;
-        }
+    for item_id in parse.root_items.iter().copied() {
+        let mut elaborator = Elaborator {
+            alloc,
+            strings, env, traits,
+            parse, elab,
+            item_id,
+            root_symbol: SymbolId::ROOT,
+            lctx: LocalCtx::new(),
+            locals: Vec::new(),
+            level_params: Vec::new(),
+            ivars: ivars::IVarCtx::new(),
+        };
 
-        elab.item_ctxs[item] = Some(ItemCtx {
+        let result = elaborator.elab_item(item_id);
+
+        // need to set item ctx before stopping,
+        // cause token info hover unwraps item_id's ctx.
+        elab.item_ctxs[item_id] = Some(ItemCtx {
             local_ctx: elaborator.lctx,
             ivar_ctx:  elaborator.ivars,
         });
+
+        if result.is_none() {
+            break;
+        }
     }
 }
 
@@ -78,6 +94,7 @@ pub struct Elaborator<'me, 'c, 'out> {
     pub parse: &'me Parse<'me>,
     pub elab: &'me mut Elab<'out>,
 
+    item_id: ItemId,
     root_symbol: SymbolId,
 
     level_params: Vec<Atom>,
@@ -97,7 +114,6 @@ mod infer_type;
 mod def_eq_level;
 mod def_eq_term;
 mod abstracc_eq;
-mod elab_symbol;
 mod elab_level;
 mod elab_expr;
 mod elab_binders;
@@ -115,22 +131,6 @@ pub enum ExprOrTerm<'a> {
 }
 
 impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
-    pub fn new(elab: &'me mut Elab<'out>, env: &'me mut Env<'out>, traits: &'me mut Traits, parse: &'me Parse<'me>, root_symbol: SymbolId, strings: &'me mut StringTable<'c>, alloc: &'out Arena) -> Self {
-        Self {
-            alloc,
-            strings,
-            env,
-            traits,
-            parse,
-            elab,
-            root_symbol,
-            lctx: LocalCtx::new(),
-            locals: Vec::new(),
-            level_params: Vec::new(),
-            ivars: ivars::IVarCtx::new(),
-        }
-    }
-
     #[inline]
     pub fn error(&mut self, source: impl Into<DiagnosticSource>, error: ElabError<'out>) {
         self.elab.diagnostics.push(

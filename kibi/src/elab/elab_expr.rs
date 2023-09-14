@@ -1,3 +1,4 @@
+use sti::traits::{CopyIt, FromIn};
 use sti::arena_pool::ArenaPool;
 
 use crate::ast::*;
@@ -89,42 +90,16 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 self.new_term_var()
             }
 
-            ExprKind::Ident(name) => {
-                debug_assert_eq!(expr.source.len(), 1);
-
-                if let Some(local) = self.lookup_local(name) {
-                    let ty = self.lctx.lookup(local).ty;
-                    (self.alloc.mkt_local(local), ty)
-                }
-                else {
-                    let symbol = self.lookup_symbol_ident(expr_id.into(), name)?;
-                    self.elab_symbol(expr_id.into(), symbol, &[])?
-                }
+            ExprKind::Ident(ident) => {
+                return self.elab_ident_or_path(expr_id, IdentOrPath::Ident(ident), &[]);
             }
 
             ExprKind::Path(path) => {
-                let symbol = self.lookup_symbol_path(expr_id.into(), path.local, path.parts)?;
-                self.elab_symbol(expr_id.into(), symbol, &[])?
+                return self.elab_ident_or_path(expr_id, IdentOrPath::Path(path), &[]);
             }
 
             ExprKind::Levels(it) => {
-                let symbol = match it.symbol {
-                    IdentOrPath::Ident(name) => {
-                        if self.lookup_local(name).is_some() {
-                            self.error(expr_id,
-                                ElabError::SymbolShadowedByLocal(
-                                    self.alloc.alloc_str(&self.strings[name])));
-                        }
-
-                        self.lookup_symbol_ident(expr_id.into(), name)?
-                    }
-
-                    IdentOrPath::Path(path) => {
-                        self.lookup_symbol_path(expr_id.into(), path.local, path.parts)?
-                    }
-                };
-
-                self.elab_symbol(expr_id.into(), symbol, it.levels)?
+                return self.elab_ident_or_path(expr_id, it.symbol, it.levels);
             }
 
             ExprKind::Sort(l) => {
@@ -214,5 +189,133 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         })
     }
 
+
+    pub fn elab_ident_or_path(&mut self, expr_id: ExprId, name: IdentOrPath, levels: &[LevelId]) -> Option<(Term<'out>, Term<'out>)> {
+        let path = match &name {
+            IdentOrPath::Ident(ident) => {
+                if let Some(local) = self.lookup_local(ident.value) {
+                    if levels.len() != 0 {
+                        self.error(expr_id, ElabError::LevelCountMismatch {
+                            expected: 0,
+                            found: levels.len() as u32,
+                        });
+                        return None;
+                    }
+                    else {
+                        let ty = self.lctx.lookup(local).ty;
+                        return Some((self.alloc.mkt_local(local), ty));
+                    }
+                }
+                else {
+                    core::slice::from_ref(ident)
+                }
+            }
+
+            IdentOrPath::Path(path) => path.parts,
+        };
+
+        let symbol_id = self.elab_path(path)?;
+
+        let symbol = self.env.symbol(symbol_id);
+        Some(match symbol.kind {
+            SymbolKind::Root |
+            SymbolKind::Predeclared |
+            SymbolKind::Pending => unreachable!(),
+
+            SymbolKind::IndAxiom(it) => {
+                let num_levels = it.num_levels as usize;
+
+                // @cleanup: dedup.
+                let levels = if levels.len() == 0 {
+                    Vec::from_in(self.alloc,
+                        (0..num_levels).map(|_| self.new_level_var())
+                    ).leak()
+                }
+                else {
+                    if levels.len() != num_levels {
+                        self.error(expr_id,
+                            ElabError::LevelCountMismatch {
+                                expected: it.num_levels, found: levels.len() as u32 });
+                        return None;
+                    }
+
+                    let mut ls = Vec::with_cap_in(self.alloc, levels.len());
+                    for l in levels.copy_it() {
+                        ls.push(self.elab_level(l)?);
+                    }
+                    ls.leak()
+                };
+
+                (self.alloc.mkt_global(symbol_id, levels),
+                 it.ty.instantiate_level_params(levels, self.alloc))
+            }
+
+            SymbolKind::Def(def) => {
+                let num_levels = def.num_levels as usize;
+
+                // @cleanup: dedup.
+                let levels = if levels.len() == 0 {
+                    Vec::from_in(self.alloc,
+                        (0..num_levels).map(|_| self.new_level_var())
+                    ).leak()
+                }
+                else {
+                    if levels.len() != num_levels {
+                        self.error(expr_id,
+                            ElabError::LevelCountMismatch {
+                                expected: def.num_levels, found: levels.len() as u32 });
+                        return None;
+                    }
+
+                    let mut ls = Vec::with_cap_in(self.alloc, levels.len());
+                    for l in levels.copy_it() {
+                        ls.push(self.elab_level(l)?);
+                    }
+                    ls.leak()
+                };
+
+                (self.alloc.mkt_global(symbol_id, levels),
+                 def.ty.instantiate_level_params(levels, self.alloc))
+            }
+        })
+    }
+
+    pub fn elab_path(&mut self, parts: &[Ident]) -> Option<SymbolId> {
+        let base  = parts[0];
+        let parts = &parts[1..];
+
+        let Some(mut symbol_id) = self.env.lookup(self.root_symbol, base.value) else {
+            self.error(base.source,
+                ElabError::UnresolvedName(
+                    self.alloc.alloc_str(&self.strings[base.value])));
+            return None;
+        };
+        let none = self.elab.token_infos.insert(base.source, TokenInfo::Symbol(symbol_id));
+        debug_assert!(none.is_none());
+
+        for part in parts.copy_it() {
+            let Some(child) = self.env.lookup(symbol_id, part.value) else {
+                self.error(part.source,
+                    ElabError::UnresolvedName(
+                        self.alloc.alloc_str(&self.strings[part.value])));
+                return None;
+            };
+            symbol_id = child;
+
+            let none = self.elab.token_infos.insert(part.source, TokenInfo::Symbol(symbol_id));
+            debug_assert!(none.is_none());
+        }
+
+        Some(symbol_id)
+    }
+
+    pub fn lookup_local(&self, name: Atom) -> Option<ScopeId> {
+        for (n, id) in self.locals.iter().rev().copied() {
+            if n == name {
+                return Some(id);
+            }
+        }
+        None
+    }
 }
 

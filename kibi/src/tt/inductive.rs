@@ -4,7 +4,7 @@ use sti::traits::{CopyIt, FromIn};
 use sti::vec::Vec;
 
 use crate::string_table::Atom;
-use crate::ast::ItemId;
+use crate::ast::{ItemId, Ident};
 use crate::diagnostics::ElabError;
 use crate::env::{SymbolKind, symbol::{IndAxiomKind, IndAxiom}};
 use crate::elab::Elaborator;
@@ -17,7 +17,7 @@ use super::term::*;
 
 
 pub struct MutualSpec<'me, 'a> {
-    pub levels: &'me [Atom],
+    pub levels: &'me [Ident],
     pub params: &'me [ScopeId],
     pub types: &'me [TypeSpec<'me, 'a>],
     // @todo: better sources.
@@ -25,7 +25,7 @@ pub struct MutualSpec<'me, 'a> {
 }
 
 pub struct TypeSpec<'me, 'a> {
-    pub name: Atom,
+    pub name: Ident,
     pub symbol: SymbolId,
     pub local: ScopeId,
     pub ctors: &'me [CtorSpec<'a>],
@@ -34,7 +34,7 @@ pub struct TypeSpec<'me, 'a> {
 
 #[derive(Clone, Copy)]
 pub struct CtorSpec<'a> {
-    pub name:   Atom,
+    pub name:   Ident,
     pub symbol: SymbolId,
     pub ty:     Term<'a>,
 }
@@ -110,7 +110,7 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
             Vec::from_in(elab.alloc,
                 spec.levels.copy_it().enumerate()
                 .map(|(i, name)|
-                     elab.alloc.mkl_param(name, i as u32))).leak();
+                     elab.alloc.mkl_param(name.value, i as u32))).leak();
 
         let temp = ArenaPool::tls_get_rec();
 

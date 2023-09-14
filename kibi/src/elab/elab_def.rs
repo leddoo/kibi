@@ -17,7 +17,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         let temp = ArenaPool::tls_get_rec();
 
         for level in axiom.levels {
-            self.level_params.push(*level);
+            self.level_params.push(level.value);
         }
 
         let locals = self.elab_binders(axiom.params, &*temp)?;
@@ -41,8 +41,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
             IdentOrPath::Path(path) => {
                 let (name, parts) = path.parts.split_last().unwrap();
-                // @temp: missing source range.
-                let parent = self.lookup_symbol_path(ParseRange::UNKNOWN.into(), path.local, parts)?;
+                let parent = self.elab_path(parts)?;
                 (parent, *name)
             }
         };
@@ -68,7 +67,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         let _ = self.check_no_unassigned_variables(item_id.into())?;
 
-        let symbol = self.env.new_symbol(parent, name,
+        let symbol = self.env.new_symbol(parent, name.value,
             SymbolKind::Def(symbol::Def {
                 num_levels: axiom.levels.len() as u32,
                 ty,
@@ -79,14 +78,14 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         Some(symbol)
     }
 
-    pub fn elab_def_core(&mut self, item_id: ItemId, levels: &[Atom], params: &[ast::Binder], ty: OptExprId, value: ExprId) -> Option<(Term<'out>, Term<'out>)> {
+    pub fn elab_def_core(&mut self, item_id: ItemId, levels: &[Ident], params: &[ast::Binder], ty: OptExprId, value: ExprId) -> Option<(Term<'out>, Term<'out>)> {
         assert_eq!(self.locals.len(), 0);
         assert_eq!(self.level_params.len(), 0);
 
         let temp = ArenaPool::tls_get_rec();
 
         for level in levels {
-            self.level_params.push(*level);
+            self.level_params.push(level.value);
         }
 
         let locals = self.elab_binders(params, &*temp)?;
@@ -156,24 +155,26 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         let (ty, val) = self.elab_def_core(item_id, def.levels, def.params, def.ty, def.value)?;
 
-        let (parent, name) = match &def.name {
-            IdentOrPath::Ident(name) => (self.root_symbol, *name),
+        let (parent, name) = match def.name {
+            IdentOrPath::Ident(name) => (self.root_symbol, name),
 
             IdentOrPath::Path(path) => {
                 let (name, parts) = path.parts.split_last().unwrap();
-                // @temp: missing source range.
-                let parent = self.lookup_symbol_path(ParseRange::UNKNOWN.into(), path.local, parts)?;
+                let parent = self.elab_path(parts)?;
                 (parent, *name)
             }
         };
 
-        let symbol = self.env.new_symbol(parent, name,
+        let symbol = self.env.new_symbol(parent, name.value,
             SymbolKind::Def(symbol::Def {
                 num_levels: def.levels.len() as u32,
                 ty,
                 val: Some(val),
             })
         )?;
+
+        let none = self.elab.token_infos.insert(name.source, TokenInfo::Symbol(symbol));
+        debug_assert!(none.is_none());
 
         Some(symbol)
     }

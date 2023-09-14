@@ -29,7 +29,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
             ItemKind::Inductive(it) => {
                 spall::trace_scope!("kibi/elab/inductive"; "{}",
-                    &self.strings[it.name]);
+                    &self.strings[it.name.value]);
 
                 let symbol = self.elab_inductive(item_id, it)?;
                 ItemInfo::Symbol(symbol)
@@ -39,7 +39,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 match it {
                     item::Trait::Inductive(ind) => {
                         spall::trace_scope!("kibi/elab/trait-ind",
-                            &self.strings[ind.name]);
+                            &self.strings[ind.name.value]);
 
                         let symbol = self.elab_inductive(item_id, &ind)?;
 

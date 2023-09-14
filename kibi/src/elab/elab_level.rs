@@ -16,13 +16,13 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
             ast::LevelKind::Ident(name) => {
                 for i in 0..self.level_params.len() {
-                    if name == self.level_params[i] {
-                        return Some(self.alloc.mkl_param(name, i as u32));
+                    if name.value == self.level_params[i] {
+                        return Some(self.alloc.mkl_param(name.value, i as u32));
                     }
                 }
                 self.error(level_id,
                     ElabError::UnresolvedLevel(
-                        self.alloc.alloc_str(&self.strings[name])));
+                        self.alloc.alloc_str(&self.strings[name.value])));
                 return None;
             }
 

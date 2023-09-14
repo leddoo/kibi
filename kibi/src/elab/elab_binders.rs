@@ -12,12 +12,16 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         for binder in binders.iter() {
             match binder {
-                ast::Binder::Ident(name) => {
+                ast::Binder::Ident(ident) => {
                     let (ty, l) = self.new_ty_var();
-                    let name = name.to_option().unwrap_or(Atom::NULL);
+
+                    let name = ident.value.to_option().unwrap_or(Atom::NULL);
                     let id = self.lctx.push(tt::BinderKind::Explicit, name, ty, None);
                     self.locals.push((name, id));
                     locals.push((id, ty, l));
+
+                    let none = self.elab.token_infos.insert(ident.source, TokenInfo::Local(self.item_id, id));
+                    debug_assert!(none.is_none());
                 }
 
                 ast::Binder::Typed(b) => {
@@ -26,11 +30,17 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                         if b.implicit { tt::BinderKind::Implicit }
                         else          { tt::BinderKind::Explicit };
 
-                    for name in b.names {
-                        let name = name.to_option().unwrap_or(Atom::NULL);
+                    for ident in b.names {
+                        let name = ident.value.to_option().unwrap_or(Atom::NULL);
                         let id = self.lctx.push(kind, name, ty, None);
                         self.locals.push((name, id));
                         locals.push((id, ty, l));
+
+                        // @arrow_uses_null_ident
+                        if ident.value != Atom::NULL.some() {
+                            let none = self.elab.token_infos.insert(ident.source, TokenInfo::Local(self.item_id, id));
+                            debug_assert!(none.is_none());
+                        }
                     }
                 }
             }

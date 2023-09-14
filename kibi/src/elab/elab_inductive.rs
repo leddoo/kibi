@@ -15,11 +15,11 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         let temp = ArenaPool::tls_get_rec();
 
         for level in ind.levels {
-            self.level_params.push(*level);
+            self.level_params.push(level.value);
         }
 
         let ind_symbol = self.env.new_symbol(self.root_symbol,
-            ind.name, SymbolKind::Pending)?;
+            ind.name.value, SymbolKind::Pending)?;
 
         // check params.
         let params = self.elab_binders(ind.params, &*temp)?;
@@ -55,8 +55,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         // create a local for the inductive type,
         // for the idents in the ctors to bind to.
         let ind_local_id =
-            self.lctx.push(BinderKind::Explicit, ind.name, type_former, None);
-        self.locals.push((ind.name, ind_local_id));
+            self.lctx.push(BinderKind::Explicit, ind.name.value, type_former, None);
+        self.locals.push((ind.name.value, ind_local_id));
 
         let ind_local = self.alloc.mkt_local(ind_local_id);
 
@@ -92,7 +92,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 return None;
             }
 
-            let symbol = self.env.new_symbol(ind_symbol, ctor.name, SymbolKind::Pending)?;
+            let symbol = self.env.new_symbol(ind_symbol, ctor.name.value, SymbolKind::Pending)?;
             ctors.push(inductive::CtorSpec { name: ctor.name, symbol, ty });
         }
 
@@ -117,6 +117,9 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             ],
         };
         inductive::Check::check(self, spec)?;
+
+        let none = self.elab.token_infos.insert(ind.name.source, TokenInfo::Symbol(ind_symbol));
+        debug_assert!(none.is_none());
 
         return Some(ind_symbol);
     }

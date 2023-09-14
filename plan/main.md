@@ -1,13 +1,14 @@
 
 - road map:
     - lsp.
+    - do.
+    - references.
+    - codegen.
+    - unordered decls.
     - incremental.
     - modules.
-    - unordered decls.
-    - codegen.
     - nat literals.
     - `Of_Nat` and default impls.
-    - references.
     - multi-threading.
     - macros.
     - basic proof inference.
@@ -16,11 +17,17 @@
 
 - todo:
     - `Ident(Atom, TokenId)`.
-    - use token info for binder name info.
+        - symbol types.
+        - no symbol token info for last part of path.
+          but optional, only for exprs, not for defs.
+        - inductive sources. should be able to get rid of `temp_source`.
     - lsp stuff:
-        - completions.
         - go to definition.
+        - completions.
         - document highlights.
+    - clean up backlog & move to separate file.
+    - do.
+
     - error resilient parsing.
         - parser skips comment tokens (add) & error tokens.
         - unterminated `/-` is error token and does not consume input until eof.
@@ -42,6 +49,7 @@
         - should be able to keep refs into env,
           cause need to rerun if anything used from env changed.
 
+    - sti `insert_new`.
     - better source info: `Ident(name, token)`.
     - post analysis elab.
         - cause that's useful.

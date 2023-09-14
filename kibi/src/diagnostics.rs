@@ -43,8 +43,7 @@ pub enum ParseError<'a> {
 
 #[derive(Clone, Copy, Debug)]
 pub enum ElabError<'a> {
-    SymbolShadowedByLocal (&'a str),
-    UnresolvedName { base: &'a str, name: &'a str },
+    UnresolvedName  (&'a str),
     UnresolvedLevel (&'a str),
     LevelCountMismatch { expected: u32, found: u32 },
     TypeMismatch { expected: DocRef<'a>, found: DocRef<'a> },
