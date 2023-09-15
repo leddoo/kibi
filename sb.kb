@@ -376,7 +376,6 @@ reduce Result::and_then(Result::and_then(Result::and_then(Result::and_then(Resul
 axiom Region: Type
 
 axiom Region::local(id: Nat): Region
-
 axiom Region::array_field(array: Region, index: Nat): Region
 
 
@@ -388,15 +387,20 @@ inductive Ref_Kind {
 
 inductive Ref(r: Region, kind: Ref_Kind, T: Type) {
     mk (tag: Tag, addr: Nat)
+    -- todo: the tag needs to be opaque, so we can't derive equality.
+    -- todo: trait for metadata.
 }
 
 axiom Ref::from_local(id: Nat, kind: Ref_Kind, T: Type): Ref(Region::local(id), kind, T)
-axiom Ref::from_ref<r: Region, kind: Ref_Kind, T: Type>(ref: Ref(r, kind, T)): Ref(r, kind, T)
+axiom Ref::from_ref<r: Region, kind1: Ref_Kind, T: Type>(ref: Ref(r, kind1, T), kind2: Ref_Kind): Ref(r, kind2, T)
 
 axiom Ref::cast_region<r1: Region, kind: Ref_Kind, T: Type>(ref: Ref(r1, kind, T), r2: Region): Ref(r2, kind, T)
 
 axiom Ref::read<r: Region, kind: Ref_Kind, T: Type>(ref: Ref(r, kind, T)): T
 axiom Ref::write<r: Region, T: Type>(ref: Ref(r, Ref_Kind::mut, T), value: T): Unit
+
+-- compiler tries to find latest write and `ensure_def_eq`'s that value with the provided value.
+axiom Ref::assume_value<r: _, kind: _, T: _>(ref: Ref(r, kind, T), value: T): Ref::read(ref) = value
 
 
 def I32 := Nat -- temp
@@ -410,8 +414,8 @@ def foo :=
         Unit::mk()
     )(Ref::read(r2))
     )(Ref::write(r1, 69))
-    )(Ref::from_ref(r1))
-    )(Ref::from_ref(v))
+    )(Ref::from_ref(r1, Ref_Kind::mut))
+    )(Ref::from_ref(v, Ref_Kind::mut))
     )(Ref::from_local(0, Ref_Kind::mut, I32))
 
 

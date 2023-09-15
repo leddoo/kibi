@@ -67,6 +67,7 @@ impl Lsp {
             let bytes = msg.as_slice();
 
             let Some(end_headers) = bytes.windows(4).position(|w| w == b"\r\n\r\n") else {
+                self.message = msg;
                 return true;
             };
 
@@ -99,7 +100,7 @@ impl Lsp {
                 spall::trace_scope!("kibi_lsp/parse_content");
 
                 let content = json::parse(&*temp, content).unwrap();
-                {
+                #[cfg(debug_assertions)] {
                     let temp = unsafe { ArenaPool::tls_get_scoped(&[]) };
                     let mut buf = String::new_in(&*temp);
                     write!(&mut buf, "{}", content).unwrap();
@@ -133,11 +134,6 @@ impl Lsp {
     }
 
     fn process_message(&mut self, msg: json::Value) -> bool {
-        {
-            spall::trace_scope!("kibi_lsp/log_message");
-            _ = writeln!(self.log, "[debug] {:?} message: {:#}", time(), msg);
-        }
-
         assert_eq!(msg["jsonrpc"], "2.0".into());
 
         if let Some(method) = msg.get("method") {

@@ -16,8 +16,6 @@
 
 
 - todo:
-    - ref theory:
-        - how to reason about the ref'd value?
     - `Ident(Atom, TokenId)`.
         - symbol types.
         - no symbol token info for last part of path.
@@ -28,10 +26,12 @@
         - don't send zero width hover infos.
         - already defined error.
         - error for missing predeclared symbol.
-    - go to definition.
     - clean up backlog & move to separate file.
+    - `let`.
     - do.
 
+    - type-less binders.
+    - go to definition.
     - error resilient parsing.
         - parser skips comment tokens (add) & error tokens.
         - unterminated `/-` is error token and does not consume input until eof.
