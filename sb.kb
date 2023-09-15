@@ -236,7 +236,7 @@ def Stack::new_shared(self: Stack, parent: Tag): Result(Pair(Stack, Tag), Error)
                     -- shared
                     Result::ok(Stack::use(self, e, tail)),
                     -- const
-                    Result::err(Error::cant_derive_from(e)),
+                    Result::err(Error::cant_derive_from(e)), -- @todo: flag to allow.
                     Entry::kind(e)),
                 lam _ => rec),
         Stack::entries(self))
@@ -253,7 +253,7 @@ def Stack::new_const(self: Stack, parent: Tag): Result(Pair(Stack, Tag), Error) 
                     -- shared_mut
                     Result::ok(Stack::push(self, Tag_Kind::const, e, tail)),
                     -- shared
-                    Result::err(Error::cant_derive_from(e)),
+                    Result::err(Error::cant_derive_from(e)), -- @todo: flag to allow.
                     -- const
                     Result::ok(Stack::use(self, e, tail)),
                     Entry::kind(e)),
@@ -316,7 +316,7 @@ def Stack::use_tag(self: Stack, tag: Tag): Result(Stack, Error) :=
 
 
 -- example:
---  mut v = 42
+--  var v = 42
 --  let r1 = &mut v
 --  let r2 = &mut *r1
 --  *r1 = 69
@@ -336,7 +336,7 @@ reduce Result::and_then(Result::and_then(Result::and_then(Result::and_then(Resul
 --      return v  -- want to assert `r` live -> delay read
 --  }
 --
---  mut v = 42
+--  var v = 42
 --  let p = &mut v as *mut i32
 --  foo(&*p, fn() { *p = 69 })  -- refs used before & after
 --  print(v)
@@ -349,4 +349,69 @@ reduce Result::and_then(Result::and_then(Result::and_then(Result::and_then(Resul
     lam r => Stack::write(r, 2)),                       -- fn: *p = 69
     lam r => Stack::use_tag(r, 3)),                     -- after foo: validate &*p
     lam r => Stack::read(r, 0))                         -- print(v)
+
+
+
+--  var v := 42
+--  let r1 := &mut v
+--  let r2 := &mut *r1
+--  *r1 := 69
+--  *r2
+--
+-- locals:
+--  v: I32
+--  r1: Ref('r1, .mut, I32)
+--  r2: Ref('r2, .mut, I32)
+--
+-- ir:
+--  let v := -- create ref for local "v"
+--  let _ := Ref::write(v, I32::of_nat(42))
+--  let r1 := -- create ref from `v`
+--  let r2 := -- create ref from `r2`
+--  let _ := Ref::write(r1, I32::of_nat(69))
+--  let _ := Ref::read(r2)
+--  ()
+
+
+axiom Region: Type
+
+axiom Region::local(id: Nat): Region
+
+axiom Region::array_field(array: Region, index: Nat): Region
+
+
+inductive Ref_Kind {
+    mut;
+    shr;
+    const;
+}
+
+inductive Ref(r: Region, kind: Ref_Kind, T: Type) {
+    mk (tag: Tag, addr: Nat)
+}
+
+axiom Ref::from_local(id: Nat, kind: Ref_Kind, T: Type): Ref(Region::local(id), kind, T)
+axiom Ref::from_ref<r: Region, kind: Ref_Kind, T: Type>(ref: Ref(r, kind, T)): Ref(r, kind, T)
+
+axiom Ref::cast_region<r1: Region, kind: Ref_Kind, T: Type>(ref: Ref(r1, kind, T), r2: Region): Ref(r2, kind, T)
+
+axiom Ref::read<r: Region, kind: Ref_Kind, T: Type>(ref: Ref(r, kind, T)): T
+axiom Ref::write<r: Region, T: Type>(ref: Ref(r, Ref_Kind::mut, T), value: T): Unit
+
+
+def I32 := Nat -- temp
+
+def foo :=
+    (lam v =>
+    (lam r1 =>
+    (lam r2 =>
+    (lam _ =>
+    (lam _ =>
+        Unit::mk()
+    )(Ref::read(r2))
+    )(Ref::write(r1, 69))
+    )(Ref::from_ref(r1))
+    )(Ref::from_ref(v))
+    )(Ref::from_local(0, Ref_Kind::mut, I32))
+
 

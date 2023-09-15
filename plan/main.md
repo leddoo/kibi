@@ -16,6 +16,8 @@
 
 
 - todo:
+    - ref theory:
+        - how to reason about the ref'd value?
     - `Ident(Atom, TokenId)`.
         - symbol types.
         - no symbol token info for last part of path.
