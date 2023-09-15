@@ -21,10 +21,12 @@
         - no symbol token info for last part of path.
           but optional, only for exprs, not for defs.
         - inductive sources. should be able to get rid of `temp_source`.
-    - lsp stuff:
-        - go to definition.
-        - completions.
-        - document highlights.
+    - fixes:
+        - spall flush.
+        - don't send zero width hover infos.
+        - already defined error.
+        - error for missing predeclared symbol.
+    - go to definition.
     - clean up backlog & move to separate file.
     - do.
 

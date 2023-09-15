@@ -9,11 +9,23 @@ use kibi::compiler::Compiler;
 fn main() {
     kibi::spall::init("target/trace.spall").unwrap();
 
+    let (path, contents) = {
+        if std::env::args().len() == 2 {
+            let path = std::env::args().nth(1).unwrap();
+            let code = &*std::vec::Vec::leak(std::fs::read(&path).unwrap());
+            let path = core::str::from_utf8(std::vec::Vec::leak(path.into_bytes())).unwrap();
+            (path, code)
+        }
+        else {
+            ("hello.kb", &include_bytes!("../../../hello.kb")[..])
+        }
+    };
+
     let fs = Rc::new(MemFs::new());
-    fs.write("hello.kb", include_bytes!("../../../hello.kb"));
+    fs.write(path, contents);
 
     let mut c = Compiler::new(&fs);
-    c.add_source("hello.kb");
+    c.add_source(path);
     c.update();
 
     //println!("{:#?}", c.query_semantic_tokens("hello.kb"));

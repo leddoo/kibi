@@ -1,0 +1,352 @@
+axiom ax_sorry.{l} <T: Sort(l)>: T
+
+
+inductive False {}
+
+inductive True { trivial }
+
+
+inductive Eq.{t} <T: Sort(t)> (a: T) : Pi(b: T) -> Prop {
+    refl: Eq(a);
+}
+
+def congr_arg.{a, b} <A: Sort(a), B: Sort(b), a1 a2: A> (f: A -> B)
+    : a1 = a2 -> f(a1) = f(a2)
+    := lam heq => Eq::rec(Eq::refl(), heq)
+
+
+inductive Unit { mk }
+
+
+inductive Bool {
+    false;
+    true;
+}
+
+def Bool::No_Confusion.{p} (P: Sort(p), a b: Bool): Sort(p) :=
+    Bool::rec(
+        Bool::rec(P -> P, P, a),
+        Bool::rec(P, P -> P, a),
+        b)
+
+def Bool::no_confusion.{p} <P: Sort(p), a b: Bool>: a = b -> Bool::No_Confusion(P, a, b) :=
+    lam h => Eq::rec(Bool::rec(lam p => p, lam p => p, a), h)
+
+def ite (cond: Bool) <T: Type> (on_true: T) (on_false: T): T
+    := Bool::rec(on_false, on_true, cond)
+
+
+trait inductive Decidable (P: Prop) {
+    is_false (h: P -> False);
+    is_true  (h: P);
+}
+
+def dite (cond: Prop) <h: Decidable(cond)>
+    <T: Type> (on_true: cond -> T) (on_false: (cond -> False) -> T)
+    : T
+    := Decidable::rec(on_false, on_true, h)
+
+def Decidable::to_bool<P: Prop>(self: Decidable(P)): Bool :=
+    Decidable::rec(lam _ => Bool::false, lam _ => Bool::true, self)
+
+
+
+inductive Nat {
+    zero;
+    succ (of: Nat);
+}
+
+def Nat::No_Confusion.{p} (P: Sort(p), a b: Nat): Sort(p) :=
+    Nat::rec(
+        Nat::rec(P -> P, lam _ _ => P, a),
+        lam b _ => Nat::rec(P, lam a _ => (Eq(a, b) -> P) -> P, a),
+        b)
+
+def Nat::no_confusion.{p} <P: Sort(p), a b: Nat>: a = b -> Nat::No_Confusion(P, a, b) :=
+    lam h => Eq::rec(Nat::rec(lam p => p, lam _ _ => lam p => p(Eq::refl()), a), h)
+
+
+def Nat::succ_inj <a b: Nat>
+    : Nat::succ(a) = Nat::succ(b) -> a = b
+    := lam h => Nat::no_confusion(h, lam eq => eq)
+
+
+-- @todo: named impls.
+def Nat::dec_eq (a b: Nat): Decidable(Eq(a, b)) :=
+    Nat::rec(
+        lam b => Nat::rec(
+            Decidable::is_true(Eq::refl()),
+            lam _ _ => Decidable::is_false(Nat::no_confusion()),
+            b),
+        lam a rec b => Nat::rec(
+            Decidable::is_false(Nat::no_confusion()),
+            lam b _ => Decidable::rec(
+                lam h => Decidable::is_false(lam heq => h(Nat::succ_inj(heq))),
+                lam h => Decidable::is_true(congr_arg(_, h)),
+                rec(b)),
+            b),
+        a, b)
+
+impl<a b: Nat>: Decidable(Eq(a, b)) := Nat::dec_eq(a, b)
+
+
+
+inductive Pair(A B: Type) {
+    mk (fst: A, snd: B)
+}
+
+def Pair::fst<A B: Type>(self: Pair(A, B)): A := Pair::rec(lam fst snd => fst, self)
+def Pair::snd<A B: Type>(self: Pair(A, B)): B := Pair::rec(lam fst snd => snd, self)
+
+
+inductive Option(T: Type) {
+    none;
+    some (value: T);
+}
+
+inductive List(T: Type) {
+    nil;
+    cons (head: T, tail: List);
+}
+
+def List::find<T: Type>(self: List(T), p: T -> Bool): Option(T) :=
+    List::rec(
+        Option::none(),
+        lam head _ rec => ite(p(head), Option::some(head), rec), self)
+
+
+inductive Result(T: Type, E: Type) {
+    ok  (result: T);
+    err (error: E);
+}
+
+def Result::and_then<T1 T2 E: Type>(self: Result(T1, E), f: T1 -> Result(T2, E)): Result(T2, E) :=
+    Result::rec(
+        lam r => f(r),
+        lam e => Result::err(e),
+        self)
+
+def Option::ok_or<T E: Type>(self: Option(T), e: E): Result(T, E) :=
+    Option::rec(
+        Result::err(e),
+        lam r => Result::ok(r),
+        self)
+
+
+
+-- stacked borrows:
+
+def Tag := Nat
+
+inductive Tag_Kind {
+    exclusive;
+    shared_mut;
+    shared;
+    const;
+}
+
+inductive Entry {
+    mk (tag: Tag, kind: Tag_Kind);
+}
+
+def Entry::tag(self: Entry): Tag := Entry::rec(lam tag kind => tag, self)
+def Entry::kind(self: Entry): Tag_Kind := Entry::rec(lam tag kind => kind, self)
+
+inductive Stack {
+    mk (entries: List(Entry), next_tag: Tag)
+}
+
+def Stack::new := Stack::mk(List::cons(Entry::mk(0, Tag_Kind::exclusive), List::nil()), 1)
+
+def Stack::entries(self: Stack): List(Entry) := Stack::rec(lam entries next_tag => entries, self)
+def Stack::next_tag(self: Stack): Nat := Stack::rec(lam entries next_tag => next_tag, self)
+
+
+inductive Error {
+    not_in_stack (tag: Tag);
+    cant_derive_from (parent: Entry);
+    cant_write (entry: Entry);
+    cant_write_inner (entry: Entry);
+}
+
+
+def Stack::push(self: Stack, kind: Tag_Kind, head: Entry, tail: List(Entry)): Pair(Stack, Tag) :=
+    Pair::mk(
+        Stack::mk(
+            List::cons(Entry::mk(Stack::next_tag(self), kind), List::cons(head, tail)),
+            Nat::succ(Stack::next_tag(self))),
+        Stack::next_tag(self))
+
+def Stack::use(self: Stack, head: Entry, tail: List(Entry)): Pair(Stack, Tag) :=
+    Pair::mk(
+        Stack::mk(
+            List::cons(head, tail),
+            Stack::next_tag(self)),
+        Entry::tag(head))
+
+
+def Stack::new_exclusive(self: Stack, parent: Tag): Result(Pair(Stack, Tag), Error) :=
+    List::rec(
+        Result::err(Error::not_in_stack(parent)),
+        lam e tail rec =>
+            dite(Eq(Entry::tag(e), parent),
+                lam _ => Tag_Kind::rec(
+                    -- exclusive
+                    Result::ok(Stack::push(self, Tag_Kind::exclusive, e, tail)),
+                    -- shared_mut
+                    Result::ok(Stack::push(self, Tag_Kind::exclusive, e, tail)),
+                    -- shared
+                    Result::err(Error::cant_derive_from(e)),
+                    -- const
+                    Result::err(Error::cant_derive_from(e)),
+                    Entry::kind(e)),
+                lam _ => rec),
+        Stack::entries(self))
+
+
+def Stack::new_shared_mut(self: Stack, parent: Tag): Result(Pair(Stack, Tag), Error) :=
+    List::rec(
+        Result::err(Error::not_in_stack(parent)),
+        lam e tail rec =>
+            dite(Eq(Entry::tag(e), parent),
+                lam _ => Tag_Kind::rec(
+                    -- exclusive
+                    Result::ok(Stack::push(self, Tag_Kind::shared_mut, e, tail)),
+                    -- shared_mut
+                    Result::ok(Stack::use(self, e, tail)),
+                    -- shared
+                    Result::err(Error::cant_derive_from(e)),
+                    -- const
+                    Result::err(Error::cant_derive_from(e)),
+                    Entry::kind(e)),
+                lam _ => rec),
+        Stack::entries(self))
+
+
+def Stack::new_shared(self: Stack, parent: Tag): Result(Pair(Stack, Tag), Error) :=
+    List::rec(
+        Result::err(Error::not_in_stack(parent)),
+        lam e tail rec =>
+            dite(Eq(Entry::tag(e), parent),
+                lam _ => Tag_Kind::rec(
+                    -- exclusive
+                    Result::ok(Stack::push(self, Tag_Kind::shared, e, tail)),
+                    -- shared_mut
+                    Result::ok(Stack::push(self, Tag_Kind::shared, e, tail)),
+                    -- shared
+                    Result::ok(Stack::use(self, e, tail)),
+                    -- const
+                    Result::err(Error::cant_derive_from(e)),
+                    Entry::kind(e)),
+                lam _ => rec),
+        Stack::entries(self))
+
+
+def Stack::new_const(self: Stack, parent: Tag): Result(Pair(Stack, Tag), Error) :=
+    List::rec(
+        Result::err(Error::not_in_stack(parent)),
+        lam e tail rec =>
+            dite(Eq(Entry::tag(e), parent),
+                lam _ => Tag_Kind::rec(
+                    -- exclusive
+                    Result::ok(Stack::push(self, Tag_Kind::const, e, tail)),
+                    -- shared_mut
+                    Result::ok(Stack::push(self, Tag_Kind::const, e, tail)),
+                    -- shared
+                    Result::err(Error::cant_derive_from(e)),
+                    -- const
+                    Result::ok(Stack::use(self, e, tail)),
+                    Entry::kind(e)),
+                lam _ => rec),
+        Stack::entries(self))
+
+
+def Stack::read(self: Stack, tag: Tag): Result(Stack, Error) :=
+    List::rec(
+        Result::err(Error::not_in_stack(tag)),
+        lam e tail rec =>
+            dite(Eq(Entry::tag(e), tag),
+                lam _ =>
+                    -- read is always ok.
+                    Result::ok(Pair::fst(Stack::use(self, e, tail))),
+                lam _ => rec),
+        Stack::entries(self))
+
+
+def Stack::write(self: Stack, tag: Tag): Result(Stack, Error) :=
+    List::rec(
+        Result::err(Error::not_in_stack(tag)),
+        lam e tail rec =>
+            dite(Eq(Entry::tag(e), tag),
+                lam _ => Tag_Kind::rec(
+                    -- exclusive
+                    Result::ok(Pair::fst(Stack::use(self, e, tail))),
+                    -- shared_mut
+                    Result::ok(Pair::fst(Stack::use(self, e, tail))),
+                    -- shared
+                    Result::err(Error::cant_write(e)),
+                    -- const
+                    Result::err(Error::cant_write(e)),
+                    Entry::kind(e)),
+                lam _ => rec),
+        Stack::entries(self))
+
+
+def Stack::write_inner(self: Stack, tag: Tag): Result(Stack, Error) :=
+    List::rec(
+        Result::err(Error::not_in_stack(tag)),
+        lam e tail rec =>
+            dite(Eq(Entry::tag(e), tag),
+                lam _ => Tag_Kind::rec(
+                    -- exclusive
+                    Result::ok(Pair::fst(Stack::use(self, e, tail))),
+                    -- shared_mut
+                    Result::ok(Pair::fst(Stack::use(self, e, tail))),
+                    -- shared
+                    Result::ok(Pair::fst(Stack::use(self, e, tail))),
+                    -- const
+                    Result::err(Error::cant_write_inner(e)),
+                    Entry::kind(e)),
+                lam _ => rec),
+        Stack::entries(self))
+
+
+def Stack::use_tag(self: Stack, tag: Tag): Result(Stack, Error) :=
+    Stack::read(self, tag)
+
+
+-- example:
+--  mut v = 42
+--  let r1 = &mut v
+--  let r2 = &mut *r1
+--  *r1 = 69
+--  *r2
+
+reduce Result::and_then(Result::and_then(Result::and_then(Result::and_then(Result::ok(Stack::new()),
+    lam s => Stack::new_exclusive(s, 0)),
+    lam r => Stack::new_exclusive(Pair::fst(r), 1)),
+    lam r => Stack::write(Pair::fst(r), 1)),
+    lam s => Stack::read(s, 2))
+
+
+-- example:
+--  fn foo(r: &I32, f: is FnOnce()) {
+--      let v = *r
+--      f()
+--      return v  -- want to assert `r` live -> delay read
+--  }
+--
+--  mut v = 42
+--  let p = &mut v as *mut i32
+--  foo(&*p, fn() { *p = 69 })  -- refs used before & after
+--  print(v)
+
+reduce Result::and_then(Result::and_then(Result::and_then(Result::and_then(Result::and_then(Result::and_then(Result::and_then(Result::ok(Stack::new()),
+    lam r => Stack::new_exclusive(r, 0)),               -- &mut v
+    lam r => Stack::new_shared_mut(Pair::fst(r), 1)),   -- as *mut i32
+    lam r => Stack::new_shared(Pair::fst(r), 2)),       -- &*p
+    lam r => Stack::read(Pair::fst(r), 3)),             -- foo: *r
+    lam r => Stack::write(r, 2)),                       -- fn: *p = 69
+    lam r => Stack::use_tag(r, 3)),                     -- after foo: validate &*p
+    lam r => Stack::read(r, 0))                         -- print(v)
+

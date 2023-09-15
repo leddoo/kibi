@@ -55,6 +55,7 @@ impl Lsp {
         spall::trace_scope!("kibi_lsp/process_bytes");
 
         _ = self.stdin.write(bytes);
+        _ = self.stdin.flush();
 
         self.message.extend_from_slice(bytes);
 

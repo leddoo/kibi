@@ -34,6 +34,7 @@ configs.kibi_lsp = {
         cmd = { "target/debug/kibi-lsp" },
         --cmd = { "target/release/kibi-lsp" },
 
+        root_dir = lspconfig.util.find_git_ancestor,
         single_file_support = true,
 
         on_new_config = function(new_config)

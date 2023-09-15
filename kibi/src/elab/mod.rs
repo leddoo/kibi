@@ -52,8 +52,8 @@ pub fn elab_file<'out>(
     env: &mut Env<'out>, traits: &mut Traits, strings: &mut StringTable,
     alloc: &'out Arena)
 {
-    *elab.item_infos.inner_mut_unck() = Vec::from_fn(|| None, parse.exprs.len());
-    *elab.item_ctxs.inner_mut_unck()  = Vec::from_fn(|| None, parse.exprs.len());
+    *elab.item_infos.inner_mut_unck() = Vec::from_fn(|| None, parse.items.len());
+    *elab.item_ctxs.inner_mut_unck()  = Vec::from_fn(|| None, parse.items.len());
     *elab.expr_infos.inner_mut_unck() = Vec::from_value(None, parse.exprs.len());
 
     for item_id in parse.root_items.iter().copied() {
