@@ -139,6 +139,10 @@ impl<'me, 'c, 'i, 'out> Tokenizer<'me, 'c, 'i, 'out> {
                     else { TokenKind::Colon }
                 }
 
+                '&' => {
+                    TokenKind::Ampersand
+                }
+
                 '+' => {
                     if self.reader.consume_if_eq(&b'=') {
                         TokenKind::AddAssign
@@ -504,7 +508,15 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
             }
 
             _ => {
-                StmtKind::Expr(self.parse_expr(this_parent)?)
+                let lhs = self.parse_expr(this_parent)?;
+
+                if self.consume_if_eq(TokenKind::ColonEq) {
+                    let rhs = self.parse_expr(this_parent)?;
+                    StmtKind::Assign(lhs, rhs)
+                }
+                else {
+                    StmtKind::Expr(lhs)
+                }
             }
         };
 
@@ -577,12 +589,6 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     let rhs = self.parse_expr_ex(this_parent, op.rprec())?;
 
                     let kind = match op {
-                        InfixOp::Assign =>
-                            ExprKind::Assign(expr::Assign { lhs, rhs }),
-
-                        InfixOp::Op2Assign(op) =>
-                            ExprKind::Op2Assign(expr::Op2 { op, lhs, rhs }),
-
                         InfixOp::Op2(op) =>
                             ExprKind::Op2(expr::Op2 { op, lhs, rhs }),
                     };
@@ -822,6 +828,39 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
 
                     ExprKind::Parens(inner)
                 }
+
+
+                TokenKind::Ampersand => {
+                    if PREC_PREFIX < prec {
+                        unimplemented!()
+                    }
+
+                    let mut kind = expr::RefKind::Shared;
+                    if self.consume_if_eq(TokenKind::Ident(atoms::_mut)) {
+                        kind = expr::RefKind::Mut;
+                    }
+                    if self.consume_if_eq(TokenKind::Ident(atoms::shr)) {
+                        kind = expr::RefKind::Shared;
+                    }
+                    if self.consume_if_eq(TokenKind::Ident(atoms::_const)) {
+                        kind = expr::RefKind::Const;
+                    }
+
+                    let expr = self.parse_expr_ex(this_parent, PREC_PREFIX)?;
+
+                    ExprKind::Ref(expr::Ref { kind, expr} )
+                }
+
+                TokenKind::Star => {
+                    if PREC_PREFIX < prec {
+                        unimplemented!()
+                    }
+
+                    let expr = self.parse_expr_ex(this_parent, PREC_PREFIX)?;
+
+                    ExprKind::Deref(expr)
+                }
+
 
                 // list & list type.
                 TokenKind::LBracket => {
@@ -1348,8 +1387,6 @@ impl PrefixOp {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum InfixOp {
-    Assign,
-    Op2Assign(expr::Op2Kind),
     Op2(expr::Op2Kind),
 }
 
@@ -1359,13 +1396,6 @@ impl InfixOp {
         use InfixOp::*;
         use expr::Op2Kind::*;
         Some(match token.kind {
-            TokenKind::Eq               => Assign,
-            TokenKind::AddAssign        => Op2Assign(Add),
-            TokenKind::SubAssign        => Op2Assign(Sub),
-            TokenKind::MulAssign        => Op2Assign(Mul),
-            TokenKind::DivAssign        => Op2Assign(Div),
-            TokenKind::FloorDivAssign   => Op2Assign(FloorDiv),
-            TokenKind::RemAssign        => Op2Assign(Rem),
             TokenKind::Add              => Op2(Add),
             TokenKind::Minus            => Op2(Sub),
             TokenKind::Star             => Op2(Mul),
@@ -1388,8 +1418,8 @@ impl InfixOp {
         use InfixOp::*;
         use expr::Op2Kind::*;
         match self {
-            Assign          => 100,
-            Op2Assign(_)    => 100,
+            //Assign          => 100,
+            //Op2Assign(_)    => 100,
             Op2(op) => match op {
                 Or          => 200,
                 And         => 300,
@@ -1414,8 +1444,8 @@ impl InfixOp {
         use InfixOp::*;
         use expr::Op2Kind::*;
         match self {
-            Assign          => 100,
-            Op2Assign(_)    => 100,
+            //Assign          => 100,
+            //Op2Assign(_)    => 100,
             Op2(op) => match op {
                 Or          => 201,
                 And         => 301,

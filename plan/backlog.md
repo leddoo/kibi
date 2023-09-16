@@ -26,6 +26,13 @@
 
 
 
+### cleanup:
+
+- operator parsing.
+    - shared logic, different expr kinds.
+
+
+
 ### lsp:
 
 - go to definition.

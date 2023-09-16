@@ -176,6 +176,8 @@ pub enum TokenKind {
     Arrow,
     FatArrow,
 
+    Ampersand,
+
     Add,
     AddAssign,
     Minus,
@@ -251,6 +253,7 @@ impl TokenKind {
             TokenKind::ColonEq => "':='",
             TokenKind::Arrow => "'->'",
             TokenKind::FatArrow => "'=>'",
+            TokenKind::Ampersand => "'&'",
             TokenKind::Add => "'+'",
             TokenKind::AddAssign => "'+='",
             TokenKind::Minus => "'-'",
@@ -356,6 +359,7 @@ pub struct Stmt {
 pub enum StmtKind {
     Error,
     Let(stmt::Let),
+    Assign(ExprId, ExprId),
     Expr(ExprId),
 }
 
@@ -410,13 +414,13 @@ pub enum ExprKind<'a> {
     Parens(ExprId),
     Block(expr::Block<'a>),
 
+    Ref(expr::Ref),
+    Deref(ExprId),
+
     // @cleanup: how to handle operators & prop types?
     Eq(ExprId, ExprId),
     Op1(expr::Op1),
     Op2(expr::Op2),
-    Op2Assign(expr::Op2),
-
-    Assign(expr::Assign),
 
     Field(expr::Field),
     Index(expr::Index),
@@ -464,6 +468,20 @@ pub mod expr {
     #[derive(Clone, Copy, Debug)]
     pub struct Block<'a> {
         pub stmts: StmtList<'a>,
+    }
+
+
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub enum RefKind {
+        Mut,
+        Shared,
+        Const,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    pub struct Ref {
+        pub kind: RefKind,
+        pub expr: ExprId,
     }
 
 
@@ -524,13 +542,6 @@ pub mod expr {
         //pub self_post_eval: bool,
         pub func: ExprId,
         pub args: ExprList<'a>,
-    }
-
-
-    #[derive(Clone, Copy, Debug)]
-    pub struct Assign {
-        pub lhs: ExprId,
-        pub rhs: ExprId,
     }
 
 

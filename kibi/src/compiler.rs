@@ -375,6 +375,7 @@ impl<'c> Inner<'c> {
                     T::KwContinue => TokenClass::Keyword,
                     T::KwReturn => TokenClass::Keyword,
                     T::KwFn => TokenClass::Keyword,
+                    T::Ampersand => TokenClass::Operator,
                     T::KwAnd => TokenClass::Keyword,
                     T::KwOr => TokenClass::Keyword,
                     T::KwNot => TokenClass::Keyword,
@@ -772,6 +773,10 @@ impl<'c> Inner<'c> {
                                 hit_test_ast(ty.into(), pos, parse)).or_else(||
                             it.val.to_option().and_then(|val|
                                 hit_test_ast(val.into(), pos, parse))),
+
+                        StmtKind::Assign(lhs, rhs) =>
+                            hit_test_ast(lhs.into(), pos, parse).or_else(||
+                            hit_test_ast(rhs.into(), pos, parse)),
 
                         StmtKind::Expr(it) =>
                             hit_test_ast(it.into(), pos, parse)
