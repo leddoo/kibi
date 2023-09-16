@@ -397,8 +397,9 @@ pub enum ExprKind<'a> {
 
     Levels(expr::Levels<'a>),
     Sort(LevelId),
-    Forall(expr::Forall<'a>),
-    Lambda(expr::Lambda<'a>),
+    Forall(expr::Binder<'a>),
+    Lambda(expr::Binder<'a>),
+    Let(expr::Let),
 
     Bool(bool),
     Number(ParseNumberId),
@@ -444,15 +445,17 @@ pub mod expr {
 
 
     #[derive(Clone, Copy, Debug)]
-    pub struct Forall<'a> {
+    pub struct Binder<'a> {
         pub binders: BinderList<'a>,
-        pub ret:     ExprId,
+        pub value:   ExprId,
     }
 
     #[derive(Clone, Copy, Debug)]
-    pub struct Lambda<'a> {
-        pub binders: BinderList<'a>,
-        pub value:   ExprId,
+    pub struct Let {
+        pub name: OptIdent,
+        pub ty:   OptExprId,
+        pub val:  ExprId,
+        pub body: ExprId,
     }
 
 

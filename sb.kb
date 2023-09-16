@@ -415,4 +415,12 @@ def foo :=
     )(Ref::from_ref(v, Ref_Kind::mut))
     )(Ref::from_local(0, Ref_Kind::mut, I32))
 
+def foo2 :=
+    let v  := Ref::from_local(0, Ref_Kind::mut, I32) in
+    let r1 := Ref::from_ref(v, Ref_Kind::mut) in
+    let r2 := Ref::from_ref(r1, Ref_Kind::mut) in
+    let _  := Ref::write(r1, 69) in
+    let _  := Ref::read(r2) in
+    Unit::mk()
+
 

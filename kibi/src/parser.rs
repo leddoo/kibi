@@ -563,7 +563,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     source: self.parse.exprs[lhs].source.first(),
                     value: Atom::NULL.some(),
                 };
-                let kind = ExprKind::Forall(expr::Forall {
+                let kind = ExprKind::Forall(expr::Binder {
                     binders: &self.alloc.alloc_new([
                         Binder::Typed(TypedBinder {
                             implicit: false,
@@ -572,7 +572,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                             default: None.into(),
                         }),
                     ])[..],
-                    ret: rhs,
+                    value: rhs,
                 });
 
                 self.expr_init_from(this_expr, token_begin, kind);
@@ -716,7 +716,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     self.expect(TokenKind::Arrow)?;
 
                     let ret = self.parse_type(this_parent)?;
-                    ExprKind::Forall(expr::Forall { binders, ret })
+                    ExprKind::Forall(expr::Binder { binders, value: ret })
                 }
 
                 TokenKind::KwLam => {
@@ -725,7 +725,24 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     self.expect(TokenKind::FatArrow)?;
 
                     let value = self.parse_expr(this_parent)?;
-                    ExprKind::Lambda(expr::Lambda { binders, value })
+                    ExprKind::Lambda(expr::Binder { binders, value })
+                }
+
+                TokenKind::KwLet => {
+                    let name = self.expect_ident_or_hole()?;
+
+                    let mut ty = None.into();
+                    if self.consume_if_eq(TokenKind::Colon) {
+                        ty = self.parse_type(this_parent)?.some();
+                    }
+
+                    self.expect(TokenKind::ColonEq)?;
+                    let val = self.parse_expr(this_parent)?;
+
+                    self.expect(TokenKind::KwIn)?;
+                    let body = self.parse_expr(this_parent)?;
+
+                    ExprKind::Let(expr::Let { name, ty, val, body })
                 }
 
 
@@ -974,11 +991,9 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
             let names = {
                 let temp = ArenaPool::tls_get_temp();
                 let mut names = Vec::new_in(&*temp);
+                names.push(self.expect_ident_or_hole()?);
                 while let Some(ident) = self.parse_ident_or_hole() {
                     names.push(ident);
-                }
-                if names.len() == 0 {
-                    self.error_expect(self.current_token_id(), "ident | hole");
                 }
                 names.clone_in(self.alloc).leak()
             };
@@ -1009,6 +1024,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
         return None;
     }
 
+    #[inline]
     fn parse_ident_or_hole(&mut self) -> Option<OptIdent> {
         let (at, at_src) = self.peek();
         if let TokenKind::Hole = at.kind {
@@ -1020,6 +1036,15 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
             return Some(OptIdent { source: at_src, value: ident.some() })
         }
         return None;
+    }
+
+    #[inline]
+    fn expect_ident_or_hole(&mut self) -> Option<OptIdent> {
+        let result = self.parse_ident_or_hole();
+        if result.is_none() {
+            self.error_expect(self.current_token_id(), "ident | hole");
+        }
+        return result;
     }
 
     fn parse_ident_or_path(&mut self, start: Ident) -> Option<IdentOrPath<'out>> {

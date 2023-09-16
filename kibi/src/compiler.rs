@@ -797,10 +797,7 @@ impl<'c> Inner<'c> {
                         ExprKind::String(_) => None,
                         ExprKind::Parens(it) => hit_test_ast(it.into(), pos, parse),
 
-                        ExprKind::Forall(it) =>
-                            hit_test_binders(it.binders, pos, parse).or_else(||
-                            hit_test_ast(it.ret.into(), pos, parse)),
-
+                        ExprKind::Forall(it) |
                         ExprKind::Lambda(it) =>
                             hit_test_binders(it.binders, pos, parse).or_else(||
                             hit_test_ast(it.value.into(), pos, parse)),

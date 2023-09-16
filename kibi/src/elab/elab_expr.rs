@@ -112,7 +112,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 let temp = ArenaPool::tls_get_rec();
                 let locals = self.elab_binders(it.binders, &*temp)?;
 
-                let (mut result, mut level) = self.elab_expr_as_type(it.ret)?;
+                let (mut result, mut level) = self.elab_expr_as_type(it.value)?;
 
                 for (id, _, l) in locals.iter().rev().copied() {
                     level = l.imax(level, self.alloc);
