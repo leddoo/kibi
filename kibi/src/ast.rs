@@ -13,6 +13,7 @@ sti::define_key!(pub, u32, ParseNumberId);
 
 sti::define_key!(pub, u32, TokenId, rng: TokenRange);
 sti::define_key!(pub, u32, ItemId);
+sti::define_key!(pub, u32, StmtId);
 sti::define_key!(pub, u32, LevelId);
 sti::define_key!(pub, u32, ExprId, opt: OptExprId);
 
@@ -20,6 +21,7 @@ sti::define_key!(pub, u32, ExprId, opt: OptExprId);
 #[derive(Clone, Copy, Debug)]
 pub enum AstId {
     Item(ItemId),
+    Stmt(StmtId),
     Level(LevelId),
     Expr(ExprId),
 }
@@ -27,6 +29,7 @@ pub enum AstId {
 pub type AstParent = Option<AstId>;
 
 impl Into<AstId> for ItemId  { #[inline(always)] fn into(self) -> AstId { AstId::Item(self) } }
+impl Into<AstId> for StmtId  { #[inline(always)] fn into(self) -> AstId { AstId::Stmt(self) } }
 impl Into<AstId> for LevelId { #[inline(always)] fn into(self) -> AstId { AstId::Level(self) } }
 impl Into<AstId> for ExprId  { #[inline(always)] fn into(self) -> AstId { AstId::Expr(self) } }
 
@@ -339,36 +342,35 @@ pub mod item {
 // stmts
 //
 
-/*
-pub type StmtRef<'a> = &'a Stmt<'a>;
-
-pub type StmtList<'a> = &'a [StmtRef<'a>];
+pub type StmtList<'a> = &'a [StmtId];
 
 #[derive(Clone, Copy, Debug)]
-pub struct Stmt<'a> {
-    pub kind: StmtKind<'a>,
+pub struct Stmt {
+    pub parent: AstParent,
+    pub source: TokenRange,
+
+    pub kind: StmtKind,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum StmtKind<'a> {
-    Let(stmt::Let<'a>),
-    Expr(Expr<'a>),
+pub enum StmtKind {
+    Error,
+    Let(stmt::Let),
+    Expr(ExprId),
 }
 
 
 pub mod stmt {
     use super::*;
 
-
     #[derive(Clone, Copy, Debug)]
-    pub struct Let<'a> {
+    pub struct Let {
         pub is_var: bool,
-        pub ident:  &'a str,
-        pub ty:     Option<ExprRef<'a>>,
-        pub value:  Option<ExprRef<'a>>,
+        pub name:   OptIdent,
+        pub ty:     OptExprId,
+        pub val:    OptExprId,
     }
 }
-*/
 
 
 
@@ -425,7 +427,7 @@ pub enum ExprKind<'a> {
     Map(expr::Map<'a>),
     MapType(expr::MapType),
 
-    Match(expr::Match<'a>),
+    Do(expr::Do<'a>),
     If(expr::If<'a>),
     Loop(expr::Loop<'a>),
 
@@ -461,8 +463,7 @@ pub mod expr {
 
     #[derive(Clone, Copy, Debug)]
     pub struct Block<'a> {
-        pub is_do: bool,
-        pub stmts: &'a (), //StmtList<'a>,
+        pub stmts: StmtList<'a>,
     }
 
 
@@ -554,20 +555,9 @@ pub mod expr {
 
 
     #[derive(Clone, Copy, Debug)]
-    pub struct Match<'a> {
-        pub expr: ExprId,
-        pub cases: MatchCaseList<'a>,
+    pub struct Do<'a> {
+        pub block: Block<'a>,
     }
-
-    pub type MatchCaseList<'a> = &'a [MatchCase<'a>];
-
-    #[derive(Clone, Copy, Debug)]
-    pub struct MatchCase<'a> {
-        //pub ctor:    GenericIdent<'a>,
-        pub binding: Option<&'a str>,
-        pub expr:    ExprId,
-    }
-
 
     #[derive(Clone, Copy, Debug)]
     pub struct If<'a> {
@@ -575,15 +565,6 @@ pub mod expr {
         pub then:  Block<'a>,
         pub els:   Option<ExprId>,
     }
-
-    pub type IfCaseList<'a> = &'a [IfCase<'a>];
-
-    #[derive(Clone, Copy, Debug)]
-    pub struct IfCase<'a> {
-        pub cond: ExprId,
-        pub then: Block<'a>,
-    }
-
 
     #[derive(Clone, Copy, Debug)]
     pub struct Loop<'a> {

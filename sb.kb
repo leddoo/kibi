@@ -411,3 +411,12 @@ def foo :=
     Unit::mk()
 
 
+def brck_basic := do {
+    var v  := 42;
+    --let r1 := &mut v;
+    --let r2 := &mut *r1;
+    --*r1 := 69;
+    --*r2;
+}
+
+

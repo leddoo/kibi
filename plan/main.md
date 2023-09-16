@@ -15,7 +15,11 @@
 
 
 - todo:
-    - do.
+    - do & brck.
+        - parse refs.
+        - elab do:
+            - collect values, build bbir.
+            - variable assignment stuff.
     - partial functions.
     - `fn`.
 

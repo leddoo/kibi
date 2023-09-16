@@ -231,6 +231,7 @@ impl<'c> Inner<'c> {
             strings: KVec::new(),
             tokens:  KVec::new(),
             items:  KVec::new(),
+            stmts:  KVec::new(),
             levels: KVec::new(),
             exprs:  KVec::new(),
             root_items: Vec::new(),
@@ -722,7 +723,7 @@ impl<'c> Inner<'c> {
         }}
 
 
-        use crate::ast::{ItemKind, LevelKind, ExprKind, Binder};
+        use crate::ast::{ItemKind, StmtKind, LevelKind, ExprKind, Binder};
 
         // @cleanup: visit children.
         fn hit_test_ast(node: AstId, pos: TokenId, parse: &Parse) -> Option<AstId> {
@@ -755,6 +756,25 @@ impl<'c> Inner<'c> {
 
                         ItemKind::Impl(_) =>
                             None,
+                    };
+                    Some(hit.unwrap_or(id.into()))
+                }
+
+                AstId::Stmt(id) => {
+                    let stmt = parse.stmts[id];
+                    if !stmt.source.contains(pos) { return None }
+
+                    let hit = match stmt.kind {
+                        StmtKind::Error => None,
+
+                        StmtKind::Let(it) =>
+                            it.ty.to_option().and_then(|ty|
+                                hit_test_ast(ty.into(), pos, parse)).or_else(||
+                            it.val.to_option().and_then(|val|
+                                hit_test_ast(val.into(), pos, parse))),
+
+                        StmtKind::Expr(it) =>
+                            hit_test_ast(it.into(), pos, parse)
                     };
                     Some(hit.unwrap_or(id.into()))
                 }
@@ -867,6 +887,8 @@ impl<'c> Inner<'c> {
                         }
                     }
                 }
+
+                AstId::Stmt(_) => (),
 
                 AstId::Level(_) => (),
 

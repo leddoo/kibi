@@ -21,6 +21,7 @@ pub struct Parse<'a> {
     pub tokens:  KVec<TokenId, Token>,
 
     pub items:  KVec<ItemId,  Item<'a>>,
+    pub stmts:  KVec<StmtId,  Stmt>,
     pub levels: KVec<LevelId, Level>,
     pub exprs:  KVec<ExprId,  Expr<'a>>,
 
@@ -471,6 +472,52 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
     }
 
 
+    pub fn parse_stmt(&mut self, parent: AstParent) -> Option<StmtId> {
+        let (at, source_begin) = self.peek();
+
+        let this_stmt = self.parse.stmts.push(Stmt {
+            parent,
+            source: TokenRange::ZERO,
+            kind: StmtKind::Error,
+        });
+        let this_parent = Some(AstId::Stmt(this_stmt));
+
+        let kind = match at.kind {
+            TokenKind::KwLet | TokenKind::KwVar => {
+                self.consume(1);
+
+                let is_var = at.kind == TokenKind::KwVar;
+
+                let name = self.expect_ident_or_hole()?;
+
+                let mut ty = None.into();
+                if self.consume_if_eq(TokenKind::Colon) {
+                    ty = self.parse_type(this_parent)?.some();
+                }
+
+                let mut val = None.into();
+                if self.consume_if_eq(TokenKind::ColonEq) {
+                    val = self.parse_type(this_parent)?.some();
+                }
+
+                StmtKind::Let(stmt::Let { is_var, name, ty, val })
+            }
+
+            _ => {
+                StmtKind::Expr(self.parse_expr(this_parent)?)
+            }
+        };
+
+        let source = self.token_range_from(source_begin);
+
+        let this = &mut self.parse.stmts[this_stmt];
+        this.source = source;
+        this.kind = kind;
+
+        return Some(this_stmt);
+    }
+
+
     pub fn parse_expr(&mut self, parent: AstParent) -> Option<ExprId> {
         self.parse_expr_exw(parent, ParseExprFlags::default(), 0)
     }
@@ -795,6 +842,18 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     else {
                         ExprKind::List(children)
                     }
+                }
+
+
+                TokenKind::KwDo => {
+                    self.expect(TokenKind::LCurly)?;
+
+                    let children = self.sep_by(TokenKind::Semicolon, TokenKind::RCurly, |this| {
+                        this.parse_stmt(this_parent)
+                    })?;
+
+                    let block = expr::Block { stmts: children };
+                    ExprKind::Do(expr::Do { block })
                 }
 
                 _ => break 'next
