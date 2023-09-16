@@ -311,7 +311,7 @@ def Stack::write_inner(self: Stack, tag: Tag): Result(Stack, Error) :=
         Stack::entries(self))
 
 
-def Stack::use_tag(self: Stack, tag: Tag): Result(Stack, Error) :=
+def Stack::retag(self: Stack, tag: Tag): Result(Stack, Error) :=
     Stack::read(self, tag)
 
 
@@ -347,7 +347,7 @@ reduce Result::and_then(Result::and_then(Result::and_then(Result::and_then(Resul
     lam r => Stack::new_shared(Pair::fst(r), 2)),       -- &*p
     lam r => Stack::read(Pair::fst(r), 3)),             -- foo: *r
     lam r => Stack::write(r, 2)),                       -- fn: *p = 69
-    lam r => Stack::use_tag(r, 3)),                     -- after foo: validate &*p
+    lam r => Stack::retag(r, 3)),                       -- after foo: validate &*p
     lam r => Stack::read(r, 0))                         -- print(v)
 
 
@@ -397,10 +397,7 @@ axiom Ref::from_ref<r: Region, kind1: Ref_Kind, T: Type>(ref: Ref(r, kind1, T), 
 axiom Ref::cast_region<r1: Region, kind: Ref_Kind, T: Type>(ref: Ref(r1, kind, T), r2: Region): Ref(r2, kind, T)
 
 axiom Ref::read<r: Region, kind: Ref_Kind, T: Type>(ref: Ref(r, kind, T)): T
-axiom Ref::write<r: Region, T: Type>(ref: Ref(r, Ref_Kind::mut, T), value: T): Unit
-
--- compiler tries to find latest write and `ensure_def_eq`'s that value with the provided value.
-axiom Ref::assume_value<r: _, kind: _, T: _>(ref: Ref(r, kind, T), value: T): Ref::read(ref) = value
+axiom Ref::write<r: Region, T: Type>(ref: Ref(r, Ref_Kind::mut, T), value: T): Ref::read(ref) = value
 
 
 def I32 := Nat -- temp

@@ -224,6 +224,15 @@ mod timing {
     }
 }
 
+#[cfg(not(target_arch = "aarch64"))]
+mod timing {
+    #[inline(always)]
+    pub fn rdtsc() -> u64 { unimplemented!() }
+
+    #[inline(always)]
+    pub fn tsc_freq() -> u64 { unimplemented!() }
+}
+
 pub use timing::*;
 
 

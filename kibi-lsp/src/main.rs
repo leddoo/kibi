@@ -417,9 +417,7 @@ impl Lsp {
             ("params", params),
         ]));
 
-        print!("Content-Length: {}\r\n\r\n{}", content.len(), content);
-
-        _ = write!(self.stdout, "Content-Length: {}\r\n\r\n{}", content.len(), content);
+        self.write(&content);
     }
 
     fn send_notification(&mut self, method: &str, params: json::Value) {
@@ -434,9 +432,7 @@ impl Lsp {
             ("params", params),
         ]));
 
-        print!("Content-Length: {}\r\n\r\n{}", content.len(), content);
-
-        _ = write!(self.stdout, "Content-Length: {}\r\n\r\n{}", content.len(), content);
+        self.write(&content);
     }
 
     fn send_response(&mut self, id: u32, result: Result<json::Value, json::Value>) {
@@ -454,15 +450,13 @@ impl Lsp {
             }
         ]));
 
-        print!("Content-Length: {}\r\n\r\n{}", content.len(), content);
+        self.write(&content);
+    }
 
+    fn write(&mut self, content: &str) {
+        print!("Content-Length: {}\r\n\r\n{}", content.len(), content);
         _ = write!(self.stdout, "Content-Length: {}\r\n\r\n{}", content.len(), content);
     }
-}
-
-
-fn time() -> std::time::Duration {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap()
 }
 
 
@@ -473,6 +467,14 @@ fn main() {
 
 
     let mut lsp = Lsp::new();
+
+    if std::env::args().len() == 2 {
+        let path = std::env::args().nth(1).unwrap();
+        let code = std::fs::read(&path).unwrap();
+        println!("{:?}", core::str::from_utf8(&code[..128]));
+        lsp.process_bytes(&code);
+        return;
+    }
 
     let mut buffer = [0; 128*1024];
     loop {

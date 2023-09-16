@@ -261,7 +261,7 @@ impl TermVarId {
 
         if args.len() > 0 {
             // type correct check.
-            eprintln!("@todo: check lambda type correct");
+            //eprintln!("@todo: check lambda type correct");
         }
 
         // type check.

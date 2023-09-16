@@ -30,6 +30,10 @@
     - `let`.
     - do.
 
+    - `foo() := foo(())` for `fn`s & `foo` elab'd as app?
+    - move out in drop: consider special case, ref not live out.
+      and all drop code is in drop (added by elab), so compiler
+      knows what isn't dropped yet.
     - type-less binders.
     - go to definition.
     - error resilient parsing.
