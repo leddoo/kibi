@@ -15,7 +15,6 @@
 
 
 - todo:
-    - `let`.
     - do.
     - partial functions.
     - `fn`.

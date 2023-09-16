@@ -73,6 +73,17 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 self.alloc.mkt_sort(param_level.imax(value_level, self.alloc))
             }
 
+            TermData::Let (b) => {
+                let id = self.lctx.push(BinderKind::Explicit, b.name, b.ty, Some(b.val));
+
+                let body = b.body.instantiate(self.alloc.mkt_local(id), self.alloc);
+
+                let result = self.infer_type(body)?;
+                self.lctx.pop(id);
+
+                result
+            }
+
             TermData::Apply (app) => {
                 let fun_ty = self.infer_type_as_forall(app.fun)?;
                 /* @temp: type checking.

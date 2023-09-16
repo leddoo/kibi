@@ -179,6 +179,32 @@ impl<'me, 'a> TermPP<'me, 'a> {
                 ]))
             }
 
+            TermData::Let(b) => {
+                let name = if b.name == Atom::NULL { atoms::_hole } else { b.name };
+                let ty   = self.pp_term(b.ty);
+                let val  = self.pp_term(b.val);
+                let body = self.pp_term(b.body);
+                self.pp.group(self.pp.cats(&[
+                    self.pp.text("let "),
+                    self.pp.text(self.alloc_atom(name)),
+                    self.pp.text(": "),
+                    self.pp.group(self.pp.indent(2, self.pp.cats(&[
+                        self.pp.line(),
+                        ty,
+                    ]))),
+                    self.pp.group(self.pp.indent(2, self.pp.cats(&[
+                        self.pp.line_or_sp(),
+                        self.pp.text(":= "),
+                        val,
+                    ]))),
+                    self.pp.text(" in"),
+                    self.pp.group(self.pp.cats(&[
+                        self.pp.line_or_sp(),
+                        body,
+                    ])),
+                ]))
+            }
+
             TermData::Apply(app) => {
                 if app.fun.is_nat_succ() {
                     let mut offset = 1;

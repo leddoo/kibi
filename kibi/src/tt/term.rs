@@ -24,6 +24,7 @@ pub enum TermKind {
 
     Forall,
     Lambda,
+    Let,
     Apply,
 }
 
@@ -38,6 +39,7 @@ pub enum TermData<'a> {
 
     Forall(Binder<'a>),
     Lambda(Binder<'a>),
+    Let(Let<'a>),
     Apply(Apply<'a>),
 
     // sync:
@@ -73,6 +75,14 @@ pub struct Binder<'a> {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub struct Let<'a> {
+    pub name: Atom,
+    pub ty:   Term<'a>,
+    pub val:  Term<'a>,
+    pub body: Term<'a>,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct Apply<'a> {
     pub fun: Term<'a>,
     pub arg: Term<'a>,
@@ -92,6 +102,22 @@ impl<'a> Binder<'a> {
 
             if t.is_forall() { alloc.mkt_forall_b(b) }
             else             { alloc.mkt_lambda_b(b) }
+        }
+        else { t }
+    }
+}
+
+impl<'a> Let<'a> {
+    #[inline(always)]
+    pub fn update(&self, t: Term<'a>, alloc: &'a Arena, new_ty: Term<'a>, new_val: Term<'a>, new_body: Term<'a>) -> Term<'a> {
+        if !new_ty.ptr_eq(self.ty) || !new_val.ptr_eq(self.val) || !new_body.ptr_eq(self.body) {
+            let b = Self {
+                name: self.name,
+                ty: new_ty, val: new_val,
+                body: new_body,
+            };
+
+            alloc.mkt_let_b(b)
         }
         else { t }
     }
@@ -133,6 +159,9 @@ impl<'a> Term<'a> {
     pub fn is_lambda(self) -> bool { self.kind() == TermKind::Lambda }
 
     #[inline(always)]
+    pub fn is_let(self) -> bool { self.kind() == TermKind::Let }
+
+    #[inline(always)]
     pub fn is_apply(self) -> bool { self.kind() == TermKind::Apply }
 
 
@@ -168,6 +197,10 @@ impl<'a> Term<'a> {
             (Forall(b1), Forall(b2)) |
             (Lambda(b1), Lambda(b2)) =>
                b1.ty.syntax_eq(b2.ty) && b1.val.syntax_eq(b2.val),
+
+            (Let(b1), Let(b2)) =>
+                b1.ty.syntax_eq(b2.ty) && b1.val.syntax_eq(b2.val) &&
+                b1.body.syntax_eq(b2.body),
 
             (Apply(a1), Apply(a2)) =>
                 a1.fun.syntax_eq(a2.fun) && a1.arg.syntax_eq(a2.arg),
@@ -241,6 +274,12 @@ impl<'a> Term<'a> {
                 b.val.find_ex(offset + 1, f))
             }
 
+            TermData::Let(b) => {
+                b.ty.find_ex(offset, f).or_else(||
+                b.val.find_ex(offset, f).or_else(||
+                b.body.find_ex(offset + 1, f)))
+            }
+
             TermData::Apply(a) => {
                 a.fun.find_ex(offset, f).or_else(||
                 a.arg.find_ex(offset, f))
@@ -268,11 +307,16 @@ impl<'a> Term<'a> {
             TermData::IVar(_) => self,
 
             TermData::Forall(b) |
-            TermData::Lambda(b) => {
+            TermData::Lambda(b) =>
                 b.update(self, alloc,
                     b.ty.replace_ex(offset, alloc, f),
-                    b.val.replace_ex(offset + 1, alloc, f))
-            }
+                    b.val.replace_ex(offset + 1, alloc, f)),
+
+            TermData::Let(b) =>
+                b.update(self, alloc,
+                    b.ty.replace_ex(offset, alloc, f),
+                    b.val.replace_ex(offset, alloc, f),
+                    b.body.replace_ex(offset + 1, alloc, f)),
 
             TermData::Apply(a) => {
                 a.update(self, alloc,
@@ -464,6 +508,8 @@ pub trait TermAlloc {
     fn mkt_forall<'a>(&'a self, kind: BinderKind, name: Atom, ty: Term<'a>, ret: Term<'a>) -> Term<'a>;
     fn mkt_lambda_b<'a>(&'a self, binder: Binder<'a>) -> Term<'a>;
     fn mkt_lambda<'a>(&'a self, kind: BinderKind, name: Atom, ty: Term<'a>, val: Term<'a>) -> Term<'a>;
+    fn mkt_let_b<'a>(&'a self, binder: Let<'a>) -> Term<'a>;
+    fn mkt_let<'a>(&'a self, name: Atom, ty: Term<'a>, val: Term<'a>, body: Term<'a>) -> Term<'a>;
     fn mkt_apply_a<'a>(&'a self, apply: Apply<'a>) -> Term<'a>;
     fn mkt_apply<'a>(&'a self, fun: Term<'a>, arg: Term<'a>) -> Term<'a>;
     fn mkt_apps<'a>(&'a self, fun: Term<'a>, args: &[Term<'a>]) -> Term<'a>;
@@ -507,6 +553,7 @@ mod impel {
                 TermData::IVar(_)       => TermKind::IVar,
                 TermData::Forall(_)     => TermKind::Forall,
                 TermData::Lambda(_)     => TermKind::Lambda,
+                TermData::Let(_)        => TermKind::Let,
                 TermData::Apply(_)      => TermKind::Apply,
             }
         }
@@ -555,6 +602,11 @@ mod impel {
         #[inline(always)]
         pub fn try_lambda(self) -> Option<Binder<'a>> {
             if let TermData::Lambda(x) = self.0.data { Some(x) } else { None }
+        }
+
+        #[inline(always)]
+        pub fn try_let(self) -> Option<Let<'a>> {
+            if let TermData::Let(x) = self.0.data { Some(x) } else { None }
         }
 
         #[inline(always)]
@@ -631,15 +683,7 @@ mod impel {
 
         #[inline(always)]
         fn mkt_forall<'a>(&'a self, kind: BinderKind, name: Atom, ty: Term<'a>, ret: Term<'a>) -> Term<'a> {
-            Term(self.alloc_new(Data {
-                data: TermData::Forall(Binder { kind, name, ty, val: ret }),
-                max_succ_bvar:
-                    ty.0.max_succ_bvar.max(
-                    ret.0.max_succ_bvar.saturating_sub(1)),
-                max_succ_local:
-                    ty.0.max_succ_local.max(
-                    ret.0.max_succ_local),
-            }))
+            self.mkt_forall_b(Binder { kind, name, ty, val: ret })
         }
 
         #[inline(always)]
@@ -657,15 +701,27 @@ mod impel {
 
         #[inline(always)]
         fn mkt_lambda<'a>(&'a self, kind: BinderKind, name: Atom, ty: Term<'a>, val: Term<'a>) -> Term<'a> {
+            self.mkt_lambda_b(Binder { kind, name, ty, val })
+        }
+
+        #[inline(always)]
+        fn mkt_let_b<'a>(&'a self, binder: Let<'a>) -> Term<'a> {
             Term(self.alloc_new(Data {
-                data: TermData::Lambda(Binder { kind, name, ty, val }),
+                data: TermData::Let(binder),
                 max_succ_bvar:
-                    ty.0.max_succ_bvar.max(
-                    val.0.max_succ_bvar.saturating_sub(1)),
+                    binder.ty.0.max_succ_bvar.max(
+                    binder.val.0.max_succ_bvar.max(
+                    binder.body.0.max_succ_bvar.saturating_sub(1))),
                 max_succ_local:
-                    ty.0.max_succ_local.max(
-                    val.0.max_succ_local),
+                    binder.ty.0.max_succ_local.max(
+                    binder.val.0.max_succ_local.max(
+                    binder.body.0.max_succ_local)),
             }))
+        }
+
+        #[inline(always)]
+        fn mkt_let<'a>(&'a self, name: Atom, ty: Term<'a>, val: Term<'a>, body: Term<'a>) -> Term<'a> {
+            self.mkt_let_b(Let { name, ty, val, body })
         }
 
         #[inline(always)]

@@ -155,6 +155,31 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
                 (result, result_ty)
             }
+
+            ExprKind::Let(it) => {
+                let ty = if let Some(ty) = it.ty.to_option() {
+                    self.elab_expr_as_type(ty)?.0
+                }
+                else { self.new_ty_var().0 };
+
+                let val = self.elab_expr_checking_type(it.val, Some(ty))?.0;
+
+                let name = it.name.value.to_option().unwrap_or(Atom::NULL);
+                let id = self.lctx.push(tt::BinderKind::Explicit, name, ty, Some(val));
+                self.locals.push((name, id));
+
+                let none = self.elab.token_infos.insert(it.name.source, TokenInfo::Local(self.item_id, id));
+                debug_assert!(none.is_none());
+
+                let (body, body_ty) = self.elab_expr(it.body)?;
+
+                let result    = self.mk_let(body,    id, false);
+                let result_ty = self.mk_let(body_ty, id, true);
+                self.lctx.pop(id);
+                self.locals.truncate(self.locals.len() - 1);
+
+                (result, result_ty)
+            }
             
             ExprKind::Parens(it) => {
                 return self.elab_expr_ex(it, expected_ty);

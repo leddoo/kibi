@@ -58,6 +58,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         // instantiate type after val, cause abstracc may
         // assign ivars (elim locals).
         let entry = self.lctx.lookup(id);
+        debug_assert!(entry.value.is_none());
+
         let ty = self.instantiate_term_vars(entry.ty);
 
         if is_forall { self.alloc.mkt_forall(entry.binder_kind, entry.name, ty, val) }
@@ -70,10 +72,28 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         // instantiate type after val, cause abstracc may
         // assign ivars (elim locals).
         let entry = self.lctx.lookup(id);
+        debug_assert!(entry.value.is_none());
+
         let ty = self.instantiate_term_vars(entry.ty);
 
         if is_forall { self.alloc.mkt_forall(kind, entry.name, ty, val) }
         else         { self.alloc.mkt_lambda(kind, entry.name, ty, val) }
+    }
+
+    pub fn mk_let(&self, body: Term<'out>, id: ScopeId, discard_unused: bool) -> Term<'out> {
+        let new_body = self.abstracc(body, id);
+
+        if discard_unused && new_body.ptr_eq(body) {
+            return body;
+        }
+
+        // instantiate type after body, cause abstracc may
+        // assign ivars (elim locals).
+        let entry = self.lctx.lookup(id);
+        let ty  = self.instantiate_term_vars(entry.ty);
+        let val = self.instantiate_term_vars(entry.value.unwrap());
+
+        self.alloc.mkt_let(entry.name, ty, val, new_body)
     }
 }
 

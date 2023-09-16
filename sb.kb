@@ -403,19 +403,6 @@ axiom Ref::write<r: Region, T: Type>(ref: Ref(r, Ref_Kind::mut, T), value: T): R
 def I32 := Nat -- temp
 
 def foo :=
-    (lam v =>
-    (lam r1 =>
-    (lam r2 =>
-    (lam _ =>
-    (lam _ =>
-        Unit::mk()
-    )(Ref::read(r2))
-    )(Ref::write(r1, 69))
-    )(Ref::from_ref(r1, Ref_Kind::mut))
-    )(Ref::from_ref(v, Ref_Kind::mut))
-    )(Ref::from_local(0, Ref_Kind::mut, I32))
-
-def foo2 :=
     let v  := Ref::from_local(0, Ref_Kind::mut, I32) in
     let r1 := Ref::from_ref(v, Ref_Kind::mut) in
     let r2 := Ref::from_ref(r1, Ref_Kind::mut) in

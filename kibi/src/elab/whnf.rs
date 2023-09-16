@@ -68,6 +68,9 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             TermData::Forall (_) =>
                 (e, true),
 
+            TermData::Let (_) =>
+                (e, false),
+
             TermData::Apply (_) =>
                 (e, false),
         }
@@ -92,13 +95,11 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             }
         }
 
-        /*
         // let.
-        if let TermKind::Let(b) = e.kind {
-            let body = b.body.instantiate(b.value);
+        if let Some(b) = e.try_let() {
+            let body = b.body.instantiate(b.val, self.alloc);
             return self.whnf_no_unfold(body);
         }
-        */
 
         // is app?
         let (fun, num_args) = e.app_fun();
@@ -289,6 +290,12 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 self.lctx.restore(save);
 
                 b.update(result, self.alloc, new_ty, new_val)
+            }
+
+            TermData::Let(b) => {
+                let new_val = self.reduce_ex(b.val, unfold);
+                let body = b.body.instantiate(new_val, self.alloc);
+                self.reduce_ex(body, unfold)
             }
 
             TermData::Apply(a) =>

@@ -344,6 +344,12 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     self.check_value_for_assign(b.ty,  var)?,
                     self.check_value_for_assign(b.val, var)?),
 
+            TermData::Let(b) =>
+                b.update(value, self.alloc,
+                    self.check_value_for_assign(b.ty,   var)?,
+                    self.check_value_for_assign(b.val,  var)?,
+                    self.check_value_for_assign(b.body, var)?),
+
             TermData::Apply(a) =>
                 a.update(value, self.alloc,
                     self.check_value_for_assign(a.fun, var)?,

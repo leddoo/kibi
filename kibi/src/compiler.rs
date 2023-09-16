@@ -802,6 +802,12 @@ impl<'c> Inner<'c> {
                             hit_test_binders(it.binders, pos, parse).or_else(||
                             hit_test_ast(it.value.into(), pos, parse)),
 
+                        ExprKind::Let(it) =>
+                            it.ty.to_option().and_then(|ty|
+                                hit_test_ast(ty.into(), pos, parse)).or_else(||
+                            hit_test_ast(it.val.into(), pos, parse).or_else(||
+                            hit_test_ast(it.body.into(), pos, parse))),
+
                         ExprKind::Eq(lhs, rhs) =>
                             hit_test_ast(lhs.into(), pos, parse).or_else(||
                             hit_test_ast(rhs.into(), pos, parse)),
