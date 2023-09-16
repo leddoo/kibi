@@ -12,7 +12,7 @@ use std::fs::{File, OpenOptions};
 
 pub fn init(file_path: &str) -> std::io::Result<()> {
     // create file, clear, write header.
-    #[cfg(not(miri))]
+    #[cfg(all(not(miri), target_arch="aarch64"))]
     {
         use std::io::Write;
 

@@ -510,116 +510,111 @@ impl<'c> Inner<'c> {
                 UserSourceRange { begin, end }
             };
 
-            let message = match d.kind {
+            let mut msg = String::new_in(alloc);
+            match d.kind {
                 DiagnosticKind::ParseError(e) => {
-                    // @cleanup: sti temp formatting.
-                    let mut buf = String::new_in(alloc);
                     match e {
                         ParseError::Expected(what) => {
-                            sti::write!(&mut buf, "expected: {what}");
+                            sti::write!(&mut msg, "expected: {what}");
                         }
 
                         ParseError::Unexpected(what) => {
-                            sti::write!(&mut buf, "unexpected: {what}");
+                            sti::write!(&mut msg, "unexpected: {what}");
                         }
                     }
-                    buf.leak()
                 }
 
                 DiagnosticKind::ElabError(e) => {
-                    // @cleanup: sti temp formatting.
-                    let mut buf = String::new_in(alloc);
                     match e {
                         ElabError::UnresolvedName (name) => {
-                            sti::write!(&mut buf, "unknown symbol {name:?}");
+                            sti::write!(&mut msg, "unknown symbol {name:?}");
                         }
 
                         ElabError::UnresolvedLevel (name) => {
-                            sti::write!(&mut buf, "unknown level {name:?}");
+                            sti::write!(&mut msg, "unknown level {name:?}");
                         }
 
                         ElabError::LevelCountMismatch { expected, found } => {
-                            sti::write!(&mut buf, "expected {expected} levels, found {found}");
+                            sti::write!(&mut msg, "expected {expected} levels, found {found}");
                         }
 
                         ElabError::TypeMismatch { expected, found } => {
                             let pp = crate::pp::PP::new(alloc);
-                            // @cleanup: sti temp formatting.
-                            sti::write!(&mut buf, "expected ");
-                            pp.render(expected, 50).layout_into_string(&mut buf);
-                            sti::write!(&mut buf, ", found ");
-                            pp.render(found, 50).layout_into_string(&mut buf);
+                            sti::write!(&mut msg, "expected ");
+                            pp.render(expected, 50).layout_into_string(&mut msg);
+                            sti::write!(&mut msg, ", found ");
+                            pp.render(found, 50).layout_into_string(&mut msg);
                         }
 
                         ElabError::TypeExpected { found } => {
                             let pp = crate::pp::PP::new(alloc);
-                            sti::write!(&mut buf, "type expected, found ");
-                            pp.render(found, 50).layout_into_string(&mut buf);
+                            sti::write!(&mut msg, "type expected, found ");
+                            pp.render(found, 50).layout_into_string(&mut msg);
                         }
 
                         ElabError::TooManyArgs => {
-                            sti::write!(&mut buf, "too many args");
+                            sti::write!(&mut msg, "too many args");
                         }
 
                         ElabError::UnassignedIvars => {
-                            sti::write!(&mut buf, "unassigned ivars");
+                            sti::write!(&mut msg, "unassigned ivars");
                         }
 
                         ElabError::TypeFormerHasIvars => {
-                            sti::write!(&mut buf, "type former has ivars");
+                            sti::write!(&mut msg, "type former has ivars");
                         }
 
                         ElabError::CtorTypeHasIvars => {
-                            sti::write!(&mut buf, "ctor type has ivars");
+                            sti::write!(&mut msg, "ctor type has ivars");
                         }
 
                         ElabError::CtorNeedsTypeCauseIndices => {
-                            sti::write!(&mut buf, "ctor needs type, because type has indices");
+                            sti::write!(&mut msg, "ctor needs type, because type has indices");
                         }
 
                         ElabError::CtorArgLevelTooLarge => {
-                            sti::write!(&mut buf, "arg level too large");
+                            sti::write!(&mut msg, "arg level too large");
                         }
 
                         ElabError::CtorInvalidRecursion => {
-                            sti::write!(&mut buf, "invalid recursion");
+                            sti::write!(&mut msg, "invalid recursion");
                         }
 
                         ElabError::CtorRecArgUsed => {
-                            sti::write!(&mut buf, "recursive arg used");
+                            sti::write!(&mut msg, "recursive arg used");
                         }
 
                         ElabError::CtorNotRetSelf => {
-                            sti::write!(&mut buf, "ctor must return Self");
+                            sti::write!(&mut msg, "ctor must return Self");
                         }
 
                         ElabError::TraitResolutionFailed { trayt } => {
-                            sti::write!(&mut buf, "trait resolution failed for trait {trayt:?}");
+                            sti::write!(&mut msg, "trait resolution failed for trait {trayt:?}");
                         }
 
                         ElabError::ImplTypeIsNotTrait => {
-                            sti::write!(&mut buf, "impl type is not a trait");
+                            sti::write!(&mut msg, "impl type is not a trait");
                         }
 
                         ElabError::TempTBD => {
-                            sti::write!(&mut buf, "(temp): not entirely sure what went wrong here");
+                            sti::write!(&mut msg, "(temp): not entirely sure what went wrong here");
                         }
 
                         ElabError::TempArgFailed => {
-                            sti::write!(&mut buf, "(temp): arg failed");
+                            sti::write!(&mut msg, "(temp): arg failed");
                         }
 
                         ElabError::TempCtorArgLevelCouldBeTooLarge => {
-                            sti::write!(&mut buf, "(temp): maybe ctor arg level too large");
+                            sti::write!(&mut msg, "(temp): maybe ctor arg level too large");
                         }
 
                         ElabError::TempUnimplemented => {
-                            sti::write!(&mut buf, "(temp): unimplemented");
+                            sti::write!(&mut msg, "(temp): unimplemented");
                         }
                     }
-                    buf.leak()
                 }
             };
+            let message = msg.leak();
 
             FileDiagnostic { range, message }
         }
@@ -692,7 +687,6 @@ impl<'c> Inner<'c> {
         };
 
         if is_hit { if let Some(info) = elab.token_infos.get(&token_id) {
-            // @temp: sti format_in.
             let mut buf = String::new_in(alloc);
             match *info {
                 elab::TokenInfo::Local(item_id, id) => {
@@ -895,7 +889,10 @@ impl<'c> Inner<'c> {
                 }
             }
 
-            return sti::vec![HoverInfo { lang: Some("kibi"), content: buf.leak() }];
+            if buf.len() > 0 {
+                return sti::vec![HoverInfo { lang: Some("kibi"), content: buf.leak() }];
+            }
+            else { return Vec::new() }
         }
 
         return Vec::new();

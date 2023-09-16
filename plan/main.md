@@ -30,6 +30,7 @@
     - `let`.
     - do.
 
+    - precise hit for exprs, when not hit a token. or make whitespace a token? yeah prob not.
     - `foo() := foo(())` for `fn`s & `foo` elab'd as app?
     - move out in drop: consider special case, ref not live out.
       and all drop code is in drop (added by elab), so compiler
