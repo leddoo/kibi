@@ -427,7 +427,7 @@ pub enum ExprKind<'a> {
     Call(expr::Call<'a>),
 
     Do(expr::Block<'a>),
-    If(expr::If<'a>),
+    If(expr::If),
     Loop(expr::Loop<'a>),
 
     TypeHint(expr::TypeHint),
@@ -435,8 +435,9 @@ pub enum ExprKind<'a> {
 
 #[derive(Clone, Copy, Debug)]
 pub struct ExprFlags {
-    pub has_control_flow: bool,
-    pub has_assignments: bool,
+    pub has_assign: bool,
+    pub has_if: bool,
+    pub has_loop: bool,
 }
 
 
@@ -468,6 +469,7 @@ pub mod expr {
 
     #[derive(Clone, Copy, Debug)]
     pub struct Block<'a> {
+        pub is_do: bool,
         pub stmts: StmtList<'a>,
     }
 
@@ -567,10 +569,10 @@ pub mod expr {
 
 
     #[derive(Clone, Copy, Debug)]
-    pub struct If<'a> {
+    pub struct If {
         pub cond:  ExprId,
-        pub then:  Block<'a>,
-        pub els:   Option<ExprId>,
+        pub then:  ExprId,
+        pub els:   OptExprId,
     }
 
     #[derive(Clone, Copy, Debug)]
@@ -592,8 +594,9 @@ impl ExprFlags {
     #[inline]
     pub const fn new() -> ExprFlags {
         ExprFlags {
-            has_control_flow: false,
-            has_assignments: false,
+            has_assign: false,
+            has_if: false,
+            has_loop: false,
         }
     }
 }
@@ -604,8 +607,9 @@ impl core::ops::BitOr for ExprFlags {
     #[inline(always)]
     fn bitor(self, rhs: Self) -> Self::Output {
         ExprFlags {
-            has_control_flow: self.has_control_flow | rhs.has_control_flow,
-            has_assignments: self.has_assignments | rhs.has_assignments,
+            has_assign: self.has_assign | rhs.has_assign,
+            has_if:     self.has_if     | rhs.has_if,
+            has_loop:   self.has_loop   | rhs.has_loop,
         }
     }
 }

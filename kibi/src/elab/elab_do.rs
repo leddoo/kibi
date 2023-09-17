@@ -7,7 +7,8 @@ use super::*;
 
 impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     pub fn elab_do(&mut self, expr_id: ExprId, flags: ExprFlags, block: expr::Block) -> Option<(Term<'out>, Term<'out>)> {
-        if !flags.has_control_flow && !flags.has_assignments {
+        let may_need_joins = flags.has_loop || (flags.has_if && flags.has_assign);
+        if !may_need_joins {
             // @todo: elab_let_chain.
             // chain also for regular let, so we can do the multi-abstract thing.
             self.error(expr_id, ElabError::TempUnimplemented);
@@ -65,7 +66,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 StmtKind::Let(it) => {
                     let ty = if let Some(ty) = it.ty.to_option() {
                         let ty_expr = self.parse.exprs[ty];
-                        if ty_expr.flags.has_control_flow || ty_expr.flags.has_assignments {
+                        if ty_expr.flags.has_loop || ty_expr.flags.has_assign {
                             self.error(ty, ElabError::TempTBD);
                             return None;
                         }
@@ -133,8 +134,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     fn elab_do_expr(&mut self, state: &mut State<'out>, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
         let expr = self.parse.exprs[expr_id];
 
-        // easy case.
-        if !expr.flags.has_control_flow && !expr.flags.has_assignments {
+        let flags = expr.flags;
+        if !flags.has_loop && !flags.has_if && !flags.has_assign {
             return self.elab_expr_checking_type(expr_id, expected_ty);
         }
 
@@ -204,7 +205,11 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 (Term::UNIT_MK, Term::UNIT)
             }
 
-            ExprKind::If(_) => unimplemented!(),
+            ExprKind::If(_) => {
+                self.error(expr_id, ElabError::TempUnimplemented);
+                return None;
+            }
+
             ExprKind::Loop(_) => unimplemented!(),
 
             ExprKind::TypeHint(_) => unimplemented!(),

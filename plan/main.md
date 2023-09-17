@@ -61,6 +61,7 @@ def do_it_5(x: I32, f: I32 -> Unit) :=
                 - type: not `has_loop` and not `has_assignment`.
                     - put in `elab_expr_as_type`?
             - join points.
+                - params: just the set of `Elaborator::locals` right?
             - `continue`.
             - `break` (`loop` and `do`).
         - assignment valiation: make sure the local is actually a `var`.
@@ -68,6 +69,7 @@ def do_it_5(x: I32, f: I32 -> Unit) :=
         - uninit dependent vars on assign.
             - track deps using temp arena & vec for each var.
             - also need to remove deps, hmm.
+        - expr unit.
     - brck.
     - partial functions.
         - we kinda need something to prevent proofs from

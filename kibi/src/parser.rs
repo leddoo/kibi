@@ -1,3 +1,4 @@
+use sti::traits::CopyIt;
 use sti::arena::Arena;
 use sti::arena_pool::ArenaPool;
 use sti::vec::Vec;
@@ -520,7 +521,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                 if self.consume_if_eq(TokenKind::ColonEq) {
                     let (rhs, rhs_flags) = self.parse_expr(this_parent)?;
                     let mut flags = lhs_flags | rhs_flags;
-                    flags.has_assignments = true;
+                    flags.has_assign = true;
                     (StmtKind::Assign(lhs, rhs), flags)
                 }
                 else {
@@ -887,14 +888,48 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                 TokenKind::KwDo => {
                     self.expect(TokenKind::LCurly)?;
 
-                    let mut flags = ExprFlags::new();
-                    let children = self.sep_by(TokenKind::Semicolon, TokenKind::RCurly, |this| {
-                        let (stmt, stmt_flags) = this.parse_stmt(this_parent)?;
-                        flags |= stmt_flags;
-                        return Some(stmt);
-                    })?;
+                    let (stmts, flags) = self.parse_block(this_parent)?;
 
-                    (ExprKind::Do(expr::Block { stmts: children }), flags)
+                    (ExprKind::Do(expr::Block { is_do: true, stmts }), flags)
+                }
+
+                TokenKind::KwIf => {
+                    let (cond, cond_flags) = self.parse_expr(this_parent)?;
+                    let (then, then_flags) = self.parse_if_block(this_parent)?;
+
+                    let temp = ArenaPool::tls_get_rec();
+
+                    let mut elifs = Vec::new_in(&*temp);
+                    let mut els_parent = this_parent;
+                    while self.consume_if_eq(TokenKind::KwElif) {
+                        let begin = self.prev_token_id();
+                        let (elif_expr, elif_parent) = self.new_expr_uninit(els_parent);
+                        let (cond, cond_flags) = self.parse_expr(elif_parent)?;
+                        let (then, then_flags) = self.parse_if_block(elif_parent)?;
+                        let elif_flags = cond_flags | then_flags;
+                        elifs.push((elif_expr, begin, cond, then, elif_flags));
+                        els_parent = elif_parent;
+                    }
+
+                    let mut els = None.into();
+                    let mut els_flags = ExprFlags::new();
+                    if self.consume_if_eq(TokenKind::KwElse) {
+                        let (expr, flags) = self.parse_if_block(els_parent)?;
+                        els = expr.some();
+                        els_flags = flags;
+                    }
+
+                    for (id, begin, cond, then, mut flags) in elifs.copy_it().rev() {
+                        flags |= els_flags;
+                        let kind = ExprKind::If(expr::If { cond, then, els });
+                        self.expr_init_from(id, begin, kind, flags);
+                        els = id.some();
+                        els_flags = flags;
+                    }
+
+                    let mut flags = cond_flags | then_flags | els_flags;
+                    flags.has_if = true;
+                    (ExprKind::If(expr::If { cond, then, els }), flags)
                 }
 
                 _ => break 'next
@@ -961,6 +996,42 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
         }
 
         Some(adt::Ctor { name, args, ty })
+    }
+
+    fn parse_block(&mut self, parent: AstParent) -> Option<(&'out [StmtId], ExprFlags)> {
+        let mut flags = ExprFlags::new();
+        let stmts = self.sep_by(TokenKind::Semicolon, TokenKind::RCurly, |this| {
+            let (stmt, stmt_flags) = this.parse_stmt(parent)?;
+            flags |= stmt_flags;
+            return Some(stmt);
+        })?;
+        Some((stmts, flags))
+    }
+
+    fn parse_if_block(&mut self, parent: AstParent) -> Option<(ExprId, ExprFlags)> {
+        let source_begin = self.current_token_id();
+        let (this_expr, this_parent) = self.new_expr_uninit(parent);
+
+        self.expect(TokenKind::LCurly)?;
+        let (stmts, flags) = self.parse_block(this_parent)?;
+
+        let mut result = this_expr;
+        if stmts.len() == 0 {
+            // @todo: unit.
+        }
+        else if stmts.len() == 1 {
+            if let StmtKind::Expr(e) = self.parse.stmts[stmts[0]].kind {
+                self.parse.exprs[e].parent = parent;
+                result = e;
+            }
+        }
+
+        if result == this_expr {
+            let kind = ExprKind::Do(expr::Block { is_do: false, stmts });
+            self.expr_init_from(this_expr, source_begin, kind, flags);
+        }
+
+        Some((result, flags))
     }
 
 
@@ -1235,6 +1306,11 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
     #[inline(always)]
     fn current_token_id(&self) -> TokenId {
         TokenId::new_unck(self.token_cursor as u32)
+    }
+
+    #[inline(always)]
+    fn prev_token_id(&self) -> TokenId {
+        TokenId::new_unck(self.token_cursor as u32 - 1)
     }
 
     #[inline(always)]

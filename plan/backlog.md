@@ -1,5 +1,5 @@
 
-### fixes & completeness:
+### fixes, completeness, robustness:
 
 - `Ident(Atom, TokenId)`.
     - hover info: symbol types.
@@ -16,6 +16,8 @@
 - query semantic tokens: option to split multi-line tokens.
 - `validate_string`: `>= 0x20`. do we need simd?
 - debug tracing.
+
+- debug validate expr parents & flags using `visit_children`.
 
 - vfs:
     - directories, create/delete/write.

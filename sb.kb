@@ -438,6 +438,11 @@ def ass_test := do {
     x;
     do { x := 3 };
     x;
+
+    if Bool::true {
+        x := x + 2
+    };
+    x;
 }
 
 

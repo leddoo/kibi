@@ -49,6 +49,11 @@ impl SymbolId {
 
     pub const Unit: SymbolId = SymbolId(7);
     pub const Unit_mk: SymbolId = SymbolId(8);
+
+    pub const Bool: SymbolId = SymbolId(9);
+    pub const Bool_false: SymbolId = SymbolId(10);
+    pub const Bool_true: SymbolId = SymbolId(11);
+    pub const ite: SymbolId = SymbolId(12);
 }
 
 
@@ -105,6 +110,11 @@ impl<'a> Env<'a> {
 
         env.predeclare(SymbolId::ROOT, atoms::Unit, SymbolId::Unit);
         env.predeclare(SymbolId::Unit, atoms::mk, SymbolId::Unit_mk);
+
+        env.predeclare(SymbolId::ROOT, atoms::Bool, SymbolId::Bool);
+        env.predeclare(SymbolId::Bool, atoms::_false, SymbolId::Bool_false);
+        env.predeclare(SymbolId::Bool, atoms::_true, SymbolId::Bool_true);
+        env.predeclare(SymbolId::ROOT, atoms::ite, SymbolId::ite);
 
         return env
     }
