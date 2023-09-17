@@ -122,6 +122,7 @@ mod elab_elim;
 mod elab_def;
 mod elab_inductive;
 mod elab_item;
+mod elab_do;
 mod impls;
 
 

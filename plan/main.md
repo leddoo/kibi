@@ -54,22 +54,17 @@ def do_it_5(x: I32, f: I32 -> Unit) :=
 
 
 - todo:
-    - do & brck.
-        - elab do:
-            - have some state, pass that around. impl elaborator.
-            - `elab_do_block`.
-                - does the save/restore scope thing.
-                - adds locals.
-                - calls `elab_do_expr`.
-            - `elab_do_expr`
-                - with expected type cos let.
-                - total match that calls `elab_expr_checking_type` for simple cases.
-            - the state:
-                - we need some "current jp" thing.
-                - `elab_do_block` adds values to current jp. `Term | (Term, ScopeId)`?
-                - oh right, and we need the value map.
+    - do.
+        - collect values & build let chain. type is `Unit` for now (need to pre-declare).
+        - uninit dependent vars on assign.
+            - track deps using temp arena & vec for each var.
+            - also need to remove deps, hmm.
         - control flow
             - expr has control flow: `parse_block`, set `self.in_block = true`
+                - hmm, technically don't need that anymore, cos assignments flag.
+                - but want to allow `if` in types, so should prob split control flow flag.
+                  into has if, has loop & computed for "control flow".
+    - brck.
     - partial functions.
         - we kinda need something to prevent proofs from
           being abused to elide calls to effectful functions.

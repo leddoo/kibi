@@ -724,7 +724,7 @@ impl<'c> Inner<'c> {
         }}
 
 
-        use crate::ast::{ItemKind, StmtKind, LevelKind, ExprKind, Binder};
+        use crate::ast::{ItemKind, StmtKind, LevelKind, ExprKind, Binder, expr::Block};
 
         // @cleanup: visit children.
         fn hit_test_ast(node: AstId, pos: TokenId, parse: &Parse) -> Option<AstId> {
@@ -846,6 +846,9 @@ impl<'c> Inner<'c> {
                             hit_test_ast(it.lhs.into(), pos, parse).or_else(||
                             hit_test_ast(it.rhs.into(), pos, parse)),
 
+                        ExprKind::Do(it) =>
+                            hit_test_block(it, pos, parse),
+
                         _ => {
                             eprintln!("unimp! {expr:?}");
                             None
@@ -866,6 +869,15 @@ impl<'c> Inner<'c> {
                 };
                 if hit.is_some() {
                     return hit;
+                }
+            }
+            None
+        }
+
+        fn hit_test_block(block: Block, pos: TokenId, parse: &Parse) -> Option<AstId> {
+            for stmt in block.stmts.copy_it() {
+                if let Some(hit) = hit_test_ast(stmt.into(), pos, parse) {
+                    return Some(hit);
                 }
             }
             None
@@ -915,6 +927,18 @@ impl<'c> Inner<'c> {
                         let ty = pp.pp_term(ty);
                         let ty = pp.render(ty, 50);
                         ty.layout_into_string(&mut buf);
+
+                        // @todo: keep?
+                        if let Some(local) = info.term.try_local() {
+                            let entry = ctx.local_ctx.lookup(local);
+                            if let Some(val) = entry.value {
+                                sti::write!(&mut buf, " := ");
+                                let val = ctx.ivar_ctx.instantiate_term_vars(val, alloc);
+                                let val = pp.pp_term(val);
+                                let val = pp.render(val, 50);
+                                val.layout_into_string(&mut buf);
+                            }
+                        }
                     }
                 }
             }

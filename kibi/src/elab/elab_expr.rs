@@ -206,6 +206,10 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 self.elab_app(expr_id, ExprOrTerm::Term(Term::ADD_ADD), &[lhs, rhs], expected_ty)?
             }
 
+            ExprKind::Do(it) => {
+                self.elab_do(expr_id, expr.flags, it)?
+            }
+
             _ => {
                 eprintln!("unimp expr kind {:?}", expr);
                 self.error(expr_id, ElabError::TempUnimplemented);

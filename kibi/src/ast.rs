@@ -413,7 +413,6 @@ pub enum ExprKind<'a> {
     String(ParseStringId),
 
     Parens(ExprId),
-    Block(expr::Block<'a>),
 
     Ref(expr::Ref),
     Deref(ExprId),
@@ -426,11 +425,6 @@ pub enum ExprKind<'a> {
     Field(expr::Field),
     Index(expr::Index),
     Call(expr::Call<'a>),
-
-    List(ExprList<'a>),
-    ListType(ExprId),
-    Map(expr::Map<'a>),
-    MapType(expr::MapType),
 
     Do(expr::Block<'a>),
     If(expr::If<'a>),

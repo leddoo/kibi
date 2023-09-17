@@ -411,6 +411,16 @@ def foo :=
     Unit::mk()
 
 
+def ass_test := do {
+    var x := 1;
+    x;
+    x := 2;
+    x;
+    do { x := 3 };
+    x;
+}
+
+
 def brck_basic := do {
     var v  := 42;
     let r1 := &mut v;
