@@ -211,6 +211,27 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 self.elab_do(expr_id, expr.flags, it)?
             }
 
+            ExprKind::If(it) => {
+                let (cond, _) = self.elab_expr_checking_type(it.cond, Some(Term::BOOL))?;
+
+                let (then, result_ty) = self.elab_expr(it.then)?;
+
+                let els = if let Some(els) = it.els.to_option() {
+                    self.elab_expr_checking_type(els, Some(result_ty))?.0
+                }
+                else {
+                    if !self.ensure_def_eq(result_ty, Term::UNIT) {
+                        // @todo: type mismatch or special error.
+                        self.error(expr_id, ElabError::TempArgFailed);
+                        return None;
+                    }
+                    Term::UNIT_MK
+                };
+
+                let result = self.alloc.mkt_apps(Term::ITE, &[ result_ty, cond, then, els ]);
+                (result, result_ty)
+            }
+
             _ => {
                 eprintln!("unimp expr kind {:?}", expr);
                 self.error(expr_id, ElabError::TempUnimplemented);

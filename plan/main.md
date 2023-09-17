@@ -56,12 +56,9 @@ def do_it_5(x: I32, f: I32 -> Unit) :=
 - todo:
     - do.
         - control flow
-            - parse `if` and `loop`.
-                - `has_if`, `has_loop`.
-                - type: not `has_loop` and not `has_assignment`.
-                    - put in `elab_expr_as_type`?
             - join points.
                 - params: just the set of `Elaborator::locals` right?
+            - loops.
             - `continue`.
             - `break` (`loop` and `do`).
         - assignment valiation: make sure the local is actually a `var`.

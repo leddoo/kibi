@@ -32,7 +32,7 @@ def Bool::No_Confusion.{p} (P: Sort(p), a b: Bool): Sort(p) :=
 def Bool::no_confusion.{p} <P: Sort(p), a b: Bool>: a = b -> Bool::No_Confusion(P, a, b) :=
     lam h => Eq::rec(Bool::rec(lam p => p, lam p => p, a), h)
 
-def ite (cond: Bool) <T: Type> (on_true: T) (on_false: T): T
+def ite <T: Type> (cond: Bool) (on_true: T) (on_false: T): T
     := Bool::rec(on_false, on_true, cond)
 
 
@@ -437,6 +437,9 @@ def ass_test := do {
     x := x + 1;
     x;
     do { x := 3 };
+    x;
+
+    x := if Bool::false { 6 } elif Bool::true { 9 } else { 7 };
     x;
 
     if Bool::true {

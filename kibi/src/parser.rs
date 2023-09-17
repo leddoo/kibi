@@ -921,6 +921,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
 
                     for (id, begin, cond, then, mut flags) in elifs.copy_it().rev() {
                         flags |= els_flags;
+                        flags.has_if = true;
                         let kind = ExprKind::If(expr::If { cond, then, els });
                         self.expr_init_from(id, begin, kind, flags);
                         els = id.some();

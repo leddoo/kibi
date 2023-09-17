@@ -548,6 +548,7 @@ mod impel {
         pub const BOOL:       Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Bool, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
         pub const BOOL_FALSE: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Bool_false, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
         pub const BOOL_TRUE:  Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Bool_true, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const ITE:        Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ite, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
 
 
         #[inline(always)]

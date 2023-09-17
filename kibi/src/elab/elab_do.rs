@@ -134,9 +134,24 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     fn elab_do_expr(&mut self, state: &mut State<'out>, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
         let expr = self.parse.exprs[expr_id];
 
+        // simple expr.
         let flags = expr.flags;
         if !flags.has_loop && !flags.has_if && !flags.has_assign {
             return self.elab_expr_checking_type(expr_id, expected_ty);
+        }
+
+        // simple `if`.
+        if let ExprKind::If(it) = expr.kind {
+            let exprs = &self.parse.exprs;
+
+            let mut flags = exprs[it.cond].flags | exprs[it.then].flags;
+            if let Some(els) = it.els.to_option() {
+                flags |= exprs[els].flags;
+            }
+
+            if !flags.has_loop && !flags.has_assign {
+                return self.elab_expr_checking_type(expr_id, expected_ty);
+            }
         }
 
 
