@@ -388,10 +388,10 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     })?;
                 }
 
-                let params = self.parse_binders(this_parent, false)?;
+                let (params, _) = self.parse_binders(this_parent, false)?;
 
                 self.expect(TokenKind::Colon)?;
-                let ty = self.parse_type(this_parent)?;
+                let (ty, _) = self.parse_type(this_parent)?;
 
                 ItemKind::Axiom(item::Axiom { name, levels, params, ty })
             }
@@ -412,16 +412,17 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     })?;
                 }
 
-                let params = self.parse_binders(this_parent, false)?;
+                let (params, _) = self.parse_binders(this_parent, false)?;
 
                 let mut ty = None.into();
                 if self.consume_if_eq(TokenKind::Colon) {
-                    ty = self.parse_type(this_parent)?.some();
+                    let (ty_expr, _) = self.parse_type(this_parent)?;
+                    ty = ty_expr.some();
                 }
 
                 self.expect(TokenKind::ColonEq)?;
 
-                let value = self.parse_expr(this_parent)?;
+                let (value, _) = self.parse_expr(this_parent)?;
 
                 ItemKind::Def(item::Def { name, levels, params, ty, value })
             }
@@ -443,20 +444,20 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     })?;
                 }
 
-                let params = self.parse_binders(this_parent, false)?;
+                let (params, _) = self.parse_binders(this_parent, false)?;
 
                 self.expect(TokenKind::Colon)?;
-                let ty = self.parse_type(this_parent)?;
+                let (ty, _) = self.parse_type(this_parent)?;
 
                 self.expect(TokenKind::ColonEq)?;
 
-                let value = self.parse_expr(this_parent)?;
+                let (value, _) = self.parse_expr(this_parent)?;
 
                 ItemKind::Impl(item::Impl { levels, params, ty, value })
             }
 
             TokenKind::Ident(atoms::reduce) => {
-                let expr = self.parse_expr(this_parent)?;
+                let (expr, _) = self.parse_expr(this_parent)?;
                 ItemKind::Reduce(expr)
             }
 
@@ -476,7 +477,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
     }
 
 
-    pub fn parse_stmt(&mut self, parent: AstParent) -> Option<StmtId> {
+    pub fn parse_stmt(&mut self, parent: AstParent) -> Option<(StmtId, ExprFlags)> {
         let (at, source_begin) = self.peek();
 
         let this_stmt = self.parse.stmts.push(Stmt {
@@ -486,7 +487,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
         });
         let this_parent = Some(AstId::Stmt(this_stmt));
 
-        let kind = match at.kind {
+        let (kind, flags) = match at.kind {
             TokenKind::KwLet | TokenKind::KwVar => {
                 self.consume(1);
 
@@ -494,28 +495,36 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
 
                 let name = self.expect_ident_or_hole()?;
 
+                let mut flags = ExprFlags::new();
+
                 let mut ty = None.into();
                 if self.consume_if_eq(TokenKind::Colon) {
-                    ty = self.parse_type(this_parent)?.some();
+                    let (ty_expr, ty_flags) = self.parse_type(this_parent)?;
+                    flags |= ty_flags;
+                    ty = ty_expr.some();
                 }
 
                 let mut val = None.into();
                 if self.consume_if_eq(TokenKind::ColonEq) {
-                    val = self.parse_type(this_parent)?.some();
+                    let (val_expr, val_flags) = self.parse_type(this_parent)?;
+                    flags |= val_flags;
+                    val = val_expr.some();
                 }
 
-                StmtKind::Let(stmt::Let { is_var, name, ty, val })
+                (StmtKind::Let(stmt::Let { is_var, name, ty, val }), flags)
             }
 
             _ => {
-                let lhs = self.parse_expr(this_parent)?;
+                let (lhs, lhs_flags) = self.parse_expr(this_parent)?;
 
                 if self.consume_if_eq(TokenKind::ColonEq) {
-                    let rhs = self.parse_expr(this_parent)?;
-                    StmtKind::Assign(lhs, rhs)
+                    let (rhs, rhs_flags) = self.parse_expr(this_parent)?;
+                    let mut flags = lhs_flags | rhs_flags;
+                    flags.has_assignments = true;
+                    (StmtKind::Assign(lhs, rhs), flags)
                 }
                 else {
-                    StmtKind::Expr(lhs)
+                    (StmtKind::Expr(lhs), lhs_flags)
                 }
             }
         };
@@ -526,27 +535,27 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
         this.source = source;
         this.kind = kind;
 
-        return Some(this_stmt);
+        return Some((this_stmt, flags));
     }
 
 
-    pub fn parse_expr(&mut self, parent: AstParent) -> Option<ExprId> {
+    pub fn parse_expr(&mut self, parent: AstParent) -> Option<(ExprId, ExprFlags)> {
         self.parse_expr_exw(parent, ParseExprFlags::default(), 0)
     }
 
-    pub fn parse_expr_ex(&mut self, parent: AstParent, prec: u32) -> Option<ExprId> {
+    pub fn parse_expr_ex(&mut self, parent: AstParent, prec: u32) -> Option<(ExprId, ExprFlags)> {
         self.parse_expr_exw(parent, ParseExprFlags::default(), prec)
     }
 
-    pub fn parse_type(&mut self, parent: AstParent) -> Option<ExprId> {
+    pub fn parse_type(&mut self, parent: AstParent) -> Option<(ExprId, ExprFlags)> {
         self.parse_expr_exw(parent, ParseExprFlags::default().with_ty(), 0)
     }
 
-    pub fn parse_type_ex(&mut self, parent: AstParent, prec: u32) -> Option<ExprId> {
+    pub fn parse_type_ex(&mut self, parent: AstParent, prec: u32) -> Option<(ExprId, ExprFlags)> {
         self.parse_expr_exw(parent, ParseExprFlags::default().with_ty(), prec)
     }
 
-    pub fn parse_expr_exw(&mut self, parent: AstParent, flags: ParseExprFlags, prec: u32) -> Option<ExprId> {
+    pub fn parse_expr_exw(&mut self, parent: AstParent, flags: ParseExprFlags, prec: u32) -> Option<(ExprId, ExprFlags)> {
         let token_begin = self.current_token_id();
 
         let mut result = self.parse_leading_expr(parent, flags, prec)?;
@@ -559,16 +568,16 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                 self.consume(1);
 
                 let (this_expr, this_parent) = self.new_expr_uninit(parent);
-                self.parse.exprs[result].parent = this_parent;
+                self.parse.exprs[result.0].parent = this_parent;
 
-                let lhs = result;
-                let rhs = self.parse_expr_ex(this_parent, PREC_EQ)?;
+                let (lhs, lhs_flags) = result;
+                let (rhs, rhs_flags) = self.parse_expr_ex(this_parent, PREC_EQ)?;
 
                 let kind = ExprKind::Eq(lhs, rhs);
+                let flags = lhs_flags | rhs_flags;
+                self.expr_init_from(this_expr, token_begin, kind, flags);
 
-                self.expr_init_from(this_expr, token_begin, kind);
-
-                result = this_expr;
+                result = (this_expr, flags);
                 continue;
             }
 
@@ -583,19 +592,19 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     self.consume(1);
 
                     let (this_expr, this_parent) = self.new_expr_uninit(parent);
-                    self.parse.exprs[result].parent = this_parent;
+                    self.parse.exprs[result.0].parent = this_parent;
 
-                    let lhs = result;
-                    let rhs = self.parse_expr_ex(this_parent, op.rprec())?;
+                    let (lhs, lhs_flags) = result;
+                    let (rhs, rhs_flags) = self.parse_expr_ex(this_parent, op.rprec())?;
 
                     let kind = match op {
                         InfixOp::Op2(op) =>
                             ExprKind::Op2(expr::Op2 { op, lhs, rhs }),
                     };
+                    let flags = lhs_flags | rhs_flags;
+                    self.expr_init_from(this_expr, token_begin, kind, flags);
 
-                    self.expr_init_from(this_expr, token_begin, kind);
-
-                    result = this_expr;
+                    result = (this_expr, flags);
                     continue;
                 }
             }
@@ -606,10 +615,10 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                 self.consume(1);
 
                 let (this_expr, this_parent) = self.new_expr_uninit(parent);
-                self.parse.exprs[result].parent = this_parent;
+                self.parse.exprs[result.0].parent = this_parent;
 
-                let lhs = result;
-                let rhs = self.parse_type_ex(this_parent, PREC_ARROW)?;
+                let (lhs, lhs_flags) = result;
+                let (rhs, rhs_flags) = self.parse_type_ex(this_parent, PREC_ARROW)?;
 
                 // @arrow_uses_null_ident
                 let name = OptIdent {
@@ -627,10 +636,10 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     ])[..],
                     value: rhs,
                 });
+                let flags = lhs_flags | rhs_flags;
+                self.expr_init_from(this_expr, token_begin, kind, flags);
 
-                self.expr_init_from(this_expr, token_begin, kind);
-
-                result = this_expr;
+                result = (this_expr, flags);
                 continue;
             }
 
@@ -643,26 +652,28 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                 self.consume(1);
 
                 let (this_expr, this_parent) = self.new_expr_uninit(parent);
-                self.parse.exprs[result].parent = this_parent;
+                self.parse.exprs[result.0].parent = this_parent;
 
                 let (at, at_src) = self.next();
-                let kind = match at.kind {
+                let (kind, flags) = match at.kind {
                     // field.
                     TokenKind::Ident(name) => {
-                        ExprKind::Field(expr::Field {
+                        let (base, base_flags) = result;
+                        let kind = ExprKind::Field(expr::Field {
                             name: Ident { source: at_src, value: name },
-                            base: result,
-                        })
+                            base,
+                        });
+                        (kind, base_flags)
                     }
 
                     // levels
                     TokenKind::LCurly => {
-                        let r = self.parse.exprs[result];
+                        let r = self.parse.exprs[result.0];
                         let symbol = match r.kind {
                             ExprKind::Ident(name) => IdentOrPath::Ident(name),
                             ExprKind::Path(path)  => IdentOrPath::Path(path),
                             _ => {
-                                self.error_expect_expr(result, "ident | path");
+                                self.error_expect_expr(result.0, "ident | path");
                                 return None;
                             }
                         };
@@ -671,7 +682,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                             this.parse_level(this_parent)
                         })?;
 
-                        ExprKind::Levels(expr::Levels { symbol, levels })
+                        (ExprKind::Levels(expr::Levels { symbol, levels }), ExprFlags::new())
                     }
 
                     _ => {
@@ -679,9 +690,9 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                         return None;
                     }
                 };
-                self.expr_init_from(this_expr, token_begin, kind);
+                self.expr_init_from(this_expr, token_begin, kind, flags);
 
-                result = this_expr;
+                result = (this_expr, flags);
                 continue;
             }
 
@@ -689,20 +700,21 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                 self.consume(1);
 
                 let (this_expr, this_parent) = self.new_expr_uninit(parent);
-                self.parse.exprs[result].parent = this_parent;
+                self.parse.exprs[result.0].parent = this_parent;
 
+                let (func, func_flags) = result;
 
+                let mut flags = func_flags;
                 let args = self.sep_by(TokenKind::Comma, TokenKind::RParen, |this| {
-                    this.parse_expr(this_parent)
+                    let (arg, arg_flags) = this.parse_expr(this_parent)?;
+                    flags |= arg_flags;
+                    return Some(arg);
                 })?;
 
-                self.expr_init_from(this_expr, token_begin,
-                    ExprKind::Call(expr::Call {
-                        func: result,
-                        args,
-                    }));
+                let kind = ExprKind::Call(expr::Call { func, args });
+                self.expr_init_from(this_expr, token_begin, kind, flags);
 
-                result = this_expr;
+                result = (this_expr, flags);
                 continue;
             }
 
@@ -712,27 +724,28 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
         return Some(result);
     }
 
-    fn parse_leading_expr(&mut self, parent: AstParent, flags: ParseExprFlags, prec: u32) -> Option<ExprId> {
+    fn parse_leading_expr(&mut self, parent: AstParent, _flags: ParseExprFlags, prec: u32) -> Option<(ExprId, ExprFlags)> {
         let (at, source_begin) = self.next();
 
         let (this_expr, this_parent) = self.new_expr_uninit(parent);
 
-        let kind = 'kind: {
+        let (kind, flags) = 'kind: {
             'next: { break 'kind match at.kind {
                 TokenKind::Hole => {
-                    ExprKind::Hole
+                    (ExprKind::Hole, ExprFlags::new())
                 }
 
                 TokenKind::Ident(ident) => {
-                    match self.parse_ident_or_path(Ident { source: source_begin, value: ident })? {
+                    let kind = match self.parse_ident_or_path(Ident { source: source_begin, value: ident })? {
                         IdentOrPath::Ident(ident) => ExprKind::Ident(ident),
                         IdentOrPath::Path(path) => ExprKind::Path(path),
-                    }
+                    };
+                    (kind, ExprFlags::new())
                 }
 
                 TokenKind::Dot => {
                     let ident = self.expect_ident()?;
-                    ExprKind::DotIdent(ident)
+                    (ExprKind::DotIdent(ident), ExprFlags::new())
                 }
 
 
@@ -740,7 +753,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     self.expect(TokenKind::LParen)?;
                     let level = self.parse_level(this_parent)?;
                     self.expect(TokenKind::RParen)?;
-                    ExprKind::Sort(level)
+                    (ExprKind::Sort(level), ExprFlags::new())
                 }
 
                 TokenKind::KwProp => {
@@ -750,7 +763,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                         source,
                         kind: LevelKind::Nat(0),
                     });
-                    ExprKind::Sort(level)
+                    (ExprKind::Sort(level), ExprFlags::new())
                 }
 
                 TokenKind::KwType => {
@@ -760,63 +773,72 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                         source,
                         kind: LevelKind::Nat(1),
                     });
-                    ExprKind::Sort(level)
+                    (ExprKind::Sort(level), ExprFlags::new())
                 }
 
                 TokenKind::KwPi => {
-                    let binders = self.parse_binders(this_parent, true)?;
+                    let (binders, binder_flags) = self.parse_binders(this_parent, true)?;
 
                     self.expect(TokenKind::Arrow)?;
 
-                    let ret = self.parse_type(this_parent)?;
-                    ExprKind::Forall(expr::Binder { binders, value: ret })
+                    let (ret, ret_flags) = self.parse_type(this_parent)?;
+                    let kind = ExprKind::Forall(expr::Binder { binders, value: ret });
+                    (kind, binder_flags | ret_flags)
                 }
 
                 TokenKind::KwLam => {
-                    let binders = self.parse_binders(this_parent, true)?;
+                    let (binders, binder_flags) = self.parse_binders(this_parent, true)?;
 
                     self.expect(TokenKind::FatArrow)?;
 
-                    let value = self.parse_expr(this_parent)?;
-                    ExprKind::Lambda(expr::Binder { binders, value })
+                    let (value, value_flags) = self.parse_expr(this_parent)?;
+                    let kind = ExprKind::Lambda(expr::Binder { binders, value });
+                    (kind, binder_flags | value_flags)
                 }
 
                 TokenKind::KwLet => {
                     let name = self.expect_ident_or_hole()?;
 
+                    let mut flags = ExprFlags::new();
+
                     let mut ty = None.into();
                     if self.consume_if_eq(TokenKind::Colon) {
-                        ty = self.parse_type(this_parent)?.some();
+                        let (ty_expr, ty_flags) = self.parse_type(this_parent)?;
+                        ty = ty_expr.some();
+                        flags |= ty_flags;
                     }
 
                     self.expect(TokenKind::ColonEq)?;
-                    let val = self.parse_expr(this_parent)?;
+                    let (val, val_flags) = self.parse_expr(this_parent)?;
+                    flags |= val_flags;
 
                     self.expect(TokenKind::KwIn)?;
-                    let body = self.parse_expr(this_parent)?;
+                    let (body, body_flags) = self.parse_expr(this_parent)?;
+                    flags |= body_flags;
 
-                    ExprKind::Let(expr::Let { name, ty, val, body })
+                    (ExprKind::Let(expr::Let { name, ty, val, body }), flags)
                 }
 
 
-                TokenKind::Bool(value) => ExprKind::Bool(value),
+                TokenKind::Bool(value) =>
+                    (ExprKind::Bool(value), ExprFlags::new()),
 
                 TokenKind::Number(value) => {
                     // @temp: analyze compatible types.
                     // maybe convert to value.
                     // or structured repr, maybe in tok.
-                    ExprKind::Number(value)
+                    (ExprKind::Number(value), ExprFlags::new())
                 }
 
                 TokenKind::String(value) => {
                     // @temp: remove escapes.
-                    ExprKind::String(value)
+                    (ExprKind::String(value), ExprFlags::new())
                 }
 
 
                 // subexpr.
                 TokenKind::LParen => {
-                    let inner =
+                    let (inner, flags) =
                         self.parse_expr_exw(
                             this_parent,
                             ParseExprFlags::default()
@@ -826,7 +848,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
 
                     self.expect(TokenKind::RParen)?;
 
-                    ExprKind::Parens(inner)
+                    (ExprKind::Parens(inner), flags)
                 }
 
 
@@ -846,9 +868,9 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                         kind = expr::RefKind::Const;
                     }
 
-                    let expr = self.parse_expr_ex(this_parent, PREC_PREFIX)?;
+                    let (expr, flags) = self.parse_expr_ex(this_parent, PREC_PREFIX)?;
 
-                    ExprKind::Ref(expr::Ref { kind, expr} )
+                    (ExprKind::Ref(expr::Ref { kind, expr } ), flags)
                 }
 
                 TokenKind::Star => {
@@ -856,43 +878,23 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                         unimplemented!()
                     }
 
-                    let expr = self.parse_expr_ex(this_parent, PREC_PREFIX)?;
+                    let (expr, flags) = self.parse_expr_ex(this_parent, PREC_PREFIX)?;
 
-                    ExprKind::Deref(expr)
-                }
-
-
-                // list & list type.
-                TokenKind::LBracket => {
-                    let (children, last_had_sep, had_error) =
-                        self.sep_by_ex(TokenKind::Comma, TokenKind::RBracket, |this| {
-                            this.parse_expr(this_parent)
-                        });
-
-                    if had_error {
-                        return None;
-                    }
-
-                    // list type.
-                    if !last_had_sep && children.len() == 1 && flags.ty {
-                        ExprKind::ListType(children[0])
-                    }
-                    // list.
-                    else {
-                        ExprKind::List(children)
-                    }
+                    (ExprKind::Deref(expr), flags)
                 }
 
 
                 TokenKind::KwDo => {
                     self.expect(TokenKind::LCurly)?;
 
+                    let mut flags = ExprFlags::new();
                     let children = self.sep_by(TokenKind::Semicolon, TokenKind::RCurly, |this| {
-                        this.parse_stmt(this_parent)
+                        let (stmt, stmt_flags) = this.parse_stmt(this_parent)?;
+                        flags |= stmt_flags;
+                        return Some(stmt);
                     })?;
 
-                    let block = expr::Block { stmts: children };
-                    ExprKind::Do(expr::Do { block })
+                    (ExprKind::Do(expr::Block { stmts: children }), flags)
                 }
 
                 _ => break 'next
@@ -904,19 +906,18 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     unimplemented!()
                 }
 
-                let expr = self.parse_expr_ex(this_parent, PREC_PREFIX)?;
+                let (expr, flags) = self.parse_expr_ex(this_parent, PREC_PREFIX)?;
 
-                break 'kind ExprKind::Op1(expr::Op1 { op, expr });
+                break 'kind (ExprKind::Op1(expr::Op1 { op, expr }), flags);
             }
 
 
             self.error_unexpected(at, source_begin);
             return None;
         };
+        self.expr_init_from(this_expr, source_begin, kind, flags);
 
-        self.expr_init_from(this_expr, source_begin, kind);
-
-        return Some(this_expr);
+        return Some((this_expr, flags));
     }
 
 
@@ -932,11 +933,12 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
             })?;
         }
 
-        let params = self.parse_binders(this_parent, false)?;
+        let (params, _) = self.parse_binders(this_parent, false)?;
 
         let mut ty = None.into();
         if self.consume_if_eq(TokenKind::Colon) {
-            ty = self.parse_expr(this_parent)?.some();
+            let (ty_expr, _) = self.parse_expr(this_parent)?;
+            ty = ty_expr.some();
         }
 
         self.expect(TokenKind::LCurly)?;
@@ -950,11 +952,12 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
     fn parse_ctor(&mut self, this_parent: AstParent) -> Option<adt::Ctor<'out>> {
         let name = self.expect_ident()?;
 
-        let args = self.parse_binders(this_parent, false)?;
+        let (args, _) = self.parse_binders(this_parent, false)?;
 
         let mut ty = None.into();
         if self.consume_if_eq(TokenKind::Colon) {
-            ty = self.parse_expr(this_parent)?.some();
+            let (ty_expr, _) = self.parse_expr(this_parent)?;
+            ty = ty_expr.some();
         }
 
         Some(adt::Ctor { name, args, ty })
@@ -1041,9 +1044,10 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
         return Some(result);
     }
 
-    fn parse_binders(&mut self, this_parent: AstParent, allow_ident: bool) -> Option<BinderList<'out>> {
+    fn parse_binders(&mut self, this_parent: AstParent, allow_ident: bool) -> Option<(BinderList<'out>, ExprFlags)> {
         let temp = ArenaPool::tls_get_rec();
         let mut binders = Vec::new_in(&*temp);
+        let mut flags = ExprFlags::new();
         loop {
             if allow_ident {
                 if let Some(ident) = self.parse_ident_or_hole() {
@@ -1053,20 +1057,24 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
             }
 
             if self.consume_if_eq(TokenKind::LParen) {
-                self.parse_typed_binders(this_parent, TokenKind::RParen, &mut binders)?;
+                flags |= self.parse_typed_binders(this_parent, TokenKind::RParen, &mut binders)?;
                 continue;
             }
             if self.consume_if_eq(TokenKind::Lt) {
-                self.parse_typed_binders(this_parent, TokenKind::Gt, &mut binders)?;
+                flags |= self.parse_typed_binders(this_parent, TokenKind::Gt, &mut binders)?;
                 continue;
             }
 
             break;
         }
-        return Some(binders.move_into(self.alloc).leak());
+        return Some((binders.move_into(self.alloc).leak(), flags));
     }
 
-    fn parse_typed_binders<'res>(&mut self, this_parent: AstParent, terminator: TokenKind, binders: &mut Vec<Binder<'out>, &'res Arena>) -> Option<()> {
+    fn parse_typed_binders<'res>(&mut self,
+        this_parent: AstParent, terminator: TokenKind,
+        binders: &mut Vec<Binder<'out>, &'res Arena>)
+        -> Option<ExprFlags>
+    {
         let implicit = match terminator {
             TokenKind::RParen => false,
             TokenKind::Gt => true,
@@ -1076,9 +1084,11 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
         let mut last_had_sep = true;
         let mut last_end = TokenId::ZERO;
 
+        let mut flags = ExprFlags::new();
+
         loop {
             if self.consume_if_eq(terminator) {
-                return Some(());
+                return Some(flags);
             }
 
             if !last_had_sep {
@@ -1097,12 +1107,15 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
             };
 
             self.expect(TokenKind::Colon)?;
-            let flags = ParseExprFlags::default().with_no_cmp().with_ty();
-            let ty = self.parse_expr_exw(this_parent, flags, 0)?;
+            let parse_flags = ParseExprFlags::default().with_no_cmp().with_ty();
+            let (ty, ty_flags) = self.parse_expr_exw(this_parent, parse_flags, 0)?;
+            flags |= ty_flags;
 
             let mut default = None.into();
             if self.consume_if_eq(TokenKind::ColonEq) {
-                default = self.parse_expr(this_parent)?.some();
+                let (default_expr, default_flags) = self.parse_expr(this_parent)?;
+                flags |= default_flags;
+                default = default_expr.some();
             }
 
             binders.push(Binder::Typed(TypedBinder { implicit, names, ty, default }));
@@ -1308,12 +1321,13 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
             parent,
             source: TokenRange::ZERO,
             kind: ExprKind::Error,
+            flags: ExprFlags::new(),
         });
         (id, Some(AstId::Expr(id)))
     }
 
     #[inline]
-    fn expr_init_from(&mut self, id: ExprId, from: TokenId, kind: ExprKind<'out>) {
+    fn expr_init_from(&mut self, id: ExprId, from: TokenId, kind: ExprKind<'out>, flags: ExprFlags) {
         let source = self.token_range_from(from);
 
         let this = &mut self.parse.exprs[id];
@@ -1322,6 +1336,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
 
         this.source = source;
         this.kind = kind;
+        this.flags = flags;
     }
 }
 

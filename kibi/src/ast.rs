@@ -388,6 +388,7 @@ pub type ExprList<'a> = &'a [ExprId];
 pub struct Expr<'a> {
     pub parent: AstParent,
     pub source: TokenRange,
+    pub flags: ExprFlags,
 
     pub kind: ExprKind<'a>,
 }
@@ -431,11 +432,17 @@ pub enum ExprKind<'a> {
     Map(expr::Map<'a>),
     MapType(expr::MapType),
 
-    Do(expr::Do<'a>),
+    Do(expr::Block<'a>),
     If(expr::If<'a>),
     Loop(expr::Loop<'a>),
 
     TypeHint(expr::TypeHint),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ExprFlags {
+    pub has_control_flow: bool,
+    pub has_assignments: bool,
 }
 
 
@@ -566,11 +573,6 @@ pub mod expr {
 
 
     #[derive(Clone, Copy, Debug)]
-    pub struct Do<'a> {
-        pub block: Block<'a>,
-    }
-
-    #[derive(Clone, Copy, Debug)]
     pub struct If<'a> {
         pub cond:  ExprId,
         pub then:  Block<'a>,
@@ -589,6 +591,34 @@ pub mod expr {
         pub expr: ExprId,
         pub ty:   ExprId,
     }
+}
+
+
+impl ExprFlags {
+    #[inline]
+    pub const fn new() -> ExprFlags {
+        ExprFlags {
+            has_control_flow: false,
+            has_assignments: false,
+        }
+    }
+}
+
+impl core::ops::BitOr for ExprFlags {
+    type Output = Self;
+
+    #[inline(always)]
+    fn bitor(self, rhs: Self) -> Self::Output {
+        ExprFlags {
+            has_control_flow: self.has_control_flow | rhs.has_control_flow,
+            has_assignments: self.has_assignments | rhs.has_assignments,
+        }
+    }
+}
+
+impl core::ops::BitOrAssign for ExprFlags {
+    #[inline(always)]
+    fn bitor_assign(&mut self, rhs: Self) { *self = *self | rhs }
 }
 
 

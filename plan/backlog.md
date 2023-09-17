@@ -30,6 +30,10 @@
 
 - operator parsing.
     - shared logic, different expr kinds.
+    - reconsider assignment as expr. would be disallowed in type.
+      need to break up exprs for do elab anyway, cos refs.
+
+- elab elim: don't option of option.
 
 
 
