@@ -55,15 +55,19 @@ def do_it_5(x: I32, f: I32 -> Unit) :=
 
 - todo:
     - do.
-        - collect values & build let chain. type is `Unit` for now (need to pre-declare).
+        - control flow
+            - parse `if` and `loop`.
+                - `has_if`, `has_loop`.
+                - type: not `has_loop` and not `has_assignment`.
+                    - put in `elab_expr_as_type`?
+            - join points.
+            - `continue`.
+            - `break` (`loop` and `do`).
+        - assignment valiation: make sure the local is actually a `var`.
+          not `let` or something different entirely.
         - uninit dependent vars on assign.
             - track deps using temp arena & vec for each var.
             - also need to remove deps, hmm.
-        - control flow
-            - expr has control flow: `parse_block`, set `self.in_block = true`
-                - hmm, technically don't need that anymore, cos assignments flag.
-                - but want to allow `if` in types, so should prob split control flow flag.
-                  into has if, has loop & computed for "control flow".
     - brck.
     - partial functions.
         - we kinda need something to prevent proofs from

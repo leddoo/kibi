@@ -59,6 +59,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     fn elab_expr_ex(&mut self, expr: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
         let result = self.elab_expr_core(expr, expected_ty);
 
+        // @todo: dedup (validate_type)
         #[cfg(debug_assertions)]
         if let Some((term, ty)) = result {
             let n = self.ivars.assignment_gen;

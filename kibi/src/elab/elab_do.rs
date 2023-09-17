@@ -15,7 +15,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         }
         else {
             let mut state = State {
-                locals: Vec::new(),
+                stmts: Vec::new(),
             };
 
             let old_scope = self.lctx.current;
@@ -23,28 +23,40 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
             self.elab_do_block(&mut state, block)?;
 
-            // @temp
-            while self.lctx.current != old_scope {
-                self.lctx.pop(self.lctx.current.unwrap());
+            let mut result = Term::UNIT_MK;
+            for stmt in state.stmts.copy_it().rev() {
+                match stmt {
+                    Stmt::Local(id) => {
+                        result = self.mk_let(result, id, false);
+                        self.lctx.pop(id);
+                    }
+
+                    Stmt::Term((term, ty)) => {
+                        result = self.alloc.mkt_let(Atom::NULL, ty, term, result);
+                    }
+                }
             }
+            assert_eq!(self.lctx.current, old_scope);
             self.locals.truncate(old_locals);
-            Some((Term::NAT_ZERO, Term::NAT))
+
+            Some((result, Term::UNIT))
         }
     }
 }
 
 
-struct State {
-    locals: Vec<Local>,
+struct State<'out> {
+    stmts: Vec<Stmt<'out>>,
 }
 
-struct Local {
-    orig_id: ScopeId,
-    index: usize,
+#[derive(Clone, Copy)]
+enum Stmt<'out> {
+    Local(ScopeId),
+    Term((Term<'out>, Term<'out>)),
 }
 
 impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
-    fn elab_do_block(&mut self, state: &mut State, block: expr::Block) -> Option<()> {
+    fn elab_do_block(&mut self, state: &mut State<'out>, block: expr::Block) -> Option<()> {
         for stmt_id in block.stmts.copy_it() {
             let stmt = self.parse.stmts[stmt_id];
             match stmt.kind {
@@ -71,11 +83,9 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     // create local.
                     let name = it.name.value.to_option().unwrap_or(Atom::NULL);
                     let id = self.lctx.push(BinderKind::Explicit, name, ty, Some(val));
-                    state.locals.push(Local {
-                        orig_id: id,
-                        index: self.locals.len(),
-                    });
                     self.locals.push((name, id));
+
+                    state.stmts.push(Stmt::Local(id));
                 }
 
                 StmtKind::Assign(lhs, rhs) => {
@@ -105,10 +115,13 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     // create new local.
                     let new_id = self.lctx.push(BinderKind::Explicit, ident.value, ty, Some(value));
                     self.locals[index].1 = new_id;
+
+                    state.stmts.push(Stmt::Local(new_id));
                 }
 
                 StmtKind::Expr(it) => {
-                    if let Some(_) = self.elab_do_expr(state, it, None) {
+                    if let Some(term) = self.elab_do_expr(state, it, None) {
+                        state.stmts.push(Stmt::Term(term));
                     }
                 }
             }
@@ -117,13 +130,42 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         Some(())
     }
 
-    fn elab_do_expr(&mut self, state: &mut State, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
+    fn elab_do_expr(&mut self, state: &mut State<'out>, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
         let expr = self.parse.exprs[expr_id];
 
+        // easy case.
         if !expr.flags.has_control_flow && !expr.flags.has_assignments {
             return self.elab_expr_checking_type(expr_id, expected_ty);
         }
 
+
+        let result = self.elab_do_expr_core(state, expr_id, expected_ty);
+
+        // @todo: dedup (validate_type)
+        #[cfg(debug_assertions)]
+        if let Some((term, ty)) = result {
+            let n = self.ivars.assignment_gen;
+            let inferred = self.infer_type(term).unwrap();
+            if !self.ensure_def_eq(ty, inferred) {
+                eprintln!("---\nbug: elab_expr_core returned term\n{}\nwith type\n{}\nbut has type\n{}\n---",
+                    self.pp(term, 80),
+                    self.pp(ty, 80),
+                    self.pp(inferred, 80));
+                assert!(false);
+            }
+            assert_eq!(n, self.ivars.assignment_gen);
+        }
+
+        if let Some((term, ty)) = result {
+            debug_assert!(self.elab.expr_infos[expr_id].is_none());
+            self.elab.expr_infos[expr_id] = Some(ExprInfo { term, ty });
+        }
+
+        return result;
+    }
+
+    fn elab_do_expr_core(&mut self, state: &mut State<'out>, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
+        let expr = self.parse.exprs[expr_id];
         Some(match expr.kind {
             ExprKind::Error => return None,
 
@@ -153,13 +195,13 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             ExprKind::Field(_) => unimplemented!(),
             ExprKind::Index(_) => unimplemented!(),
 
-            ExprKind::Call(it) => {
+            ExprKind::Call(_) => {
                 unimplemented!()
             }
 
             ExprKind::Do(it) => {
                 self.elab_do_block(state, it)?;
-                return None
+                (Term::UNIT_MK, Term::UNIT)
             }
 
             ExprKind::If(_) => unimplemented!(),

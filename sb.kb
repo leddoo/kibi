@@ -91,6 +91,26 @@ impl<a b: Nat>: Decidable(Eq(a, b)) := Nat::dec_eq(a, b)
 
 
 
+trait inductive Add (A B: Type): Sort(2) {
+    mk (R: Type) (add: A -> B -> R)
+}
+
+def Add::R <A B: Type> (self: Add(A, B)): Type :=
+    Add::rec(lam R add => R, self)
+
+def Add::add <A B: Type, self: Add(A, B)>: A -> B -> Add::R(self) :=
+    Add::rec(lam R add => add, self)
+
+
+
+def Nat::add (a b: Nat): Nat :=
+    Nat::rec(a, lam _ r => Nat::succ(r), b)
+
+impl: Add(Nat, Nat) :=
+    Add::mk(Nat, Nat::add)
+
+
+
 inductive Pair(A B: Type) {
     mk (fst: A, snd: B)
 }
@@ -414,7 +434,7 @@ def foo :=
 def ass_test := do {
     var x := 1;
     x;
-    x := 2;
+    x := x + 1;
     x;
     do { x := 3 };
     x;

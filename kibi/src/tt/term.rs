@@ -542,6 +542,9 @@ mod impel {
 
         pub const ADD_ADD: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Add_add, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
 
+        pub const UNIT: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Unit, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const UNIT_MK: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Unit_mk, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
+
 
         #[inline(always)]
         pub fn kind(self) -> TermKind {
