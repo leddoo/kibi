@@ -61,6 +61,7 @@ def do_it_5(x: I32, f: I32 -> Unit) :=
             - loops.
             - `continue`.
             - `break` (`loop` and `do`).
+            - todo: error to sorry for stmts!!!
         - assignment valiation: make sure the local is actually a `var`.
           not `let` or something different entirely.
         - uninit dependent vars on assign.
@@ -68,6 +69,10 @@ def do_it_5(x: I32, f: I32 -> Unit) :=
             - also need to remove deps, hmm.
         - expr unit.
     - brck.
+        - region inference.
+            - how to handle annotations?
+            - how to handle join points, do they use region params?
+            - or do we infer regions just before brck?
     - partial functions.
         - we kinda need something to prevent proofs from
           being abused to elide calls to effectful functions.

@@ -409,7 +409,11 @@ inductive Ref(r: Region, kind: Ref_Kind, T: Type) {
     mk (tag: Tag, addr: Nat)
     -- todo: the tag needs to be opaque, so we can't derive equality.
     -- todo: trait for metadata.
+    -- todo: `addr: NonZeroUsize`.
 }
+
+def Ref::addr<r: Region, kind: Ref_Kind, T: Type>(self: Ref(r, kind, T)): Nat :=
+    Ref::rec(lam tag addr => addr, self)
 
 axiom Ref::from_local(id: Nat, kind: Ref_Kind, T: Type): Ref(Region::local(id), kind, T)
 axiom Ref::from_ref<r: Region, kind1: Ref_Kind, T: Type>(ref: Ref(r, kind1, T), kind2: Ref_Kind): Ref(r, kind2, T)
@@ -418,6 +422,62 @@ axiom Ref::cast_region<r1: Region, kind: Ref_Kind, T: Type>(ref: Ref(r1, kind, T
 
 axiom Ref::read<r: Region, kind: Ref_Kind, T: Type>(ref: Ref(r, kind, T)): T
 axiom Ref::write<r: Region, T: Type>(ref: Ref(r, Ref_Kind::mut, T), value: T): Ref::read(ref) = value
+
+
+-- thinking model this as a `&mut` in SB.
+-- for `allocate`, have an `allow_from_shared` flag for `new_exclusive`.
+inductive Unique<A: Type>(alloc: A, T: Type) {
+    mk (tag: Tag, addr: Nat)
+}
+
+def Unique::addr<A: Type, alloc: A, T: Type>(self: Unique(alloc, T)): Nat :=
+    Unique::rec(lam tag addr => addr, self)
+
+inductive Maybe_Free(T: Type) {
+    mk (inner: T)
+}
+
+axiom Is_Free<T: Type>(slot: Maybe_Free(T)): Prop
+
+axiom allocate<r: Region, A: Type, T: Type>(
+    -- `where A <: r` or something
+    -- basically, we wanna use `A` for the region,
+    -- so you can use `Global_Alloc` without needing a region
+    -- *and* the instance.
+    -- tbf, i'd prefer it if `Unique` had a region.
+    -- that would make it more flexible for "stack based allocation", i think
+    -- but `Box<r, A is r, T>` sucks.
+    alloc: A,
+    slot: Ref(r, Ref_Kind::shr, Maybe_Free(T)),
+    is_free: Is_Free(Ref::read(slot)))
+    : Unique(alloc, T)
+
+-- though maybe we could have `Unique(r, T)`
+-- and `Allocation(alloc, T)`, which uses some kind of self-reference.
+-- well, then, `Box` could use that same trick.
+-- basically, we want the `reachable`/`derived`/`sdom` region.
+-- that would be a lot better:
+-- allocate: (slot: &'r Maybe_Free(T)): Is_Free(*slot) -> Unique('r, T)
+-- free:     (slot: &'r Maybe_Free(T)): Unique('r, T) -> Is_Free(*slot)
+-- plus the `ptr_eq` thing for free.
+-- i guess, we don't need the `'r`s to unify.
+-- something something, covariance.
+
+axiom free<r: Region, A: Type, alloc: A, T: Type>(
+    ptr: Unique(alloc, T),
+    slot: Ref(r, Ref_Kind::shr, Maybe_Free(T)),
+    ptr_eq: Eq(Unique::addr(ptr), Ref::addr(slot)))
+    : Is_Free(Ref::read(slot))
+
+axiom leak<r: Region, A: Type, alloc: A, T: Type>(
+    -- `where A <: r`
+    ptr: Unique(alloc, T))
+    : Ref(r, Ref_Kind::mut, T)
+
+
+inductive Box<A: Type, T: Type> {
+    mk (alloc: A, ptr: Unique(alloc, T))
+}
 
 
 def I32 := Nat -- temp
