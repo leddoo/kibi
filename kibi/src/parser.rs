@@ -1016,23 +1016,10 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
         self.expect(TokenKind::LCurly)?;
         let (stmts, flags) = self.parse_block(this_parent)?;
 
-        let mut result = this_expr;
-        if stmts.len() == 0 {
-            // @todo: unit.
-        }
-        else if stmts.len() == 1 {
-            if let StmtKind::Expr(e) = self.parse.stmts[stmts[0]].kind {
-                self.parse.exprs[e].parent = parent;
-                result = e;
-            }
-        }
+        let kind = ExprKind::Do(expr::Block { is_do: false, stmts });
+        self.expr_init_from(this_expr, source_begin, kind, flags);
 
-        if result == this_expr {
-            let kind = ExprKind::Do(expr::Block { is_do: false, stmts });
-            self.expr_init_from(this_expr, source_begin, kind, flags);
-        }
-
-        Some((result, flags))
+        Some((this_expr, flags))
     }
 
 

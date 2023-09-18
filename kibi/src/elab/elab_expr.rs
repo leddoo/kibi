@@ -15,6 +15,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     pub fn elab_expr_checking_type(&mut self, expr: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
         let (term, ty) = self.elab_expr_ex(expr, expected_ty)?;
 
+        // @cleanup: dedup.
         if let Some(expected) = expected_ty {
             if !self.ensure_def_eq(ty, expected) {
                 let expected = self.instantiate_term_vars(expected);
@@ -61,7 +62,10 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         let result = self.elab_expr_core(expr, expected_ty);
 
-        debug_assert_eq!(self.locals.len(), old_num_locals);
+        #[cfg(debug_assertions)]
+        if self.locals.len() != old_num_locals {
+            assert!(false);
+        }
 
         // @todo: dedup (validate_type)
         #[cfg(debug_assertions)]

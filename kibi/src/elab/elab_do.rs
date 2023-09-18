@@ -6,9 +6,21 @@ use crate::tt::*;
 use super::*;
 
 impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
+    // @todo: expected type.
     pub fn elab_do(&mut self, expr_id: ExprId, flags: ExprFlags, block: expr::Block) -> Option<(Term<'out>, Term<'out>)> {
         let may_need_joins = flags.has_loop || (flags.has_if && flags.has_assign);
         if !may_need_joins {
+            if block.stmts.len() == 0 {
+                return Some((Term::UNIT_MK, Term::UNIT));
+            }
+            else if block.stmts.len() == 1 {
+                let stmt = block.stmts[0];
+                if let StmtKind::Expr(it) = self.parse.stmts[stmt].kind {
+                    // @todo: expected type.
+                    return self.elab_expr(it);
+                }
+            }
+
             // @todo: elab_let_chain.
             // chain also for regular let, so we can do the multi-abstract thing.
             self.error(expr_id, ElabError::TempStr("unimp do without joins"));
@@ -133,18 +145,22 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     let ty = if let Some(ty) = it.ty.to_option() {
                         let ty_expr = self.parse.exprs[ty];
                         if ty_expr.flags.has_loop || ty_expr.flags.has_assign {
-                            self.error(ty, ElabError::TempTBD);
-                            return None;
+                            // @todo: add local to prevent error cascade.
+                            self.error(ty, ElabError::TempStr("type has loop or assign"));
+                            continue;
                         }
                         self.elab_expr_as_type(ty)?.0
                     }
                     else { self.new_ty_var().0 };
 
                     let val = if let Some(val) = it.val.to_option() {
-                        self.elab_expr_checking_type(val, Some(ty))?.0
+                        self.elab_do_expr(val, Some(ty))?.0
                     }
                     // @todo: uninit axiom.
-                    else { unimplemented!() };
+                    else {
+                        self.error(stmt_id, ElabError::TempStr("uninit axiom"));
+                        continue;
+                    };
 
 
                     // create local.
@@ -225,6 +241,25 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             assert_eq!(n, self.ivars.assignment_gen);
         }
 
+        // ensure type.
+        // @cleanup: dedup.
+        if let (Some((_, ty)), Some(expected)) = (result, expected_ty) {
+            if !self.ensure_def_eq(ty, expected) {
+                let expected = self.instantiate_term_vars(expected);
+                let ty       = self.instantiate_term_vars(ty);
+                let expected = self.reduce_ex(expected, false);
+                let ty       = self.reduce_ex(ty, false);
+                self.elab.error(expr_id, {
+                    let mut pp = TermPP::new(self.env, &self.strings, &self.lctx, self.alloc);
+                    let expected = pp.pp_term(expected);
+                    let found    = pp.pp_term(ty);
+                    ElabError::TypeMismatch { expected, found }
+                });
+                return None;
+            }
+        }
+
+        // expr info.
         if let Some((term, ty)) = result {
             debug_assert!(self.elab.elab.expr_infos[expr_id].is_none());
             self.elab.elab.expr_infos[expr_id] = Some(ExprInfo { term, ty });

@@ -33,6 +33,9 @@
             - track deps using temp arena & vec for each var.
             - also need to remove deps, hmm.
         - expr unit.
+    - no optional semicolons.
+        - non-do if blocks with only a single expr must not have a semicolon.
+        - sep-by(`;`) must have last.
     - brck.
         - region inference.
             - how to handle annotations?

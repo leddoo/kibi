@@ -1,6 +1,6 @@
 use sti::vec::Vec;
 
-use crate::ast::{ParseRange, TokenId, TokenRange, ItemId, LevelId, ExprId, SourceRange};
+use crate::ast::{ParseRange, TokenId, TokenRange, ItemId, StmtId, LevelId, ExprId, SourceRange};
 use crate::env::SymbolId;
 use crate::parser::Parse;
 use crate::pp::DocRef;
@@ -23,6 +23,7 @@ pub enum DiagnosticSource {
     Token(TokenId),
     TokenRange(TokenRange),
     Item(ItemId),
+    Stmt(StmtId),
     Level(LevelId),
     Expr(ExprId),
 }
@@ -90,6 +91,7 @@ impl DiagnosticSource {
             DS::Token(it)      => parse.resolve_token_range(TokenRange::from_key(it)),
             DS::TokenRange(it) => parse.resolve_token_range(it),
             DS::Item(it)  => parse.resolve_token_range(parse.items[it].source),
+            DS::Stmt(it)  => parse.resolve_token_range(parse.stmts[it].source),
             DS::Level(it) => parse.resolve_token_range(parse.levels[it].source),
             DS::Expr(it)  => parse.resolve_token_range(parse.exprs[it].source),
         }
@@ -101,6 +103,7 @@ impl Into<DiagnosticSource> for ParseRange { #[inline(always)] fn into(self) -> 
 impl Into<DiagnosticSource> for TokenId    { #[inline(always)] fn into(self) -> DiagnosticSource { DiagnosticSource::Token(self)      } }
 impl Into<DiagnosticSource> for TokenRange { #[inline(always)] fn into(self) -> DiagnosticSource { DiagnosticSource::TokenRange(self) } }
 impl Into<DiagnosticSource> for ItemId     { #[inline(always)] fn into(self) -> DiagnosticSource { DiagnosticSource::Item(self)       } }
+impl Into<DiagnosticSource> for StmtId     { #[inline(always)] fn into(self) -> DiagnosticSource { DiagnosticSource::Stmt(self)       } }
 impl Into<DiagnosticSource> for LevelId    { #[inline(always)] fn into(self) -> DiagnosticSource { DiagnosticSource::Level(self)      } }
 impl Into<DiagnosticSource> for ExprId     { #[inline(always)] fn into(self) -> DiagnosticSource { DiagnosticSource::Expr(self)       } }
 
