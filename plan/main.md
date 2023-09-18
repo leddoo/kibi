@@ -2,7 +2,8 @@
 - road map:
     - do.
     - references.
-    - codegen.
+    - bori.
+    - allocation.
     - unordered decls.
     - incremental.
     - modules.
@@ -14,59 +15,15 @@
     - crates.
 
 
-```
-def print<T: Type>(value: T): Unit := Unit::mk()
-
-def do_it := do {
-    var x := 1;
-    (if true { print } else { print })(do {
-        if something {
-            x := 2;
-        }
-    });
-    x := x + 1;
-}
-
-def do_it_0 :=
-    let x := 1 in
-    ite(true, do_it_1(x), do_it_2(x))
-
-def do_it_1(x: I32) :=
-    do_it_3(x, print(I32))
-
-def do_it_2(x: I32) :=
-    do_it_3(x, print(I32))
-
-def do_it_3(x: I32, f: I32 -> Unit) :=
-    ite(something, do_it_4(x, f), do_it_5(x, f))
-
-def do_it_4(x: I32, f: I32 -> Unit) :=
-    let x := 2 in
-    do_it_5(x, f)
-
-def do_it_5(x: I32, f: I32 -> Unit) :=
-    let a := Unit::mk() in
-    let _ := f(x) in
-    let x := x + 1 in
-    Unit::mk()
-
-```
-
-
 - todo:
     - do.
-        - properly handle locals:
-            - extract local stuff into utils.
-            - don't clear the values, create new locals.
-            - track locals for jps. ignore params, only reset locals.
-            - init/new-jp: turn all `let`s in lctx into opaque params.
-            - keep track of locals, only pass locals & ret vals around.
-            - `elab_do_block`: scope reset.
-            - only gen local for `if`, if value used.
-            - `if` use expected type.
         - generate join point functions.
-        - non-unit returns (break).
+            - function type.
+            - add to env.
         - loops.
+        - non-unit returns (break).
+        - only gen local for `if`, if value used.
+        - `if` use expected type.
         - todo: error to sorry for stmts!!!
         - don't generate else jp, if don't need.
         - level params.

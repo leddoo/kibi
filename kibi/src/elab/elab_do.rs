@@ -15,21 +15,18 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             None
         }
         else {
-            let mut state = State::new(self);
-
             let old_scope = self.lctx.current;
-            let old_locals = self.locals.len();
+            let old_locals = self.locals.clone();
 
-            self.elab_do_block(&mut state, block)?;
+            let mut this = ElabDo::new(self);
+            this.begin_jp(JoinPoint::ZERO);
+            this.elab_do_block(block)?;
+            this.end_jp(Term::UNIT_MK);
 
-            state.terminate_jp(Term::UNIT_MK, self);
-
-            //assert_eq!(self.lctx.current, old_scope);
-            if self.lctx.current != old_scope {
-                eprintln!("bug: elab_do messed up the lctx.");
-                self.lctx.current = old_scope;
-            }
-            self.locals.truncate(old_locals);
+            self.lctx.current = old_scope;
+            // @cleanup: sti vec assign/_from_slice.
+            self.locals.clear();
+            self.locals.extend_from_slice(&old_locals);
 
             Some((Term::UNIT_MK, Term::UNIT))
         }
@@ -39,10 +36,17 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
 sti::define_key!(u32, JoinPoint);
 
-struct State<'out> {
-    jps: KVec<JoinPoint, (SymbolId, Option<Term<'out>>)>,
+struct ElabDo<'me, 'e, 'c, 'out> {
+    elab: &'me mut Elaborator<'e, 'c, 'out>,
+    jps: KVec<JoinPoint, JoinPointData<'out>>,
     current_jp: JoinPoint,
     stmts: Vec<Stmt<'out>>,
+}
+
+struct JoinPointData<'out> {
+    symbol: SymbolId,
+    params: Vec<ScopeId>,
+    term: Option<Term<'out>>,
 }
 
 #[derive(Clone, Copy)]
@@ -51,59 +55,75 @@ enum Stmt<'out> {
     Term((Term<'out>, Term<'out>)),
 }
 
-impl<'out> State<'out> {
-    fn new(elab: &mut Elaborator) -> Self {
-        let mut this = State {
+impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
+    fn new(elab: &'me mut Elaborator<'e, 'c, 'out>) -> Self {
+        let mut this = ElabDo {
+            elab,
             jps: KVec::new(),
             current_jp: JoinPoint::ZERO,
             stmts: Vec::new(),
         };
 
-        let (entry_jp, _) = this.new_jp(elab);
+        let (entry_jp, _) = this.new_jp();
         assert_eq!(entry_jp, this.current_jp);
 
         return this;
     }
 
-    fn new_jp(&mut self, elab: &mut Elaborator) -> (JoinPoint, SymbolId) {
+    fn new_jp(&mut self) -> (JoinPoint, SymbolId) {
         // @temp: temp alloc, symbols under current symbol.
-        let n = elab.env.symbol(SymbolId::ROOT).children.len();
-        let name = elab.strings.insert(&sti::format!("$jp_{}", n));
-        let symbol = elab.env.new_symbol(SymbolId::ROOT, name, SymbolKind::Pending).unwrap();
-        (self.jps.push((symbol, None)), symbol)
+        let n = self.env.symbol(SymbolId::ROOT).children.len();
+        let name = self.strings.insert(&sti::format!("$jp_{}", n));
+        let params = Vec::from_iter(self.locals.copy_map_it(|(_, id)| id));
+        let symbol = self.env.new_symbol(SymbolId::ROOT, name, SymbolKind::Pending).unwrap();
+        (self.jps.push(JoinPointData { symbol, params, term: None }), symbol)
     }
 
-    #[inline]
-    fn set_jp(&mut self, jp: JoinPoint) {
+    fn begin_jp(&mut self, jp: JoinPoint) {
+        // parameterize locals
+        self.elab.lctx.current = None.into();
+        self.elab.locals.clear();
+        for id in &mut self.jps[jp].params {
+            let entry = self.elab.lctx.lookup(*id).clone();
+            *id = self.elab.lctx.push(entry.binder_kind, entry.name, entry.ty, None);
+            self.elab.locals.push((entry.name, *id));
+        }
+
         self.current_jp = jp;
     }
 
-    fn terminate_jp(&mut self, ret: Term<'out>, elab: &mut Elaborator<'_, '_, 'out>) {
+    fn end_jp(&mut self, ret: Term<'out>) {
+        let entry = &mut self.jps[self.current_jp];
+        assert!(entry.term.is_none());
+
         let mut result = ret;
         for stmt in self.stmts.copy_it().rev() {
             match stmt {
                 Stmt::Local(id) => {
-                    result = elab.mk_let(result, id, false);
-                    elab.lctx.pop(id);
+                    result = self.elab.mk_let(result, id, false);
+                    self.elab.lctx.pop(id);
                 }
 
                 Stmt::Term((term, ty)) => {
-                    result = elab.alloc.mkt_let(Atom::NULL, ty, term, result);
+                    result = self.elab.alloc.mkt_let(Atom::NULL, ty, term, result);
                 }
             }
         }
         self.stmts.clear();
 
-        println!("\nterminated {:?} {:?}: {}\n", self.current_jp, self.jps[self.current_jp].0, elab.pp(result, 80));
+        for local in entry.params.copy_it().rev() {
+            result = self.elab.mk_binder(result, local, false);
+        }
 
-        let entry = &mut self.jps[self.current_jp];
-        assert!(entry.1.is_none());
-        entry.1 = Some(result);
+        entry.term = Some(result);
+
+        let name = &self.elab.strings[self.elab.env.symbol(self.jps[self.current_jp].symbol).name];
+        println!("{}:\n{}\n", name, self.elab.pp(result, 50));
     }
-}
 
-impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
-    fn elab_do_block(&mut self, state: &mut State<'out>, block: expr::Block) -> Option<()> {
+    fn elab_do_block(&mut self, block: expr::Block) -> Option<()> {
+        let old_num_locals = self.locals.len();
+
         for stmt_id in block.stmts.copy_it() {
             let stmt = self.parse.stmts[stmt_id];
             match stmt.kind {
@@ -132,7 +152,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     let id = self.lctx.push(BinderKind::Explicit, name, ty, Some(val));
                     self.locals.push((name, id));
 
-                    state.stmts.push(Stmt::Local(id));
+                    self.stmts.push(Stmt::Local(id));
                 }
 
                 StmtKind::Assign(lhs, rhs) => {
@@ -151,33 +171,35 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                         }
                     }
                     let Some((index, id)) = local else {
-                        self.error(ident.source, ElabError::UnresolvedName(
-                            self.alloc.alloc_str(&self.strings[ident.value])));
+                        self.elab.error(ident.source, ElabError::UnresolvedName(
+                            self.elab.alloc.alloc_str(&self.strings[ident.value])));
                         continue;
                     };
 
                     let ty = self.lctx.lookup(id).ty;
-                    let Some((value, _)) = self.elab_do_expr(state, rhs, Some(ty)) else { continue };
+                    let Some((value, _)) = self.elab_do_expr(rhs, Some(ty)) else { continue };
 
                     // create new local.
                     let new_id = self.lctx.push(BinderKind::Explicit, ident.value, ty, Some(value));
                     self.locals[index].1 = new_id;
 
-                    state.stmts.push(Stmt::Local(new_id));
+                    self.stmts.push(Stmt::Local(new_id));
                 }
 
                 StmtKind::Expr(it) => {
-                    if let Some(term) = self.elab_do_expr(state, it, None) {
-                        state.stmts.push(Stmt::Term(term));
+                    if let Some(term) = self.elab_do_expr(it, None) {
+                        self.stmts.push(Stmt::Term(term));
                     }
                 }
             }
         }
 
+        self.locals.truncate(old_num_locals);
+
         Some(())
     }
 
-    fn elab_do_expr(&mut self, state: &mut State<'out>, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
+    fn elab_do_expr(&mut self, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
         let expr = self.parse.exprs[expr_id];
 
         // simple expr.
@@ -186,7 +208,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             return self.elab_expr_checking_type(expr_id, expected_ty);
         }
 
-        let result = self.elab_do_expr_core(state, expr_id, expected_ty);
+        let result = self.elab_do_expr_core(expr_id, expected_ty);
 
         // @todo: dedup (validate_type)
         #[cfg(debug_assertions)]
@@ -204,14 +226,14 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         }
 
         if let Some((term, ty)) = result {
-            debug_assert!(self.elab.expr_infos[expr_id].is_none());
-            self.elab.expr_infos[expr_id] = Some(ExprInfo { term, ty });
+            debug_assert!(self.elab.elab.expr_infos[expr_id].is_none());
+            self.elab.elab.expr_infos[expr_id] = Some(ExprInfo { term, ty });
         }
 
         return result;
     }
 
-    fn elab_do_expr_core(&mut self, state: &mut State<'out>, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
+    fn elab_do_expr_core(&mut self, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
         let expr = self.parse.exprs[expr_id];
         Some(match expr.kind {
             ExprKind::Error => return None,
@@ -222,7 +244,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             }
 
             ExprKind::Parens(it) => {
-                return self.elab_do_expr(state, it, expected_ty);
+                return self.elab_do_expr(it, expected_ty);
             }
 
             ExprKind::Ref(_) => {
@@ -262,48 +284,38 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             }
 
             ExprKind::Do(it) => {
-                self.elab_do_block(state, it)?;
+                self.elab_do_block(it)?;
                 (Term::UNIT_MK, Term::UNIT)
             }
 
             ExprKind::If(it) => {
-                let (cond, _) = self.elab_do_expr(state, it.cond, Some(Term::BOOL))?;
+                let (cond, _) = self.elab_do_expr(it.cond, Some(Term::BOOL))?;
 
-                let locals = self.locals.clone();
                 let local_terms = Vec::from_iter(self.locals.copy_map_it(|(_, local)| self.alloc.mkt_local(local)));
 
-                let (then_jp, then_id) = state.new_jp(self);
-                let (else_jp, else_id) = state.new_jp(self);
-                let (after_jp, after_id) = state.new_jp(self);
+                let (then_jp, then_id) = self.new_jp();
+                let (else_jp, else_id) = self.new_jp();
+                let (after_jp, after_id) = self.new_jp();
+
                 let then_app = self.alloc.mkt_apps(self.alloc.mkt_global(then_id, &[]), &local_terms);
                 let else_app = self.alloc.mkt_apps(self.alloc.mkt_global(else_id, &[]), &local_terms);
                 let ite = self.alloc.mkt_apps(Term::ITE, &[Term::UNIT, cond, then_app, else_app]);
-                state.terminate_jp(ite, self);
+                self.end_jp(ite);
 
                 let after = self.alloc.mkt_global(after_id, &[]);
 
-                // everything is now a param, so we don't have access to the values anymore.
-                // todo: we may not want that for `if`.
-                for (_, local) in self.locals.copy_it() {
-                    self.lctx.lookup_mut(local).value = None;
-                }
-                let old_scope = self.lctx.current;
-
-                state.set_jp(then_jp);
-                let (then_val, result_ty) = self.elab_do_expr(state, it.then, None)?;
+                self.begin_jp(then_jp);
+                let (then_val, result_ty) = self.elab_do_expr(it.then, None)?;
                 let then_after =
                     self.alloc.mkt_apply(
                         self.alloc.mkt_apps(after,
                             &Vec::from_iter(self.locals.copy_map_it(|(_, local)| self.alloc.mkt_local(local)))),
                         then_val);
-                state.terminate_jp(then_after, self);
+                self.end_jp(then_after);
 
-                self.locals.clear();
-                self.locals.extend_from_slice(&locals);
-                self.lctx.current = old_scope;
-                state.set_jp(else_jp);
+                self.begin_jp(else_jp);
                 let else_val = if let Some(els) = it.els.to_option() {
-                    let (else_val, _) = self.elab_do_expr(state, els, Some(result_ty))?;
+                    let (else_val, _) = self.elab_do_expr(els, Some(result_ty))?;
                     else_val
                 }
                 else {
@@ -319,14 +331,11 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                         self.alloc.mkt_apps(after,
                             &Vec::from_iter(self.locals.copy_map_it(|(_, local)| self.alloc.mkt_local(local)))),
                         else_val);
-                state.terminate_jp(else_after, self);
+                self.end_jp(else_after);
 
-                self.locals.clear();
-                self.locals.extend_from_slice(&locals);
-                self.lctx.current = old_scope;
+                self.begin_jp(after_jp);
                 let result_id = self.lctx.push(BinderKind::Explicit, Atom::NULL, result_ty, None);
-                self.locals.push((Atom::NULL, result_id));
-                state.set_jp(after_jp);
+                self.jps[after_jp].params.push(result_id);
 
                 (self.alloc.mkt_local(result_id), result_ty)
             }
@@ -362,4 +371,16 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         })
     }
 }
+
+impl<'me, 'e, 'c, 'out> core::ops::Deref for ElabDo<'me, 'e, 'c, 'out> {
+    type Target = Elaborator<'e, 'c, 'out>;
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target { self.elab }
+}
+
+impl<'me, 'e, 'c, 'out> core::ops::DerefMut for ElabDo<'me, 'e, 'c, 'out> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target { self.elab }
+}
+
 

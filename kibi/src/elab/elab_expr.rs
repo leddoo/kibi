@@ -57,7 +57,11 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
 
     fn elab_expr_ex(&mut self, expr: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
+        let old_num_locals = self.locals.len();
+
         let result = self.elab_expr_core(expr, expected_ty);
+
+        debug_assert_eq!(self.locals.len(), old_num_locals);
 
         // @todo: dedup (validate_type)
         #[cfg(debug_assertions)]
