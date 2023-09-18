@@ -613,6 +613,10 @@ impl<'c> Inner<'c> {
                         ElabError::TempUnimplemented => {
                             sti::write!(&mut msg, "(temp): unimplemented");
                         }
+
+                        ElabError::TempStr(str) => {
+                            sti::write!(&mut msg, "(temp) msg: {}", str);
+                        }
                     }
                 }
             };
@@ -848,6 +852,12 @@ impl<'c> Inner<'c> {
 
                         ExprKind::Do(it) =>
                             hit_test_block(it, pos, parse),
+
+                        ExprKind::If(it) =>
+                            hit_test_ast(it.cond.into(), pos, parse).or_else(||
+                            hit_test_ast(it.then.into(), pos, parse).or_else(||
+                            it.els.to_option().and_then(|els|
+                                hit_test_ast(els.into(), pos, parse)))),
 
                         _ => {
                             eprintln!("unimp! {expr:?}");

@@ -11,6 +11,7 @@
 - error for symbol already defined.
 - error for missing predeclared symbol.
 - precise hit for exprs, when not hit a token. or make whitespace a token? yeah prob not.
+- include `;` for stmt source.
 - elab `foo` using `elab_app`.
 - type errors use `Term` instead of `Doc`.
 - query semantic tokens: option to split multi-line tokens.

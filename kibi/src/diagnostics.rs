@@ -65,6 +65,7 @@ pub enum ElabError<'a> {
     TempArgFailed,
     TempCtorArgLevelCouldBeTooLarge,
     TempUnimplemented,
+    TempStr(&'a str),
 }
 
 

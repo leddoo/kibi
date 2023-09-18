@@ -433,12 +433,15 @@ inductive Unique<A: Type>(alloc: A, T: Type) {
 def Unique::addr<A: Type, alloc: A, T: Type>(self: Unique(alloc, T)): Nat :=
     Unique::rec(lam tag addr => addr, self)
 
+-- we prob wanna make this & `Maybe_Init` opaque.
 inductive Maybe_Free(T: Type) {
     mk (inner: T)
 }
 
+-- should prob be a `Type`, cause `Prop`s will be copy.
 axiom Is_Free<T: Type>(slot: Maybe_Free(T)): Prop
 
+-- this should probably return `Unique(Maybe_Init(T))`
 axiom allocate<r: Region, A: Type, T: Type>(
     -- `where A <: r` or something
     -- basically, we wanna use `A` for the region,
@@ -462,6 +465,22 @@ axiom allocate<r: Region, A: Type, T: Type>(
 -- plus the `ptr_eq` thing for free.
 -- i guess, we don't need the `'r`s to unify.
 -- something something, covariance.
+-- the idea is that reachable is fine, cause the base is a part of the type,
+-- so mutation is impossible by tt.
+-- that's an issue though. ig we want `reachable` and `const_reachable`.
+-- where `reachable` allows interior mutation. which would be fine, cause
+-- you can't free something with `&shr` unless you have a `Unique`.
+-- and if it's something borrowed, the type already needs to make sure that
+-- the borrowed thing lives long enough.
+-- would be nice to get more formal about this, though not exactly sure how.
+-- hmm, we do need the allocator as a part of the type: mimalloc style address truncation.
+-- or at least an allocator specific `Prop`. yeah, mimalloc is prob the end boss.
+-- cyclic references and all that.
+-- ig that prop should borrow the block as shared? unique live -> prop live.
+-- brck interpreter would do some dyn stuff to validate?
+-- note: reference based `Unique` + allocator aware `Allocation` seems like the way to go.
+-- `Allocation` would store the invariants. for `&dyn Alloc`, bori will need some special
+-- support, i suppose.
 
 axiom free<r: Region, A: Type, alloc: A, T: Type>(
     ptr: Unique(alloc, T),
@@ -503,7 +522,13 @@ def ass_test := do {
     x;
 
     if Bool::true {
-        x := x + 2
+        x := x + 2;
+    }
+    elif Bool::false {
+        Unit::mk
+    }
+    else {
+        x := 7;
     };
     x;
 }

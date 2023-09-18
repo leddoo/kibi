@@ -55,13 +55,21 @@ def do_it_5(x: I32, f: I32 -> Unit) :=
 
 - todo:
     - do.
-        - control flow
-            - join points.
-                - params: just the set of `Elaborator::locals` right?
-            - loops.
-            - `continue`.
-            - `break` (`loop` and `do`).
-            - todo: error to sorry for stmts!!!
+        - properly handle locals:
+            - extract local stuff into utils.
+            - don't clear the values, create new locals.
+            - track locals for jps. ignore params, only reset locals.
+            - init/new-jp: turn all `let`s in lctx into opaque params.
+            - keep track of locals, only pass locals & ret vals around.
+            - `elab_do_block`: scope reset.
+            - only gen local for `if`, if value used.
+            - `if` use expected type.
+        - generate join point functions.
+        - non-unit returns (break).
+        - loops.
+        - todo: error to sorry for stmts!!!
+        - don't generate else jp, if don't need.
+        - level params.
         - assignment valiation: make sure the local is actually a `var`.
           not `let` or something different entirely.
         - uninit dependent vars on assign.
@@ -73,6 +81,9 @@ def do_it_5(x: I32, f: I32 -> Unit) :=
             - how to handle annotations?
             - how to handle join points, do they use region params?
             - or do we infer regions just before brck?
+        - check.
+            - liveness & stuff.
+        - variance.
     - partial functions.
         - we kinda need something to prevent proofs from
           being abused to elide calls to effectful functions.
