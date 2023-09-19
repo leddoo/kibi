@@ -17,14 +17,14 @@
 
 - todo:
     - do.
-        - non-unit returns (break).
-            - expected ty.
-            - use ivar for `result_ty`.
-                - assign unit if unresolved ig.
-                - unify with `break/return`.
+        - unreachable.
         - loops.
+        - labels.
         - only gen local for `if`, if value used.
         - `if` use expected type.
+        - don't generate as many id jps.
+            - consider removing them entirely.
+            - unreachable flag, so we don't need those jps.
         - todo: error to sorry for stmts!!!
         - don't generate else jp, if don't need.
             - the if loop.

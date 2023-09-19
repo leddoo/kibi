@@ -1,4 +1,5 @@
-axiom ax_sorry.{l} <T: Sort(l)>: T
+axiom ax_sorry.{t}<T: Sort(t)>: T
+axiom ax_uninit.{t}<T: Sort(t)>: T
 
 
 inductive False {}
@@ -510,7 +511,7 @@ def foo :=
     Unit::mk()
 
 
-def ass_test := do {
+def ass_test: Nat := do {
     var x := 1;
     x;
     x := x + 1;
@@ -531,8 +532,22 @@ def ass_test := do {
         let y := 6;
         x := y + 1;
     };
-    x;
+    break x;
 }
+
+
+def brk_1: Nat := do {
+    break 42;
+}
+reduce brk_1
+
+def brk_2: Nat := do {
+    if Bool::true {
+        break 42;
+    };
+    --break 69;
+}
+reduce brk_2
 
 
 def brck_basic := do {

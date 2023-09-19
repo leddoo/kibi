@@ -203,6 +203,81 @@ pub enum TokenKind {
 
 
 impl TokenKind {
+    pub fn is_expr_start(&self) -> bool {
+        match self {
+            TokenKind::Hole |
+            TokenKind::Ident(_) |
+            TokenKind::Bool(_) |
+            TokenKind::Number(_) |
+            TokenKind::String(_) |
+            TokenKind::KwSort |
+            TokenKind::KwProp |
+            TokenKind::KwType |
+            TokenKind::KwLam |
+            TokenKind::KwPi |
+            TokenKind::KwLet |
+            TokenKind::KwDo |
+            TokenKind::KwIf |
+            TokenKind::KwWhile |
+            TokenKind::KwFor |
+            TokenKind::KwBreak |
+            TokenKind::KwContinue |
+            TokenKind::KwReturn |
+            TokenKind::KwFn |
+            TokenKind::KwNot |
+            TokenKind::LParen |
+            TokenKind::LBracket |
+            TokenKind::LCurly |
+            TokenKind::Dot |
+            TokenKind::Ampersand |
+            TokenKind::Minus |
+            TokenKind::Star |
+            TokenKind::Not => true,
+
+            TokenKind::Error |
+            TokenKind::EndOfFile |
+            TokenKind::KwInductive |
+            TokenKind::KwStruct |
+            TokenKind::KwEnum |
+            TokenKind::KwDef |
+            TokenKind::KwTrait |
+            TokenKind::KwImpl |
+            TokenKind::KwVar |
+            TokenKind::KwElif |
+            TokenKind::KwElse |
+            TokenKind::KwIn |
+            TokenKind::KwAnd |
+            TokenKind::KwOr |
+            TokenKind::RParen |
+            TokenKind::RBracket |
+            TokenKind::RCurly |
+            TokenKind::Comma |
+            TokenKind::Semicolon |
+            TokenKind::Colon |
+            TokenKind::ColonColon |
+            TokenKind::ColonEq |
+            TokenKind::Arrow |
+            TokenKind::FatArrow |
+            TokenKind::Add |
+            TokenKind::AddAssign |
+            TokenKind::SubAssign |
+            TokenKind::MulAssign |
+            TokenKind::Div |
+            TokenKind::DivAssign |
+            TokenKind::FloorDiv |
+            TokenKind::FloorDivAssign |
+            TokenKind::Rem |
+            TokenKind::RemAssign |
+            TokenKind::Eq |
+            TokenKind::EqEq |
+            TokenKind::NotEq |
+            TokenKind::Le |
+            TokenKind::Lt |
+            TokenKind::Ge |
+            TokenKind::Gt => false,
+        }
+    }
+
     pub fn repr(&self) -> &'static str {
         match self {
             TokenKind::Error => unreachable!(),
@@ -429,6 +504,7 @@ pub enum ExprKind<'a> {
     Do(expr::Block<'a>),
     If(expr::If),
     Loop(expr::Loop<'a>),
+    Break(expr::Break),
 
     TypeHint(expr::TypeHint),
 }
@@ -438,6 +514,7 @@ pub struct ExprFlags {
     pub has_assign: bool,
     pub has_if: bool,
     pub has_loop: bool,
+    pub has_jump: bool,
 }
 
 
@@ -581,6 +658,12 @@ pub mod expr {
         pub body: Block<'a>,
     }
 
+    #[derive(Clone, Copy, Debug)]
+    pub struct Break {
+        pub label: OptAtom,
+        pub value: OptExprId,
+    }
+
 
     #[derive(Clone, Copy, Debug)]
     pub struct TypeHint {
@@ -597,6 +680,7 @@ impl ExprFlags {
             has_assign: false,
             has_if: false,
             has_loop: false,
+            has_jump: false,
         }
     }
 }
@@ -610,6 +694,7 @@ impl core::ops::BitOr for ExprFlags {
             has_assign: self.has_assign | rhs.has_assign,
             has_if:     self.has_if     | rhs.has_if,
             has_loop:   self.has_loop   | rhs.has_loop,
+            has_jump:   self.has_jump   | rhs.has_jump,
         }
     }
 }

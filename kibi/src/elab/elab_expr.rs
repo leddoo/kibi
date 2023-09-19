@@ -216,7 +216,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             }
 
             ExprKind::Do(it) => {
-                self.elab_do(expr_id, expr.flags, it)?
+                self.elab_do(expr_id, expr.flags, it, expected_ty)?
             }
 
             ExprKind::If(it) => {

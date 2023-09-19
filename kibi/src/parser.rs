@@ -933,6 +933,22 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     (ExprKind::If(expr::If { cond, then, els }), flags)
                 }
 
+                TokenKind::KwBreak => {
+                    let mut flags = ExprFlags::new();
+                    flags.has_jump = true;
+
+                    let label = None.into();
+
+                    let mut value = None.into();
+                    if self.peek().0.kind.is_expr_start() {
+                        let (v, v_flags) = self.parse_expr(this_parent)?;
+                        value = v.some();
+                        flags |= v_flags;
+                    }
+
+                    (ExprKind::Break(expr::Break { label, value }), flags)
+                }
+
                 _ => break 'next
             }}
 

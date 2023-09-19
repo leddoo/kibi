@@ -859,6 +859,10 @@ impl<'c> Inner<'c> {
                             it.els.to_option().and_then(|els|
                                 hit_test_ast(els.into(), pos, parse)))),
 
+                        ExprKind::Break(it) =>
+                            it.value.to_option().and_then(|value|
+                                hit_test_ast(value.into(), pos, parse)),
+
                         _ => {
                             eprintln!("unimp! {expr:?}");
                             None

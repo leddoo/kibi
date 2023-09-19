@@ -7,8 +7,10 @@ use super::*;
 
 impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     // @todo: expected type.
-    pub fn elab_do(&mut self, expr_id: ExprId, flags: ExprFlags, block: expr::Block) -> Option<(Term<'out>, Term<'out>)> {
-        let may_need_joins = flags.has_loop || (flags.has_if && flags.has_assign);
+    pub fn elab_do(&mut self, expr_id: ExprId, flags: ExprFlags, block: expr::Block, expected_ty: Option<Term<'out>>)
+        -> Option<(Term<'out>, Term<'out>)>
+    {
+        let may_need_joins = flags.has_loop || flags.has_jump || (flags.has_if && flags.has_assign);
         if !may_need_joins {
             if block.stmts.len() == 0 {
                 return Some((Term::UNIT_MK, Term::UNIT));
@@ -27,16 +29,31 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             None
         }
         else {
+            println!("---\n");
+
             let old_scope = self.lctx.current;
             let old_locals = self.locals.clone();
 
-            // @todo: non-unit.
-            let result_ty = Term::UNIT;
+            let result_ty = expected_ty.unwrap_or_else(|| self.new_term_var().0);
 
             let mut this = ElabDo::new(self, result_ty);
             this.begin_jp(JoinPoint::ZERO);
-            this.elab_do_block(block)?;
-            this.end_jp(Term::UNIT_MK);
+            let (ret, ret_ty) = this.elab_do_block(expr_id, flags, block, Some(result_ty))?;
+            // @cleanup: dedup.
+            if !this.ensure_def_eq(ret_ty, result_ty) {
+                let expected = this.instantiate_term_vars(result_ty);
+                let ty       = this.instantiate_term_vars(ret_ty);
+                let expected = this.reduce_ex(expected, false);
+                let ty       = this.reduce_ex(ty, false);
+                this.elab.error(expr_id, {
+                    let mut pp = TermPP::new(this.elab.env, &this.elab.strings, &this.elab.lctx, this.elab.alloc);
+                    let expected = pp.pp_term(expected);
+                    let found    = pp.pp_term(ty);
+                    ElabError::TypeMismatch { expected, found }
+                });
+                return None;
+            }
+            this.end_jp(ret);
 
             for (_, jp) in this.jps.iter() {
                 let (term, ty) = jp.term.unwrap();
@@ -76,10 +93,21 @@ sti::define_key!(u32, JoinPoint);
 
 struct ElabDo<'me, 'e, 'c, 'out> {
     elab: &'me mut Elaborator<'e, 'c, 'out>,
+
     jps: KVec<JoinPoint, JoinPointData<'out>>,
     result_ty: Term<'out>,
+
+    jump_targets: Vec<JumpTarget<'out>>,
+
     current_jp: JoinPoint,
     stmts: Vec<Stmt<'out>>,
+}
+
+struct JumpTarget<'a> {
+    symbol_id: SymbolId,
+    symbol: Term<'a>,
+    num_locals: usize,
+    result_ty: Option<Term<'a>>,
 }
 
 struct JoinPointData<'a> {
@@ -99,6 +127,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         let mut this = ElabDo {
             elab,
             jps: KVec::new(),
+            jump_targets: Vec::new(),
             result_ty,
             current_jp: JoinPoint::ZERO,
             stmts: Vec::new(),
@@ -163,8 +192,19 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         println!("{}:\n{}\n", name, self.elab.pp(result, 50));
     }
 
-    fn elab_do_block(&mut self, block: expr::Block) -> Option<()> {
+    fn elab_do_block(&mut self, expr_id: ExprId, flags: ExprFlags, block: expr::Block, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
         let old_num_locals = self.locals.len();
+
+        let jump_target = (block.is_do && flags.has_jump).then(|| {
+            let jp = self.new_jp();
+            self.jump_targets.push(JumpTarget {
+                symbol_id: jp.1,
+                symbol: self.alloc.mkt_global(jp.1, &[]), // @temp: universes.
+                num_locals: self.locals.len(),
+                result_ty: expected_ty,
+            });
+            jp
+        });
 
         for stmt_id in block.stmts.copy_it() {
             let stmt = self.parse.stmts[stmt_id];
@@ -174,9 +214,9 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                 StmtKind::Let(it) => {
                     let ty = if let Some(ty) = it.ty.to_option() {
                         let ty_expr = self.parse.exprs[ty];
-                        if ty_expr.flags.has_loop || ty_expr.flags.has_assign {
+                        if ty_expr.flags.has_loop || ty_expr.flags.has_jump || ty_expr.flags.has_assign {
                             // @todo: add local to prevent error cascade.
-                            self.error(ty, ElabError::TempStr("type has loop or assign"));
+                            self.error(ty, ElabError::TempStr("type has loop/jump/assign"));
                             continue;
                         }
                         self.elab_expr_as_type(ty)?.0
@@ -242,7 +282,34 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
         self.locals.truncate(old_num_locals);
 
-        Some(())
+        if let Some((jp, jp_symbol)) = jump_target {
+            let target = self.jump_targets.pop().unwrap();
+            assert_eq!(target.symbol_id, jp_symbol);
+
+            // @todo: ax_uninit/unit_mk.
+            let result_ty = target.result_ty.unwrap_or(Term::UNIT);
+            let jump_val = Term::UNIT_MK;
+            if !result_ty.syntax_eq(Term::UNIT) {
+                self.error(expr_id, ElabError::TempStr("block is unit, but unit is no good"));
+                return None;
+            }
+
+            let jump_after =
+                self.alloc.mkt_apply(
+                    self.alloc.mkt_apps(target.symbol,
+                        &Vec::from_iter(self.locals.copy_map_it(|(_, local)| self.alloc.mkt_local(local)))),
+                    jump_val);
+            self.end_jp(jump_after);
+
+            self.begin_jp(jp);
+            let result_id = self.lctx.push(BinderKind::Explicit, Atom::NULL, result_ty, None);
+            self.jps[jp].params.push(result_id);
+
+            Some((self.alloc.mkt_local(result_id), result_ty))
+        }
+        else {
+            Some((Term::UNIT_MK, Term::UNIT))
+        }
     }
 
     fn elab_do_expr(&mut self, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
@@ -250,7 +317,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
         // simple expr.
         let flags = expr.flags;
-        if !flags.has_loop && !flags.has_assign {
+        if !flags.has_loop && !flags.has_jump && !flags.has_assign {
             return self.elab_expr_checking_type(expr_id, expected_ty);
         }
 
@@ -262,7 +329,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             let n = self.ivars.assignment_gen;
             let inferred = self.infer_type(term).unwrap();
             if !self.ensure_def_eq(ty, inferred) {
-                eprintln!("---\nbug: elab_expr_core returned term\n{}\nwith type\n{}\nbut has type\n{}\n---",
+                eprintln!("---\nbug: elab_do_expr_core returned term\n{}\nwith type\n{}\nbut has type\n{}\n---",
                     self.pp(term, 80),
                     self.pp(ty, 80),
                     self.pp(inferred, 80));
@@ -349,8 +416,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             }
 
             ExprKind::Do(it) => {
-                self.elab_do_block(it)?;
-                (Term::UNIT_MK, Term::UNIT)
+                self.elab_do_block(expr_id, expr.flags, it, expected_ty)?
             }
 
             ExprKind::If(it) => {
@@ -408,6 +474,50 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             ExprKind::Loop(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do loop"));
                 return None;
+            }
+
+            ExprKind::Break(it) => {
+                let Some(target) = self.jump_targets.last() else {
+                    self.error(expr_id, ElabError::TempStr("no break target"));
+                    return None;
+                };
+                let target_symbol = target.symbol;
+
+                let locals = &self.locals[..target.num_locals];
+                let local_terms = Vec::from_iter(locals.copy_map_it(|(_, local)| self.alloc.mkt_local(local)));
+
+                if let Some(expected) = target.result_ty {
+                    let value = if let Some(value) = it.value.to_option() {
+                        self.elab_do_expr(value, Some(expected))?.0
+                    }
+                    else {
+                        if !self.ensure_def_eq(expected, Term::UNIT) {
+                            self.error(expr_id, ElabError::TempStr("break needs value"));
+                        }
+                        Term::UNIT_MK
+                    };
+
+                    let jump =
+                        self.alloc.mkt_apply(
+                            self.alloc.mkt_apps(target_symbol, &local_terms),
+                            value);
+                    self.end_jp(jump);
+                }
+                else {
+                    if let Some(value) = it.value.to_option() {
+                        self.elab_do_expr(value, Some(Term::UNIT))?;
+                    }
+
+                    let jump =
+                        self.alloc.mkt_apps(target_symbol, &local_terms);
+                    self.end_jp(jump);
+                }
+
+                let unreach_jp = self.new_jp().0;
+                self.begin_jp(unreach_jp);
+
+                // @todo: ax_unreachale.
+                (Term::UNIT_MK, Term::UNIT)
             }
 
             ExprKind::TypeHint(_) => {
