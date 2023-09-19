@@ -17,15 +17,12 @@
 
 - todo:
     - do.
-        - unreachable.
+        - `ax_unreachable`.
+        - `ax_uninit`.
+        - `needs_value`.
+        - return.
         - loops.
         - labels.
-        - only gen local for `if`, if value used.
-        - `if` use expected type.
-        - don't generate as many id jps.
-            - consider removing them entirely.
-            - unreachable flag, so we don't need those jps.
-        - todo: error to sorry for stmts!!!
         - don't generate else jp, if don't need.
             - the if loop.
         - level params.
@@ -34,10 +31,15 @@
         - uninit dependent vars on assign.
             - track deps using temp arena & vec for each var.
             - also need to remove deps, hmm.
-        - expr unit.
+        - todo: error to sorry for stmts!!!
     - no optional semicolons.
         - non-do if blocks with only a single expr must not have a semicolon.
         - sep-by(`;`) must have last.
+    - tyck.
+        - no termination checking yet.
+        - use for inductive.
+        - `SymbolKind::Axiom`.
+        - definitional height.
     - brck.
         - region inference.
             - how to handle annotations?

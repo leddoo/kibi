@@ -36,6 +36,10 @@
     - reconsider assignment as expr. would be disallowed in type.
       need to break up exprs for do elab anyway, cos refs.
 
+- expect type def eq thing.
+
+- lctx: binder xor let.
+
 - elab elim: don't option of option.
 
 
