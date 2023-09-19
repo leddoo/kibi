@@ -141,17 +141,13 @@ pub enum TokenKind {
     KwImpl,
 
     KwLet, KwVar,
-
-    KwDo,
-
-    KwIf,
-    KwElif,
-    KwElse,
-
-    KwWhile,
-    KwFor,
     KwIn,
 
+    KwDo,
+    KwIf,
+    KwWhile,
+    KwLoop,
+    KwElse,
     KwBreak,
     KwContinue,
     KwReturn,
@@ -219,7 +215,7 @@ impl TokenKind {
             TokenKind::KwDo |
             TokenKind::KwIf |
             TokenKind::KwWhile |
-            TokenKind::KwFor |
+            TokenKind::KwLoop |
             TokenKind::KwBreak |
             TokenKind::KwContinue |
             TokenKind::KwReturn |
@@ -243,9 +239,8 @@ impl TokenKind {
             TokenKind::KwTrait |
             TokenKind::KwImpl |
             TokenKind::KwVar |
-            TokenKind::KwElif |
-            TokenKind::KwElse |
             TokenKind::KwIn |
+            TokenKind::KwElse |
             TokenKind::KwAnd |
             TokenKind::KwOr |
             TokenKind::RParen |
@@ -300,13 +295,12 @@ impl TokenKind {
             TokenKind::KwImpl => "'impl'",
             TokenKind::KwLet => "'let'",
             TokenKind::KwVar => "'var'",
+            TokenKind::KwIn => "'in'",
             TokenKind::KwDo => "'do'",
             TokenKind::KwIf => "'if'",
-            TokenKind::KwElif => "'elif'",
             TokenKind::KwElse => "'else'",
             TokenKind::KwWhile => "'while'",
-            TokenKind::KwFor => "'for'",
-            TokenKind::KwIn => "'in'",
+            TokenKind::KwLoop => "'loop'",
             TokenKind::KwBreak => "'break'",
             TokenKind::KwContinue => "'continue'",
             TokenKind::KwReturn => "'return'",
@@ -503,8 +497,11 @@ pub enum ExprKind<'a> {
 
     Do(expr::Block<'a>),
     If(expr::If),
+    While(expr::While),
     Loop(expr::Loop<'a>),
     Break(expr::Break),
+    Continue(Option<Ident>),
+    ContinueElse(Option<Ident>),
     Return(OptExprId),
 
     TypeHint(expr::TypeHint),
@@ -542,13 +539,6 @@ pub mod expr {
         pub ty:   OptExprId,
         pub val:  ExprId,
         pub body: ExprId,
-    }
-
-
-    #[derive(Clone, Copy, Debug)]
-    pub struct Block<'a> {
-        pub is_do: bool,
-        pub stmts: StmtList<'a>,
     }
 
 
@@ -647,21 +637,36 @@ pub mod expr {
 
 
     #[derive(Clone, Copy, Debug)]
+    pub struct Block<'a> {
+        pub is_do: bool,
+        pub stmts: &'a [StmtId],
+    }
+
+    #[derive(Clone, Copy, Debug)]
     pub struct If {
+        pub is_do: bool,
         pub cond:  ExprId,
         pub then:  ExprId,
         pub els:   OptExprId,
     }
 
     #[derive(Clone, Copy, Debug)]
+    pub struct While {
+        pub is_do: bool,
+        pub cond: ExprId,
+        pub body: ExprId,
+        pub els:  OptExprId,
+    }
+
+    #[derive(Clone, Copy, Debug)]
     pub struct Loop<'a> {
-        pub cond: Option<ExprId>,
-        pub body: Block<'a>,
+        pub is_do: bool,
+        pub stmts: &'a [StmtId],
     }
 
     #[derive(Clone, Copy, Debug)]
     pub struct Break {
-        pub label: OptAtom,
+        pub label: OptIdent,
         pub value: OptExprId,
     }
 

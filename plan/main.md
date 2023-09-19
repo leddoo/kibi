@@ -16,19 +16,25 @@
 
 
 - todo:
+    - unified control flow.
+        - elab it.
+            - `elab_control_flow`.
+            - `do` only applies to the current node.
+        - parse labels.
     - do.
-        - loops.
-        - labels.
         - level params.
         - assignment valiation: make sure the local is actually a `var`.
           not `let` or something different entirely.
+            - lctx cleanup binder xor let thing.
+        - jump target used.
         - uninit dependent vars on assign.
             - track deps using temp arena & vec for each var.
             - also need to remove deps, hmm.
-        - jump target used.
+        - let chain: parse/elab.
     - no optional semicolons.
         - non-do if blocks with only a single expr must not have a semicolon.
         - sep-by(`;`) must have last.
+    - oh ja, `bite`.
     - `ax_error`.
         - elab do:
             - `needs_value` & the if loop.

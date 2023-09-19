@@ -91,6 +91,9 @@ def Nat::dec_eq (a b: Nat): Decidable(Eq(a, b)) :=
 
 impl<a b: Nat>: Decidable(Eq(a, b)) := Nat::dec_eq(a, b)
 
+-- @temp: dec_eq from beq.
+def Nat::beq(a b: Nat): Bool := Decidable::to_bool(Nat::dec_eq(a, b))
+
 
 
 trait inductive Add (A B: Type): Sort(2) {
@@ -522,13 +525,13 @@ def ass_test: Nat := do {
     do { x := 3 };
     x;
 
-    x := if Bool::false { 6 } elif Bool::true { 9 } else { 7 };
+    x := if Bool::false { 6 } else if Bool::true { 9 } else { 7 };
     x;
 
     if Bool::true {
         x := x + 2;
     }
-    elif Bool::false {
+    else if Bool::false {
         Unit::mk
     }
     else {
@@ -588,6 +591,25 @@ def brk_8: Nat := do {
     return 69;
 }
 reduce brk_8
+
+
+def fib_iter_basic(n: Nat): Nat := do {
+    var a := 0;
+    var b := 1;
+    var i := 0;
+    loop {
+        if Nat::beq(i, n) {
+            return a;
+        };
+
+        let c := a + b;
+        a := b;
+        b := c;
+        i := i + 1;
+    };
+    -- @temp: jump target used.
+    break a;
+}
 
 
 def brck_basic := do {

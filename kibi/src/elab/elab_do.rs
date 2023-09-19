@@ -500,7 +500,12 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                 }
             }
 
-            ExprKind::Loop(_) => {
+            ExprKind::While(it) => {
+                self.error(expr_id, ElabError::TempStr("unimp do while"));
+                return None;
+            }
+
+            ExprKind::Loop(it) => {
                 self.error(expr_id, ElabError::TempStr("unimp do loop"));
                 return None;
             }
@@ -552,6 +557,16 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     (self.mkt_ax_unreach(expected), expected)
                 }
                 else { (Term::UNIT_MK, Term::UNIT) }
+            }
+
+            ExprKind::Continue(_) => {
+                self.error(expr_id, ElabError::TempStr("unimp do continue"));
+                return None;
+            }
+
+            ExprKind::ContinueElse(_) => {
+                self.error(expr_id, ElabError::TempStr("unimp do continue else"));
+                return None;
             }
 
             ExprKind::Return(it) => {
