@@ -49,6 +49,10 @@
 
 ### language features:
 
+- allocation:
+    - `Unique(r, T)`.
+    - figure out allocation pointer invariants.
+
 - type-less binders syntax.
     - `fn foo<A, B>(...)` cause it can infer `Type`.
     - though it can't figure out the level, i guess, which should be `1`.

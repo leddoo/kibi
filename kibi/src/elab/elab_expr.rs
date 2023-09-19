@@ -63,7 +63,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         let result = self.elab_expr_core(expr, expected_ty);
 
         #[cfg(debug_assertions)]
-        if self.locals.len() != old_num_locals {
+        if result.is_some() && self.locals.len() != old_num_locals {
             assert!(false);
         }
 

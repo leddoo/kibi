@@ -30,17 +30,43 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             let old_scope = self.lctx.current;
             let old_locals = self.locals.clone();
 
-            let mut this = ElabDo::new(self);
+            // @todo: non-unit.
+            let result_ty = Term::UNIT;
+
+            let mut this = ElabDo::new(self, result_ty);
             this.begin_jp(JoinPoint::ZERO);
             this.elab_do_block(block)?;
             this.end_jp(Term::UNIT_MK);
+
+            for (_, jp) in this.jps.iter() {
+                let (term, ty) = jp.term.unwrap();
+
+                let term = this.elab.instantiate_term_vars(term);
+                let ty   = this.elab.instantiate_term_vars(ty);
+                if term.has_ivars() || ty.has_ivars() {
+                    self.error(expr_id, ElabError::TempStr("jp has ivars"));
+                    return None;
+                }
+
+                this.elab.env.resolve_pending(jp.symbol, SymbolKind::Def(symbol::Def {
+                    val: Some(term),
+                    ty,
+                    num_levels: 0, // @temp: jp levels.
+                }));
+            }
+
+            let entry = &this.jps[JoinPoint::ZERO];
+            let entry_id = entry.symbol;
 
             self.lctx.current = old_scope;
             // @cleanup: sti vec assign/_from_slice.
             self.locals.clear();
             self.locals.extend_from_slice(&old_locals);
 
-            Some((Term::UNIT_MK, Term::UNIT))
+            let local_terms = Vec::from_iter(self.locals.copy_map_it(|(_, local)| self.alloc.mkt_local(local)));
+            let result = self.alloc.mkt_apps(self.alloc.mkt_global(entry_id, &[]), &local_terms);
+
+            Some((result, result_ty))
         }
     }
 }
@@ -51,14 +77,15 @@ sti::define_key!(u32, JoinPoint);
 struct ElabDo<'me, 'e, 'c, 'out> {
     elab: &'me mut Elaborator<'e, 'c, 'out>,
     jps: KVec<JoinPoint, JoinPointData<'out>>,
+    result_ty: Term<'out>,
     current_jp: JoinPoint,
     stmts: Vec<Stmt<'out>>,
 }
 
-struct JoinPointData<'out> {
+struct JoinPointData<'a> {
     symbol: SymbolId,
     params: Vec<ScopeId>,
-    term: Option<Term<'out>>,
+    term: Option<(Term<'a>, Term<'a>)>,
 }
 
 #[derive(Clone, Copy)]
@@ -68,10 +95,11 @@ enum Stmt<'out> {
 }
 
 impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
-    fn new(elab: &'me mut Elaborator<'e, 'c, 'out>) -> Self {
+    fn new(elab: &'me mut Elaborator<'e, 'c, 'out>, result_ty: Term<'out>) -> Self {
         let mut this = ElabDo {
             elab,
             jps: KVec::new(),
+            result_ty,
             current_jp: JoinPoint::ZERO,
             stmts: Vec::new(),
         };
@@ -85,7 +113,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
     fn new_jp(&mut self) -> (JoinPoint, SymbolId) {
         // @temp: temp alloc, symbols under current symbol.
         let n = self.env.symbol(SymbolId::ROOT).children.len();
-        let name = self.strings.insert(&sti::format!("$jp_{}", n));
+        let name = self.strings.insert(&sti::format!("__jp_{}", n));
         let params = Vec::from_iter(self.locals.copy_map_it(|(_, id)| id));
         let symbol = self.env.new_symbol(SymbolId::ROOT, name, SymbolKind::Pending).unwrap();
         (self.jps.push(JoinPointData { symbol, params, term: None }), symbol)
@@ -108,11 +136,13 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         let entry = &mut self.jps[self.current_jp];
         assert!(entry.term.is_none());
 
-        let mut result = ret;
+        let mut result    = ret;
+        let mut result_ty = self.result_ty;
         for stmt in self.stmts.copy_it().rev() {
             match stmt {
                 Stmt::Local(id) => {
-                    result = self.elab.mk_let(result, id, false);
+                    result    = self.elab.mk_let(result,    id, false);
+                    result_ty = self.elab.mk_let(result_ty, id, true);
                     self.elab.lctx.pop(id);
                 }
 
@@ -124,10 +154,10 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         self.stmts.clear();
 
         for local in entry.params.copy_it().rev() {
-            result = self.elab.mk_binder(result, local, false);
+            result    = self.elab.mk_binder(result,    local, false);
+            result_ty = self.elab.mk_binder(result_ty, local, true);
         }
-
-        entry.term = Some(result);
+        entry.term = Some((result, result_ty));
 
         let name = &self.elab.strings[self.elab.env.symbol(self.jps[self.current_jp].symbol).name];
         println!("{}:\n{}\n", name, self.elab.pp(result, 50));

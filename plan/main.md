@@ -17,15 +17,17 @@
 
 - todo:
     - do.
-        - generate join point functions.
-            - function type.
-            - add to env.
-        - loops.
         - non-unit returns (break).
+            - expected ty.
+            - use ivar for `result_ty`.
+                - assign unit if unresolved ig.
+                - unify with `break/return`.
+        - loops.
         - only gen local for `if`, if value used.
         - `if` use expected type.
         - todo: error to sorry for stmts!!!
         - don't generate else jp, if don't need.
+            - the if loop.
         - level params.
         - assignment valiation: make sure the local is actually a `var`.
           not `let` or something different entirely.
