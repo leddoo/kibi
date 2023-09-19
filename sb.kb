@@ -1,5 +1,6 @@
 axiom ax_sorry.{t}<T: Sort(t)>: T
 axiom ax_uninit.{t}<T: Sort(t)>: T
+axiom ax_unreach.{t}<T: Sort(t)>: T
 
 
 inductive False {}
@@ -512,7 +513,9 @@ def foo :=
 
 
 def ass_test: Nat := do {
-    var x := 1;
+    var x;
+    x;
+    x := 1;
     x;
     x := x + 1;
     x;

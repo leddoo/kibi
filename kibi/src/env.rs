@@ -54,6 +54,10 @@ impl SymbolId {
     pub const Bool_false: SymbolId = SymbolId(10);
     pub const Bool_true: SymbolId = SymbolId(11);
     pub const ite: SymbolId = SymbolId(12);
+
+    pub const ax_sorry: SymbolId = SymbolId(13);
+    pub const ax_uninit: SymbolId = SymbolId(14);
+    pub const ax_unreach: SymbolId = SymbolId(15);
 }
 
 
@@ -115,6 +119,10 @@ impl<'a> Env<'a> {
         env.predeclare(SymbolId::Bool, atoms::_false, SymbolId::Bool_false);
         env.predeclare(SymbolId::Bool, atoms::_true, SymbolId::Bool_true);
         env.predeclare(SymbolId::ROOT, atoms::ite, SymbolId::ite);
+
+        env.predeclare(SymbolId::ROOT, atoms::ax_sorry, SymbolId::ax_sorry);
+        env.predeclare(SymbolId::ROOT, atoms::ax_uninit, SymbolId::ax_uninit);
+        env.predeclare(SymbolId::ROOT, atoms::ax_unreach, SymbolId::ax_unreach);
 
         return env
     }

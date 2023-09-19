@@ -515,6 +515,9 @@ pub trait TermAlloc {
     fn mkt_apps<'a>(&'a self, fun: Term<'a>, args: &[Term<'a>]) -> Term<'a>;
 
     fn mkt_nat_val<'a>(&'a self, n: u32) -> Term<'a>;
+    fn mkt_ax_sorry<'a>(&'a self, l: Level<'a>, t: Term<'a>) -> Term<'a>;
+    fn mkt_ax_uninit<'a>(&'a self, l: Level<'a>, t: Term<'a>) -> Term<'a>;
+    fn mkt_ax_unreach<'a>(&'a self, l: Level<'a>, t: Term<'a>) -> Term<'a>;
 }
 
 
@@ -549,6 +552,16 @@ mod impel {
         pub const BOOL_FALSE: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Bool_false, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
         pub const BOOL_TRUE:  Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Bool_true, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
         pub const ITE:        Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ite, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
+
+        pub const AX_SORRY_0: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_sorry, levels: &[Level::L0] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_SORRY_1: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_sorry, levels: &[Level::L1] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_SORRY_2: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_sorry, levels: &[Level::L2] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_UNINIT_0: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_uninit, levels: &[Level::L0] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_UNINIT_1: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_uninit, levels: &[Level::L1] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_UNINIT_2: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_uninit, levels: &[Level::L2] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_UNREACH_0: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_unreach, levels: &[Level::L0] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_UNREACH_1: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_unreach, levels: &[Level::L1] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_UNREACH_2: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_unreach, levels: &[Level::L2] }), max_succ_bvar: 0, max_succ_local: 0 });
 
 
         #[inline(always)]
@@ -773,6 +786,36 @@ mod impel {
                 result = self.mkt_apply(Term::NAT_SUCC, result);
             }
             return result;
+        }
+
+        fn mkt_ax_sorry<'a>(&'a self, l: Level<'a>, t: Term<'a>) -> Term<'a> {
+            let f = match l.try_nat() {
+                Some(0) => Term::AX_SORRY_0,
+                Some(1) => Term::AX_SORRY_1,
+                Some(2) => Term::AX_SORRY_2,
+                _ => self.mkt_global(SymbolId::ax_sorry, &self.alloc_new([l])[..]),
+            };
+            self.mkt_apply(f, t)
+        }
+
+        fn mkt_ax_uninit<'a>(&'a self, l: Level<'a>, t: Term<'a>) -> Term<'a> {
+            let f = match l.try_nat() {
+                Some(0) => Term::AX_UNINIT_0,
+                Some(1) => Term::AX_UNINIT_1,
+                Some(2) => Term::AX_UNINIT_2,
+                _ => self.mkt_global(SymbolId::ax_uninit, &self.alloc_new([l])[..]),
+            };
+            self.mkt_apply(f, t)
+        }
+
+        fn mkt_ax_unreach<'a>(&'a self, l: Level<'a>, t: Term<'a>) -> Term<'a> {
+            let f = match l.try_nat() {
+                Some(0) => Term::AX_UNREACH_0,
+                Some(1) => Term::AX_UNREACH_1,
+                Some(2) => Term::AX_UNREACH_2,
+                _ => self.mkt_global(SymbolId::ax_unreach, &self.alloc_new([l])[..]),
+            };
+            self.mkt_apply(f, t)
         }
     }
 }

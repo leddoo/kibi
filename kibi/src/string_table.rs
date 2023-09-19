@@ -47,6 +47,9 @@ impl<'a> StringTable<'a> {
             (atoms::Unit, "Unit"), (atoms::mk, "mk"),
             (atoms::Bool, "Bool"), (atoms::_false, "false"), (atoms::_true, "true"),
             (atoms::ite, "ite"),
+            (atoms::ax_sorry, "ax_sorry"),
+            (atoms::ax_uninit, "ax_uninit"),
+            (atoms::ax_unreach, "ax_unreach"),
         ];
 
         for (atom, string) in init.iter().copied() {
@@ -120,6 +123,9 @@ pub mod atoms {
     pub const _false:   Atom = Atom(31);
     pub const _true:    Atom = Atom(32);
     pub const ite:      Atom = Atom(33);
+    pub const ax_sorry:     Atom = Atom(34);
+    pub const ax_uninit:    Atom = Atom(35);
+    pub const ax_unreach:   Atom = Atom(36);
 }
 
 

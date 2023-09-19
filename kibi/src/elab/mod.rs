@@ -148,6 +148,27 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         self.ivars.clear();
     }
 
+    #[inline(always)]
+    #[track_caller]
+    pub fn mkt_ax_sorry(&mut self, t: tt::Term<'out>) -> tt::Term<'out> {
+        use tt::TermAlloc;
+        self.alloc.mkt_ax_sorry(self.infer_type_as_sort(t).unwrap(), t)
+    }
+
+    #[inline(always)]
+    #[track_caller]
+    pub fn mkt_ax_uninit(&mut self, t: tt::Term<'out>) -> tt::Term<'out> {
+        use tt::TermAlloc;
+        self.alloc.mkt_ax_uninit(self.infer_type_as_sort(t).unwrap(), t)
+    }
+
+    #[inline(always)]
+    #[track_caller]
+    pub fn mkt_ax_unreach(&mut self, t: tt::Term<'out>) -> tt::Term<'out> {
+        use tt::TermAlloc;
+        self.alloc.mkt_ax_unreach(self.infer_type_as_sort(t).unwrap(), t)
+    }
+
     // @mega@temp below this line.
 
     // @temp: `Compiler` rework.

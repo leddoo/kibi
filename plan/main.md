@@ -17,8 +17,6 @@
 
 - todo:
     - do.
-        - `ax_unreachable`.
-        - `ax_uninit`.
         - `needs_value`.
         - return.
         - loops.
@@ -35,6 +33,7 @@
     - no optional semicolons.
         - non-do if blocks with only a single expr must not have a semicolon.
         - sep-by(`;`) must have last.
+    - `ax_error`.
     - tyck.
         - no termination checking yet.
         - use for inductive.

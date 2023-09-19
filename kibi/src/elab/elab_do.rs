@@ -69,8 +69,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     (term, ty)
                 }
                 else {
-                    // @todo: ax_unreach.
-                    (Term::UNIT_MK, Term::UNIT)
+                    (this.elab.mkt_ax_unreach(result_ty), result_ty)
                 };
 
                 this.elab.env.resolve_pending(jp.symbol, SymbolKind::Def(symbol::Def {
@@ -235,10 +234,8 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     let val = if let Some(val) = it.val.to_option() {
                         self.elab_do_expr(val, Some(ty))?.0
                     }
-                    // @todo: uninit axiom.
                     else {
-                        self.error(stmt_id, ElabError::TempStr("uninit axiom"));
-                        continue;
+                        self.mkt_ax_uninit(ty)
                     };
 
 
@@ -301,10 +298,10 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             let target = self.jump_targets.pop().unwrap();
             assert_eq!(target.symbol_id, jp_symbol);
 
-            // @todo: ax_uninit/unit_mk.
             let result_ty = target.result_ty.unwrap_or(Term::UNIT);
 
             if self.current_jp.is_some() {
+                // @todo: error to ax_sorry.
                 let jump_val = Term::UNIT_MK;
                 if !result_ty.syntax_eq(Term::UNIT) {
                     self.error(expr_id, ElabError::TempStr("block is unit, but unit is no good"));
@@ -455,7 +452,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                 let after = self.alloc.mkt_global(after_id, &[]);
 
                 self.begin_jp(then_jp);
-                let (then_val, result_ty) = self.elab_do_expr(it.then, None)?;
+                let (then_val, result_ty) = self.elab_do_expr(it.then, expected_ty)?;
                 let then_reachable = self.current_jp.is_some();
                 if then_reachable {
                     let then_after =
@@ -497,9 +494,9 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     (self.alloc.mkt_local(result_id), result_ty)
                 }
                 else {
+                    // @todo: if do -> may be reachable.
                     self.jps[after_jp].reachable = false;
-                    // @todo: ax_unreach
-                    (Term::UNIT_MK, Term::UNIT)
+                    (self.mkt_ax_unreach(result_ty), result_ty)
                 }
             }
 
@@ -545,8 +542,10 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     self.end_jp(jump);
                 }
 
-                // @todo: ax_unreachale.
-                (Term::UNIT_MK, Term::UNIT)
+                if let Some(expected) = expected_ty {
+                    (self.mkt_ax_unreach(expected), expected)
+                }
+                else { (Term::UNIT_MK, Term::UNIT) }
             }
 
             ExprKind::TypeHint(_) => {
