@@ -506,6 +506,9 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             }
 
             ExprKind::Break(it) => {
+                // @todo: this is currently unreachable.
+                // if we decide that function blocks are `do` blocks,
+                // this can become an unwrap.
                 let Some(target) = self.jump_targets.last() else {
                     self.error(expr_id, ElabError::TempStr("no break target"));
                     return None;
@@ -526,20 +529,45 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                         Term::UNIT_MK
                     };
 
-                    let jump =
-                        self.alloc.mkt_apply(
-                            self.alloc.mkt_apps(target_symbol, &local_terms),
-                            value);
-                    self.end_jp(jump);
+                    if self.current_jp.is_some() {
+                        let jump =
+                            self.alloc.mkt_apply(
+                                self.alloc.mkt_apps(target_symbol, &local_terms),
+                                value);
+                        self.end_jp(jump);
+                    }
                 }
                 else {
                     if let Some(value) = it.value.to_option() {
                         self.elab_do_expr(value, Some(Term::UNIT))?;
                     }
 
-                    let jump =
-                        self.alloc.mkt_apps(target_symbol, &local_terms);
-                    self.end_jp(jump);
+                    if self.current_jp.is_some() {
+                        let jump = self.alloc.mkt_apps(target_symbol, &local_terms);
+                        self.end_jp(jump);
+                    }
+                }
+
+                if let Some(expected) = expected_ty {
+                    (self.mkt_ax_unreach(expected), expected)
+                }
+                else { (Term::UNIT_MK, Term::UNIT) }
+            }
+
+            ExprKind::Return(it) => {
+                let expected = self.result_ty;
+                let value = if let Some(value) = it.to_option() {
+                    self.elab_do_expr(value, Some(expected))?.0
+                }
+                else {
+                    if !self.ensure_def_eq(expected, Term::UNIT) {
+                        self.error(expr_id, ElabError::TempStr("return needs value"));
+                    }
+                    Term::UNIT_MK
+                };
+
+                if self.current_jp.is_some() {
+                    self.end_jp(value);
                 }
 
                 if let Some(expected) = expected_ty {

@@ -505,6 +505,7 @@ pub enum ExprKind<'a> {
     If(expr::If),
     Loop(expr::Loop<'a>),
     Break(expr::Break),
+    Return(OptExprId),
 
     TypeHint(expr::TypeHint),
 }

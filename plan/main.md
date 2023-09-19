@@ -17,23 +17,22 @@
 
 - todo:
     - do.
-        - `needs_value`.
-        - return.
         - loops.
         - labels.
-        - don't generate else jp, if don't need.
-            - the if loop.
         - level params.
         - assignment valiation: make sure the local is actually a `var`.
           not `let` or something different entirely.
         - uninit dependent vars on assign.
             - track deps using temp arena & vec for each var.
             - also need to remove deps, hmm.
-        - todo: error to sorry for stmts!!!
+        - jump target used.
     - no optional semicolons.
         - non-do if blocks with only a single expr must not have a semicolon.
         - sep-by(`;`) must have last.
     - `ax_error`.
+        - elab do:
+            - `needs_value` & the if loop.
+            - stmts.
     - tyck.
         - no termination checking yet.
         - use for inductive.
