@@ -22,29 +22,24 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
             TermData::Global (g) => {
                 let symbol = self.env.symbol(g.id);
-                match symbol.kind {
+                let (num_levels, ty) = match symbol.kind {
                     SymbolKind::Root |
                     SymbolKind::Predeclared |
-                    SymbolKind::Pending => unreachable!(),
+                    SymbolKind::Pending(None) => unreachable!(),
 
-                    SymbolKind::Error => unreachable!(),
+                    SymbolKind::Pending(Some(it)) | 
+                    SymbolKind::Axiom(it) => (it.num_levels, it.ty),
 
-                    SymbolKind::IndAxiom(it) => {
-                        debug_assert_eq!(g.levels.len() as u32, it.num_levels);
-                        if g.levels.len() != 0 {
-                            it.ty.instantiate_level_params(g.levels, self.alloc)
-                        }
-                        else { it.ty }
-                    }
+                    SymbolKind::Def(it) => (it.num_levels, it.ty),
 
-                    SymbolKind::Def(it) => {
-                        debug_assert_eq!(g.levels.len() as u32, it.num_levels);
-                        if g.levels.len() != 0 {
-                            it.ty.instantiate_level_params(g.levels, self.alloc)
-                        }
-                        else { it.ty }
-                    }
+                    SymbolKind::IndAxiom(it) => (it.num_levels, it.ty),
+                };
+
+                debug_assert_eq!(g.levels.len(), num_levels);
+                if g.levels.len() != 0 {
+                    ty.instantiate_level_params(g.levels, self.alloc)
                 }
+                else { ty }
             }
 
             TermData::IVar(var) => {

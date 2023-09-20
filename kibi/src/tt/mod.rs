@@ -7,5 +7,5 @@ pub mod inductive;
 pub use level::*;
 pub use term::*;
 pub use pp::TermPP;
-pub use local_ctx::LocalCtx;
+pub use local_ctx::{LocalCtx, OptScopeId};
 

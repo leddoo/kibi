@@ -51,6 +51,7 @@ impl<'a> StringTable<'a> {
             (atoms::ax_uninit, "ax_uninit"),
             (atoms::ax_unreach, "ax_unreach"),
             (atoms::ax_error, "ax_error"),
+            (atoms::jp, "jp"),
         ];
 
         for (atom, string) in init.iter().copied() {
@@ -128,6 +129,7 @@ pub mod atoms {
     pub const ax_uninit:    Atom = Atom(35);
     pub const ax_unreach:   Atom = Atom(36);
     pub const ax_error:     Atom = Atom(37);
+    pub const jp:           Atom = Atom(38);
 }
 
 

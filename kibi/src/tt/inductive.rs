@@ -613,7 +613,7 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
             this.elab.env.resolve_pending(spec.symbol, SymbolKind::IndAxiom(IndAxiom {
                 kind: IndAxiomKind::TypeFormer,
                 info,
-                num_levels: this.level_params.len() as u32,
+                num_levels: this.level_params.len(),
                 ty: type_formers[spec_idx],
                 mutual_infos: infos,
             }));
@@ -622,7 +622,7 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
                 this.elab.env.resolve_pending(ctor.symbol, SymbolKind::IndAxiom(IndAxiom {
                     kind: IndAxiomKind::Constructor(ctor_idx as u32),
                     info,
-                    num_levels: this.level_params.len() as u32,
+                    num_levels: this.level_params.len(),
                     ty: ctor_types[ctor_idx],
                     mutual_infos: infos,
                 }));
@@ -631,7 +631,7 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
             this.elab.env.resolve_pending(spec.rec_symbol, SymbolKind::IndAxiom(IndAxiom {
                 kind: IndAxiomKind::Eliminator,
                 info,
-                num_levels: this.elim_levels.len() as u32,
+                num_levels: this.elim_levels.len(),
                 ty: elim_types[spec_idx],
                 mutual_infos: infos,
             }));

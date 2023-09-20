@@ -28,10 +28,10 @@ pub struct Symbol<'a> {
 pub enum SymbolKind<'a> {
     Root,
     Predeclared,
-    Pending,
-    Error,
-    IndAxiom(symbol::IndAxiom<'a>),
+    Pending(Option<symbol::Axiom<'a>>),
+    Axiom(symbol::Axiom<'a>),
     Def(symbol::Def<'a>),
+    IndAxiom(symbol::IndAxiom<'a>),
 }
 
 
@@ -72,21 +72,27 @@ pub mod symbol {
         Constructor(u32),
         Eliminator,
     }
+ 
+    #[derive(Clone, Copy, Debug)]
+    pub struct Axiom<'a> {
+        pub num_levels: usize,
+        pub ty: Term<'a>,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    pub struct Def<'a> {
+        pub num_levels: usize,
+        pub ty:  Term<'a>,
+        pub val: Term<'a>,
+    }
 
     #[derive(Clone, Copy, Debug)]
     pub struct IndAxiom<'a> {
         pub kind: IndAxiomKind,
         pub info: &'a InductiveInfo<'a>,
-        pub num_levels: u32,
+        pub num_levels: usize,
         pub ty: Term<'a>,
         pub mutual_infos: &'a [InductiveInfo<'a>],
-    }
-
-    #[derive(Clone, Copy, Debug)]
-    pub struct Def<'a> {
-        pub num_levels: u32,
-        pub ty:  Term<'a>,
-        pub val: Option<Term<'a>>,
     }
 }
 
@@ -159,18 +165,20 @@ impl<'a> Env<'a> {
             SymbolKind::Root |
             SymbolKind::Predeclared => unreachable!(),
 
-            SymbolKind::Error |
-            SymbolKind::Pending => (),
+            SymbolKind::Pending(None) => (),
 
-            SymbolKind::IndAxiom(it) => {
+            SymbolKind::Pending(Some(it)) |
+            SymbolKind::Axiom(it) => {
                 assert!(it.ty.closed_no_local_no_ivar());
             }
 
             SymbolKind::Def(it) => {
                 assert!(it.ty.closed_no_local_no_ivar());
-                if let Some(val) = it.val {
-                    assert!(val.closed_no_local_no_ivar());
-                }
+                assert!(it.val.closed_no_local_no_ivar());
+            }
+
+            SymbolKind::IndAxiom(it) => {
+                assert!(it.ty.closed_no_local_no_ivar());
             }
         }
 
@@ -206,29 +214,22 @@ impl<'a> Env<'a> {
         match &kind {
             SymbolKind::Root |
             SymbolKind::Predeclared |
-            SymbolKind::Pending => unreachable!(),
+            SymbolKind::Pending(_) |
+            SymbolKind::Axiom(_) => unreachable!(),
 
-            SymbolKind::Error => (),
+            SymbolKind::Def(it) => {
+                assert!(it.ty.closed_no_local_no_ivar());
+                assert!(it.val.closed_no_local_no_ivar());
+            }
 
             SymbolKind::IndAxiom(it) => {
                 assert!(it.ty.closed_no_local_no_ivar());
             }
-
-            SymbolKind::Def(it) => {
-                assert!(it.ty.closed_no_local_no_ivar());
-                if let Some(val) = it.val {
-                    assert!(val.closed_no_local_no_ivar());
-                }
-            }
         }
 
         let symbol = &mut self.symbols[id];
-        assert!(matches!(symbol.kind, SymbolKind::Pending));
+        assert!(matches!(symbol.kind, SymbolKind::Pending(_)));
         symbol.kind = kind;
-    }
-
-    pub fn resolve_pending_as_error(&mut self, id: SymbolId) {
-        self.resolve_pending(id, SymbolKind::Error);
     }
 }
 

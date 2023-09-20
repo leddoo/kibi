@@ -68,17 +68,16 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         let _ = self.check_no_unassigned_variables(item_id.into())?;
 
         let symbol = self.env.new_symbol(parent, name.value,
-            SymbolKind::Def(symbol::Def {
-                num_levels: axiom.levels.len() as u32,
+            SymbolKind::Axiom(symbol::Axiom {
+                num_levels: axiom.levels.len(),
                 ty,
-                val: None,
             })
         )?;
 
         Some(symbol)
     }
 
-    pub fn elab_def_core(&mut self, item_id: ItemId, levels: &[Ident], params: &[ast::Binder], ty: OptExprId, value: ExprId) -> Option<(Term<'out>, Term<'out>)> {
+    pub fn elab_def_core(&mut self, item_id: ItemId, levels: &[Ident], params: &[ast::Binder], ty: OptExprId, value: ExprId) -> (Term<'out>, Term<'out>) {
         assert_eq!(self.locals.len(), 0);
         assert_eq!(self.level_params.len(), 0);
 
@@ -99,6 +98,65 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         // value.
         let (mut val, val_ty) = self.elab_expr_checking_type(value, ty);
+
+
+        // declare aux defs.
+        let mut aux_symbols = Vec::with_cap(self.aux_defs.len());
+        let aux_defs = self.aux_defs.take();
+        for aux in aux_defs.iter() {
+            // @temp: arena; in current item; count from 1 maybe.
+            let n = self.env.symbol(self.root_symbol).children.len();
+            let name = format!("{}_{n}", &self.strings[aux.name]);
+            let name = self.strings.insert(&name);
+
+            // @todo: aux_def levels.
+            assert_eq!(self.level_params.len(), 0);
+
+            let symbol = self.env.new_symbol(self.root_symbol, name,
+                SymbolKind::Pending(None)).unwrap();
+            aux_symbols.push(symbol);
+
+            // @todo: aux_def levels.
+            let global = self.alloc.mkt_global(symbol, &[]);
+            unsafe { aux.ivar.assign_core(global, self) }
+        }
+
+
+        // assign unassigned ivars.
+        let mut had_unassigned_ivars = false;
+        for ivar in self.ivars.level_vars.range() {
+            if ivar.value(self).is_none() {
+                had_unassigned_ivars = true;
+                unsafe { ivar.assign_core(tt::Level::L1, self) }
+            }
+        }
+        for ivar in self.ivars.term_vars.range() {
+            if ivar.value(self).is_none() {
+                had_unassigned_ivars = true;
+                let error = self.mkt_ax_error(ivar.ty(self)).0;
+                unsafe { ivar.assign_core(error, self) }
+            }
+        }
+        if had_unassigned_ivars {
+            self.error(item_id, ElabError::UnassignedIvars);
+        }
+
+
+        // resolve aux symbols.
+        for (i, aux) in aux_defs.iter().enumerate() {
+            let symbol = aux_symbols[i];
+
+            let ty  = self.instantiate_term_vars(aux.ty);
+            let val = self.instantiate_term_vars(aux.value);
+
+            println!("{:?}: {}", &self.strings[self.env.symbol(symbol).name], self.pp(val, 80));
+
+            self.env.resolve_pending(symbol, SymbolKind::Def(symbol::Def {
+                num_levels: self.level_params.len(),
+                ty,
+                val,
+            }));
+        }
 
 
         let mut ty = ty.unwrap_or(val_ty);
@@ -142,9 +200,9 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             eprintln!("{}", pp.render(val, 50).layout_string());
         }
 
-        let _ = self.check_no_unassigned_variables(item_id.into())?;
+        assert!(self.check_no_unassigned_variables(item_id.into()).is_some());
 
-        Some((ty, val))
+        return (ty, val);
     }
 
     pub fn elab_def(&mut self, item_id: ItemId, def: &item::Def) -> Option<SymbolId> {
@@ -163,15 +221,13 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             }
         };
 
-        let Some((ty, val)) = self.elab_def_core(item_id, def.levels, def.params, def.ty, def.value) else {
-            return self.env.new_symbol(parent, name.value, SymbolKind::Error);
-        };
+        let (ty, val) = self.elab_def_core(item_id, def.levels, def.params, def.ty, def.value);
 
         let symbol = self.env.new_symbol(parent, name.value,
             SymbolKind::Def(symbol::Def {
-                num_levels: def.levels.len() as u32,
+                num_levels: def.levels.len(),
                 ty,
-                val: Some(val),
+                val,
             })
         )?;
 

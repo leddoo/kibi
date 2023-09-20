@@ -246,20 +246,17 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         match symbol.kind {
             SymbolKind::Root |
             SymbolKind::Predeclared |
-            SymbolKind::Pending => unreachable!(),
+            SymbolKind::Pending(_) => unreachable!(),
 
-            SymbolKind::Error => None,
+            SymbolKind::Axiom(_) => None,
+
+            SymbolKind::Def(it) => {
+                debug_assert_eq!(g.levels.len(), it.num_levels as usize);
+                let val = it.val.instantiate_level_params(g.levels, self.alloc);
+                Some(t.replace_app_fun(val, self.alloc))
+            }
 
             SymbolKind::IndAxiom(_) => None,
-
-            SymbolKind::Def(d) => {
-                debug_assert_eq!(g.levels.len(), d.num_levels as usize);
-                if let Some(val) = d.val {
-                    let val = val.instantiate_level_params(g.levels, self.alloc);
-                    Some(t.replace_app_fun(val, self.alloc))
-                }
-                else { None }
-            }
         }
     }
 

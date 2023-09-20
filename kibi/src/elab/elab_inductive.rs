@@ -19,7 +19,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         }
 
         let ind_symbol = self.env.new_symbol(self.root_symbol,
-            ind.name.value, SymbolKind::Pending)?;
+            ind.name.value, SymbolKind::Pending(None))?;
 
         // check params.
         let params = self.elab_binders(ind.params, &*temp);
@@ -92,14 +92,14 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 return None;
             }
 
-            let symbol = self.env.new_symbol(ind_symbol, ctor.name.value, SymbolKind::Pending)?;
+            let symbol = self.env.new_symbol(ind_symbol, ctor.name.value, SymbolKind::Pending(None))?;
             ctors.push(inductive::CtorSpec { name: ctor.name, symbol, ty });
         }
 
         let param_ids = Vec::from_in(&*temp,
             params.copy_map_it(|(id, _, _)| id));
 
-        let rec_symbol = self.env.new_symbol(ind_symbol, atoms::rec, SymbolKind::Pending)?;
+        let rec_symbol = self.env.new_symbol(ind_symbol, atoms::rec, SymbolKind::Pending(None))?;
 
         // check spec.
         let spec = inductive::MutualSpec {

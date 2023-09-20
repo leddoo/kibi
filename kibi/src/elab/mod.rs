@@ -67,6 +67,7 @@ pub fn elab_file<'out>(
             locals: Vec::new(),
             level_params: Vec::new(),
             ivars: ivars::IVarCtx::new(),
+            aux_defs: Vec::new(),
         };
 
         let result = elaborator.elab_item(item_id);
@@ -104,6 +105,15 @@ pub struct Elaborator<'me, 'c, 'out> {
     locals: Vec<(Atom, ScopeId)>,
 
     ivars: ivars::IVarCtx<'out>,
+
+    aux_defs: Vec<AuxDef<'out>>,
+}
+
+struct AuxDef<'a> {
+    name: Atom,
+    ivar: tt::TermVarId,
+    ty:    tt::Term<'a>,
+    value: tt::Term<'a>,
 }
 
 

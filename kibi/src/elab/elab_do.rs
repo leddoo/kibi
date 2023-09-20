@@ -31,12 +31,24 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             self.mkt_ax_error_from_expected(expected_ty)
         }
         else {
-            println!("---\n");
-
             let old_scope = self.lctx.current;
             let old_locals = self.locals.clone();
 
-            let result_ty = expected_ty.unwrap_or_else(|| self.new_term_var().0);
+            let result_ty = match expected_ty {
+                Some(ex) => {
+                    let ex = self.instantiate_term_vars(ex);
+                    if ex.has_ivars() {
+                        self.error(expr_id, ElabError::TempStr("expected type must not have ivars"));
+                        return self.mkt_ax_error_from_expected(expected_ty);
+                    }
+                    ex
+                }
+
+                None => {
+                    self.error(expr_id, ElabError::TempStr("expected type must not be known"));
+                    return self.mkt_ax_error_from_expected(expected_ty);
+                }
+            };
 
             let mut this = ElabDo::new(self, result_ty);
             let (ret, ret_ty) = this.elab_do_block(expr_id, flags, block, Some(result_ty));//.unwrap();
@@ -56,67 +68,34 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             }
             this.end_jp(ret);
 
-            self.lctx.current = old_scope;
-            // @cleanup: sti vec assign/_from_slice.
-            self.locals.clear();
-            self.locals.extend_from_slice(&old_locals);
-
-            return self.mkt_ax_error_from_expected(expected_ty);
-
-            /*
-            for jp in this.jps.range() {
-                let jp = &mut this.jps[jp];
-                if !jp.reachable {
-                    continue;
-                }
-
-                // @temp: item_symbol::jp{n}.
-                let n = this.elab.env.symbol(SymbolId::ROOT).children.len();
-                let name = this.elab.strings.insert(&format!("__jp_{n}"));
-                let symbol_id = this.elab.env.new_symbol(SymbolId::ROOT, name, SymbolKind::Pending).unwrap();
-                let symbol = this.elab.alloc.mkt_global(symbol_id, &[]); // @temp: levels.
-                let ok = this.elab.ensure_def_eq(jp.symbol, symbol);
-                assert!(ok);
-
-                jp.symbol_id = symbol_id.some();
-            }
-
-            for jp in this.jps.range() {
-                let jp = &this.jps[jp];
-                if !jp.reachable {
-                    continue;
-                }
-
-                let (term, ty) = jp.term.unwrap();
-
-                let term = this.elab.instantiate_term_vars(term);
-                let ty   = this.elab.instantiate_term_vars(ty);
-                if term.has_ivars() || ty.has_ivars() {
-                    this.elab.error(expr_id, ElabError::TempStr("jp has ivars"));
-                    return self.mkt_ax_error_from_expected(expected_ty);
-                }
-
-                this.elab.env.resolve_pending(jp.symbol_id.unwrap(),
-                    SymbolKind::Def(symbol::Def {
-                        val: Some(term),
+            for (_, jp) in this.jps.iter() {
+                if jp.reachable {
+                    let ivar = jp.ivar.try_ivar().unwrap();
+                    let ty = ivar.ty(this.elab);
+                    this.elab.aux_defs.push(AuxDef {
+                        name: atoms::jp,
+                        ivar,
                         ty,
-                        num_levels: 0, // @temp: jp levels.
-                    }));
+                        value: jp.value.unwrap(),
+                    });
+                }
+                else {
+                    let ty = this.elab.infer_type(jp.ivar).unwrap();
+                    let ax_unreach = this.elab.mkt_ax_unreach(ty);
+                    let ok = this.elab.ensure_def_eq(jp.ivar, ax_unreach);
+                    assert!(ok);
+                }
             }
 
-            //let entry = &this.jps[entry];
-            //let entry = entry.symbol;
-
-            self.lctx.current = old_scope;
+            this.elab.lctx.current = old_scope;
             // @cleanup: sti vec assign/_from_slice.
-            self.locals.clear();
-            self.locals.extend_from_slice(&old_locals);
+            this.elab.locals.clear();
+            this.elab.locals.extend_from_slice(&old_locals);
 
+            let entry = this.jps[JoinPoint::ZERO].ivar;
             let local_terms = Vec::from_iter(self.locals.copy_map_it(|(_, local)| self.alloc.mkt_local(local)));
-            //let result = self.alloc.mkt_apps(entry, &local_terms);
-            //return (result, result_ty);
-            unimplemented!()
-            */
+            let result = self.alloc.mkt_apps(entry, &local_terms);
+            return (result, result_ty);
         }
     }
 }
@@ -127,8 +106,12 @@ sti::define_key!(u32, JoinPoint, opt: OptJoinPoint);
 struct ElabDo<'me, 'e, 'c, 'out> {
     elab: &'me mut Elaborator<'e, 'c, 'out>,
 
-    jps: KVec<JoinPoint, JoinPointData<'out>>,
+    param_scope: OptScopeId,
+    num_params: usize,
+
     result_ty: Term<'out>,
+
+    jps: KVec<JoinPoint, JoinPointData<'out>>,
 
     jump_targets: Vec<JumpTarget<'out>>,
 
@@ -143,11 +126,12 @@ struct JumpTarget<'a> {
 }
 
 struct JoinPointData<'a> {
-    symbol_id: OptSymbolId,
-    symbol: Term<'a>,
-    params: Vec<ScopeId>,
-    needs_value: bool,
-    term: Option<(Term<'a>, Term<'a>)>,
+    ivar: Term<'a>,
+    // this is kinda scuffed:
+    // the local for the arg is added by the caller after begin_jp.
+    locals: Vec<ScopeId>,
+    arg_ty: Option<Term<'a>>,
+    value: Option<Term<'a>>,
     reachable: bool,
 }
 
@@ -159,56 +143,71 @@ enum Stmt<'out> {
 
 impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
     fn new(elab: &'me mut Elaborator<'e, 'c, 'out>, result_ty: Term<'out>) -> Self {
+        let param_scope = elab.lctx.current;
+        let num_params = elab.locals.len();
         let mut this = ElabDo {
             elab,
+            param_scope,
+            num_params,
+            result_ty,
             jps: KVec::new(),
             jump_targets: Vec::new(),
-            result_ty,
             current_jp: JoinPoint::ZERO,
             stmts: Vec::new(),
         };
 
-        let entry = this.new_jp_with_locals(false);
+        let entry = this.new_jp_with_locals(None);
         assert_eq!(entry, JoinPoint::ZERO);
         this.begin_jp(entry, true);
 
         return this;
     }
 
-    fn new_jp_with_locals(&mut self, needs_value: bool) -> JoinPoint {
-        let params = Vec::from_iter(self.locals.copy_map_it(|(_, id)| id));
-        let symbol = self.new_term_var().0;
+    fn new_jp(&mut self, locals: Vec<ScopeId>, arg_ty: Option<Term<'out>>) -> JoinPoint {
+        // @todo: mk_binder?
+        let mut ty = self.result_ty;
+        if let Some(arg_ty) = arg_ty {
+            ty = self.alloc.mkt_forall(BinderKind::Explicit, Atom::NULL, arg_ty, ty);
+        }
+        for local in locals.copy_it().rev() {
+            ty = self.lctx.abstract_forall(ty, local, self.alloc);
+        }
+        for (_, param) in self.locals[..self.num_params].copy_it().rev() {
+            ty = self.lctx.abstract_forall(ty, param, self.alloc);
+        }
+
+        let ivar = self.new_term_var_of_type(ty);
         self.jps.push(JoinPointData { 
-            symbol_id: None.into(),
-            symbol,
-            params, needs_value,
-            term: None,
+            ivar,
+            locals,
+            arg_ty,
+            value: None,
             reachable: true,
         })
     }
 
-    fn new_jp_with_params_of(&mut self, jp: JoinPoint, needs_value: bool) -> JoinPoint {
-        let params = self.jps[jp].params.clone();
-        let symbol = self.new_term_var().0;
-        self.jps.push(JoinPointData { 
-            symbol_id: None.into(),
-            symbol,
-            params, needs_value,
-            term: None,
-            reachable: true,
-        })
+    fn new_jp_with_locals(&mut self, arg_ty: Option<Term<'out>>) -> JoinPoint {
+        let locals = &self.elab.locals[self.num_params..];
+        let locals = Vec::from_iter(locals.copy_map_it(|(_, id)| id));
+        self.new_jp(locals, arg_ty)
+    }
+
+    fn new_jp_with_locals_of(&mut self, jp: JoinPoint, arg_ty: Option<Term<'out>>) -> JoinPoint {
+        let locals = self.jps[jp].locals.clone();
+        self.new_jp(locals, arg_ty)
     }
 
     fn begin_jp(&mut self, jp: JoinPoint, reachable: bool) {
-        assert!(jp == JoinPoint::ZERO || self.jps[self.current_jp].term.is_some());
+        // make sure current is terminated.
+        assert!(jp == JoinPoint::ZERO || self.jps[self.current_jp].value.is_some());
         assert_eq!(self.stmts.len(), 0);
 
         self.jps[jp].reachable = reachable;
 
         // parameterize locals
-        self.elab.lctx.current = None.into();
-        self.elab.locals.clear();
-        for id in &mut self.jps[jp].params {
+        self.elab.lctx.current = self.param_scope;
+        self.elab.locals.truncate(self.num_params);
+        for id in &mut self.jps[jp].locals {
             let entry = self.elab.lctx.lookup(*id).clone();
             *id = self.elab.lctx.push(entry.binder_kind, entry.name, entry.ty, None);
             self.elab.locals.push((entry.name, *id));
@@ -219,11 +218,11 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
     fn mk_jump(&self, jp: JoinPoint, value: Option<Term<'out>>) -> Term<'out> {
         let target = &self.jps[jp];
-        assert!(target.needs_value == value.is_some());
+        assert!(target.arg_ty.is_some() == value.is_some());
 
-        let locals = &self.locals[..target.params.len()];
+        let locals = &self.locals[..self.num_params + target.locals.len()];
         let locals = Vec::from_iter(locals.copy_map_it(|(_, local)| self.alloc.mkt_local(local)));
-        let result = self.alloc.mkt_apps(target.symbol, &locals);
+        let result = self.alloc.mkt_apps(target.ivar, &locals);
         if let Some(value) = value {
             self.alloc.mkt_apply(result, value)
         }
@@ -232,32 +231,31 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
     fn end_jp(&mut self, ret: Term<'out>) -> bool {
         let entry = &mut self.jps[self.current_jp];
-        assert!(entry.term.is_none());
+        assert!(entry.value.is_none());
 
-        let mut result    = ret;
-        let mut result_ty = self.result_ty;
+        let mut value = ret;
         for stmt in self.stmts.copy_it().rev() {
             match stmt {
                 Stmt::Local(id) => {
-                    result    = self.elab.mk_let(result,    id, false);
-                    result_ty = self.elab.mk_let(result_ty, id, true);
+                    value = self.elab.mk_let(value, id, false);
                     self.elab.lctx.pop(id);
                 }
 
                 Stmt::Term((term, ty)) => {
-                    result = self.elab.alloc.mkt_let(Atom::NULL, ty, term, result);
+                    value = self.elab.alloc.mkt_let(Atom::NULL, ty, term, value);
                 }
             }
         }
         self.stmts.clear();
 
-        for local in entry.params.copy_it().rev() {
-            result    = self.elab.mk_binder(result,    local, false);
-            result_ty = self.elab.mk_binder(result_ty, local, true);
+        for local in entry.locals.copy_it().rev() {
+            value = self.elab.mk_binder(value, local, false);
         }
-        entry.term = Some((result, result_ty));
+        for (_, param) in self.elab.locals[..self.num_params].copy_it().rev() {
+            value = self.elab.mk_binder(value, param, false);
+        }
+        entry.value = Some(value);
 
-        println!("{:?}:\n{}\n", self.current_jp, self.elab.pp(result, 50));
         return entry.reachable;
     }
 
@@ -265,7 +263,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         let old_num_locals = self.locals.len();
 
         let jump_target = (block.is_do && flags.has_jump).then(|| {
-            let jp = self.new_jp_with_locals(expected_ty.is_some());
+            let jp = self.new_jp_with_locals(expected_ty);
             self.jump_targets.push(JumpTarget {
                 jp,
                 result_ty: expected_ty,
@@ -367,11 +365,11 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                 }
                 else { None };
 
-            let reachable = self.end_jp(self.mk_jump(jp, jump_val));
+            self.end_jp(self.mk_jump(jp, jump_val));
 
-            self.begin_jp(jp, reachable);
+            self.begin_jp(jp, true);
             let result_id = self.lctx.push(BinderKind::Explicit, Atom::NULL, result_ty, None);
-            self.jps[jp].params.push(result_id);
+            self.jps[jp].locals.push(result_id);
 
             return (self.alloc.mkt_local(result_id), result_ty);
         }
@@ -532,7 +530,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     self.end_jp(self.mk_jump(target.jp, None));
                 }
 
-                let jp_unreach = self.new_jp_with_locals(false);
+                let jp_unreach = self.new_jp_with_locals(None);
                 self.begin_jp(jp_unreach, false);
 
                 let expected = expected_ty.unwrap_or(Term::UNIT);
@@ -563,7 +561,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                 };
                 self.end_jp(value);
 
-                let jp_unreach = self.new_jp_with_locals(false);
+                let jp_unreach = self.new_jp_with_locals(None);
                 self.begin_jp(jp_unreach, false);
 
                 let expected = expected_ty.unwrap_or(Term::UNIT);
@@ -600,7 +598,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         let expected = expected_ty.unwrap_or(Term::UNIT);
 
         let needs_value = expected_ty.is_some();
-        let after_jp = self.new_jp_with_locals(needs_value);
+        let after_jp = self.new_jp_with_locals(expected_ty);
 
         let mut all_then_unreachable = true;
 
@@ -611,10 +609,10 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                 ExprKind::If(it) => {
                     let (cond, _) = self.elab_do_expr(it.cond, Some(Term::BOOL));
 
-                    let then_jp = self.new_jp_with_params_of(after_jp, false);
+                    let then_jp = self.new_jp_with_locals_of(after_jp, None);
 
                     let (else_jp, else_arg) = if it.els.is_some() {
-                        let else_jp = self.new_jp_with_params_of(after_jp, false);
+                        let else_jp = self.new_jp_with_locals_of(after_jp, None);
                         (else_jp, None)
                     }
                     else {
@@ -666,7 +664,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     let els_reachable = self.end_jp(
                         self.mk_jump(after_jp, needs_value.then_some(els_val)));
 
-                    self.begin_jp(after_jp, !els_reachable && all_then_unreachable);
+                    self.begin_jp(after_jp, els_reachable || !all_then_unreachable);
                     break;
                 }
             };
@@ -674,7 +672,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
         if let Some(result_ty) = expected_ty {
             let result_id = self.lctx.push(BinderKind::Explicit, Atom::NULL, result_ty, None);
-            self.jps[after_jp].params.push(result_id);
+            self.jps[after_jp].locals.push(result_id);
 
             (self.alloc.mkt_local(result_id), result_ty)
         }

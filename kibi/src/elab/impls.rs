@@ -49,9 +49,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 _ => unreachable!()
             };
 
-            let Some(def_val) = def.val else {
-                continue;
-            };
+            let def_val = def.val;
 
             //println!("found {}", self.pp(def.ty, 80));
 

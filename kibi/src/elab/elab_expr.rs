@@ -281,11 +281,9 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         Some(match symbol.kind {
             SymbolKind::Root |
             SymbolKind::Predeclared |
-            SymbolKind::Pending => unreachable!(),
+            SymbolKind::Pending(_) => unreachable!(),
 
-            SymbolKind::Error => return None,
-
-            SymbolKind::IndAxiom(it) => {
+            SymbolKind::Axiom(it) => {
                 let num_levels = it.num_levels as usize;
 
                 // @cleanup: dedup.
@@ -298,7 +296,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     if levels.len() != num_levels {
                         self.error(expr_id,
                             ElabError::LevelCountMismatch {
-                                expected: it.num_levels, found: levels.len() as u32 });
+                                expected: it.num_levels as u32, found: levels.len() as u32 });
                         return None;
                     }
 
@@ -313,8 +311,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                  it.ty.instantiate_level_params(levels, self.alloc))
             }
 
-            SymbolKind::Def(def) => {
-                let num_levels = def.num_levels as usize;
+            SymbolKind::Def(it) => {
+                let num_levels = it.num_levels as usize;
 
                 // @cleanup: dedup.
                 let levels = if levels.len() == 0 {
@@ -326,7 +324,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     if levels.len() != num_levels {
                         self.error(expr_id,
                             ElabError::LevelCountMismatch {
-                                expected: def.num_levels, found: levels.len() as u32 });
+                                expected: it.num_levels as u32, found: levels.len() as u32 });
                         return None;
                     }
 
@@ -338,7 +336,35 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 };
 
                 (self.alloc.mkt_global(symbol_id, levels),
-                 def.ty.instantiate_level_params(levels, self.alloc))
+                 it.ty.instantiate_level_params(levels, self.alloc))
+            }
+
+            SymbolKind::IndAxiom(it) => {
+                let num_levels = it.num_levels as usize;
+
+                // @cleanup: dedup.
+                let levels = if levels.len() == 0 {
+                    Vec::from_in(self.alloc,
+                        (0..num_levels).map(|_| self.new_level_var())
+                    ).leak()
+                }
+                else {
+                    if levels.len() != num_levels {
+                        self.error(expr_id,
+                            ElabError::LevelCountMismatch {
+                                expected: it.num_levels as u32, found: levels.len() as u32 });
+                        return None;
+                    }
+
+                    let mut ls = Vec::with_cap_in(self.alloc, levels.len());
+                    for l in levels.copy_it() {
+                        ls.push(self.elab_level(l)?);
+                    }
+                    ls.leak()
+                };
+
+                (self.alloc.mkt_global(symbol_id, levels),
+                 it.ty.instantiate_level_params(levels, self.alloc))
             }
         })
     }

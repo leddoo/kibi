@@ -585,8 +585,8 @@ def brk_5: Nat := do { return 42; }
 reduce brk_5
 
 -- @todo: jump target used.
--- def brk_6: Nat := do { do { return 42; }; }
--- reduce brk_6
+def brk_6: Nat := do { do { return 42; }; }
+reduce brk_6
 
 def brk_7: Nat := do {
     break 42;
@@ -631,6 +631,7 @@ def fib_iter_basic(n: Nat): Nat := do {
     -- @temp: jump target used.
     break a;
 }
+reduce fib_iter_basic(5)
 
 
 def brck_basic := do {

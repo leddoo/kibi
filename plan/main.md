@@ -17,16 +17,12 @@
 
 - todo:
     - elab do:
-        - integrate elab & elabdo.
-            - then call `elab_do_expr` for root expr.
-            - then handle unassigned ivars at the end,
-              before creating join points.
-                - assign with `ax_error`.
-                - get rid of `SymbolKind::Error`.
-        - jp ivars with type. incl arg type.
-            - later use ivar type for symbol.
+        - jump target used.
         - proper `needs_value`.
         - generate warnings for unreachable code.
+    - clean-up:
+        - `begin_jp` creates local of `arg_ty`.
+    - fix congr-arg let foo := 42 crash.
     - unified control flow.
         - ctrl flow: use `is_do`.
         - `continue else`.
@@ -38,7 +34,6 @@
         - assignment valiation: make sure the local is actually a `var`.
           not `let` or something different entirely.
             - lctx cleanup binder xor let thing.
-        - jump target used.
         - uninit dependent vars on assign.
             - track deps using temp arena & vec for each var.
             - also need to remove deps, hmm.
