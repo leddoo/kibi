@@ -17,12 +17,16 @@
 
 - todo:
     - elab do:
-        - rework unreachable:
-            - `current_jp: JoinPoint`.
-            - flag as unreachable.
-            - use an ivar term instead of the global.
-            - generate warnings for unreachable code.
+        - integrate elab & elabdo.
+            - then call `elab_do_expr` for root expr.
+            - then handle unassigned ivars at the end,
+              before creating join points.
+                - assign with `ax_error`.
+                - get rid of `SymbolKind::Error`.
+        - jp ivars with type. incl arg type.
+            - later use ivar type for symbol.
         - proper `needs_value`.
+        - generate warnings for unreachable code.
     - unified control flow.
         - ctrl flow: use `is_do`.
         - `continue else`.

@@ -104,6 +104,9 @@
 
 - compiler: source id based functions (alternative to strings)?
 
+- ivar creation/assignment sources/reasons.
+- ivar explorer.
+
 
 
 ### design:
