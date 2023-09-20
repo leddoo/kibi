@@ -29,6 +29,7 @@ pub enum SymbolKind<'a> {
     Root,
     Predeclared,
     Pending,
+    Error,
     IndAxiom(symbol::IndAxiom<'a>),
     Def(symbol::Def<'a>),
 }
@@ -58,6 +59,7 @@ impl SymbolId {
     pub const ax_sorry: SymbolId = SymbolId(13);
     pub const ax_uninit: SymbolId = SymbolId(14);
     pub const ax_unreach: SymbolId = SymbolId(15);
+    pub const ax_error: SymbolId = SymbolId(16);
 }
 
 
@@ -123,6 +125,7 @@ impl<'a> Env<'a> {
         env.predeclare(SymbolId::ROOT, atoms::ax_sorry, SymbolId::ax_sorry);
         env.predeclare(SymbolId::ROOT, atoms::ax_uninit, SymbolId::ax_uninit);
         env.predeclare(SymbolId::ROOT, atoms::ax_unreach, SymbolId::ax_unreach);
+        env.predeclare(SymbolId::ROOT, atoms::ax_error, SymbolId::ax_error);
 
         return env
     }
@@ -156,6 +159,7 @@ impl<'a> Env<'a> {
             SymbolKind::Root |
             SymbolKind::Predeclared => unreachable!(),
 
+            SymbolKind::Error |
             SymbolKind::Pending => (),
 
             SymbolKind::IndAxiom(it) => {
@@ -204,6 +208,8 @@ impl<'a> Env<'a> {
             SymbolKind::Predeclared |
             SymbolKind::Pending => unreachable!(),
 
+            SymbolKind::Error => (),
+
             SymbolKind::IndAxiom(it) => {
                 assert!(it.ty.closed_no_local_no_ivar());
             }
@@ -219,6 +225,10 @@ impl<'a> Env<'a> {
         let symbol = &mut self.symbols[id];
         assert!(matches!(symbol.kind, SymbolKind::Pending));
         symbol.kind = kind;
+    }
+
+    pub fn resolve_pending_as_error(&mut self, id: SymbolId) {
+        self.resolve_pending(id, SymbolKind::Error);
     }
 }
 

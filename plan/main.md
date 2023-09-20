@@ -16,11 +16,19 @@
 
 
 - todo:
+    - elab do:
+        - rework unreachable:
+            - `current_jp: JoinPoint`.
+            - flag as unreachable.
+            - use an ivar term instead of the global.
+            - generate warnings for unreachable code.
+        - proper `needs_value`.
     - unified control flow.
         - ctrl flow: use `is_do`.
         - `continue else`.
         - `while` & `continue`.
     - labels.
+    - begin test suite.
     - do.
         - level params.
         - assignment valiation: make sure the local is actually a `var`.
@@ -35,8 +43,6 @@
         - non-do if blocks with only a single expr must not have a semicolon.
         - sep-by(`;`) must have last.
     - oh ja, `bite`.
-    - `ax_error`.
-        - stmts.
     - tyck.
         - no termination checking yet.
         - use for inductive.

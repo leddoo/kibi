@@ -1,6 +1,7 @@
 axiom ax_sorry.{t}<T: Sort(t)>: T
 axiom ax_uninit.{t}<T: Sort(t)>: T
 axiom ax_unreach.{t}<T: Sort(t)>: T
+axiom ax_error.{t}<T: Sort(t)>: T
 
 
 inductive False {}
@@ -555,6 +556,15 @@ def brk_2: Nat := do {
     break 69;
 }
 reduce brk_2
+
+def brk_2_1: Nat := do {
+    break if Bool::true do {
+        break 42;
+    }
+    else 69; -- @todo: { break 69 }
+}
+reduce brk_2_1
+
 
 def brk_3: Nat := do {
     break do { break 42; };

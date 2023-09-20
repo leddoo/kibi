@@ -8,12 +8,12 @@ use super::*;
 
 
 impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
-    pub fn elab_expr(&mut self, expr: ExprId) -> Option<(Term<'out>, Term<'out>)> {
+    pub fn elab_expr(&mut self, expr: ExprId) -> (Term<'out>, Term<'out>) {
         self.elab_expr_ex(expr, None)
     }
 
-    pub fn elab_expr_checking_type(&mut self, expr: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
-        let (term, ty) = self.elab_expr_ex(expr, expected_ty)?;
+    pub fn elab_expr_checking_type(&mut self, expr: ExprId, expected_ty: Option<Term<'out>>) -> (Term<'out>, Term<'out>) {
+        let (term, ty) = self.elab_expr_ex(expr, expected_ty);
 
         // @cleanup: dedup.
         if let Some(expected) = expected_ty {
@@ -28,49 +28,47 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     let found    = pp.pp_term(ty);
                     ElabError::TypeMismatch { expected, found }
                 });
-                return None;
+                return self.mkt_ax_error(expected);
             }
         }
 
-        Some((term, ty))
+        return (term, ty);
     }
 
-    pub fn elab_expr_as_type(&mut self, expr: ExprId) -> Option<(Term<'out>, tt::Level<'out>)> {
-        let (term, ty) = self.elab_expr_ex(expr, None)?;
+    pub fn elab_expr_as_type(&mut self, expr: ExprId) -> (Term<'out>, tt::Level<'out>) {
+        let (term, ty) = self.elab_expr_ex(expr, None);
 
         let ty = self.whnf(ty);
         if let Some(l) = ty.try_sort() {
-            return Some((term, l));
+            return (term, l);
         }
 
         let (ty_var, l) = self.new_ty_var();
-        if self.ensure_def_eq(term, ty_var) {
-            return Some((ty_var, l));
+        if !self.ensure_def_eq(term, ty_var) {
+            self.error(expr, {
+                let mut pp = TermPP::new(self.env, &self.strings, &self.lctx, self.alloc);
+                let found = pp.pp_term(ty);
+                ElabError::TypeExpected { found }
+            });
         }
-
-        self.error(expr, {
-            let mut pp = TermPP::new(self.env, &self.strings, &self.lctx, self.alloc);
-            let found = pp.pp_term(ty);
-            ElabError::TypeExpected { found }
-        });
-        return None;
+        return (ty_var, l);
     }
 
 
-    fn elab_expr_ex(&mut self, expr: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
+    fn elab_expr_ex(&mut self, expr: ExprId, expected_ty: Option<Term<'out>>) -> (Term<'out>, Term<'out>) {
         #[cfg(debug_assertions)]
         let old_num_locals = self.locals.len();
 
-        let result = self.elab_expr_core(expr, expected_ty);
+        let (term, ty) = self.elab_expr_core(expr, expected_ty);
 
         #[cfg(debug_assertions)]
-        if result.is_some() && self.locals.len() != old_num_locals {
+        if self.locals.len() != old_num_locals {
             assert!(false);
         }
 
         // @todo: dedup (validate_type)
         #[cfg(debug_assertions)]
-        if let Some((term, ty)) = result {
+        {
             let n = self.ivars.assignment_gen;
             let inferred = self.infer_type(term).unwrap();
             if !self.ensure_def_eq(ty, inferred) {
@@ -83,46 +81,49 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             assert_eq!(n, self.ivars.assignment_gen);
         }
 
-        if let Some((term, ty)) = result {
-            debug_assert!(self.elab.expr_infos[expr].is_none());
-            self.elab.expr_infos[expr] = Some(ExprInfo { term, ty });
-        }
+        // expr info.
+        debug_assert!(self.elab.expr_infos[expr].is_none());
+        self.elab.expr_infos[expr] = Some(ExprInfo { term, ty });
 
-        return result;
+        return (term, ty);
     }
 
-    fn elab_expr_core(&mut self, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
+    fn elab_expr_core(&mut self, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> (Term<'out>, Term<'out>) {
         //if let Some(ex) = expected_ty { eprintln!("expect: {}", self.pp(ex, 1000000)); }
 
         let expr = self.parse.exprs[expr_id];
-        Some(match expr.kind {
+        match expr.kind {
             ExprKind::Hole => {
                 self.new_term_var()
             }
 
             ExprKind::Ident(ident) => {
-                return self.elab_ident_or_path(expr_id, IdentOrPath::Ident(ident), &[]);
+                let result = self.elab_ident_or_path(expr_id, IdentOrPath::Ident(ident), &[]);
+                result.unwrap_or_else(|| self.mkt_ax_error_from_expected(expected_ty))
             }
 
             ExprKind::Path(path) => {
-                return self.elab_ident_or_path(expr_id, IdentOrPath::Path(path), &[]);
+                let result = self.elab_ident_or_path(expr_id, IdentOrPath::Path(path), &[]);
+                result.unwrap_or_else(|| self.mkt_ax_error_from_expected(expected_ty))
             }
 
             ExprKind::Levels(it) => {
-                return self.elab_ident_or_path(expr_id, it.symbol, it.levels);
+                let result = self.elab_ident_or_path(expr_id, it.symbol, it.levels);
+                result.unwrap_or_else(|| self.mkt_ax_error_from_expected(expected_ty))
             }
 
             ExprKind::Sort(l) => {
-                let l = self.elab_level(l)?;
+                let l = self.elab_level(l);
+                let l = l.unwrap_or_else(|| self.new_level_var());
                 (self.alloc.mkt_sort(l),
                  self.alloc.mkt_sort(l.succ(self.alloc)))
             }
 
             ExprKind::Forall(it) => {
                 let temp = ArenaPool::tls_get_rec();
-                let locals = self.elab_binders(it.binders, &*temp)?;
+                let locals = self.elab_binders(it.binders, &*temp);
 
-                let (mut result, mut level) = self.elab_expr_as_type(it.value)?;
+                let (mut result, mut level) = self.elab_expr_as_type(it.value);
 
                 for (id, _, l) in locals.iter().rev().copied() {
                     level = l.imax(level, self.alloc);
@@ -137,7 +138,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
             ExprKind::Lambda(it) => {
                 let temp = ArenaPool::tls_get_rec();
-                let locals = self.elab_binders(it.binders, &*temp)?;
+                let locals = self.elab_binders(it.binders, &*temp);
 
                 let mut expected_ty = expected_ty;
                 for (id, ty, _) in locals.iter().copied() {
@@ -154,7 +155,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     }
                 }
 
-                let (mut result, mut result_ty) = self.elab_expr_checking_type(it.value, expected_ty)?;
+                let (mut result, mut result_ty) = self.elab_expr_checking_type(it.value, expected_ty);
 
                 for (id, _, _) in locals.iter().rev().copied() {
                     result    = self.mk_binder(result,    id, false);
@@ -168,11 +169,11 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
             ExprKind::Let(it) => {
                 let ty = if let Some(ty) = it.ty.to_option() {
-                    self.elab_expr_as_type(ty)?.0
+                    self.elab_expr_as_type(ty).0
                 }
                 else { self.new_ty_var().0 };
 
-                let val = self.elab_expr_checking_type(it.val, Some(ty))?.0;
+                let val = self.elab_expr_checking_type(it.val, Some(ty)).0;
 
                 let name = it.name.value.to_option().unwrap_or(Atom::NULL);
                 let id = self.lctx.push(tt::BinderKind::Explicit, name, ty, Some(val));
@@ -181,7 +182,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 let none = self.elab.token_infos.insert(it.name.source, TokenInfo::Local(self.item_id, id));
                 debug_assert!(none.is_none());
 
-                let (body, body_ty) = self.elab_expr(it.body)?;
+                let (body, body_ty) = self.elab_expr(it.body);
 
                 let result    = self.mk_let(body,    id, false);
                 let result_ty = self.mk_let(body_ty, id, true);
@@ -196,7 +197,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             }
 
             ExprKind::Call(it) => {
-                self.elab_app(expr_id, ExprOrTerm::Expr(it.func), it.args, expected_ty)?
+                self.elab_app(expr_id, ExprOrTerm::Expr(it.func), it.args, expected_ty)
             }
 
             ExprKind::Number(n) => {
@@ -209,30 +210,30 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 let eq = self.alloc.mkt_global(
                     SymbolId::Eq,
                     &self.alloc.alloc_new([self.new_level_var()])[..]);
-                self.elab_app(expr_id, ExprOrTerm::Term(eq), &[a, b], expected_ty)?
+                self.elab_app(expr_id, ExprOrTerm::Term(eq), &[a, b], expected_ty)
             }
 
             ExprKind::Op2(expr::Op2 { op: expr::Op2Kind::Add, lhs, rhs }) => {
-                self.elab_app(expr_id, ExprOrTerm::Term(Term::ADD_ADD), &[lhs, rhs], expected_ty)?
+                self.elab_app(expr_id, ExprOrTerm::Term(Term::ADD_ADD), &[lhs, rhs], expected_ty)
             }
 
             ExprKind::Do(it) => {
-                self.elab_do(expr_id, expr.flags, it, expected_ty)?
+                self.elab_do(expr_id, expr.flags, it, expected_ty)
             }
 
             ExprKind::If(it) => {
-                let (cond, _) = self.elab_expr_checking_type(it.cond, Some(Term::BOOL))?;
+                let (cond, _) = self.elab_expr_checking_type(it.cond, Some(Term::BOOL));
 
-                let (then, result_ty) = self.elab_expr(it.then)?;
+                let (then, result_ty) = self.elab_expr(it.then);
 
                 let els = if let Some(els) = it.els.to_option() {
-                    self.elab_expr_checking_type(els, Some(result_ty))?.0
+                    self.elab_expr_checking_type(els, Some(result_ty)).0
                 }
                 else {
                     if !self.ensure_def_eq(result_ty, Term::UNIT) {
                         // @todo: type mismatch or special error.
                         self.error(expr_id, ElabError::TempArgFailed);
-                        return None;
+                        return self.mkt_ax_error(Term::UNIT);
                     }
                     Term::UNIT_MK
                 };
@@ -244,9 +245,9 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             _ => {
                 eprintln!("unimp expr kind {:?}", expr);
                 self.error(expr_id, ElabError::TempUnimplemented);
-                return None
+                return self.mkt_ax_error_from_expected(expected_ty);
             }
-        })
+        }
     }
 
 
@@ -281,6 +282,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             SymbolKind::Root |
             SymbolKind::Predeclared |
             SymbolKind::Pending => unreachable!(),
+
+            SymbolKind::Error => return None,
 
             SymbolKind::IndAxiom(it) => {
                 let num_levels = it.num_levels as usize;

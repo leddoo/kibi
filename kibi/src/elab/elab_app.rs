@@ -8,9 +8,9 @@ use super::*;
 
 
 impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
-    pub fn elab_app(&mut self, app_expr: ExprId, func: ExprOrTerm<'out>, args: &[ExprId], expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
+    pub fn elab_app(&mut self, app_expr: ExprId, func: ExprOrTerm<'out>, args: &[ExprId], expected_ty: Option<Term<'out>>) -> (Term<'out>, Term<'out>) {
         let (func, func_ty) = match func {
-            ExprOrTerm::Expr(expr) => self.elab_expr(expr)?,
+            ExprOrTerm::Expr(expr) => self.elab_expr(expr),
             ExprOrTerm::Term(term) => (term, self.infer_type(term).unwrap()),
         };
 
@@ -57,8 +57,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
                     let Some(arg) = args.next() else { break };
 
-                    let (arg, _) = self.elab_expr_checking_type(arg, Some(pi.ty))?;
-                    arg
+                    self.elab_expr_checking_type(arg, Some(pi.ty)).0
                 }
 
                 BinderKind::Implicit => {
@@ -82,18 +81,18 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         }
         if args.next().is_some() {
             self.error(app_expr, ElabError::TooManyArgs);
-            return None;
+            return self.mkt_ax_error_from_expected(expected_ty);
         }
 
         for (trayt, ivar) in impl_args.iter().copied() {
             if !self.resolve_impl(trayt, ivar) {
                 // @todo: better source, context.
                 self.error(app_expr, ElabError::TraitResolutionFailed { trayt });
-                return None;
+                return self.mkt_ax_error_from_expected(expected_ty);
             }
         }
 
-        Some((result, result_ty))
+        return (result, result_ty)
     }
 }
 

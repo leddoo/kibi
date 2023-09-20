@@ -248,6 +248,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             SymbolKind::Predeclared |
             SymbolKind::Pending => unreachable!(),
 
+            SymbolKind::Error => None,
+
             SymbolKind::IndAxiom(_) => None,
 
             SymbolKind::Def(d) => {

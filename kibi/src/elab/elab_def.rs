@@ -20,10 +20,10 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             self.level_params.push(level.value);
         }
 
-        let locals = self.elab_binders(axiom.params, &*temp)?;
+        let locals = self.elab_binders(axiom.params, &*temp);
 
         // type.
-        let mut ty = self.elab_expr_as_type(axiom.ty)?.0;
+        let mut ty = self.elab_expr_as_type(axiom.ty).0;
 
         assert_eq!(self.locals.len(), locals.len());
         for (_, id) in self.locals.iter().copied().rev() {
@@ -88,17 +88,17 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             self.level_params.push(level.value);
         }
 
-        let locals = self.elab_binders(params, &*temp)?;
+        let locals = self.elab_binders(params, &*temp);
 
         // type.
         let ty =
             if let Some(t) = ty.to_option() {
-                Some(self.elab_expr_as_type(t)?.0)
+                Some(self.elab_expr_as_type(t).0)
             }
             else { None };
 
         // value.
-        let (mut val, val_ty) = self.elab_expr_checking_type(value, ty)?;
+        let (mut val, val_ty) = self.elab_expr_checking_type(value, ty);
 
 
         let mut ty = ty.unwrap_or(val_ty);
@@ -151,9 +151,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         spall::trace_scope!("kibi/elab/def"; "{}",
             def.name.display(self.strings));
 
-        //eprintln!("!!! {}", def.name.display(self.strings));
-
-        let (ty, val) = self.elab_def_core(item_id, def.levels, def.params, def.ty, def.value)?;
+        eprintln!("!!! {}", def.name.display(self.strings));
 
         let (parent, name) = match def.name {
             IdentOrPath::Ident(name) => (self.root_symbol, name),
@@ -163,6 +161,10 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 let parent = self.elab_path(parts)?;
                 (parent, *name)
             }
+        };
+
+        let Some((ty, val)) = self.elab_def_core(item_id, def.levels, def.params, def.ty, def.value) else {
+            return self.env.new_symbol(parent, name.value, SymbolKind::Error);
         };
 
         let symbol = self.env.new_symbol(parent, name.value,

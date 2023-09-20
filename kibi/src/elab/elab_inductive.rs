@@ -22,12 +22,12 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             ind.name.value, SymbolKind::Pending)?;
 
         // check params.
-        let params = self.elab_binders(ind.params, &*temp)?;
+        let params = self.elab_binders(ind.params, &*temp);
 
         // check type.
         let type_former =
             if let Some(ty) = ind.ty.to_option() {
-                self.elab_expr_as_type(ty)?.0
+                self.elab_expr_as_type(ty).0
             }
             else { Term::SORT_1 };
 
@@ -63,10 +63,10 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         // elab ctors.
         let mut ctors = Vec::with_cap_in(&*temp, ind.ctors.len());
         for ctor in ind.ctors {
-            let args = self.elab_binders(&ctor.args, &*temp)?;
+            let args = self.elab_binders(&ctor.args, &*temp);
 
             let mut ty = match ctor.ty.to_option() {
-                Some(ty) => self.elab_expr_as_type(ty)?.0,
+                Some(ty) => self.elab_expr_as_type(ty).0,
                 None => {
                     if has_indices {
                         // @todo: better source.

@@ -7,12 +7,12 @@ use super::*;
 
 impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     pub fn elab_do(&mut self, expr_id: ExprId, flags: ExprFlags, block: expr::Block, expected_ty: Option<Term<'out>>)
-        -> Option<(Term<'out>, Term<'out>)>
+        -> (Term<'out>, Term<'out>)
     {
         let may_need_joins = flags.has_loop || flags.has_jump || (flags.has_if && flags.has_assign);
         if !may_need_joins {
             if block.stmts.len() == 0 {
-                return Some((Term::UNIT_MK, Term::UNIT));
+                return (Term::UNIT_MK, Term::UNIT);
             }
             else if block.stmts.len() == 1 {
                 let stmt = block.stmts[0];
@@ -25,7 +25,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             // @todo: elab_let_chain.
             // chain also for regular let, so we can do the multi-abstract thing.
             self.error(expr_id, ElabError::TempStr("unimp do without joins"));
-            None
+            self.mkt_ax_error_from_expected(expected_ty)
         }
         else {
             println!("---\n");
@@ -38,7 +38,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             let mut this = ElabDo::new(self, result_ty);
             let entry = this.new_jp_with_locals(false);
             this.begin_jp(entry);
-            let (ret, ret_ty) = this.elab_do_block(expr_id, flags, block, Some(result_ty))?;
+            let (ret, ret_ty) = this.elab_do_block(expr_id, flags, block, Some(result_ty));//.unwrap();
             // @cleanup: dedup.
             if !this.ensure_def_eq(ret_ty, result_ty) {
                 let expected = this.instantiate_term_vars(result_ty);
@@ -51,7 +51,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     let found    = pp.pp_term(ty);
                     ElabError::TypeMismatch { expected, found }
                 });
-                return None;
+                return self.mkt_ax_error_from_expected(expected_ty);
             }
             this.end_jp(ret);
 
@@ -62,8 +62,11 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     let term = this.elab.instantiate_term_vars(term);
                     let ty   = this.elab.instantiate_term_vars(ty);
                     if term.has_ivars() || ty.has_ivars() {
-                        self.error(expr_id, ElabError::TempStr("jp has ivars"));
-                        return None;
+                        this.elab.error(expr_id, ElabError::TempStr("jp has ivars"));
+                        // @temp: guess we create the symbols afterwards?
+                        // otherwise we can get error symbols in terms,
+                        // which `infer_type` can't handle atm.
+                        return self.mkt_ax_error_from_expected(expected_ty);
                     }
                     (term, ty)
                 }
@@ -81,7 +84,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             }
 
             let entry = &this.jps[entry];
-            let entry_id = entry.symbol_id;
+            let entry = entry.symbol;
 
             self.lctx.current = old_scope;
             // @cleanup: sti vec assign/_from_slice.
@@ -89,9 +92,9 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             self.locals.extend_from_slice(&old_locals);
 
             let local_terms = Vec::from_iter(self.locals.copy_map_it(|(_, local)| self.alloc.mkt_local(local)));
-            let result = self.alloc.mkt_apps(self.alloc.mkt_global(entry_id, &[]), &local_terms);
+            let result = self.alloc.mkt_apps(entry, &local_terms);
 
-            Some((result, result_ty))
+            return (result, result_ty);
         }
     }
 }
@@ -226,7 +229,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         self.current_jp = None.into();
     }
 
-    fn elab_do_block(&mut self, expr_id: ExprId, flags: ExprFlags, block: expr::Block, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
+    fn elab_do_block(&mut self, expr_id: ExprId, flags: ExprFlags, block: expr::Block, expected_ty: Option<Term<'out>>) -> (Term<'out>, Term<'out>) {
         let old_num_locals = self.locals.len();
 
         let jump_target = (block.is_do && flags.has_jump).then(|| {
@@ -251,12 +254,12 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                             self.error(ty, ElabError::TempStr("type has loop/jump/assign"));
                             continue;
                         }
-                        self.elab_expr_as_type(ty)?.0
+                        self.elab_expr_as_type(ty).0
                     }
                     else { self.new_ty_var().0 };
 
                     let val = if let Some(val) = it.val.to_option() {
-                        self.elab_do_expr(val, Some(ty))?.0
+                        self.elab_do_expr(val, Some(ty)).0
                     }
                     else {
                         self.mkt_ax_uninit(ty)
@@ -295,7 +298,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     };
 
                     let ty = self.lctx.lookup(id).ty;
-                    let Some((value, _)) = self.elab_do_expr(rhs, Some(ty)) else { continue };
+                    let (value, _) = self.elab_do_expr(rhs, Some(ty));
 
                     // create new local.
                     let new_id = self.lctx.push(BinderKind::Explicit, ident.value, ty, Some(value));
@@ -307,10 +310,9 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                 }
 
                 StmtKind::Expr(it) => {
-                    if let Some(term) = self.elab_do_expr(it, None) {
-                        if self.current_jp.is_some() {
-                            self.stmts.push(Stmt::Term(term));
-                        }
+                    let term = self.elab_do_expr(it, None);
+                    if self.current_jp.is_some() {
+                        self.stmts.push(Stmt::Term(term));
                     }
                 }
             }
@@ -326,12 +328,14 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
             if self.current_jp.is_some() {
                 if let Some(result_ty) = target.result_ty {
-                    // @todo: error to ax_sorry.
-                    let jump_val = Term::UNIT_MK;
-                    if !result_ty.syntax_eq(Term::UNIT) {
-                        self.error(expr_id, ElabError::TempStr("block is unit, but unit is no good"));
-                        return None;
-                    }
+                    let jump_val =
+                        if self.ensure_def_eq(result_ty, Term::UNIT) {
+                            Term::UNIT_MK
+                        }
+                        else {
+                            self.error(expr_id, ElabError::TempStr("block is unit, but unit is no good"));
+                            self.alloc.mkt_ax_error(tt::Level::L1, Term::UNIT)
+                        };
 
                     self.end_jp(self.mk_jump(jp, Some(jump_val)));
                 }
@@ -342,15 +346,15 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             let result_id = self.lctx.push(BinderKind::Explicit, Atom::NULL, result_ty, None);
             self.jps[jp].params.push(result_id);
 
-            Some((self.alloc.mkt_local(result_id), result_ty))
+            return (self.alloc.mkt_local(result_id), result_ty);
         }
         else {
             // type validated by caller.
-            Some((Term::UNIT_MK, Term::UNIT))
+            return (Term::UNIT_MK, Term::UNIT);
         }
     }
 
-    fn elab_do_expr(&mut self, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
+    fn elab_do_expr(&mut self, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> (Term<'out>, Term<'out>) {
         let expr = self.parse.exprs[expr_id];
 
         // simple expr.
@@ -359,11 +363,11 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             return self.elab_expr_checking_type(expr_id, expected_ty);
         }
 
-        let result = self.elab_do_expr_core(expr_id, expected_ty);
+        let (term, ty) = self.elab_do_expr_core(expr_id, expected_ty);
 
         // @todo: dedup (validate_type)
         #[cfg(debug_assertions)]
-        if let Some((term, ty)) = result {
+        {
             let n = self.ivars.assignment_gen;
             let inferred = self.infer_type(term).unwrap();
             if !self.ensure_def_eq(ty, inferred) {
@@ -378,7 +382,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
         // ensure type.
         // @cleanup: dedup.
-        if let (Some((_, ty)), Some(expected)) = (result, expected_ty) {
+        if let Some(expected) = expected_ty {
             if !self.ensure_def_eq(ty, expected) {
                 let expected = self.instantiate_term_vars(expected);
                 let ty       = self.instantiate_term_vars(ty);
@@ -390,27 +394,25 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     let found    = pp.pp_term(ty);
                     ElabError::TypeMismatch { expected, found }
                 });
-                return None;
+                return self.elab.mkt_ax_error(expected);
             }
         }
 
         // expr info.
-        if let Some((term, ty)) = result {
-            debug_assert!(self.elab.elab.expr_infos[expr_id].is_none());
-            self.elab.elab.expr_infos[expr_id] = Some(ExprInfo { term, ty });
-        }
+        debug_assert!(self.elab.elab.expr_infos[expr_id].is_none());
+        self.elab.elab.expr_infos[expr_id] = Some(ExprInfo { term, ty });
 
-        return result;
+        return (term, ty);
     }
 
-    fn elab_do_expr_core(&mut self, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
+    fn elab_do_expr_core(&mut self, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> (Term<'out>, Term<'out>) {
         let expr = self.parse.exprs[expr_id];
-        Some(match expr.kind {
-            ExprKind::Error => return None,
+        match expr.kind {
+            ExprKind::Error => self.mkt_ax_error_from_expected(expected_ty),
 
             ExprKind::Let(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do let"));
-                return None;
+                self.mkt_ax_error_from_expected(expected_ty)
             }
 
             ExprKind::Parens(it) => {
@@ -419,42 +421,42 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
             ExprKind::Ref(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do ref"));
-                return None;
+                self.mkt_ax_error_from_expected(expected_ty)
             }
 
             ExprKind::Deref(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do deref"));
-                return None;
+                self.mkt_ax_error_from_expected(expected_ty)
             }
 
 
             ExprKind::Op1(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do op1"));
-                return None;
+                self.mkt_ax_error_from_expected(expected_ty)
             }
 
             ExprKind::Op2(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do op2"));
-                return None;
+                self.mkt_ax_error_from_expected(expected_ty)
             }
 
             ExprKind::Field(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do field"));
-                return None;
+                self.mkt_ax_error_from_expected(expected_ty)
             }
 
             ExprKind::Index(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do index"));
-                return None;
+                self.mkt_ax_error_from_expected(expected_ty)
             }
 
             ExprKind::Call(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do call"));
-                return None;
+                self.mkt_ax_error_from_expected(expected_ty)
             }
 
             ExprKind::Do(it) => {
-                self.elab_do_block(expr_id, expr.flags, it, expected_ty)?
+                self.elab_do_block(expr_id, expr.flags, it, expected_ty)
             }
 
             ExprKind::If(_) => {
@@ -467,7 +469,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
             ExprKind::Loop(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do loop"));
-                return None;
+                self.mkt_ax_error_from_expected(expected_ty)
             }
 
             ExprKind::Break(it) => {
@@ -476,18 +478,21 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                 // this can become an unwrap.
                 let Some(target) = self.jump_targets.last().copied() else {
                     self.error(expr_id, ElabError::TempStr("no break target"));
-                    return None;
+                    return self.mkt_ax_error_from_expected(expected_ty);
                 };
 
                 if let Some(expected) = target.result_ty {
                     let value = if let Some(value) = it.value.to_option() {
-                        self.elab_do_expr(value, Some(expected))?.0
+                        self.elab_do_expr(value, Some(expected)).0
                     }
                     else {
-                        if !self.ensure_def_eq(expected, Term::UNIT) {
-                            self.error(expr_id, ElabError::TempStr("break needs value"));
+                        if self.ensure_def_eq(expected, Term::UNIT) {
+                            Term::UNIT_MK
                         }
-                        Term::UNIT_MK
+                        else {
+                            self.error(expr_id, ElabError::TempStr("break needs value"));
+                            self.mkt_ax_error(expected).0
+                        }
                     };
 
                     if self.current_jp.is_some() {
@@ -496,7 +501,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                 }
                 else {
                     if let Some(value) = it.value.to_option() {
-                        self.elab_do_expr(value, Some(Term::UNIT))?;
+                        self.elab_do_expr(value, Some(Term::UNIT));
                     }
 
                     if self.current_jp.is_some() {
@@ -512,18 +517,18 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
             ExprKind::Continue(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do continue"));
-                return None;
+                self.mkt_ax_error_from_expected(expected_ty)
             }
 
             ExprKind::ContinueElse(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do continue else"));
-                return None;
+                self.mkt_ax_error_from_expected(expected_ty)
             }
 
             ExprKind::Return(it) => {
                 let expected = self.result_ty;
                 let value = if let Some(value) = it.to_option() {
-                    self.elab_do_expr(value, Some(expected))?.0
+                    self.elab_do_expr(value, Some(expected)).0
                 }
                 else {
                     if !self.ensure_def_eq(expected, Term::UNIT) {
@@ -544,7 +549,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
             ExprKind::TypeHint(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do type hint"));
-                return None;
+                self.mkt_ax_error_from_expected(expected_ty)
             }
 
             // error.
@@ -553,7 +558,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             ExprKind::Lambda(_) |
             ExprKind::Eq(_, _) => {
                 self.error(expr_id, ElabError::TempStr("not supported in do"));
-                return None;
+                self.mkt_ax_error_from_expected(expected_ty)
             }
 
             // expr flags are invalid.
@@ -565,10 +570,10 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             ExprKind::Bool(_) |
             ExprKind::Number(_) |
             ExprKind::String(_) => unreachable!(),
-        })
+        }
     }
 
-    fn elab_control_flow(&mut self, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
+    fn elab_control_flow(&mut self, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> (Term<'out>, Term<'out>) {
         let expected = expected_ty.unwrap_or(Term::UNIT);
 
         let needs_value = expected_ty.is_some();
@@ -581,7 +586,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             let expr = self.parse.exprs[curr];
             match expr.kind {
                 ExprKind::If(it) => {
-                    let (cond, _) = self.elab_do_expr(it.cond, Some(Term::BOOL))?;
+                    let (cond, _) = self.elab_do_expr(it.cond, Some(Term::BOOL));
 
                     let then_jp = self.new_jp_with_params_of(after_jp, false);
 
@@ -591,11 +596,15 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     }
                     else {
                         if let Some(expected) = expected_ty {
-                            if !self.ensure_def_eq(expected, Term::UNIT) {
-                                self.error(curr, ElabError::TempStr("else is unit thing"));
-                                return None;
-                            }
-                            (after_jp, Some(Term::UNIT_MK))
+                            let jump_val =
+                                if self.ensure_def_eq(expected, Term::UNIT) {
+                                    Term::UNIT_MK
+                                }
+                                else {
+                                    self.error(curr, ElabError::TempStr("else is unit thing"));
+                                    self.mkt_ax_error(expected).0
+                                };
+                            (after_jp, Some(jump_val))
                         }
                         else { (after_jp, None) }
                     };
@@ -615,7 +624,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                         self.jps[then_jp].reachable = false;
                     }
 
-                    let (then_val, _) = self.elab_do_expr(it.then, expected_ty)?;
+                    let (then_val, _) = self.elab_do_expr(it.then, expected_ty);
                     let then_reachable = self.current_jp.is_some();
                     if then_reachable {
                         all_then_unreachable = false;
@@ -641,7 +650,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
                 // else.
                 _ => {
-                    let (els_val, _) = self.elab_do_expr(curr, expected_ty)?;
+                    let (els_val, _) = self.elab_do_expr(curr, expected_ty);
                     let els_reachable = self.current_jp.is_some();
                     if els_reachable {
                         self.end_jp(self.mk_jump(after_jp, needs_value.then_some(els_val)));
@@ -659,13 +668,13 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             };
         }
 
-        Some(if let Some(result_ty) = expected_ty {
+        if let Some(result_ty) = expected_ty {
             let result_id = self.lctx.push(BinderKind::Explicit, Atom::NULL, result_ty, None);
             self.jps[after_jp].params.push(result_id);
 
             (self.alloc.mkt_local(result_id), result_ty)
         }
-        else { (Term::UNIT_MK, Term::UNIT) })
+        else { (Term::UNIT_MK, Term::UNIT) }
     }
 }
 

@@ -15,7 +15,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         func_ty: Term<'out>,
         args: &[ExprId],
         expected_ty: Term<'out>
-    ) -> (Option<Option<(Term<'out>, Term<'out>)>>,)
+    ) -> (Option<(Term<'out>, Term<'out>)>,)
     {
         let Some(info) = self.elim_info(func) else { return (None,) };
 
@@ -79,10 +79,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
                 ElimArgKind::Target | ElimArgKind::Extra => {
                     let arg = if let Some(arg) = arg {
-                        let Some((arg, _)) = self.elab_expr_checking_type(arg, Some(pi.ty)) else {
-                            return (Some(None),);
-                        };
-                        arg
+                        self.elab_expr_checking_type(arg, Some(pi.ty)).0
                     }
                     else {
                         self.new_term_var_of_type(pi.ty)
@@ -119,7 +116,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         let Some(motive) = motive else {
             // todo: uh, can this happen?
             eprintln!("no motive");
-            return (Some(None),);
+            return (Some(self.mkt_ax_error(expected_ty)),);
         };
 
         // add remaining locals to context.
@@ -151,7 +148,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 let Some(pi) = expected_ty.try_forall() else {
                     // @todo: better source, what went wrong here?
                     self.error(app_expr, ElabError::TempTBD);
-                    return (Some(None),);
+                    return (Some(self.mkt_ax_error(expected_ty)),);
                 };
 
                 expected_ty = pi.val.instantiate(self.alloc.mkt_local(rem), self.alloc);
@@ -167,9 +164,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             debug_assert!(rem_locals.len() == 0);
 
             for arg in arg_iter.rev() {
-                let Some((arg, arg_ty)) = self.elab_expr(arg) else {
-                    return (Some(None),);
-                };
+                let (arg, arg_ty) = self.elab_expr(arg);
 
                 result = self.alloc.mkt_apply(result, arg);
 
@@ -210,20 +205,18 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             eprintln!("motive failed");
             eprintln!("motive:     {}", self.pp(motive,     80));
             eprintln!("motive_val: {}", self.pp(motive_val, 80));
-            return (Some(None),);
+            return (Some(self.mkt_ax_error(expected_ty)),);
         }
 
         // elab remaining args.
         for (arg_expr, var, expected_ty) in postponed.iter().copied() {
             let expected_ty = self.instantiate_term_vars(expected_ty);
-            let Some((arg, _)) = self.elab_expr_checking_type(arg_expr, Some(expected_ty)) else {
-                return (Some(None),);
-            };
+            let (arg, _) = self.elab_expr_checking_type(arg_expr, Some(expected_ty));
 
             if !self.ensure_def_eq(var, arg) {
                 // @todo: context.
                 self.error(arg_expr, ElabError::TempArgFailed);
-                return (Some(None),);
+                return (Some(self.mkt_ax_error(expected_ty)),);
             }
         }
 
@@ -234,7 +227,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             }
             else { self.infer_type(result).unwrap() };
 
-        (Some(Some((result, result_ty))),)
+        (Some((result, result_ty)),)
     }
 
     fn elim_info(&self, func: Term<'out>) -> Option<ElimInfo<'out>> {

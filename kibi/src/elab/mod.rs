@@ -169,6 +169,26 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         self.alloc.mkt_ax_unreach(self.infer_type_as_sort(t).unwrap(), t)
     }
 
+    #[inline(always)]
+    #[track_caller]
+    pub fn mkt_ax_error(&mut self, t: tt::Term<'out>) -> (tt::Term<'out>, tt::Term<'out>) {
+        use tt::TermAlloc;
+        (self.alloc.mkt_ax_error(self.infer_type_as_sort(t).unwrap(), t), t)
+    }
+
+    #[inline(always)]
+    #[track_caller]
+    pub fn mkt_ax_error_from_expected(&mut self, expected: Option<tt::Term<'out>>) -> (tt::Term<'out>, tt::Term<'out>) {
+        if let Some(t) = expected {
+            self.mkt_ax_error(t)
+        }
+        else {
+            use tt::TermAlloc;
+            let (t, l) = self.new_ty_var();
+            (self.alloc.mkt_ax_error(l, t), t)
+        }
+    }
+
     // @mega@temp below this line.
 
     // @temp: `Compiler` rework.

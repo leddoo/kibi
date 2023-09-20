@@ -27,6 +27,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     SymbolKind::Predeclared |
                     SymbolKind::Pending => unreachable!(),
 
+                    SymbolKind::Error => unreachable!(),
+
                     SymbolKind::IndAxiom(it) => {
                         debug_assert_eq!(g.levels.len() as u32, it.num_levels);
                         if g.levels.len() != 0 {

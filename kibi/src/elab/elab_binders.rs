@@ -7,7 +7,7 @@ use super::*;
 
 impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     pub fn elab_binders<'res>(&mut self, binders: &[ast::Binder], alloc: &'res Arena)
-    -> Option<Vec<(ScopeId, tt::Term<'out>, tt::Level<'out>), &'res Arena>> {
+    -> Vec<(ScopeId, tt::Term<'out>, tt::Level<'out>), &'res Arena> {
         let mut locals = Vec::with_cap_in(alloc, binders.len());
 
         for binder in binders.iter() {
@@ -25,7 +25,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 }
 
                 ast::Binder::Typed(b) => {
-                    let (ty, l) = self.elab_expr_as_type(b.ty)?;
+                    let (ty, l) = self.elab_expr_as_type(b.ty);
                     let kind =
                         if b.implicit { tt::BinderKind::Implicit }
                         else          { tt::BinderKind::Explicit };
@@ -46,7 +46,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             }
         }
 
-        return Some(locals);
+        return locals;
     }
 }
 

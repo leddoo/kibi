@@ -518,6 +518,7 @@ pub trait TermAlloc {
     fn mkt_ax_sorry<'a>(&'a self, l: Level<'a>, t: Term<'a>) -> Term<'a>;
     fn mkt_ax_uninit<'a>(&'a self, l: Level<'a>, t: Term<'a>) -> Term<'a>;
     fn mkt_ax_unreach<'a>(&'a self, l: Level<'a>, t: Term<'a>) -> Term<'a>;
+    fn mkt_ax_error<'a>(&'a self, l: Level<'a>, t: Term<'a>) -> Term<'a>;
 }
 
 
@@ -562,6 +563,9 @@ mod impel {
         pub const AX_UNREACH_0: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_unreach, levels: &[Level::L0] }), max_succ_bvar: 0, max_succ_local: 0 });
         pub const AX_UNREACH_1: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_unreach, levels: &[Level::L1] }), max_succ_bvar: 0, max_succ_local: 0 });
         pub const AX_UNREACH_2: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_unreach, levels: &[Level::L2] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_ERROR_0: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_error, levels: &[Level::L0] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_ERROR_1: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_error, levels: &[Level::L1] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_ERROR_2: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_error, levels: &[Level::L2] }), max_succ_bvar: 0, max_succ_local: 0 });
 
 
         #[inline(always)]
@@ -814,6 +818,16 @@ mod impel {
                 Some(1) => Term::AX_UNREACH_1,
                 Some(2) => Term::AX_UNREACH_2,
                 _ => self.mkt_global(SymbolId::ax_unreach, &self.alloc_new([l])[..]),
+            };
+            self.mkt_apply(f, t)
+        }
+
+        fn mkt_ax_error<'a>(&'a self, l: Level<'a>, t: Term<'a>) -> Term<'a> {
+            let f = match l.try_nat() {
+                Some(0) => Term::AX_ERROR_0,
+                Some(1) => Term::AX_ERROR_1,
+                Some(2) => Term::AX_ERROR_2,
+                _ => self.mkt_global(SymbolId::ax_error, &self.alloc_new([l])[..]),
             };
             self.mkt_apply(f, t)
         }

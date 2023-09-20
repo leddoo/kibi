@@ -22,7 +22,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             ItemKind::Reduce(it) => {
                 spall::trace_scope!("kibi/elab/reduce");
 
-                let (term, _) = self.elab_expr(*it)?;
+                let (term, _) = self.elab_expr(*it);
                 let r = self.reduce(term);
                 ItemInfo::Reduce(r)
             }
