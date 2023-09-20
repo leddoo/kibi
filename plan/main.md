@@ -17,10 +17,10 @@
 
 - todo:
     - unified control flow.
-        - elab it.
-            - `elab_control_flow`.
-            - `do` only applies to the current node.
-        - parse labels.
+        - ctrl flow: use `is_do`.
+        - `continue else`.
+        - `while` & `continue`.
+    - labels.
     - do.
         - level params.
         - assignment valiation: make sure the local is actually a `var`.
@@ -36,9 +36,7 @@
         - sep-by(`;`) must have last.
     - oh ja, `bite`.
     - `ax_error`.
-        - elab do:
-            - `needs_value` & the if loop.
-            - stmts.
+        - stmts.
     - tyck.
         - no termination checking yet.
         - use for inductive.

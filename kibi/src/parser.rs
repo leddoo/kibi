@@ -1019,7 +1019,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     let (_, begin) = self.next();
                     let (id, if_parent) = self.new_expr_uninit(els_parent);
                     let (cond, cond_flags) = self.parse_expr(if_parent)?;
-                    let (then, then_flags) = self.parse_expr_or_block(if_parent)?;
+                    let (then, then_flags) = self.parse_block_as_expr(if_parent)?;
                     let flags = cond_flags | then_flags;
                     let kind = PartKind::If { cond, then };
                     parts.push(Part { id, begin, flags, is_do, kind });
@@ -1063,7 +1063,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
             self.expr_init_from(part.id, part.begin, kind, result_flags);
         }
 
-        Some((result.unwrap(), els_flags))
+        Some((result.unwrap(), result_flags))
     }
 
 

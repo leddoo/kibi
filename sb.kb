@@ -540,6 +540,7 @@ def ass_test: Nat := do {
     };
     break x;
 }
+reduce ass_test
 
 
 def brk_1: Nat := do {
@@ -591,6 +592,16 @@ def brk_8: Nat := do {
     return 69;
 }
 reduce brk_8
+
+def brk_9: Nat := do {
+    do if Bool::true {
+        continue else;
+    }
+    else {
+        break 42;
+    }
+}
+reduce brk_9
 
 
 def fib_iter_basic(n: Nat): Nat := do {

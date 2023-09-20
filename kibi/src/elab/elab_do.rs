@@ -6,7 +6,6 @@ use crate::tt::*;
 use super::*;
 
 impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
-    // @todo: expected type.
     pub fn elab_do(&mut self, expr_id: ExprId, flags: ExprFlags, block: expr::Block, expected_ty: Option<Term<'out>>)
         -> Option<(Term<'out>, Term<'out>)>
     {
@@ -37,7 +36,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             let result_ty = expected_ty.unwrap_or_else(|| self.new_term_var().0);
 
             let mut this = ElabDo::new(self, result_ty);
-            let (entry, _) = this.new_jp();
+            let entry = this.new_jp_with_locals(false);
             this.begin_jp(entry);
             let (ret, ret_ty) = this.elab_do_block(expr_id, flags, block, Some(result_ty))?;
             // @cleanup: dedup.
@@ -69,10 +68,12 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     (term, ty)
                 }
                 else {
+                    let name = &this.elab.strings[this.elab.env.symbol(jp.symbol_id).name];
+                    println!("{}: unreachable\n", name);
                     (this.elab.mkt_ax_unreach(result_ty), result_ty)
                 };
 
-                this.elab.env.resolve_pending(jp.symbol, SymbolKind::Def(symbol::Def {
+                this.elab.env.resolve_pending(jp.symbol_id, SymbolKind::Def(symbol::Def {
                     val: Some(term),
                     ty,
                     num_levels: 0, // @temp: jp levels.
@@ -80,7 +81,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             }
 
             let entry = &this.jps[entry];
-            let entry_id = entry.symbol;
+            let entry_id = entry.symbol_id;
 
             self.lctx.current = old_scope;
             // @cleanup: sti vec assign/_from_slice.
@@ -110,16 +111,17 @@ struct ElabDo<'me, 'e, 'c, 'out> {
     stmts: Vec<Stmt<'out>>,
 }
 
+#[derive(Clone, Copy)]
 struct JumpTarget<'a> {
-    symbol_id: SymbolId,
-    symbol: Term<'a>,
-    num_locals: usize,
+    jp: JoinPoint,
     result_ty: Option<Term<'a>>,
 }
 
 struct JoinPointData<'a> {
-    symbol: SymbolId,
+    symbol_id: SymbolId,
+    symbol: Term<'a>,
     params: Vec<ScopeId>,
+    needs_value: bool,
     term: Option<(Term<'a>, Term<'a>)>,
     reachable: bool,
 }
@@ -142,13 +144,24 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         }
     }
 
-    fn new_jp(&mut self) -> (JoinPoint, SymbolId) {
+    fn new_jp_with_locals(&mut self, needs_value: bool) -> JoinPoint {
         // @temp: temp alloc, symbols under current symbol.
         let n = self.env.symbol(SymbolId::ROOT).children.len();
         let name = self.strings.insert(&sti::format!("__jp_{}", n));
         let params = Vec::from_iter(self.locals.copy_map_it(|(_, id)| id));
-        let symbol = self.env.new_symbol(SymbolId::ROOT, name, SymbolKind::Pending).unwrap();
-        (self.jps.push(JoinPointData { symbol, params, term: None, reachable: true }), symbol)
+        let symbol_id = self.env.new_symbol(SymbolId::ROOT, name, SymbolKind::Pending).unwrap();
+        let symbol = self.alloc.mkt_global(symbol_id, &[]); // @temp: levels.
+        self.jps.push(JoinPointData { symbol_id, symbol, params, needs_value, term: None, reachable: true })
+    }
+
+    fn new_jp_with_params_of(&mut self, jp: JoinPoint, needs_value: bool) -> JoinPoint {
+        // @temp: temp alloc, symbols under current symbol.
+        let n = self.env.symbol(SymbolId::ROOT).children.len();
+        let name = self.strings.insert(&sti::format!("__jp_{}", n));
+        let params = self.jps[jp].params.clone();
+        let symbol_id = self.env.new_symbol(SymbolId::ROOT, name, SymbolKind::Pending).unwrap();
+        let symbol = self.alloc.mkt_global(symbol_id, &[]); // @temp: levels.
+        self.jps.push(JoinPointData { symbol_id, symbol, params, needs_value, term: None, reachable: true })
     }
 
     fn begin_jp(&mut self, jp: JoinPoint) {
@@ -165,6 +178,19 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         }
 
         self.current_jp = jp.some();
+    }
+
+    fn mk_jump(&self, jp: JoinPoint, value: Option<Term<'out>>) -> Term<'out> {
+        let target = &self.jps[jp];
+        assert!(target.needs_value == value.is_some());
+
+        let locals = &self.locals[..target.params.len()];
+        let locals = Vec::from_iter(locals.copy_map_it(|(_, local)| self.alloc.mkt_local(local)));
+        let result = self.alloc.mkt_apps(target.symbol, &locals);
+        if let Some(value) = value {
+            self.alloc.mkt_apply(result, value)
+        }
+        else { result }
     }
 
     fn end_jp(&mut self, ret: Term<'out>) {
@@ -194,7 +220,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         }
         entry.term = Some((result, result_ty));
 
-        let name = &self.elab.strings[self.elab.env.symbol(entry.symbol).name];
+        let name = &self.elab.strings[self.elab.env.symbol(entry.symbol_id).name];
         println!("{}:\n{}\n", name, self.elab.pp(result, 50));
 
         self.current_jp = None.into();
@@ -204,11 +230,9 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         let old_num_locals = self.locals.len();
 
         let jump_target = (block.is_do && flags.has_jump).then(|| {
-            let jp = self.new_jp();
+            let jp = self.new_jp_with_locals(expected_ty.is_some());
             self.jump_targets.push(JumpTarget {
-                symbol_id: jp.1,
-                symbol: self.alloc.mkt_global(jp.1, &[]), // @temp: universes.
-                num_locals: self.locals.len(),
+                jp,
                 result_ty: expected_ty,
             });
             jp
@@ -294,26 +318,24 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
         self.locals.truncate(old_num_locals);
 
-        if let Some((jp, jp_symbol)) = jump_target {
+        if let Some(jp) = jump_target {
             let target = self.jump_targets.pop().unwrap();
-            assert_eq!(target.symbol_id, jp_symbol);
+            assert_eq!(target.jp, jp);
 
             let result_ty = target.result_ty.unwrap_or(Term::UNIT);
 
             if self.current_jp.is_some() {
-                // @todo: error to ax_sorry.
-                let jump_val = Term::UNIT_MK;
-                if !result_ty.syntax_eq(Term::UNIT) {
-                    self.error(expr_id, ElabError::TempStr("block is unit, but unit is no good"));
-                    return None;
-                }
+                if let Some(result_ty) = target.result_ty {
+                    // @todo: error to ax_sorry.
+                    let jump_val = Term::UNIT_MK;
+                    if !result_ty.syntax_eq(Term::UNIT) {
+                        self.error(expr_id, ElabError::TempStr("block is unit, but unit is no good"));
+                        return None;
+                    }
 
-                let jump_after =
-                    self.alloc.mkt_apply(
-                        self.alloc.mkt_apps(target.symbol,
-                            &Vec::from_iter(self.locals.copy_map_it(|(_, local)| self.alloc.mkt_local(local)))),
-                        jump_val);
-                self.end_jp(jump_after);
+                    self.end_jp(self.mk_jump(jp, Some(jump_val)));
+                }
+                else { self.end_jp(self.mk_jump(jp, None)); }
             }
 
             self.begin_jp(jp);
@@ -435,77 +457,15 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                 self.elab_do_block(expr_id, expr.flags, it, expected_ty)?
             }
 
-            ExprKind::If(it) => {
-                let (cond, _) = self.elab_do_expr(it.cond, Some(Term::BOOL))?;
-
-                let local_terms = Vec::from_iter(self.locals.copy_map_it(|(_, local)| self.alloc.mkt_local(local)));
-
-                let (then_jp, then_id) = self.new_jp();
-                let (else_jp, else_id) = self.new_jp();
-                let (after_jp, after_id) = self.new_jp();
-
-                let then_app = self.alloc.mkt_apps(self.alloc.mkt_global(then_id, &[]), &local_terms);
-                let else_app = self.alloc.mkt_apps(self.alloc.mkt_global(else_id, &[]), &local_terms);
-                let ite = self.alloc.mkt_apps(Term::ITE, &[Term::UNIT, cond, then_app, else_app]);
-                self.end_jp(ite);
-
-                let after = self.alloc.mkt_global(after_id, &[]);
-
-                self.begin_jp(then_jp);
-                let (then_val, result_ty) = self.elab_do_expr(it.then, expected_ty)?;
-                let then_reachable = self.current_jp.is_some();
-                if then_reachable {
-                    let then_after =
-                        self.alloc.mkt_apply(
-                            self.alloc.mkt_apps(after,
-                                &Vec::from_iter(self.locals.copy_map_it(|(_, local)| self.alloc.mkt_local(local)))),
-                            then_val);
-                    self.end_jp(then_after);
-                }
-
-                self.begin_jp(else_jp);
-                let else_val = if let Some(els) = it.els.to_option() {
-                    let (else_val, _) = self.elab_do_expr(els, Some(result_ty))?;
-                    else_val
-                }
-                else {
-                    if !self.ensure_def_eq(result_ty, Term::UNIT) {
-                        // @todo: type mismatch or special error.
-                        self.error(expr_id, ElabError::TempArgFailed);
-                        return None;
-                    }
-                    Term::UNIT_MK
-                };
-                let else_reachable = self.current_jp.is_some();
-                if else_reachable {
-                    let else_after =
-                        self.alloc.mkt_apply(
-                            self.alloc.mkt_apps(after,
-                                &Vec::from_iter(self.locals.copy_map_it(|(_, local)| self.alloc.mkt_local(local)))),
-                            else_val);
-                    self.end_jp(else_after);
-                }
-
-                if then_reachable || else_reachable {
-                    self.begin_jp(after_jp);
-                    let result_id = self.lctx.push(BinderKind::Explicit, Atom::NULL, result_ty, None);
-                    self.jps[after_jp].params.push(result_id);
-
-                    (self.alloc.mkt_local(result_id), result_ty)
-                }
-                else {
-                    // @todo: if do -> may be reachable.
-                    self.jps[after_jp].reachable = false;
-                    (self.mkt_ax_unreach(result_ty), result_ty)
-                }
+            ExprKind::If(_) => {
+                return self.elab_control_flow(expr_id, expected_ty);
             }
 
-            ExprKind::While(it) => {
-                self.error(expr_id, ElabError::TempStr("unimp do while"));
-                return None;
+            ExprKind::While(_) => {
+                return self.elab_control_flow(expr_id, expected_ty);
             }
 
-            ExprKind::Loop(it) => {
+            ExprKind::Loop(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do loop"));
                 return None;
             }
@@ -514,14 +474,10 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                 // @todo: this is currently unreachable.
                 // if we decide that function blocks are `do` blocks,
                 // this can become an unwrap.
-                let Some(target) = self.jump_targets.last() else {
+                let Some(target) = self.jump_targets.last().copied() else {
                     self.error(expr_id, ElabError::TempStr("no break target"));
                     return None;
                 };
-                let target_symbol = target.symbol;
-
-                let locals = &self.locals[..target.num_locals];
-                let local_terms = Vec::from_iter(locals.copy_map_it(|(_, local)| self.alloc.mkt_local(local)));
 
                 if let Some(expected) = target.result_ty {
                     let value = if let Some(value) = it.value.to_option() {
@@ -535,11 +491,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     };
 
                     if self.current_jp.is_some() {
-                        let jump =
-                            self.alloc.mkt_apply(
-                                self.alloc.mkt_apps(target_symbol, &local_terms),
-                                value);
-                        self.end_jp(jump);
+                        self.end_jp(self.mk_jump(target.jp, Some(value)));
                     }
                 }
                 else {
@@ -548,8 +500,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     }
 
                     if self.current_jp.is_some() {
-                        let jump = self.alloc.mkt_apps(target_symbol, &local_terms);
-                        self.end_jp(jump);
+                        self.end_jp(self.mk_jump(target.jp, None));
                     }
                 }
 
@@ -615,6 +566,106 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             ExprKind::Number(_) |
             ExprKind::String(_) => unreachable!(),
         })
+    }
+
+    fn elab_control_flow(&mut self, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> Option<(Term<'out>, Term<'out>)> {
+        let expected = expected_ty.unwrap_or(Term::UNIT);
+
+        let needs_value = expected_ty.is_some();
+        let after_jp = self.new_jp_with_locals(needs_value);
+
+        let mut all_then_unreachable = true;
+
+        let mut curr = expr_id;
+        loop {
+            let expr = self.parse.exprs[curr];
+            match expr.kind {
+                ExprKind::If(it) => {
+                    let (cond, _) = self.elab_do_expr(it.cond, Some(Term::BOOL))?;
+
+                    let then_jp = self.new_jp_with_params_of(after_jp, false);
+
+                    let (else_jp, else_arg) = if it.els.is_some() {
+                        let else_jp = self.new_jp_with_params_of(after_jp, false);
+                        (else_jp, None)
+                    }
+                    else {
+                        if let Some(expected) = expected_ty {
+                            if !self.ensure_def_eq(expected, Term::UNIT) {
+                                self.error(curr, ElabError::TempStr("else is unit thing"));
+                                return None;
+                            }
+                            (after_jp, Some(Term::UNIT_MK))
+                        }
+                        else { (after_jp, None) }
+                    };
+
+                    let curr_reachable = self.current_jp.is_some();
+                    if curr_reachable {
+                        self.end_jp(
+                            self.alloc.mkt_apps(Term::ITE, &[
+                                expected,
+                                cond,
+                                self.mk_jump(then_jp, None),
+                                self.mk_jump(else_jp, else_arg)]));
+
+                        self.begin_jp(then_jp);
+                    }
+                    else {
+                        self.jps[then_jp].reachable = false;
+                    }
+
+                    let (then_val, _) = self.elab_do_expr(it.then, expected_ty)?;
+                    let then_reachable = self.current_jp.is_some();
+                    if then_reachable {
+                        all_then_unreachable = false;
+                        self.end_jp(self.mk_jump(after_jp, needs_value.then_some(then_val)));
+                    }
+
+                    if curr_reachable {
+                        self.begin_jp(else_jp);
+                    }
+                    else {
+                        self.jps[else_jp].reachable = false;
+                    }
+
+                    if let Some(els) = it.els.to_option() {
+                        curr = els;
+                    }
+                    else { break }
+                }
+
+                ExprKind::While(_) => {
+                    unimplemented!()
+                }
+
+                // else.
+                _ => {
+                    let (els_val, _) = self.elab_do_expr(curr, expected_ty)?;
+                    let els_reachable = self.current_jp.is_some();
+                    if els_reachable {
+                        self.end_jp(self.mk_jump(after_jp, needs_value.then_some(els_val)));
+                    }
+
+                    if !els_reachable && all_then_unreachable {
+                        self.jps[after_jp].reachable = false;
+                    }
+                    else {
+                        self.begin_jp(after_jp);
+                    }
+
+                    break;
+                }
+            };
+        }
+
+        Some(if let Some(result_ty) = expected_ty {
+            let result_id = self.lctx.push(BinderKind::Explicit, Atom::NULL, result_ty, None);
+            self.jps[after_jp].params.push(result_id);
+
+            (self.alloc.mkt_local(result_id), result_ty)
+        }
+        else { (Term::UNIT_MK, Term::UNIT) })
     }
 }
 
