@@ -637,7 +637,54 @@ def fib_iter_basic(n: Nat): Nat := do {
     };
     return a;
 }
-reduce fib_iter_basic(7)
+reduce fib_iter_basic(6)
+
+
+def loop_1: Nat := do { loop {} }
+
+def loop_2: Nat := do {
+    break do loop {
+        break 42;
+        break 69;
+    };
+    break 72;
+}
+reduce loop_2
+
+def loop_3: Nat := do {
+    var x := 0;
+    do loop {
+        if Nat::beq(x, 3) {
+            return 69;
+        }
+        else if Nat::beq(x, 5) {
+            return 42;
+        }
+        else if Nat::beq(x, 2) {
+            x := x + 2;
+            continue;
+        };
+
+        x := x + 1;
+    }
+}
+reduce loop_3
+
+def loop_4: Nat := do {
+    do loop {
+        break;
+    };
+    return 42;
+}
+reduce loop_4
+
+def loop_5: Nat := do {
+    return 42;
+    do loop {
+        break;
+    };
+}
+reduce loop_5
 
 
 def brck_basic := do {

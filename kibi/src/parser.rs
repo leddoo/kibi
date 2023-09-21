@@ -889,6 +889,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                         }
 
                         TokenKind::KwLoop => {
+                            self.consume(1);
                             self.expect(TokenKind::LCurly)?;
                             let (stmts, mut flags) = self.parse_block(this_parent)?;
                             flags.has_loop = true;

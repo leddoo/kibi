@@ -16,7 +16,6 @@
 
 
 - todo:
-    - loop.
     - no optional semicolons. `if then` for single expr.
     - labels.
     - level params.
@@ -27,6 +26,7 @@
     - uninit dependent vars on assign.
         - track deps using temp arena & vec for each var.
         - also need to remove deps, hmm.
+        - don't keep uninit, if not used.
         - maybe also easy to rewrite stuff that uses bool vars?
     - oh ja, `bite`.
     - generate warnings for unreachable code.
