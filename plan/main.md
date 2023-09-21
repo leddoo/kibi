@@ -16,8 +16,7 @@
 
 
 - todo:
-    - `while` & `continue`.
-    - `begin_jp` creates local of `arg_ty`.
+    - loop.
     - no optional semicolons. `if then` for single expr.
     - labels.
     - level params.

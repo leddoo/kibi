@@ -45,7 +45,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 }
 
                 None => {
-                    self.error(expr_id, ElabError::TempStr("expected type must not be known"));
+                    self.error(expr_id, ElabError::TempStr("expected type must be known"));
                     return self.mkt_ax_error_from_expected(expected_ty);
                 }
             };
@@ -558,8 +558,18 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             }
 
             ExprKind::Continue(_) => {
-                self.error(expr_id, ElabError::TempStr("unimp do continue"));
-                self.mkt_ax_error_from_expected(expected_ty)
+                for target in self.jump_targets.iter().rev() {
+                    let Some(jp) = target.continue_jp.to_option() else { continue };
+                    self.end_jp(self.mk_jump(jp, None));
+
+                    let jp_unreach = self.new_jp_with_locals(None);
+                    self.begin_jp(jp_unreach, false);
+
+                    let expected = expected_ty.unwrap_or(Term::UNIT);
+                    return (self.mkt_ax_unreach(expected), expected);
+                }
+                self.error(expr_id, ElabError::TempStr("no continue target found"));
+                return self.mkt_ax_error_from_expected(expected_ty);
             }
 
             ExprKind::ContinueElse(_) => {
@@ -631,8 +641,6 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
     }
 
     fn elab_control_flow(&mut self, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> (Term<'out>, Term<'out>) {
-        let expected = expected_ty.unwrap_or(Term::UNIT);
-
         let needs_value = expected_ty.is_some();
         let after_jp = self.new_jp_with_locals(expected_ty);
 
@@ -705,8 +713,68 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     else { break }
                 }
 
-                ExprKind::While(_) => {
-                    unimplemented!()
+                ExprKind::While(it) => {
+                    let head_jp = self.new_jp_with_locals_of(after_jp, None);
+                    let body_jp = self.new_jp_with_locals_of(after_jp, None);
+
+                    // dedup?
+                    let (else_jp, else_arg) = if it.els.is_some() {
+                        let else_jp = self.new_jp_with_locals_of(after_jp, None);
+                        (else_jp, None)
+                    }
+                    else {
+                        if let Some(expected) = expected_ty {
+                            let jump_val =
+                                if self.ensure_def_eq(expected, Term::UNIT) {
+                                    Term::UNIT_MK
+                                }
+                                else {
+                                    self.error(curr, ElabError::TempStr("else is unit thing"));
+                                    self.mkt_ax_error(expected).0
+                                };
+                            (after_jp, Some(jump_val))
+                        }
+                        else { (after_jp, None) }
+                    };
+
+
+                    let head_reachable = self.end_jp(self.mk_jump(head_jp, None));
+
+                    self.begin_jp(head_jp, head_reachable);
+                    let (cond, _) = self.elab_do_expr(it.cond, Some(Term::BOOL));
+                    let cond_reachable = self.end_jp(
+                        self.alloc.mkt_apps(Term::ITE, &[
+                            self.result_ty,
+                            cond,
+                            self.mk_jump(body_jp, None),
+                            self.mk_jump(else_jp, else_arg)]));
+
+                    self.begin_jp(body_jp, cond_reachable);
+
+                    if it.is_do {
+                        self.jump_targets.push(JumpTarget {
+                            break_jp: after_jp,
+                            break_ty: expected_ty,
+                            break_used: false,
+                            continue_jp: head_jp.some(),
+                            else_jp: Some(if it.els.is_some() { else_jp.some() } else { None.into() }),
+                        });
+                    }
+
+                    self.elab_do_expr(it.body, None);
+                    self.end_jp(self.mk_jump(head_jp, None));
+
+                    if it.is_do {
+                        let t = self.jump_targets.pop().unwrap();
+                        assert_eq!(t.break_jp, after_jp);
+                    }
+
+                    self.begin_jp(else_jp, cond_reachable);
+
+                    if let Some(els) = it.els.to_option() {
+                        curr = els;
+                    }
+                    else { break }
                 }
 
                 // else.

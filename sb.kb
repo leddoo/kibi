@@ -625,20 +625,19 @@ def fib_iter_basic(n: Nat): Nat := do {
     var a := 0;
     var b := 1;
     var i := 0;
-    loop {
-        if Nat::beq(i, n) {
-            return a;
-        };
+    do while Bool::true {
+        if Nat::beq(i, n) { break };
 
         let c := a + b;
         a := b;
         b := c;
         i := i + 1;
+
+        continue;
     };
-    -- @temp: jump target used.
-    break a;
+    return a;
 }
-reduce fib_iter_basic(5)
+reduce fib_iter_basic(7)
 
 
 def brck_basic := do {

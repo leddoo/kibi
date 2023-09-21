@@ -1,6 +1,9 @@
 
 ### fixes, completeness, robustness:
 
+- better errors:
+    - ivar info.
+    - symbol already defined.
 - `Ident(Atom, TokenId)`.
     - hover info: symbol types.
     - no symbol token info for last part of path.
