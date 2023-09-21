@@ -154,7 +154,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             result_ty,
             jps: KVec::new(),
             jump_targets: Vec::new(),
-            current_jp: JoinPoint::ZERO,
+            current_jp: JoinPoint::MAX,
             stmts: Vec::new(),
         };
 
@@ -200,8 +200,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
     }
 
     fn begin_jp(&mut self, jp: JoinPoint, reachable: bool) {
-        // make sure current is terminated.
-        assert!(jp == JoinPoint::ZERO || self.jps[self.current_jp].value.is_some());
+        assert_eq!(self.current_jp, JoinPoint::MAX);
         assert_eq!(self.stmts.len(), 0);
 
         self.jps[jp].reachable = reachable;
@@ -235,6 +234,12 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         let entry = &mut self.jps[self.current_jp];
         assert!(entry.value.is_none());
 
+        self.current_jp = JoinPoint::MAX;
+        if !entry.reachable {
+            self.stmts.clear();
+            return false;
+        }
+
         let mut value = ret;
         for stmt in self.stmts.copy_it().rev() {
             match stmt {
@@ -258,7 +263,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         }
         entry.value = Some(value);
 
-        return entry.reachable;
+        return true;
     }
 
     fn elab_do_block(&mut self, expr_id: ExprId, flags: ExprFlags, block: expr::Block, expected_ty: Option<Term<'out>>) -> (Term<'out>, Term<'out>) {
@@ -663,7 +668,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
                     let cond_reachable = self.end_jp(
                         self.alloc.mkt_apps(Term::ITE, &[
-                            expected,
+                            self.result_ty,
                             cond,
                             self.mk_jump(then_jp, None),
                             self.mk_jump(else_jp, else_arg)]));

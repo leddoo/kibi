@@ -16,27 +16,23 @@
 
 
 - todo:
-    - elab do:
-        - proper `needs_value`.
-        - generate warnings for unreachable code.
-        - `while` & `continue`.
-        - `begin_jp` creates local of `arg_ty`.
-    - fix congr-arg let foo := 42 crash.
+    - `while` & `continue`.
+    - `begin_jp` creates local of `arg_ty`.
+    - no optional semicolons. `if then` for single expr.
     - labels.
-    - begin test suite.
-    - do.
-        - level params.
-        - assignment valiation: make sure the local is actually a `var`.
-          not `let` or something different entirely.
-            - lctx cleanup binder xor let thing.
-        - uninit dependent vars on assign.
-            - track deps using temp arena & vec for each var.
-            - also need to remove deps, hmm.
-        - let chain: parse/elab.
-    - no optional semicolons.
-        - non-do if blocks with only a single expr must not have a semicolon.
-        - sep-by(`;`) must have last.
+    - level params.
+    - assignment valiation: make sure the local is actually a `var`.
+      not `let` or something different entirely.
+        - lctx cleanup binder xor let thing.
+    - let chain: parse/elab.
+    - uninit dependent vars on assign.
+        - track deps using temp arena & vec for each var.
+        - also need to remove deps, hmm.
+        - maybe also easy to rewrite stuff that uses bool vars?
     - oh ja, `bite`.
+    - generate warnings for unreachable code.
+    - fix congr-arg let foo := 42 crash.
+    - begin test suite.
     - tyck.
         - no termination checking yet.
         - use for inductive.
