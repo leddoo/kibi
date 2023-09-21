@@ -561,7 +561,7 @@ def brk_2_1: Nat := do {
     break if Bool::true do {
         break 42;
     }
-    else 69; -- @todo: { break 69 }
+    else { break 69 };
 }
 reduce brk_2_1
 
@@ -584,7 +584,6 @@ reduce brk_4
 def brk_5: Nat := do { return 42; }
 reduce brk_5
 
--- @todo: jump target used.
 def brk_6: Nat := do { do { return 42; }; }
 reduce brk_6
 
@@ -604,14 +603,22 @@ def brk_8: Nat := do {
 reduce brk_8
 
 def brk_9: Nat := do {
-    do if Bool::true {
+    let x := do if Bool::true {
         continue else;
+        break 69;
     }
-    else {
+    else do {
         break 42;
-    }
+    };
+    return x;
 }
 reduce brk_9
+
+def brk_10: Nat := do {
+    do { break 69; };
+    break 42;
+}
+reduce brk_10
 
 
 def fib_iter_basic(n: Nat): Nat := do {

@@ -17,16 +17,11 @@
 
 - todo:
     - elab do:
-        - jump target used.
         - proper `needs_value`.
         - generate warnings for unreachable code.
-    - clean-up:
+        - `while` & `continue`.
         - `begin_jp` creates local of `arg_ty`.
     - fix congr-arg let foo := 42 crash.
-    - unified control flow.
-        - ctrl flow: use `is_do`.
-        - `continue else`.
-        - `while` & `continue`.
     - labels.
     - begin test suite.
     - do.

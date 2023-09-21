@@ -82,8 +82,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 else {
                     let ty = this.elab.infer_type(jp.ivar).unwrap();
                     let ax_unreach = this.elab.mkt_ax_unreach(ty);
-                    let ok = this.elab.ensure_def_eq(jp.ivar, ax_unreach);
-                    assert!(ok);
+                    assert!(this.elab.ensure_def_eq(jp.ivar, ax_unreach));
                 }
             }
 
@@ -121,8 +120,11 @@ struct ElabDo<'me, 'e, 'c, 'out> {
 
 #[derive(Clone, Copy)]
 struct JumpTarget<'a> {
-    jp: JoinPoint,
-    result_ty: Option<Term<'a>>,
+    break_jp: JoinPoint,
+    break_ty: Option<Term<'a>>,
+    break_used: bool,
+    continue_jp: OptJoinPoint,
+    else_jp:     Option<OptJoinPoint>,
 }
 
 struct JoinPointData<'a> {
@@ -263,10 +265,14 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         let old_num_locals = self.locals.len();
 
         let jump_target = (block.is_do && flags.has_jump).then(|| {
-            let jp = self.new_jp_with_locals(expected_ty);
+            let expected = expected_ty.unwrap_or_else(|| self.new_ty_var().0);
+            let jp = self.new_jp_with_locals(Some(expected));
             self.jump_targets.push(JumpTarget {
-                jp,
-                result_ty: expected_ty,
+                break_jp: jp,
+                break_ty: Some(expected),
+                break_used: false,
+                continue_jp: None.into(),
+                else_jp:     None.into(),
             });
             jp
         });
@@ -346,34 +352,41 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
         if let Some(jp) = jump_target {
             let target = self.jump_targets.pop().unwrap();
-            assert_eq!(target.jp, jp);
+            assert_eq!(target.break_jp, jp);
 
-            let result_ty = target.result_ty.unwrap_or(Term::UNIT);
+            let result_ty = target.break_ty.unwrap();
 
             let jump_val =
-                if let Some(result_ty) = target.result_ty {
-                    if !self.jps[self.current_jp].reachable {
-                        Some(self.mkt_ax_unreach(result_ty))
+                if !self.jps[self.current_jp].reachable {
+                    if let Some(ivar) = result_ty.try_ivar() {
+                        if ivar.value(self).is_none() {
+                            assert!(self.ensure_def_eq(result_ty, Term::UNIT));
+                        }
                     }
-                    else if self.ensure_def_eq(result_ty, Term::UNIT) {
-                        Some(Term::UNIT_MK)
-                    }
-                    else {
-                        self.error(expr_id, ElabError::TempStr("block is unit, but unit is no good"));
-                        Some(self.mkt_ax_error(result_ty).0)
-                    }
+                    self.mkt_ax_unreach(result_ty)
                 }
-                else { None };
+                else if self.ensure_def_eq(result_ty, Term::UNIT) {
+                    Term::UNIT_MK
+                }
+                else {
+                    self.error(expr_id, ElabError::TempStr("block end reachable, but type not unit"));
+                    self.mkt_ax_error(result_ty).0
+                };
 
-            self.end_jp(self.mk_jump(jp, jump_val));
+            let reachable = self.end_jp(self.mk_jump(jp, Some(jump_val)));
 
-            self.begin_jp(jp, true);
+            self.begin_jp(jp, reachable || target.break_used);
             let result_id = self.lctx.push(BinderKind::Explicit, Atom::NULL, result_ty, None);
             self.jps[jp].locals.push(result_id);
 
             return (self.alloc.mkt_local(result_id), result_ty);
         }
         else {
+            if !self.jps[self.current_jp].reachable {
+                if let Some(expected) = expected_ty {
+                    return (self.mkt_ax_unreach(expected), expected);
+                }
+            }
             // type validated by caller.
             return (Term::UNIT_MK, Term::UNIT);
         }
@@ -501,12 +514,14 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                 // @todo: this is currently unreachable.
                 // if we decide that function blocks are `do` blocks,
                 // this can become an unwrap.
-                let Some(target) = self.jump_targets.last().copied() else {
+                let Some(target) = self.jump_targets.last_mut() else {
                     self.error(expr_id, ElabError::TempStr("no break target"));
                     return self.mkt_ax_error_from_expected(expected_ty);
                 };
+                target.break_used = true;
+                let target = *target;
 
-                if let Some(expected) = target.result_ty {
+                if let Some(expected) = target.break_ty {
                     let value = if let Some(value) = it.value.to_option() {
                         self.elab_do_expr(value, Some(expected)).0
                     }
@@ -520,14 +535,14 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                         }
                     };
 
-                    self.end_jp(self.mk_jump(target.jp, Some(value)));
+                    self.end_jp(self.mk_jump(target.break_jp, Some(value)));
                 }
                 else {
                     if let Some(value) = it.value.to_option() {
                         self.elab_do_expr(value, Some(Term::UNIT));
                     }
 
-                    self.end_jp(self.mk_jump(target.jp, None));
+                    self.end_jp(self.mk_jump(target.break_jp, None));
                 }
 
                 let jp_unreach = self.new_jp_with_locals(None);
@@ -543,8 +558,24 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             }
 
             ExprKind::ContinueElse(_) => {
-                self.error(expr_id, ElabError::TempStr("unimp do continue else"));
-                self.mkt_ax_error_from_expected(expected_ty)
+                for target in self.jump_targets.iter().rev() {
+                    let Some(jp) = target.else_jp else { continue };
+                    if let Some(jp) = jp.to_option() {
+                        self.end_jp(self.mk_jump(jp, None));
+
+                        let jp_unreach = self.new_jp_with_locals(None);
+                        self.begin_jp(jp_unreach, false);
+
+                        let expected = expected_ty.unwrap_or(Term::UNIT);
+                        return (self.mkt_ax_unreach(expected), expected);
+                    }
+                    else {
+                        self.error(expr_id, ElabError::TempStr("do expr has no else"));
+                        return self.mkt_ax_error_from_expected(expected_ty);
+                    }
+                }
+                self.error(expr_id, ElabError::TempStr("no continue else target found"));
+                return self.mkt_ax_error_from_expected(expected_ty);
             }
 
             ExprKind::Return(it) => {
@@ -639,11 +670,26 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
                     self.begin_jp(then_jp, cond_reachable);
 
+                    if it.is_do {
+                        self.jump_targets.push(JumpTarget {
+                            break_jp: after_jp,
+                            break_ty: expected_ty,
+                            break_used: false,
+                            continue_jp: None.into(),
+                            else_jp: Some(if it.els.is_some() { else_jp.some() } else { None.into() }),
+                        });
+                    }
+
                     let (then_val, _) = self.elab_do_expr(it.then, expected_ty);
                     let then_reachable = self.end_jp(
                         self.mk_jump(after_jp, needs_value.then_some(then_val)));
                     if then_reachable {
                         all_then_unreachable = false;
+                    }
+
+                    if it.is_do {
+                        let t = self.jump_targets.pop().unwrap();
+                        assert_eq!(t.break_jp, after_jp);
                     }
 
                     self.begin_jp(else_jp, cond_reachable);

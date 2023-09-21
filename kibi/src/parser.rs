@@ -884,7 +884,8 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     match self.peek().0.kind {
                         TokenKind::KwIf |
                         TokenKind::KwWhile => {
-                            return self.parse_control_flow(true, this_parent)
+                            self.token_cursor -= 1;
+                            return self.parse_control_flow(this_parent)
                         }
 
                         TokenKind::KwLoop => {
@@ -905,7 +906,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                 TokenKind::KwIf |
                 TokenKind::KwWhile => {
                     self.token_cursor -= 1;
-                    return self.parse_control_flow(false, this_parent)
+                    return self.parse_control_flow(this_parent)
                 }
 
                 TokenKind::KwLoop => {
@@ -982,7 +983,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
         return Some((this_expr, flags));
     }
 
-    fn parse_control_flow(&mut self, first_is_do: bool, parent: AstParent) -> Option<(ExprId, ExprFlags)> {
+    fn parse_control_flow(&mut self, parent: AstParent) -> Option<(ExprId, ExprFlags)> {
         let temp = ArenaPool::tls_get_rec();
 
         struct Part {
@@ -1004,19 +1005,16 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
         let mut els_flags = ExprFlags::new();
 
         loop {
-            let is_do = if parts.len() == 0 {
-                first_is_do
-            }
-            else {
-                if !self.consume_if_eq(TokenKind::KwElse) {
-                    break;
-                }
-                self.consume_if_eq(TokenKind::KwDo)
+            if parts.len() > 0 && !self.consume_if_eq(TokenKind::KwElse) {
+                break;
             };
+
+            let begin = self.current_token_id();
+            let is_do = self.consume_if_eq(TokenKind::KwDo);
 
             match self.peek().0.kind {
                 TokenKind::KwIf => {
-                    let (_, begin) = self.next();
+                    self.consume(1);
                     let (id, if_parent) = self.new_expr_uninit(els_parent);
                     let (cond, cond_flags) = self.parse_expr(if_parent)?;
                     let (then, then_flags) = self.parse_block_as_expr(if_parent)?;
@@ -1027,7 +1025,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                 }
 
                 TokenKind::KwWhile => {
-                    let (_, begin) = self.next();
+                    self.consume(1);
                     let (id, while_parent) = self.new_expr_uninit(els_parent);
                     let (cond, cond_flags) = self.parse_expr(while_parent)?;
                     let (body, body_flags) = self.parse_block_as_expr(while_parent)?;
@@ -1039,6 +1037,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
 
                 _ => {
                     assert!(parts.len() > 0);
+                    if is_do { self.token_cursor -= 1 }
                     let (expr, flags) = self.parse_expr_or_block(els_parent)?;
                     els = expr.some();
                     els_flags = flags;
