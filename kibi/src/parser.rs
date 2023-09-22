@@ -1093,7 +1093,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
         }
 
         self.expect(TokenKind::LCurly)?;
-        let ctors = self.sep_by(TokenKind::Semicolon, TokenKind::RCurly, |this| {
+        let ctors = self.sep_all_by(TokenKind::Semicolon, TokenKind::RCurly, |this| {
             this.parse_ctor(this_parent)
         })?;
 
@@ -1116,7 +1116,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
 
     fn parse_block(&mut self, parent: AstParent) -> Option<(&'out [StmtId], ExprFlags)> {
         let mut flags = ExprFlags::new();
-        let stmts = self.sep_by(TokenKind::Semicolon, TokenKind::RCurly, |this| {
+        let stmts = self.sep_all_by(TokenKind::Semicolon, TokenKind::RCurly, |this| {
             let (stmt, stmt_flags) = this.parse_stmt(parent)?;
             flags |= stmt_flags;
             return Some(stmt);
@@ -1422,6 +1422,23 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
         if had_error {
             return None;
         }
+        return Some(result);
+    }
+
+    #[inline]
+    fn sep_all_by<T, F: FnMut(&mut Self) -> Option<T>>
+        (&mut self, sep: TokenKind, end: TokenKind, mut f: F)
+        -> Option<&'out mut [T]>
+    {
+        let temp = ArenaPool::tls_get_rec();
+        let mut buffer = Vec::new_in(&*temp);
+
+        while !self.consume_if_eq(end) {
+            buffer.push(f(self)?);
+            self.expect(sep)?;
+        }
+
+        let result = buffer.move_into(self.alloc).leak();
         return Some(result);
     }
 

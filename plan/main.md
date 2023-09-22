@@ -16,7 +16,6 @@
 
 
 - todo:
-    - no optional semicolons.
     - labels.
     - level params.
     - assignment valiation: make sure the local is actually a `var`.

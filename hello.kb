@@ -22,16 +22,16 @@ inductive Array (T: Type) : Pi(n: Nat) -> Type {
 
 
 inductive Exists.{t} (T: Sort(t), P: T -> Prop): Prop {
-    mk (value: T, h: P(value))
+    mk (value: T, h: P(value));
 }
 
 inductive Subtype.{t} <T: Sort(t)> (P: T -> Prop): Sort(max(1, t)) {
-    mk (value: T, h: P(value))
+    mk (value: T, h: P(value));
 }
 
 
 trait inductive Add (A B: Type): Sort(2) {
-    mk (R: Type) (add: A -> B -> R)
+    mk (R: Type) (add: A -> B -> R);
 }
 
 def Add::R <A B: Type> (self: Add(A, B)): Type :=

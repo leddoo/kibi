@@ -6,7 +6,7 @@ axiom ax_error.{t}<T: Sort(t)>: T
 
 inductive False {}
 
-inductive True { trivial }
+inductive True { trivial; }
 
 
 inductive Eq.{t} <T: Sort(t)> (a: T) : Pi(b: T) -> Prop {
@@ -18,7 +18,7 @@ def congr_arg.{a, b} <A: Sort(a), B: Sort(b), a1 a2: A> (f: A -> B)
     := lam heq => Eq::rec(Eq::refl(), heq)
 
 
-inductive Unit { mk }
+inductive Unit { mk; }
 
 
 inductive Bool {
@@ -98,7 +98,7 @@ def Nat::beq(a b: Nat): Bool := Decidable::to_bool(Nat::dec_eq(a, b))
 
 
 trait inductive Add (A B: Type): Sort(2) {
-    mk (R: Type) (add: A -> B -> R)
+    mk (R: Type) (add: A -> B -> R);
 }
 
 def Add::R <A B: Type> (self: Add(A, B)): Type :=
@@ -118,7 +118,7 @@ impl: Add(Nat, Nat) :=
 
 
 inductive Pair(A B: Type) {
-    mk (fst: A, snd: B)
+    mk (fst: A, snd: B);
 }
 
 def Pair::fst<A B: Type>(self: Pair(A, B)): A := Pair::rec(lam fst snd => fst, self)
@@ -179,7 +179,7 @@ def Entry::tag(self: Entry): Tag := Entry::rec(lam tag kind => tag, self)
 def Entry::kind(self: Entry): Tag_Kind := Entry::rec(lam tag kind => kind, self)
 
 inductive Stack {
-    mk (entries: List(Entry), next_tag: Tag)
+    mk (entries: List(Entry), next_tag: Tag);
 }
 
 def Stack::new := Stack::mk(List::cons(Entry::mk(0, Tag_Kind::exclusive), List::nil()), 1)
@@ -412,7 +412,7 @@ inductive Ref_Kind {
 }
 
 inductive Ref(r: Region, kind: Ref_Kind, T: Type) {
-    mk (tag: Tag, addr: Nat)
+    mk (tag: Tag, addr: Nat);
     -- todo: the tag needs to be opaque, so we can't derive equality.
     -- todo: trait for metadata.
     -- todo: `addr: NonZeroUsize`.
@@ -433,7 +433,7 @@ axiom Ref::write<r: Region, T: Type>(ref: Ref(r, Ref_Kind::mut, T), value: T): R
 -- thinking model this as a `&mut` in SB.
 -- for `allocate`, have an `allow_from_shared` flag for `new_exclusive`.
 inductive Unique<A: Type>(alloc: A, T: Type) {
-    mk (tag: Tag, addr: Nat)
+    mk (tag: Tag, addr: Nat);
 }
 
 def Unique::addr<A: Type, alloc: A, T: Type>(self: Unique(alloc, T)): Nat :=
@@ -441,7 +441,7 @@ def Unique::addr<A: Type, alloc: A, T: Type>(self: Unique(alloc, T)): Nat :=
 
 -- we prob wanna make this & `Maybe_Init` opaque.
 inductive Maybe_Free(T: Type) {
-    mk (inner: T)
+    mk (inner: T);
 }
 
 -- should prob be a `Type`, cause `Prop`s will be copy.
@@ -501,7 +501,7 @@ axiom leak<r: Region, A: Type, alloc: A, T: Type>(
 
 
 inductive Box<A: Type, T: Type> {
-    mk (alloc: A, ptr: Unique(alloc, T))
+    mk (alloc: A, ptr: Unique(alloc, T));
 }
 
 
@@ -523,7 +523,7 @@ def ass_test: Nat := do {
     x;
     x := x + 1;
     x;
-    do { x := 3 };
+    do { x := 3; };
     x;
 
     x := if Bool::false then 6 else if Bool::true then 9 else 7;
@@ -560,7 +560,7 @@ def brk_2_1: Nat := do {
     break if Bool::true then do {
         break 42;
     }
-    else { break 69 };
+    else { break 69; };
 }
 reduce brk_2_1
 
@@ -625,7 +625,7 @@ def fib_iter_basic(n: Nat): Nat := do {
     var b := 1;
     var i := 0;
     do while Bool::true {
-        if Nat::beq(i, n) { break };
+        if Nat::beq(i, n) { break; };
 
         let c := a + b;
         a := b;
@@ -639,7 +639,7 @@ def fib_iter_basic(n: Nat): Nat := do {
 reduce fib_iter_basic(6)
 
 
-def loop_1: Nat := do { loop {} }
+def loop_1: Nat := do { loop {}; }
 
 def loop_2: Nat := do {
     break do loop {
@@ -665,7 +665,7 @@ def loop_3: Nat := do {
         };
 
         x := x + 1;
-    }
+    };
 }
 reduce loop_3
 
