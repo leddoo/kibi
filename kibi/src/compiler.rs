@@ -348,6 +348,7 @@ impl<'c> Inner<'c> {
                     T::EndOfFile => TokenClass::Punctuation,
                     T::Hole => TokenClass::Variable,
                     T::Ident(_) => TokenClass::Variable,
+                    T::Label(_) => TokenClass::Keyword,
                     T::Bool(_) => TokenClass::Variable,
                     T::Number(_) => TokenClass::Number,
                     T::String(_) => TokenClass::String,

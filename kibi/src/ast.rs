@@ -124,6 +124,7 @@ pub enum TokenKind {
 
     Hole,
     Ident(Atom),
+    Label(Atom),
 
     Bool(bool),
     Number(ParseNumberId),
@@ -233,6 +234,7 @@ impl TokenKind {
 
             TokenKind::Error |
             TokenKind::EndOfFile |
+            TokenKind::Label(_) |
             TokenKind::KwInductive |
             TokenKind::KwStruct |
             TokenKind::KwEnum |
@@ -281,6 +283,7 @@ impl TokenKind {
             TokenKind::EndOfFile => "eof",
             TokenKind::Hole => "hole",
             TokenKind::Ident(_) => "ident",
+            TokenKind::Label(_) => "label",
             TokenKind::Bool(_) => "bool",
             TokenKind::Number(_) => "number",
             TokenKind::String(_) => "string",
@@ -503,8 +506,8 @@ pub enum ExprKind<'a> {
     While(expr::While),
     Loop(expr::Loop<'a>),
     Break(expr::Break),
-    Continue(Option<Ident>),
-    ContinueElse(Option<Ident>),
+    Continue(OptAtom),
+    ContinueElse(OptAtom),
     Return(OptExprId),
 
     TypeHint(expr::TypeHint),
@@ -642,12 +645,14 @@ pub mod expr {
     #[derive(Clone, Copy, Debug)]
     pub struct Block<'a> {
         pub is_do: bool,
+        pub label: OptAtom,
         pub stmts: &'a [StmtId],
     }
 
     #[derive(Clone, Copy, Debug)]
     pub struct If {
         pub is_do: bool,
+        pub label: OptAtom,
         pub cond:  ExprId,
         pub then:  ExprId,
         pub els:   OptExprId,
@@ -656,6 +661,7 @@ pub mod expr {
     #[derive(Clone, Copy, Debug)]
     pub struct While {
         pub is_do: bool,
+        pub label: OptAtom,
         pub cond: ExprId,
         pub body: ExprId,
         pub els:  OptExprId,
@@ -664,12 +670,13 @@ pub mod expr {
     #[derive(Clone, Copy, Debug)]
     pub struct Loop<'a> {
         pub is_do: bool,
+        pub label: OptAtom,
         pub stmts: &'a [StmtId],
     }
 
     #[derive(Clone, Copy, Debug)]
     pub struct Break {
-        pub label: OptIdent,
+        pub label: OptAtom,
         pub value: OptExprId,
     }
 

@@ -1,5 +1,6 @@
 use sti::traits::CopyIt;
 
+use crate::string_table::OptAtom;
 use crate::ast::*;
 use crate::tt::*;
 
@@ -110,6 +111,7 @@ struct ElabDo<'me, 'e, 'c, 'out> {
 
 #[derive(Clone, Copy)]
 struct JumpTarget<'a> {
+    label: OptAtom,
     break_jp: JoinPoint,
     break_ty: Option<Term<'a>>,
     break_used: bool,
@@ -257,10 +259,11 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
     }
 
     fn elab_do_block(&mut self, expr_id: ExprId, flags: ExprFlags, block: expr::Block, expected_ty: Option<Term<'out>>) -> (Term<'out>, Term<'out>) {
-        let jump_target = (block.is_do && flags.has_jump).then(|| {
+        let jump_target = (block.is_do && block.label != atoms::_hole.some() && flags.has_jump).then(|| {
             let expected = expected_ty.unwrap_or_else(|| self.new_ty_var().0);
             let jp = self.new_jp_with_locals(Some(expected));
             self.jump_targets.push(JumpTarget {
+                label: block.label,
                 break_jp: jp,
                 break_ty: Some(expected),
                 break_used: false,
@@ -507,10 +510,11 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             ExprKind::Loop(it) => {
                 let body_jp = self.new_jp_with_locals(None);
 
-                let after_jp = (it.is_do && expr.flags.has_jump).then(|| {
+                let after_jp = (it.is_do && it.label != atoms::_hole.some() && expr.flags.has_jump).then(|| {
                     let expected = expected_ty.unwrap_or_else(|| self.new_ty_var().0);
                     let jp = self.new_jp_with_locals(Some(expected));
                     self.jump_targets.push(JumpTarget {
+                        label: it.label,
                         break_jp: jp,
                         break_ty: Some(expected),
                         break_used: false,
@@ -554,11 +558,26 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             }
 
             ExprKind::Break(it) => {
+                if it.label == atoms::_hole.some() {
+                    self.error(expr_id, ElabError::TempStr("invalid label"));
+                }
+
+                let mut target = self.jump_targets.last_mut();
+                if it.label.is_some() {
+                    target = None;
+                    for t in self.jump_targets.iter_mut().rev() {
+                        if t.label == it.label {
+                            target = Some(t);
+                        }
+                    }
+                }
                 // @todo: this is currently unreachable.
                 // if we decide that function blocks are `do` blocks,
                 // this can become an unwrap.
-                let Some(target) = self.jump_targets.last_mut() else {
-                    self.error(expr_id, ElabError::TempStr("no break target"));
+                let Some(target) = target else {
+                    if it.label != atoms::_hole.some() {
+                        self.error(expr_id, ElabError::TempStr("no break target"));
+                    }
                     return self.mkt_ax_error_from_expected(expected_ty);
                 };
                 target.break_used = true;
@@ -595,8 +614,14 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                 (self.mkt_ax_unreach(expected), expected)
             }
 
-            ExprKind::Continue(_) => {
+            ExprKind::Continue(label) => {
+                if label == atoms::_hole.some() {
+                    self.error(expr_id, ElabError::TempStr("invalid label"));
+                }
+
                 for target in self.jump_targets.iter().rev() {
+                    if label.is_some() && target.label != label { continue }
+
                     let Some(jp) = target.continue_jp.to_option() else { continue };
                     self.end_jp(self.mk_jump(jp, None));
 
@@ -606,12 +631,20 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     let expected = expected_ty.unwrap_or(Term::UNIT);
                     return (self.mkt_ax_unreach(expected), expected);
                 }
-                self.error(expr_id, ElabError::TempStr("no continue target found"));
+                if label != atoms::_hole.some() {
+                    self.error(expr_id, ElabError::TempStr("no continue target found"));
+                }
                 return self.mkt_ax_error_from_expected(expected_ty);
             }
 
-            ExprKind::ContinueElse(_) => {
+            ExprKind::ContinueElse(label) => {
+                if label == atoms::_hole.some() {
+                    self.error(expr_id, ElabError::TempStr("invalid label"));
+                }
+
                 for target in self.jump_targets.iter().rev() {
+                    if label.is_some() && target.label != label { continue }
+
                     let Some(jp) = target.else_jp else { continue };
                     if let Some(jp) = jp.to_option() {
                         self.end_jp(self.mk_jump(jp, None));
@@ -627,7 +660,9 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                         return self.mkt_ax_error_from_expected(expected_ty);
                     }
                 }
-                self.error(expr_id, ElabError::TempStr("no continue else target found"));
+                if label != atoms::_hole.some() {
+                    self.error(expr_id, ElabError::TempStr("no continue else target found"));
+                }
                 return self.mkt_ax_error_from_expected(expected_ty);
             }
 
@@ -721,8 +756,9 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
                     self.begin_jp(then_jp, cond_reachable);
 
-                    if it.is_do {
+                    if it.is_do && it.label != atoms::_hole.some() {
                         self.jump_targets.push(JumpTarget {
+                            label: it.label,
                             break_jp: after_jp,
                             break_ty: expected_ty,
                             break_used: false,
@@ -789,8 +825,9 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
                     self.begin_jp(body_jp, cond_reachable);
 
-                    if it.is_do {
+                    if it.is_do && it.label != atoms::_hole.some() {
                         self.jump_targets.push(JumpTarget {
+                            label: it.label,
                             break_jp: after_jp,
                             break_ty: expected_ty,
                             break_used: false,

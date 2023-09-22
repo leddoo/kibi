@@ -619,6 +619,29 @@ def brk_10: Nat := do {
 }
 reduce brk_10
 
+def brk_11: Nat := do 'a {
+    do { break 'a 42; };
+    break 69;
+}
+reduce brk_11
+
+def brk_12: Nat := do {
+    return do 'a if Bool::true {
+        do if Bool::true {
+            continue 'a else;
+        }
+        else return 69;
+    }
+    else do 'b { break 'b 42; };
+}
+reduce brk_12
+
+def brk_13: Nat := do {
+    do '_ { break 42; };
+    break 69;
+}
+reduce brk_13
+
 
 def fib_iter_basic(n: Nat): Nat := do {
     var a := 0;
@@ -684,6 +707,32 @@ def loop_5: Nat := do {
     };
 }
 reduce loop_5
+
+def loop_6: Nat := do {
+    return do 'a loop {
+        do 'b loop {
+            break 'a 42;
+            continue 'b;
+        };
+        return 69;
+    };
+}
+reduce loop_6
+
+def loop_7: Nat := do 'a {
+    var x := 0;
+    do 'b loop {
+        if Nat::beq(x, 1) {
+            break 'a 42;
+        };
+        if Nat::beq(x, 0) {
+            x := 1;
+            do loop { continue 'b; };
+        };
+        return 69;
+    };
+}
+reduce loop_7
 
 
 def brck_basic := do {

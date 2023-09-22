@@ -4,7 +4,7 @@ use sti::vec::Vec;
 use sti::keyed::KVec;
 use sti::reader::Reader;
 
-use crate::string_table::{StringTable, Atom, atoms};
+use crate::string_table::{StringTable, Atom, OptAtom, atoms};
 use crate::diagnostics::*;
 use crate::ast::*;
 
@@ -228,6 +228,20 @@ impl<'me, 'c, 'i, 'out> Tokenizer<'me, 'c, 'i, 'out> {
                         TokenKind::KwLam
                     }
                     else { break 'next }
+                }
+
+                '\'' => {
+                    let begin_offset = self.reader.offset();
+                    if !self.reader.consume_if(|at| at.is_ascii_alphabetic() || *at == b'_') {
+                        TokenKind::Error
+                    }
+                    else {
+                        let (value, _) = self.reader.consume_while_slice_from(begin_offset, |at|
+                            at.is_ascii_alphanumeric() || *at == b'_');
+
+                        let value = unsafe { core::str::from_utf8_unchecked(value) };
+                        TokenKind::Label(self.strings.insert(value))
+                    }
                 }
 
                 _ => break 'next
@@ -882,10 +896,12 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
 
 
                 TokenKind::KwDo => {
+                    let label = self.parse_label();
                     match self.peek().0.kind {
                         TokenKind::KwIf |
                         TokenKind::KwWhile => {
                             self.token_cursor -= 1;
+                            self.token_cursor -= label.is_some() as usize;
                             return self.parse_control_flow(this_parent)
                         }
 
@@ -894,13 +910,13 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                             self.expect(TokenKind::LCurly)?;
                             let (stmts, mut flags) = self.parse_block(this_parent)?;
                             flags.has_loop = true;
-                            (ExprKind::Loop(expr::Loop { is_do: true, stmts }), flags)
+                            (ExprKind::Loop(expr::Loop { is_do: true, label, stmts }), flags)
                         }
 
                         _ => {
                             self.expect(TokenKind::LCurly)?;
                             let (stmts, flags) = self.parse_block(this_parent)?;
-                            (ExprKind::Do(expr::Block { is_do: true, stmts }), flags)
+                            (ExprKind::Do(expr::Block { is_do: true, label, stmts }), flags)
                         }
                     }
                 }
@@ -915,14 +931,14 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     self.expect(TokenKind::LCurly)?;
                     let (stmts, mut flags) = self.parse_block(this_parent)?;
                     flags.has_loop = true;
-                    (ExprKind::Loop(expr::Loop { is_do: false, stmts }), flags)
+                    (ExprKind::Loop(expr::Loop { is_do: false, label: None.into(), stmts }), flags)
                 }
 
                 TokenKind::KwBreak => {
                     let mut flags = ExprFlags::new();
                     flags.has_jump = true;
 
-                    let label = OptIdent { source: TokenId::ZERO, value: None.into() };
+                    let label = self.parse_label();
 
                     let mut value = None.into();
                     if self.peek().0.kind.is_expr_start() {
@@ -938,7 +954,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     let mut flags = ExprFlags::new();
                     flags.has_jump = true;
 
-                    let label = None;
+                    let label = self.parse_label();
 
                     if self.consume_if_eq(TokenKind::KwElse) {
                         (ExprKind::ContinueElse(label), flags)
@@ -993,6 +1009,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
             begin: TokenId,
             flags: ExprFlags,
             is_do: bool,
+            label: OptAtom,
             kind: PartKind,
         }
         enum PartKind {
@@ -1013,6 +1030,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
 
             let begin = self.current_token_id();
             let is_do = self.consume_if_eq(TokenKind::KwDo);
+            let label = if is_do { self.parse_label() } else { None.into() };
 
             match self.peek().0.kind {
                 TokenKind::KwIf => {
@@ -1026,7 +1044,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                         else { self.parse_block_as_expr(if_parent)? };
                     let mut flags = cond_flags | then_flags; flags.has_if = true;
                     let kind = PartKind::If { cond, then };
-                    parts.push(Part { id, begin, flags, is_do, kind });
+                    parts.push(Part { id, begin, flags, is_do, label, kind });
                     els_parent = if_parent;
                 }
 
@@ -1037,13 +1055,14 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     let (body, body_flags) = self.parse_block_as_expr(while_parent)?;
                     let mut flags = cond_flags | body_flags; flags.has_loop = true;
                     let kind = PartKind::While { cond, body };
-                    parts.push(Part { id, begin, flags, is_do, kind });
+                    parts.push(Part { id, begin, flags, is_do, label, kind });
                     els_parent = while_parent;
                 }
 
                 _ => {
                     assert!(parts.len() > 0);
-                    if is_do { self.token_cursor -= 1 }
+                    self.token_cursor -= is_do as usize;
+                    self.token_cursor -= label.is_some() as usize;
                     let (expr, flags) = self.parse_expr_or_block(els_parent)?;
                     els = expr.some();
                     els_flags = flags;
@@ -1056,12 +1075,13 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
         let mut result_flags = els_flags;
         for part in parts.iter().rev() {
             let is_do = part.is_do;
+            let label = part.label;
             let kind = match part.kind {
                 PartKind::If { cond, then } =>
-                    ExprKind::If(expr::If { is_do, cond, then, els: result }),
+                    ExprKind::If(expr::If { is_do, label, cond, then, els: result }),
 
                 PartKind::While { cond, body } =>
-                    ExprKind::While(expr::While { is_do, cond, body, els: result }),
+                    ExprKind::While(expr::While { is_do, label, cond, body, els: result }),
             };
             result = part.id.some();
             result_flags |= part.flags;
@@ -1131,7 +1151,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
         self.expect(TokenKind::LCurly)?;
         let (stmts, flags) = self.parse_block(this_parent)?;
 
-        let kind = ExprKind::Do(expr::Block { is_do: false, stmts });
+        let kind = ExprKind::Do(expr::Block { is_do: false, label: None.into(), stmts });
         self.expr_init_from(this_expr, source_begin, kind, flags);
         Some((this_expr, flags))
     }
@@ -1140,6 +1160,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
         let source_begin = self.current_token_id();
 
         let is_do = self.consume_if_eq(TokenKind::KwDo);
+        let label = if is_do { self.parse_label() } else { None.into() };
         if is_do { self.expect(TokenKind::LCurly)? };
 
         if is_do || self.consume_if_eq(TokenKind::LCurly) {
@@ -1147,7 +1168,7 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
 
             let (stmts, flags) = self.parse_block(this_parent)?;
 
-            let kind = ExprKind::Do(expr::Block { is_do, stmts });
+            let kind = ExprKind::Do(expr::Block { is_do, label, stmts });
             self.expr_init_from(this_expr, source_begin, kind, flags);
             Some((this_expr, flags))
         }
@@ -1372,6 +1393,16 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
         else {
             return Some(IdentOrPath::Ident(start));
         }
+    }
+
+    #[inline]
+    fn parse_label(&mut self) -> OptAtom {
+        let (at, _) = self.peek();
+        if let TokenKind::Label(value) = at.kind {
+            self.consume(1);
+            return value.some();
+        }
+        return None.into();
     }
 
 

@@ -16,7 +16,6 @@
 
 
 - todo:
-    - labels.
     - level params.
     - assignment valiation: make sure the local is actually a `var`.
       not `let` or something different entirely.
