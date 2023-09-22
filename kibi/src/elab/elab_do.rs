@@ -14,21 +14,11 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             if block.stmts.len() == 0 {
                 return (Term::UNIT_MK, Term::UNIT);
             }
-            // @todo: maybe not cause `if ... then foo else bar`.
-            // then a "not is do" block would just be a `do`
-            // with a transparent label.
-            else if !block.is_do && block.stmts.len() == 1 {
-                let stmt = block.stmts[0];
-                if let StmtKind::Expr(it) = self.parse.stmts[stmt].kind {
-                    // @todo: expected type.
-                    return self.elab_expr(it);
-                }
-            }
 
             // @todo: elab_let_chain.
             // chain also for regular let, so we can do the multi-abstract thing.
             self.error(expr_id, ElabError::TempStr("unimp do without joins"));
-            self.mkt_ax_error_from_expected(expected_ty)
+            return self.mkt_ax_error_from_expected(expected_ty);
         }
         else {
             let old_scope = self.lctx.current;

@@ -367,6 +367,7 @@ impl<'c> Inner<'c> {
                     T::KwIn => TokenClass::Keyword,
                     T::KwDo => TokenClass::Keyword,
                     T::KwIf => TokenClass::Keyword,
+                    T::KwThen => TokenClass::Keyword,
                     T::KwWhile => TokenClass::Keyword,
                     T::KwLoop => TokenClass::Keyword,
                     T::KwElse => TokenClass::Keyword,

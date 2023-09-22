@@ -286,6 +286,7 @@ impl<'me, 'c, 'i, 'out> Tokenizer<'me, 'c, 'i, 'out> {
 
                     "do" => TokenKind::KwDo,
                     "if" => TokenKind::KwIf,
+                    "then" => TokenKind::KwThen,
                     "while" => TokenKind::KwWhile,
                     "loop" => TokenKind::KwLoop,
                     "else" => TokenKind::KwElse,
@@ -1018,7 +1019,11 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     self.consume(1);
                     let (id, if_parent) = self.new_expr_uninit(els_parent);
                     let (cond, cond_flags) = self.parse_expr(if_parent)?;
-                    let (then, then_flags) = self.parse_block_as_expr(if_parent)?;
+                    let (then, then_flags) =
+                        if self.consume_if_eq(TokenKind::KwThen) {
+                            self.parse_expr(if_parent)?
+                        }
+                        else { self.parse_block_as_expr(if_parent)? };
                     let mut flags = cond_flags | then_flags; flags.has_if = true;
                     let kind = PartKind::If { cond, then };
                     parts.push(Part { id, begin, flags, is_do, kind });
@@ -1123,11 +1128,10 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
         let source_begin = self.current_token_id();
         let (this_expr, this_parent) = self.new_expr_uninit(parent);
 
-        let is_do = self.consume_if_eq(TokenKind::KwDo);
         self.expect(TokenKind::LCurly)?;
         let (stmts, flags) = self.parse_block(this_parent)?;
 
-        let kind = ExprKind::Do(expr::Block { is_do, stmts });
+        let kind = ExprKind::Do(expr::Block { is_do: false, stmts });
         self.expr_init_from(this_expr, source_begin, kind, flags);
         Some((this_expr, flags))
     }

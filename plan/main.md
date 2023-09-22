@@ -16,7 +16,7 @@
 
 
 - todo:
-    - no optional semicolons. `if then` for single expr.
+    - no optional semicolons.
     - labels.
     - level params.
     - assignment valiation: make sure the local is actually a `var`.
@@ -27,6 +27,9 @@
         - track deps using temp arena & vec for each var.
         - also need to remove deps, hmm.
         - don't keep uninit, if not used.
+        - hmm, we don't really want to uninit, unless we need to
+          cause you should be able to use the old value to derive
+          a new proof.
         - maybe also easy to rewrite stuff that uses bool vars?
     - oh ja, `bite`.
     - generate warnings for unreachable code.

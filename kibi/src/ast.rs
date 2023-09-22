@@ -145,6 +145,7 @@ pub enum TokenKind {
 
     KwDo,
     KwIf,
+    KwThen,
     KwWhile,
     KwLoop,
     KwElse,
@@ -240,6 +241,7 @@ impl TokenKind {
             TokenKind::KwImpl |
             TokenKind::KwVar |
             TokenKind::KwIn |
+            TokenKind::KwThen |
             TokenKind::KwElse |
             TokenKind::KwAnd |
             TokenKind::KwOr |
@@ -298,9 +300,10 @@ impl TokenKind {
             TokenKind::KwIn => "'in'",
             TokenKind::KwDo => "'do'",
             TokenKind::KwIf => "'if'",
-            TokenKind::KwElse => "'else'",
+            TokenKind::KwThen => "'then'",
             TokenKind::KwWhile => "'while'",
             TokenKind::KwLoop => "'loop'",
+            TokenKind::KwElse => "'else'",
             TokenKind::KwBreak => "'break'",
             TokenKind::KwContinue => "'continue'",
             TokenKind::KwReturn => "'return'",

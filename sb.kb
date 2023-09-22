@@ -526,15 +526,14 @@ def ass_test: Nat := do {
     do { x := 3 };
     x;
 
-    x := if Bool::false { 6 } else if Bool::true { 9 } else { 7 };
+    x := if Bool::false then 6 else if Bool::true then 9 else 7;
     x;
 
     if Bool::true {
         x := x + 2;
     }
-    else if Bool::false {
+    else if Bool::false then
         Unit::mk
-    }
     else {
         let y := 6;
         x := y + 1;
@@ -558,7 +557,7 @@ def brk_2: Nat := do {
 reduce brk_2
 
 def brk_2_1: Nat := do {
-    break if Bool::true do {
+    break if Bool::true then do {
         break 42;
     }
     else { break 69 };
