@@ -176,8 +176,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 let val = self.elab_expr_checking_type(it.val, Some(ty)).0;
 
                 let name = it.name.value.to_option().unwrap_or(Atom::NULL);
-                let id = self.lctx.push(tt::BinderKind::Explicit, name, ty, Some(val));
-                self.locals.push((name, id));
+                let id = self.lctx.push(name, ty, ScopeKind::Local(val));
+                self.locals.push(Local { name, id, mutable: false });
 
                 let none = self.elab.token_infos.insert(it.name.source, TokenInfo::Local(self.item_id, id));
                 debug_assert!(none.is_none());
@@ -399,9 +399,9 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     }
 
     pub fn lookup_local(&self, name: Atom) -> Option<ScopeId> {
-        for (n, id) in self.locals.iter().rev().copied() {
-            if n == name {
-                return Some(id);
+        for l in self.locals.iter().rev().copied() {
+            if l.name == name {
+                return Some(l.id);
             }
         }
         None

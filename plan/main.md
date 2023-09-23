@@ -16,9 +16,6 @@
 
 
 - todo:
-    - assignment valiation: make sure the local is actually a `var`.
-      not `let` or something different entirely.
-        - lctx cleanup binder xor let thing.
     - tyck.
         - no termination checking yet.
         - use for inductive.

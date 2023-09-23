@@ -11,6 +11,7 @@ use crate::elab::Elaborator;
 
 use super::level::*;
 use super::term::*;
+use super::ScopeKind;
 
 
 // @speed: cache mkt_locals.
@@ -144,7 +145,7 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
             let mut indices = Vec::new_in(this.temp);
             while let Some(pi) = this.elab.whnf_forall(ty) {
                 // @complete: check indices are types.
-                let id = this.elab.lctx.push(pi.kind, pi.name, pi.ty, None);
+                let id = this.elab.lctx.push(pi.name, pi.ty, ScopeKind::Binder(pi.kind));
                 indices.push(id);
                 ty = pi.val.instantiate(this.alloc.mkt_local(id), this.alloc);
             }
@@ -191,11 +192,11 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
 
         // make params/indices implicit for ctor/rec types.
         for param in this.spec.params.iter().copied() {
-            this.elab.lctx.lookup_mut(param).binder_kind = BinderKind::Implicit;
+            this.elab.lctx.lookup_mut(param).kind = ScopeKind::Binder(BinderKind::Implicit);
         }
         for indices in this.indices.iter() {
             for index in indices.iter().copied() {
-                this.elab.lctx.lookup_mut(index).binder_kind = BinderKind::Implicit;
+                this.elab.lctx.lookup_mut(index).kind = ScopeKind::Binder(BinderKind::Implicit);
             }
         }
 
@@ -242,7 +243,7 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
                             }
                             ret = pi.val;
 
-                            let id = this.elab.lctx.push(pi.kind, pi.name, pi.ty, None);
+                            let id = this.elab.lctx.push(pi.name, pi.ty, ScopeKind::Binder(pi.kind));
                             args.push(id);
                         }
                         let args = args.leak();
@@ -254,7 +255,7 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
                     if is_rec.is_some() {
                         let ind = this.type_global_param_apps[spec_idx];
                         let rec_ty = pi.ty.replace_app_fun(ind, this.alloc);
-                        let id = this.elab.lctx.push(pi.kind, pi.name, rec_ty, None);
+                        let id = this.elab.lctx.push(pi.name, rec_ty, ScopeKind::Binder(pi.kind));
                         args.push((id, is_rec));
 
                         // ensure rec arg not used.
@@ -265,7 +266,7 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
                         }
                     }
                     else {
-                        let id = this.elab.lctx.push(pi.kind, pi.name, pi.ty, None);
+                        let id = this.elab.lctx.push(pi.name, pi.ty, ScopeKind::Binder(pi.kind));
                         args.push((id, None));
 
                         ty = pi.val.instantiate(this.alloc.mkt_local(id), this.alloc);
@@ -390,7 +391,7 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
                 }
                 else { atoms::M };
 
-            let id = this.elab.lctx.push(BinderKind::Implicit, name, m, None);
+            let id = this.elab.lctx.push(name, m, ScopeKind::Binder(BinderKind::Implicit));
 
             motives.push(id);
         }
@@ -433,7 +434,7 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
                 }
 
                 // @temp: `m_{ctor.name}`.
-                let id = this.elab.lctx.push(BinderKind::Explicit, Atom::NULL, minor, None);
+                let id = this.elab.lctx.push(Atom::NULL, minor, ScopeKind::Binder(BinderKind::Explicit));
                 minors.push(id);
             }
         }

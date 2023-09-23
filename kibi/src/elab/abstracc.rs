@@ -58,12 +58,12 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         // instantiate type after val, cause abstracc may
         // assign ivars (elim locals).
         let entry = self.lctx.lookup(id);
-        debug_assert!(entry.value.is_none());
+        let kind = entry.kind.as_binder();
 
         let ty = self.instantiate_term_vars(entry.ty);
 
-        if is_forall { self.alloc.mkt_forall(entry.binder_kind, entry.name, ty, val) }
-        else         { self.alloc.mkt_lambda(entry.binder_kind, entry.name, ty, val) }
+        if is_forall { self.alloc.mkt_forall(kind, entry.name, ty, val) }
+        else         { self.alloc.mkt_lambda(kind, entry.name, ty, val) }
     }
 
     pub fn mk_binder_with_kind(&self, kind: BinderKind, val: Term<'out>, id: ScopeId, is_forall: bool) -> Term<'out> {
@@ -72,7 +72,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         // instantiate type after val, cause abstracc may
         // assign ivars (elim locals).
         let entry = self.lctx.lookup(id);
-        debug_assert!(entry.value.is_none());
+        let _ = entry.kind.as_binder();
 
         let ty = self.instantiate_term_vars(entry.ty);
 
@@ -90,9 +90,10 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         // instantiate type after body, cause abstracc may
         // assign ivars (elim locals).
         let entry = self.lctx.lookup(id);
-        let ty  = self.instantiate_term_vars(entry.ty);
-        let val = self.instantiate_term_vars(entry.value.unwrap());
+        let val = entry.kind.as_local();
 
+        let ty  = self.instantiate_term_vars(entry.ty);
+        let val = self.instantiate_term_vars(val);
         self.alloc.mkt_let(entry.name, ty, val, new_body)
     }
 }

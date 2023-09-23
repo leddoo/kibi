@@ -55,8 +55,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         // create a local for the inductive type,
         // for the idents in the ctors to bind to.
         let ind_local_id =
-            self.lctx.push(BinderKind::Explicit, ind.name.value, type_former, None);
-        self.locals.push((ind.name.value, ind_local_id));
+            self.lctx.push(ind.name.value, type_former, ScopeKind::Binder(BinderKind::Explicit));
+        self.locals.push(Local { name: ind.name.value, id: ind_local_id, mutable: false });
 
         let ind_local = self.alloc.mkt_local(ind_local_id);
 

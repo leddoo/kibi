@@ -27,8 +27,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         let mut ty = self.elab_expr_as_type(axiom.ty).0;
 
         assert_eq!(self.locals.len(), locals.len());
-        for (_, id) in self.locals.iter().copied().rev() {
-            ty = self.mk_binder(ty,  id, true);
+        for l in self.locals.iter().copied().rev() {
+            ty = self.mk_binder(ty, l.id, true);
         }
 
         if self.locals.len() == 0 {
@@ -166,9 +166,9 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         let mut ty = ty.unwrap_or(val_ty);
 
         assert_eq!(self.locals.len(), locals.len());
-        for (_, id) in self.locals.iter().copied().rev() {
-            ty  = self.mk_binder(ty,  id, true);
-            val = self.mk_binder(val, id, false);
+        for l in self.locals.iter().copied().rev() {
+            ty  = self.mk_binder(ty,  l.id, true);
+            val = self.mk_binder(val, l.id, false);
         }
 
         if self.locals.len() == 0 {

@@ -18,10 +18,25 @@ pub struct LocalCtx<'a> {
 #[derive(Clone, Debug)]
 pub struct Scope<'a> {
     pub parent: OptScopeId,
-    pub binder_kind: BinderKind,
     pub name:  Atom,
     pub ty:    Term<'a>,
-    pub value: Option<Term<'a>>,
+    pub kind:  ScopeKind<'a>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum ScopeKind<'a> {
+    Binder(BinderKind),
+    Local(Term<'a>),
+}
+
+impl<'a> ScopeKind<'a> {
+    #[track_caller]
+    #[inline(always)]
+    pub fn as_binder(self) -> BinderKind { if let ScopeKind::Binder(b) = self { b } else { unreachable!() } }
+
+    #[track_caller]
+    #[inline(always)]
+    pub fn as_local(self) -> Term<'a> { if let ScopeKind::Local(v) = self { v } else { unreachable!() } }
 }
 
 #[derive(Clone)]
@@ -52,12 +67,14 @@ impl<'a> LocalCtx<'a> {
 
 
     #[track_caller]
-    pub fn push(&mut self, binder_kind: BinderKind, name: Atom, ty: Term<'a>, value: Option<Term<'a>>) -> ScopeId {
+    pub fn push(&mut self, name: Atom, ty: Term<'a>, kind: ScopeKind<'a>) -> ScopeId {
         assert!(ty.closed());
-        if let Some(v) = value { assert!(v.closed()); }
+        if let ScopeKind::Local(v) = kind {
+            assert!(v.closed());
+        }
 
         let parent = self.current;
-        let id = self.scopes.push(Scope { binder_kind, parent, name, ty, value });
+        let id = self.scopes.push(Scope { parent, name, ty, kind });
         self.current = id.some();
         id
     }
@@ -151,7 +168,8 @@ impl<'a> LocalCtx<'a> {
     pub fn abstract_forall(&self, ret: Term<'a>, id: ScopeId, alloc: &'a Arena) -> Term<'a> {
         let entry = self.lookup(id);
         let ret = ret.abstracc(id, alloc);
-        alloc.mkt_forall(entry.binder_kind, entry.name, entry.ty, ret)
+        let kind = entry.kind.as_binder();
+        alloc.mkt_forall(kind, entry.name, entry.ty, ret)
     }
 
     #[track_caller]
@@ -159,7 +177,8 @@ impl<'a> LocalCtx<'a> {
     pub fn abstract_lambda(&self, value: Term<'a>, id: ScopeId, alloc: &'a Arena) -> Term<'a> {
         let entry = self.lookup(id);
         let value = value.abstracc(id, alloc);
-        alloc.mkt_lambda(entry.binder_kind, entry.name, entry.ty, value)
+        let kind = entry.kind.as_binder();
+        alloc.mkt_lambda(kind, entry.name, entry.ty, value)
     }
 
 

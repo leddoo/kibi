@@ -735,13 +735,14 @@ def loop_7: Nat := do 'a {
 reduce loop_7
 
 
-def do_levels.{a}(A: Sort(a), a: A): A := do {
-    var x := a;
+def do_levels.{a}(A: Sort(a), a b: A): A := do {
+    var x := b;
     if Bool::true {
         x := a;
     };
     return x;
 }
+reduce do_levels(Nat, 42, 69)
 
 
 def brck_basic: Unit := do {

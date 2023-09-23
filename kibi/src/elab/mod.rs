@@ -102,11 +102,18 @@ pub struct Elaborator<'me, 'c, 'out> {
 
     // @temp: @inductive_uses_elab.
     pub(crate) lctx: LocalCtx<'out>,
-    locals: Vec<(Atom, ScopeId)>,
+    locals: Vec<Local>,
 
     ivars: ivars::IVarCtx<'out>,
 
     aux_defs: Vec<AuxDef<'out>>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Local {
+    name: Atom,
+    id: ScopeId,
+    mutable: bool,
 }
 
 struct AuxDef<'a> {

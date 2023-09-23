@@ -950,7 +950,7 @@ impl<'c> Inner<'c> {
                         // @todo: keep?
                         if let Some(local) = info.term.try_local() {
                             let entry = ctx.local_ctx.lookup(local);
-                            if let Some(val) = entry.value {
+                            if let crate::tt::ScopeKind::Local(val) = entry.kind {
                                 sti::write!(&mut buf, " := ");
                                 let val = ctx.ivar_ctx.instantiate_term_vars(val, alloc);
                                 let val = pp.pp_term(val);

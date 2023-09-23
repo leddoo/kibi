@@ -46,7 +46,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
             TermData::Local (id) => {
                 let entry = self.lctx.lookup(id);
-                if let Some(value) = entry.value {
+                if let ScopeKind::Local(value) = entry.kind {
                     self.whnf_basic(value)
                 }
                 else { (e, true) }
@@ -279,7 +279,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
                 let save = self.lctx.save();
 
-                let id = self.lctx.push(b.kind, b.name, b.ty, None);
+                let id = self.lctx.push(b.name, b.ty, ScopeKind::Binder(b.kind));
                 let val = b.val.instantiate(self.alloc.mkt_local(id), self.alloc);
 
                 let new_val = self.reduce_ex(val, unfold);

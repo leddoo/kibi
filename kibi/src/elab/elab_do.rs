@@ -57,8 +57,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 for local in jp.locals.copy_it().rev() {
                     ty = this.mk_binder(ty, local, true);
                 }
-                for (_, param) in this.locals[..this.num_params].copy_it().rev() {
-                    ty = this.mk_binder(ty, param, true);
+                for param in this.locals[..this.num_params].copy_it().rev() {
+                    ty = this.mk_binder(ty, param.id, true);
                 }
                 assert!(this.elab.ensure_def_eq(jp.ty, ty));
 
@@ -83,7 +83,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         this.elab.locals.extend_from_slice(&old_locals);
 
         let entry = this.jps[JoinPoint::ZERO].ivar;
-        let local_terms = Vec::from_iter(self.locals.copy_map_it(|(_, local)| self.alloc.mkt_local(local)));
+        let local_terms = Vec::from_iter(self.locals.copy_map_it(|local| self.alloc.mkt_local(local.id)));
         let result = self.alloc.mkt_apps(entry, &local_terms);
         return (result, result_ty);
     }
@@ -171,7 +171,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
     fn new_jp_with_locals(&mut self, arg_ty: Option<Term<'out>>) -> JoinPoint {
         let locals = &self.elab.locals[self.num_params..];
-        let locals = Vec::from_iter(locals.copy_map_it(|(_, id)| id));
+        let locals = Vec::from_iter(locals.copy_map_it(|l| l.id));
         self.new_jp(locals, arg_ty)
     }
 
@@ -187,12 +187,16 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         self.jps[jp].reachable = reachable;
 
         // parameterize locals
+        let locals = &mut self.jps[jp].locals;
         self.elab.lctx.current = self.param_scope;
-        self.elab.locals.truncate(self.num_params);
-        for id in &mut self.jps[jp].locals {
+        self.elab.locals.truncate(self.num_params + locals.len());
+        for (i, id) in locals.iter_mut().enumerate() {
             let entry = self.elab.lctx.lookup(*id).clone();
-            *id = self.elab.lctx.push(entry.binder_kind, entry.name, entry.ty, None);
-            self.elab.locals.push((entry.name, *id));
+            *id = self.elab.lctx.push(entry.name, entry.ty, ScopeKind::Binder(BinderKind::Explicit));
+
+            let local = &mut self.elab.locals[self.num_params + i];
+            assert_eq!(local.name, entry.name);
+            local.id = *id;
         }
 
         self.current_jp = jp;
@@ -203,7 +207,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         assert!(target.arg_ty.is_some() == value.is_some());
 
         let locals = &self.locals[..self.num_params + target.locals.len()];
-        let locals = Vec::from_iter(locals.copy_map_it(|(_, local)| self.alloc.mkt_local(local)));
+        let locals = Vec::from_iter(locals.copy_map_it(|local| self.alloc.mkt_local(local.id)));
         let result = self.alloc.mkt_apps(target.ivar, &locals);
         if let Some(value) = value {
             self.alloc.mkt_apply(result, value)
@@ -239,8 +243,8 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         for local in entry.locals.copy_it().rev() {
             value = self.elab.mk_binder(value, local, false);
         }
-        for (_, param) in self.elab.locals[..self.num_params].copy_it().rev() {
-            value = self.elab.mk_binder(value, param, false);
+        for param in self.elab.locals[..self.num_params].copy_it().rev() {
+            value = self.elab.mk_binder(value, param.id, false);
         }
         entry.value = Some(value);
 
@@ -290,7 +294,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             let reachable = self.end_jp(self.mk_jump(jp, Some(jump_val)));
 
             self.begin_jp(jp, reachable || target.break_used);
-            let result_id = self.lctx.push(BinderKind::Explicit, Atom::NULL, result_ty, None);
+            let result_id = self.lctx.push(Atom::NULL, result_ty, ScopeKind::Binder(BinderKind::Explicit));
             self.jps[jp].locals.push(result_id);
 
             return (self.alloc.mkt_local(result_id), result_ty);
@@ -336,8 +340,8 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
                     // create local.
                     let name = it.name.value.to_option().unwrap_or(Atom::NULL);
-                    let id = self.lctx.push(BinderKind::Explicit, name, ty, Some(val));
-                    self.locals.push((name, id));
+                    let id = self.lctx.push(name, ty, ScopeKind::Local(val));
+                    self.locals.push(Local { name, id, mutable: it.is_var });
 
                     self.stmts.push(Stmt::Local(id));
                 }
@@ -351,13 +355,13 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
                     // find local.
                     let mut local = None;
-                    for (index, (name, id)) in self.locals.copy_it().enumerate().rev() {
-                        if name == ident.value {
-                            local = Some((index, id));
+                    for (index, l) in self.locals.copy_it().enumerate().rev() {
+                        if l.name == ident.value {
+                            local = Some((index, l.id, l.mutable));
                             break;
                         }
                     }
-                    let Some((index, id)) = local else {
+                    let Some((index, id, mutable)) = local else {
                         self.elab.error(ident.source, ElabError::UnresolvedName(
                             self.elab.alloc.alloc_str(&self.strings[ident.value])));
                         continue;
@@ -366,11 +370,16 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     let ty = self.lctx.lookup(id).ty;
                     let (value, _) = self.elab_do_expr(rhs, Some(ty));
 
-                    // create new local.
-                    let new_id = self.lctx.push(BinderKind::Explicit, ident.value, ty, Some(value));
-                    self.locals[index].1 = new_id;
+                    if !mutable {
+                        self.elab.error(ident.source, ElabError::TempStr("variable not assignable"));
+                    }
+                    else {
+                        // create new local.
+                        let new_id = self.lctx.push(ident.value, ty, ScopeKind::Local(value));
+                        self.locals[index].id = new_id;
 
-                    self.stmts.push(Stmt::Local(new_id));
+                        self.stmts.push(Stmt::Local(new_id));
+                    }
                 }
 
                 StmtKind::Expr(it) => {
@@ -532,7 +541,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     let after_reachable = body_reachable && target.break_used;
                     self.begin_jp(jp, after_reachable);
 
-                    let result_id = self.lctx.push(BinderKind::Explicit, Atom::NULL, result_ty, None);
+                    let result_id = self.lctx.push(Atom::NULL, result_ty, ScopeKind::Binder(BinderKind::Explicit));
                     self.jps[jp].locals.push(result_id);
 
                     return (self.alloc.mkt_local(result_id), result_ty);
@@ -854,7 +863,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         }
 
         if let Some(result_ty) = expected_ty {
-            let result_id = self.lctx.push(BinderKind::Explicit, Atom::NULL, result_ty, None);
+            let result_id = self.lctx.push(Atom::NULL, result_ty, ScopeKind::Binder(BinderKind::Explicit));
             self.jps[after_jp].locals.push(result_id);
 
             (self.alloc.mkt_local(result_id), result_ty)

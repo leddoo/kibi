@@ -49,7 +49,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             TermData::Lambda (b) => {
                 self.infer_type_as_sort(b.ty)?;
 
-                let id = self.lctx.push(b.kind, b.name, b.ty, None);
+                let id = self.lctx.push(b.name, b.ty, ScopeKind::Binder(b.kind));
                 let value = b.val.instantiate(self.alloc.mkt_local(id), self.alloc);
 
                 let value_ty = self.infer_type(value)?;
@@ -61,7 +61,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             TermData::Forall (b) => {
                 let param_level = self.infer_type_as_sort(b.ty)?;
 
-                let id = self.lctx.push(b.kind, b.name, b.ty, None);
+                let id = self.lctx.push(b.name, b.ty, ScopeKind::Binder(b.kind));
                 let value = b.val.instantiate(self.alloc.mkt_local(id), self.alloc);
 
                 let value_level = self.infer_type_as_sort(value)?;
@@ -71,7 +71,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             }
 
             TermData::Let (b) => {
-                let id = self.lctx.push(BinderKind::Explicit, b.name, b.ty, Some(b.val));
+                let id = self.lctx.push(b.name, b.ty, ScopeKind::Local(b.val));
 
                 let body = b.body.instantiate(self.alloc.mkt_local(id), self.alloc);
 

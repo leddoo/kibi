@@ -123,7 +123,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         let mut rem = result_ty;
         let mut rem_locals = Vec::new_in(&*temp);
         while let Some(pi) = rem.try_forall() {
-            let id = self.lctx.push(pi.kind, pi.name, pi.ty, None);
+            let id = self.lctx.push(pi.name, pi.ty, ScopeKind::Binder(pi.kind));
             rem_locals.push(id);
 
             let local = self.alloc.mkt_local(id);
