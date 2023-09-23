@@ -10,83 +10,82 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     pub fn elab_do(&mut self, expr_id: ExprId, flags: ExprFlags, block: expr::Block, expected_ty: Option<Term<'out>>)
         -> (Term<'out>, Term<'out>)
     {
-        let may_need_joins = flags.has_loop || flags.has_jump || (flags.has_if && flags.has_assign);
-        if !may_need_joins {
-            if block.stmts.len() == 0 {
-                return (Term::UNIT_MK, Term::UNIT);
-            }
-
-            // @todo: elab_let_chain.
-            // chain also for regular let, so we can do the multi-abstract thing.
-            self.error(expr_id, ElabError::TempStr("unimp do without joins"));
-            return self.mkt_ax_error_from_expected(expected_ty);
+        if block.stmts.len() == 0 {
+            return (Term::UNIT_MK, Term::UNIT);
         }
-        else {
-            let old_scope = self.lctx.current;
-            let old_locals = self.locals.clone();
 
-            let result_ty = match expected_ty {
-                Some(ex) => {
-                    let ex = self.instantiate_term_vars(ex);
-                    if ex.has_ivars() {
-                        self.error(expr_id, ElabError::TempStr("expected type must not have ivars"));
-                        return self.mkt_ax_error_from_expected(expected_ty);
-                    }
-                    ex
-                }
+        let old_scope = self.lctx.current;
+        let old_locals = self.locals.clone();
 
-                None => {
-                    self.error(expr_id, ElabError::TempStr("expected type must be known"));
+        let result_ty = match expected_ty {
+            Some(ex) => {
+                let ex = self.instantiate_term_vars(ex);
+                if ex.has_ivars() {
+                    self.error(expr_id, ElabError::TempStr("expected type must not have ivars"));
                     return self.mkt_ax_error_from_expected(expected_ty);
                 }
-            };
+                ex
+            }
 
-            let mut this = ElabDo::new(self, result_ty);
-            let (ret, ret_ty) = this.elab_do_block(expr_id, flags, block, Some(result_ty));//.unwrap();
-            // @cleanup: dedup.
-            if !this.ensure_def_eq(ret_ty, result_ty) {
-                let expected = this.instantiate_term_vars(result_ty);
-                let ty       = this.instantiate_term_vars(ret_ty);
-                let expected = this.reduce_ex(expected, false);
-                let ty       = this.reduce_ex(ty, false);
-                this.elab.error(expr_id, {
-                    let mut pp = TermPP::new(this.elab.env, &this.elab.strings, &this.elab.lctx, this.elab.alloc);
-                    let expected = pp.pp_term(expected);
-                    let found    = pp.pp_term(ty);
-                    ElabError::TypeMismatch { expected, found }
-                });
+            None => {
+                self.error(expr_id, ElabError::TempStr("expected type must be known"));
                 return self.mkt_ax_error_from_expected(expected_ty);
             }
-            this.end_jp(ret);
+        };
 
-            for (_, jp) in this.jps.iter() {
-                if jp.reachable {
-                    let ivar = jp.ivar.try_ivar().unwrap();
-                    let ty = ivar.ty(this.elab);
-                    this.elab.aux_defs.push(AuxDef {
-                        name: atoms::jp,
-                        ivar,
-                        ty,
-                        value: jp.value.unwrap(),
-                    });
-                }
-                else {
-                    let ty = this.elab.infer_type(jp.ivar).unwrap();
-                    let ax_unreach = this.elab.mkt_ax_unreach(ty);
-                    assert!(this.elab.ensure_def_eq(jp.ivar, ax_unreach));
-                }
-            }
-
-            this.elab.lctx.current = old_scope;
-            // @cleanup: sti vec assign/_from_slice.
-            this.elab.locals.clear();
-            this.elab.locals.extend_from_slice(&old_locals);
-
-            let entry = this.jps[JoinPoint::ZERO].ivar;
-            let local_terms = Vec::from_iter(self.locals.copy_map_it(|(_, local)| self.alloc.mkt_local(local)));
-            let result = self.alloc.mkt_apps(entry, &local_terms);
-            return (result, result_ty);
+        let mut this = ElabDo::new(self, result_ty);
+        let (ret, ret_ty) = this.elab_do_block(expr_id, flags, block, Some(result_ty));//.unwrap();
+        // @cleanup: dedup.
+        if !this.ensure_def_eq(ret_ty, result_ty) {
+            let expected = this.instantiate_term_vars(result_ty);
+            let ty       = this.instantiate_term_vars(ret_ty);
+            let expected = this.reduce_ex(expected, false);
+            let ty       = this.reduce_ex(ty, false);
+            this.elab.error(expr_id, {
+                let mut pp = TermPP::new(this.elab.env, &this.elab.strings, &this.elab.lctx, this.elab.alloc);
+                let expected = pp.pp_term(expected);
+                let found    = pp.pp_term(ty);
+                ElabError::TypeMismatch { expected, found }
+            });
+            return self.mkt_ax_error_from_expected(expected_ty);
         }
+        this.end_jp(ret);
+
+        for (_, jp) in this.jps.iter() {
+            if jp.reachable {
+                let mut ty = this.result_ty;
+                for local in jp.locals.copy_it().rev() {
+                    ty = this.mk_binder(ty, local, true);
+                }
+                for (_, param) in this.locals[..this.num_params].copy_it().rev() {
+                    ty = this.mk_binder(ty, param, true);
+                }
+                assert!(this.elab.ensure_def_eq(jp.ty, ty));
+
+                this.elab.aux_defs.push(AuxDef {
+                    name: atoms::jp,
+                    ivar: jp.ivar.try_ivar().unwrap(),
+                    ty,
+                    value: jp.value.unwrap(),
+                });
+            }
+            else {
+                let ty  = this.elab.mkt_ax_unreach(Term::SORT_1);
+                let val = this.elab.mkt_ax_unreach(ty);
+                assert!(this.elab.ensure_def_eq(jp.ty,   ty));
+                assert!(this.elab.ensure_def_eq(jp.ivar, val));
+            }
+        }
+
+        this.elab.lctx.current = old_scope;
+        // @cleanup: sti vec assign/_from_slice.
+        this.elab.locals.clear();
+        this.elab.locals.extend_from_slice(&old_locals);
+
+        let entry = this.jps[JoinPoint::ZERO].ivar;
+        let local_terms = Vec::from_iter(self.locals.copy_map_it(|(_, local)| self.alloc.mkt_local(local)));
+        let result = self.alloc.mkt_apps(entry, &local_terms);
+        return (result, result_ty);
     }
 }
 
@@ -121,6 +120,7 @@ struct JumpTarget<'a> {
 
 struct JoinPointData<'a> {
     ivar: Term<'a>,
+    ty: Term<'a>,
     // this is kinda scuffed:
     // the local for the arg is added by the caller after begin_jp.
     locals: Vec<ScopeId>,
@@ -158,21 +158,10 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
     }
 
     fn new_jp(&mut self, locals: Vec<ScopeId>, arg_ty: Option<Term<'out>>) -> JoinPoint {
-        // @todo: mk_binder?
-        let mut ty = self.result_ty;
-        if let Some(arg_ty) = arg_ty {
-            ty = self.alloc.mkt_forall(BinderKind::Explicit, Atom::NULL, arg_ty, ty);
-        }
-        for local in locals.copy_it().rev() {
-            ty = self.lctx.abstract_forall(ty, local, self.alloc);
-        }
-        for (_, param) in self.locals[..self.num_params].copy_it().rev() {
-            ty = self.lctx.abstract_forall(ty, param, self.alloc);
-        }
-
-        let ivar = self.new_term_var_of_type(ty);
+        let (ivar, ty) = self.new_term_var();
         self.jps.push(JoinPointData { 
             ivar,
+            ty,
             locals,
             arg_ty,
             value: None,

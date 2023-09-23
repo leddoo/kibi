@@ -151,7 +151,7 @@ impl<'a> Env<'a> {
     }
 
 
-    #[inline(always)]
+    #[track_caller]
     pub fn new_symbol(&mut self, parent: SymbolId, name: Atom, kind: SymbolKind<'a>) -> Option<SymbolId> {
         let mut predeclared = None;
         if let Some(symbol) = self.lookup(parent, name) {
@@ -210,6 +210,7 @@ impl<'a> Env<'a> {
         p.children.get(&name).copied()
     }
 
+    #[track_caller]
     pub fn resolve_pending(&mut self, id: SymbolId, kind: SymbolKind<'a>) {
         match &kind {
             SymbolKind::Root |

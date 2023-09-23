@@ -1,3 +1,4 @@
+use sti::traits::{CopyIt, FromIn};
 use sti::arena_pool::ArenaPool;
 
 use crate::ast::{self, *};
@@ -100,6 +101,13 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         let (mut val, val_ty) = self.elab_expr_checking_type(value, ty);
 
 
+        let mut aux_level_args = &[][..];
+        if self.aux_defs.len() > 0 {
+            aux_level_args = Vec::from_in(self.alloc,
+                self.level_params.copy_it().enumerate().map(|(i, param)|
+                    self.alloc.mkl_param(param, i as u32))).leak();
+        }
+
         // declare aux defs.
         let mut aux_symbols = Vec::with_cap(self.aux_defs.len());
         let aux_defs = self.aux_defs.take();
@@ -109,15 +117,11 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             let name = format!("{}_{n}", &self.strings[aux.name]);
             let name = self.strings.insert(&name);
 
-            // @todo: aux_def levels.
-            assert_eq!(self.level_params.len(), 0);
-
             let symbol = self.env.new_symbol(self.root_symbol, name,
                 SymbolKind::Pending(None)).unwrap();
             aux_symbols.push(symbol);
 
-            // @todo: aux_def levels.
-            let global = self.alloc.mkt_global(symbol, &[]);
+            let global = self.alloc.mkt_global(symbol, aux_level_args);
             unsafe { aux.ivar.assign_core(global, self) }
         }
 

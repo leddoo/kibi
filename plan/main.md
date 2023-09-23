@@ -16,28 +16,12 @@
 
 
 - todo:
-    - level params.
     - assignment valiation: make sure the local is actually a `var`.
       not `let` or something different entirely.
         - lctx cleanup binder xor let thing.
-    - let chain: parse/elab.
-    - uninit dependent vars on assign.
-        - track deps using temp arena & vec for each var.
-        - also need to remove deps, hmm.
-        - don't keep uninit, if not used.
-        - hmm, we don't really want to uninit, unless we need to
-          cause you should be able to use the old value to derive
-          a new proof.
-        - maybe also easy to rewrite stuff that uses bool vars?
-    - oh ja, `bite`.
-    - generate warnings for unreachable code.
-    - fix congr-arg let foo := 42 crash.
-    - begin test suite.
     - tyck.
         - no termination checking yet.
         - use for inductive.
-        - `SymbolKind::Axiom`.
-        - definitional height.
     - brck.
         - region inference.
             - how to handle annotations?
@@ -60,6 +44,19 @@
               but that would again be covered by disallowing reasoning
               about impure functions.
     - `fn`.
+
+    - uninit dependent vars on assign.
+        - track deps using temp arena & vec for each var.
+        - also need to remove deps, hmm.
+        - don't keep uninit, if not used.
+        - hmm, we don't really want to uninit, unless we need to
+          cause you should be able to use the old value to derive
+          a new proof.
+        - maybe also easy to rewrite stuff that uses bool vars?
+    - oh ja, `bite`.
+    - generate warnings for unreachable code.
+    - fix congr-arg let foo := 42 crash.
+    - begin test suite.
 
 
 ### issues:

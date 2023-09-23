@@ -120,7 +120,11 @@
 
 ### tweaks & optimizations:
 
-- elab do: proper `needs_value`.
+- elab do:
+    - proper `needs_value`.
+    - `ite(c, t, f)(locals)`.
+- def-eq: definitional height.
+- `let in` chain (parse & elab).
 
 
 
