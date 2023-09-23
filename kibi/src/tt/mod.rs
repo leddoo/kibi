@@ -3,6 +3,7 @@ pub mod term;
 pub mod pp;
 pub mod local_ctx;
 pub mod inductive;
+pub mod tyck;
 
 pub use level::*;
 pub use term::*;

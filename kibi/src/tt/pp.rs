@@ -122,7 +122,7 @@ impl<'me, 'a> TermPP<'me, 'a> {
                     let mut levels = self.pp_level(g.levels[0]);
                     for level in g.levels[1..].iter().copied() {
                         let l = self.pp_level(level);
-                        levels = self.pp.cat( self.pp.text(", "), l);
+                        levels = self.pp.cats(&[levels, self.pp.text(", "), l]);
                     }
                     self.pp.cats(&[
                         name,

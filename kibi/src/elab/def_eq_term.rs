@@ -146,10 +146,11 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 // value eq.
                 let val1 = b1.val.instantiate(local, self.alloc);
                 let val2 = b2.val.instantiate(local, self.alloc);
+                let result = self.ensure_def_eq(val1, val2);
 
                 self.lctx.pop(id);
 
-                Some(self.ensure_def_eq(val1, val2))
+                Some(result)
             }
 
             _ => None,

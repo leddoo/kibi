@@ -243,7 +243,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             }
 
             _ => {
-                eprintln!("unimp expr kind {:?}", expr);
+                //eprintln!("unimp expr kind {:?}", expr);
                 self.error(expr_id, ElabError::TempUnimplemented);
                 return self.mkt_ax_error_from_expected(expected_ty);
             }

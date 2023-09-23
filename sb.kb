@@ -737,9 +737,8 @@ reduce loop_7
 
 def do_levels.{a}(A: Sort(a), a b: A): A := do {
     var x := b;
-    if Bool::true {
-        x := a;
-    };
+    -- @temp: ite doesn't support levels atm.
+    --if Bool::true { x := a; };
     return x;
 }
 reduce do_levels(Nat, 42, 69)

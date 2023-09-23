@@ -16,9 +16,10 @@
 
 
 - todo:
-    - tyck.
-        - no termination checking yet.
-        - use for inductive.
+    - better printing for tyck failures.
+        - source info.
+        - don't unwrap.
+    - use tyck for inductive.
     - brck.
         - region inference.
             - how to handle annotations?

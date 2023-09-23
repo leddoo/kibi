@@ -1,6 +1,7 @@
 
 ### fixes, completeness, robustness:
 
+- tyck review.
 - better errors:
     - ivar info.
     - symbol already defined.

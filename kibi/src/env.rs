@@ -4,6 +4,7 @@ use sti::hash::HashMap;
 use crate::string_table::{Atom, atoms};
 use crate::tt::*;
 use crate::tt::inductive::InductiveInfo;
+use crate::tt::tyck::TyCk;
 
 
 pub struct Env<'a> {
@@ -169,16 +170,25 @@ impl<'a> Env<'a> {
 
             SymbolKind::Pending(Some(it)) |
             SymbolKind::Axiom(it) => {
-                assert!(it.ty.closed_no_local_no_ivar());
+                let temp = sti::arena_pool::ArenaPool::tls_get_temp();
+                let mut lctx = LocalCtx::new();
+                let mut tc = TyCk::new(self, &mut lctx, it.num_levels, &*temp);
+                tc.check_is_type(it.ty).unwrap();
             }
 
             SymbolKind::Def(it) => {
-                assert!(it.ty.closed_no_local_no_ivar());
-                assert!(it.val.closed_no_local_no_ivar());
+                let temp = sti::arena_pool::ArenaPool::tls_get_temp();
+                let mut lctx = LocalCtx::new();
+                let mut tc = TyCk::new(self, &mut lctx, it.num_levels, &*temp);
+                tc.check_is_type(it.ty).unwrap();
+                tc.check_has_type(it.val, it.ty).unwrap();
             }
 
             SymbolKind::IndAxiom(it) => {
-                assert!(it.ty.closed_no_local_no_ivar());
+                let temp = sti::arena_pool::ArenaPool::tls_get_temp();
+                let mut lctx = LocalCtx::new();
+                let mut tc = TyCk::new(self, &mut lctx, it.num_levels, &*temp);
+                tc.check_is_type(it.ty).unwrap()
             }
         }
 
@@ -219,18 +229,73 @@ impl<'a> Env<'a> {
             SymbolKind::Axiom(_) => unreachable!(),
 
             SymbolKind::Def(it) => {
-                assert!(it.ty.closed_no_local_no_ivar());
-                assert!(it.val.closed_no_local_no_ivar());
+                let temp = sti::arena_pool::ArenaPool::tls_get_temp();
+                let mut lctx = LocalCtx::new();
+                let mut tc = TyCk::new(self, &mut lctx, it.num_levels, &*temp);
+                tc.check_is_type(it.ty).unwrap();
+                tc.check_has_type(it.val, it.ty).unwrap();
             }
 
             SymbolKind::IndAxiom(it) => {
-                assert!(it.ty.closed_no_local_no_ivar());
+                let temp = sti::arena_pool::ArenaPool::tls_get_temp();
+                let mut lctx = LocalCtx::new();
+                let mut tc = TyCk::new(self, &mut lctx, it.num_levels, &*temp);
+                tc.check_is_type(it.ty).unwrap();
             }
         }
 
         let symbol = &mut self.symbols[id];
         assert!(matches!(symbol.kind, SymbolKind::Pending(_)));
         symbol.kind = kind;
+    }
+
+    #[track_caller]
+    pub unsafe fn resolve_pending_unck(&mut self, id: SymbolId, kind: SymbolKind<'a>) {
+        match &kind {
+            SymbolKind::Root |
+            SymbolKind::Predeclared |
+            SymbolKind::Pending(_) |
+            SymbolKind::Axiom(_) => unreachable!(),
+
+            SymbolKind::Def(_) => {}
+            SymbolKind::IndAxiom(_) => {}
+        }
+
+        let symbol = &mut self.symbols[id];
+        assert!(matches!(symbol.kind, SymbolKind::Pending(_)));
+        symbol.kind = kind;
+    }
+
+    pub fn validate_symbol(&mut self, id: SymbolId) {
+        match &self.symbols[id].kind {
+            SymbolKind::Root |
+            SymbolKind::Predeclared => unreachable!(),
+
+            SymbolKind::Pending(None) => (),
+
+            SymbolKind::Pending(Some(it)) |
+            SymbolKind::Axiom(it) => {
+                let temp = sti::arena_pool::ArenaPool::tls_get_temp();
+                let mut lctx = LocalCtx::new();
+                let mut tc = TyCk::new(self, &mut lctx, it.num_levels, &*temp);
+                tc.check_is_type(it.ty).unwrap();
+            }
+
+            SymbolKind::Def(it) => {
+                let temp = sti::arena_pool::ArenaPool::tls_get_temp();
+                let mut lctx = LocalCtx::new();
+                let mut tc = TyCk::new(self, &mut lctx, it.num_levels, &*temp);
+                tc.check_is_type(it.ty).unwrap();
+                tc.check_has_type(it.val, it.ty).unwrap();
+            }
+
+            SymbolKind::IndAxiom(it) => {
+                let temp = sti::arena_pool::ArenaPool::tls_get_temp();
+                let mut lctx = LocalCtx::new();
+                let mut tc = TyCk::new(self, &mut lctx, it.num_levels, &*temp);
+                tc.check_is_type(it.ty).unwrap()
+            }
+        }
     }
 }
 

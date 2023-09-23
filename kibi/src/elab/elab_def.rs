@@ -153,13 +153,19 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             let ty  = self.instantiate_term_vars(aux.ty);
             let val = self.instantiate_term_vars(aux.value);
 
-            println!("{:?}: {}", &self.strings[self.env.symbol(symbol).name], self.pp(val, 80));
+            //println!("{:?}: {}", &self.strings[self.env.symbol(symbol).name], self.pp(val, 80));
 
-            self.env.resolve_pending(symbol, SymbolKind::Def(symbol::Def {
+            // validated below, cause cycles.
+            unsafe { self.env.resolve_pending_unck(symbol, SymbolKind::Def(symbol::Def {
                 num_levels: self.level_params.len(),
                 ty,
                 val,
-            }));
+            })) };
+        }
+
+        // validate aux symbols.
+        for id in aux_symbols.copy_it() {
+            self.env.validate_symbol(id);
         }
 
 
@@ -213,7 +219,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         spall::trace_scope!("kibi/elab/def"; "{}",
             def.name.display(self.strings));
 
-        eprintln!("!!! {}", def.name.display(self.strings));
+        //eprintln!("!!! {}", def.name.display(self.strings));
 
         let (parent, name) = match def.name {
             IdentOrPath::Ident(name) => (self.root_symbol, name),

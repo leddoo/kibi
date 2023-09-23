@@ -181,6 +181,17 @@ impl<'a> LocalCtx<'a> {
         alloc.mkt_lambda(kind, entry.name, entry.ty, value)
     }
 
+    #[track_caller]
+    #[inline(always)]
+    pub fn abstract_let(&self, body: Term<'a>, id: ScopeId, discard_unused: bool, alloc: &'a Arena) -> Term<'a> {
+        if discard_unused && body.closed() {
+            return body;
+        }
+        let entry = self.lookup(id);
+        let body = body.abstracc(id, alloc);
+        alloc.mkt_let(entry.name, entry.ty, entry.kind.as_local(), body)
+    }
+
 
     #[inline(always)]
     pub fn save(&self) -> SavePoint {

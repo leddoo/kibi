@@ -81,11 +81,11 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     }
 
     pub fn mk_let(&self, body: Term<'out>, id: ScopeId, discard_unused: bool) -> Term<'out> {
-        let new_body = self.abstracc(body, id);
-
-        if discard_unused && new_body.ptr_eq(body) {
+        if discard_unused && body.closed() {
             return body;
         }
+
+        let body = self.abstracc(body, id);
 
         // instantiate type after body, cause abstracc may
         // assign ivars (elim locals).
@@ -94,7 +94,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         let ty  = self.instantiate_term_vars(entry.ty);
         let val = self.instantiate_term_vars(val);
-        self.alloc.mkt_let(entry.name, ty, val, new_body)
+        self.alloc.mkt_let(entry.name, ty, val, body)
     }
 }
 
