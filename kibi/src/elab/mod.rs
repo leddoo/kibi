@@ -167,42 +167,42 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
     #[inline(always)]
     #[track_caller]
-    pub fn mkt_ax_sorry(&mut self, t: tt::Term<'out>) -> tt::Term<'out> {
+    pub fn mkt_ax_sorry(&mut self, t: tt::Term<'out>, source: tt::TermSource) -> tt::Term<'out> {
         use tt::TermAlloc;
-        self.alloc.mkt_ax_sorry(self.infer_type_as_sort(t).unwrap(), t)
+        self.alloc.mkt_ax_sorry(self.infer_type_as_sort(t).unwrap(), t, source)
     }
 
     #[inline(always)]
     #[track_caller]
-    pub fn mkt_ax_uninit(&mut self, t: tt::Term<'out>) -> tt::Term<'out> {
+    pub fn mkt_ax_uninit(&mut self, t: tt::Term<'out>, source: tt::TermSource) -> tt::Term<'out> {
         use tt::TermAlloc;
-        self.alloc.mkt_ax_uninit(self.infer_type_as_sort(t).unwrap(), t)
+        self.alloc.mkt_ax_uninit(self.infer_type_as_sort(t).unwrap(), t, source)
     }
 
     #[inline(always)]
     #[track_caller]
-    pub fn mkt_ax_unreach(&mut self, t: tt::Term<'out>) -> tt::Term<'out> {
+    pub fn mkt_ax_unreach(&mut self, t: tt::Term<'out>, source: tt::TermSource) -> tt::Term<'out> {
         use tt::TermAlloc;
-        self.alloc.mkt_ax_unreach(self.infer_type_as_sort(t).unwrap(), t)
+        self.alloc.mkt_ax_unreach(self.infer_type_as_sort(t).unwrap(), t, source)
     }
 
     #[inline(always)]
     #[track_caller]
-    pub fn mkt_ax_error(&mut self, t: tt::Term<'out>) -> (tt::Term<'out>, tt::Term<'out>) {
+    pub fn mkt_ax_error(&mut self, t: tt::Term<'out>, source: tt::TermSource) -> (tt::Term<'out>, tt::Term<'out>) {
         use tt::TermAlloc;
-        (self.alloc.mkt_ax_error(self.infer_type_as_sort(t).unwrap(), t), t)
+        (self.alloc.mkt_ax_error(self.infer_type_as_sort(t).unwrap(), t, source), t)
     }
 
     #[inline(always)]
     #[track_caller]
-    pub fn mkt_ax_error_from_expected(&mut self, expected: Option<tt::Term<'out>>) -> (tt::Term<'out>, tt::Term<'out>) {
+    pub fn mkt_ax_error_from_expected(&mut self, expected: Option<tt::Term<'out>>, source: tt::TermSource) -> (tt::Term<'out>, tt::Term<'out>) {
         if let Some(t) = expected {
-            self.mkt_ax_error(t)
+            self.mkt_ax_error(t, source)
         }
         else {
             use tt::TermAlloc;
             let (t, l) = self.new_ty_var();
-            (self.alloc.mkt_ax_error(l, t), t)
+            (self.alloc.mkt_ax_error(l, t, source), t)
         }
     }
 

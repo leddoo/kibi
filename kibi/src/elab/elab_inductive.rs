@@ -58,7 +58,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             self.lctx.push(ind.name.value, type_former, ScopeKind::Binder(BinderKind::Explicit));
         self.locals.push(Local { name: ind.name.value, id: ind_local_id, mutable: false });
 
-        let ind_local = self.alloc.mkt_local(ind_local_id);
+        let ind_local = self.alloc.mkt_local(ind_local_id, TERM_SOURCE_NONE);
 
         // elab ctors.
         let mut ctors = Vec::with_cap_in(&*temp, ind.ctors.len());
@@ -78,7 +78,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             };
 
             for (arg, _, _) in args.iter().rev().copied() {
-                ty = self.mk_binder(ty, arg, true);
+                ty = self.mk_binder(ty, arg, true, TERM_SOURCE_NONE);
                 self.lctx.pop(arg);
             }
             self.locals.truncate(self.locals.len() - args.len());

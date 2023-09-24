@@ -12,7 +12,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         t.replace_ex(offset, self.alloc, &mut |at, offset, alloc| {
             if let Some(local) = at.try_local() {
                 if local == id {
-                    return Some(alloc.mkt_bound(BVar { offset }));
+                    return Some(alloc.mkt_bound(BVar { offset }, at.source()));
                 }
             }
 
@@ -52,7 +52,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         })
     }
 
-    pub fn mk_binder(&self, val: Term<'out>, id: ScopeId, is_forall: bool) -> Term<'out> {
+    pub fn mk_binder(&self, val: Term<'out>, id: ScopeId, is_forall: bool, source: TermSource) -> Term<'out> {
         let val = self.abstracc(val, id);
 
         // instantiate type after val, cause abstracc may
@@ -62,11 +62,11 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         let ty = self.instantiate_term_vars(entry.ty);
 
-        if is_forall { self.alloc.mkt_forall(kind, entry.name, ty, val) }
-        else         { self.alloc.mkt_lambda(kind, entry.name, ty, val) }
+        if is_forall { self.alloc.mkt_forall(kind, entry.name, ty, val, source) }
+        else         { self.alloc.mkt_lambda(kind, entry.name, ty, val, source) }
     }
 
-    pub fn mk_binder_with_kind(&self, kind: BinderKind, val: Term<'out>, id: ScopeId, is_forall: bool) -> Term<'out> {
+    pub fn mk_binder_with_kind(&self, kind: BinderKind, val: Term<'out>, id: ScopeId, is_forall: bool, source: TermSource) -> Term<'out> {
         let val = self.abstracc(val, id);
 
         // instantiate type after val, cause abstracc may
@@ -76,11 +76,11 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         let ty = self.instantiate_term_vars(entry.ty);
 
-        if is_forall { self.alloc.mkt_forall(kind, entry.name, ty, val) }
-        else         { self.alloc.mkt_lambda(kind, entry.name, ty, val) }
+        if is_forall { self.alloc.mkt_forall(kind, entry.name, ty, val, source) }
+        else         { self.alloc.mkt_lambda(kind, entry.name, ty, val, source) }
     }
 
-    pub fn mk_let(&self, body: Term<'out>, id: ScopeId, discard_unused: bool) -> Term<'out> {
+    pub fn mk_let(&self, body: Term<'out>, id: ScopeId, discard_unused: bool, source: TermSource) -> Term<'out> {
         if discard_unused && body.closed() {
             return body;
         }
@@ -94,7 +94,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         let ty  = self.instantiate_term_vars(entry.ty);
         let val = self.instantiate_term_vars(val);
-        self.alloc.mkt_let(entry.name, ty, val, body)
+        self.alloc.mkt_let(entry.name, ty, val, body, source)
     }
 }
 

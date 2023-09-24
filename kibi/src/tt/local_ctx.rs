@@ -165,31 +165,31 @@ impl<'a> LocalCtx<'a> {
 
     #[track_caller]
     #[inline(always)]
-    pub fn abstract_forall(&self, ret: Term<'a>, id: ScopeId, alloc: &'a Arena) -> Term<'a> {
+    pub fn abstract_forall(&self, ret: Term<'a>, id: ScopeId, source: TermSource, alloc: &'a Arena) -> Term<'a> {
         let entry = self.lookup(id);
         let ret = ret.abstracc(id, alloc);
         let kind = entry.kind.as_binder();
-        alloc.mkt_forall(kind, entry.name, entry.ty, ret)
+        alloc.mkt_forall(kind, entry.name, entry.ty, ret, source)
     }
 
     #[track_caller]
     #[inline(always)]
-    pub fn abstract_lambda(&self, value: Term<'a>, id: ScopeId, alloc: &'a Arena) -> Term<'a> {
+    pub fn abstract_lambda(&self, value: Term<'a>, id: ScopeId, source: TermSource, alloc: &'a Arena) -> Term<'a> {
         let entry = self.lookup(id);
         let value = value.abstracc(id, alloc);
         let kind = entry.kind.as_binder();
-        alloc.mkt_lambda(kind, entry.name, entry.ty, value)
+        alloc.mkt_lambda(kind, entry.name, entry.ty, value, source)
     }
 
     #[track_caller]
     #[inline(always)]
-    pub fn abstract_let(&self, body: Term<'a>, id: ScopeId, discard_unused: bool, alloc: &'a Arena) -> Term<'a> {
+    pub fn abstract_let(&self, body: Term<'a>, id: ScopeId, discard_unused: bool, source: TermSource, alloc: &'a Arena) -> Term<'a> {
         if discard_unused && body.closed() {
             return body;
         }
         let entry = self.lookup(id);
         let body = body.abstracc(id, alloc);
-        alloc.mkt_let(entry.name, entry.ty, entry.kind.as_local(), body)
+        alloc.mkt_let(entry.name, entry.ty, entry.kind.as_local(), body, source)
     }
 
 

@@ -78,7 +78,7 @@ impl<'me, 'out> TyCk<'me, 'out> {
         let result = match t.data() {
             TermData::Sort(l) => {
                 self.check_level(l, t)?;
-                self.alloc.mkt_sort(l.succ(self.alloc))
+                self.alloc.mkt_sort(l.succ(self.alloc), TERM_SOURCE_NONE)
             }
 
             TermData::Bound(_) =>
@@ -117,21 +117,21 @@ impl<'me, 'out> TyCk<'me, 'out> {
                 let (ty, l_ty) = self.ensure_type(it.ty)?;
 
                 let id = self.lctx.push(it.name, ty, ScopeKind::Binder(it.kind));
-                let ret = it.val.instantiate(self.alloc.mkt_local(id), self.alloc);
+                let ret = it.val.instantiate(self.alloc.mkt_local(id, TERM_SOURCE_NONE), self.alloc);
                 let (_, l_ret) = self.ensure_type(ret)?;
                 self.lctx.pop(id);
 
                 let l = l_ty.imax(l_ret, self.alloc);
-                self.alloc.mkt_sort(l)
+                self.alloc.mkt_sort(l, TERM_SOURCE_NONE)
             }
 
             TermData::Lambda(it) => {
                 let (ty, _) = self.ensure_type(it.ty)?;
 
                 let id = self.lctx.push(it.name, ty, ScopeKind::Binder(it.kind));
-                let val = it.val.instantiate(self.alloc.mkt_local(id), self.alloc);
+                let val = it.val.instantiate(self.alloc.mkt_local(id, TERM_SOURCE_NONE), self.alloc);
                 let ret = self.infer_type(val)?;
-                let ret = self.lctx.abstract_forall(ret, id, self.alloc);
+                let ret = self.lctx.abstract_forall(ret, id, TERM_SOURCE_NONE, self.alloc);
                 self.lctx.pop(id);
 
                 ret
@@ -147,9 +147,9 @@ impl<'me, 'out> TyCk<'me, 'out> {
                 }
 
                 let id = self.lctx.push(it.name, ty, ScopeKind::Local(it.val));
-                let body = it.body.instantiate(self.alloc.mkt_local(id), self.alloc);
+                let body = it.body.instantiate(self.alloc.mkt_local(id, TERM_SOURCE_NONE), self.alloc);
                 let res = self.infer_type(body)?;
-                let res = self.lctx.abstract_let(res, id, true, self.alloc);
+                let res = self.lctx.abstract_let(res, id, true, TERM_SOURCE_NONE, self.alloc);
                 self.lctx.pop(id);
 
                 res
@@ -321,7 +321,7 @@ impl<'me, 'out> TyCk<'me, 'out> {
                     else { break }
                 }
 
-                self.alloc.mkt_apps(result, &args[i..])
+                self.alloc.mkt_apps(result, &args[i..], TERM_SOURCE_NONE)
             };
             return self.whnf_no_unfold(result);
         }
@@ -403,7 +403,7 @@ impl<'me, 'out> TyCk<'me, 'out> {
 
         let result = result.instantiate_level_params(global.levels, self.alloc);
 
-        let result = self.alloc.mkt_apps(result, app_args);
+        let result = self.alloc.mkt_apps(result, app_args, TERM_SOURCE_NONE);
         assert!(result.closed());
         return Some(result);
     }
@@ -514,7 +514,7 @@ impl<'me, 'out> TyCk<'me, 'out> {
                 }
 
                 let id = self.lctx.push(b1.name, b1.ty, ScopeKind::Binder(b1.kind));
-                let local = self.alloc.mkt_local(id);
+                let local = self.alloc.mkt_local(id, TERM_SOURCE_NONE);
 
                 // value eq.
                 let val1 = b1.val.instantiate(local, self.alloc);

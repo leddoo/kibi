@@ -151,7 +151,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
     pub fn new_term_var_core(&mut self, ty: Term<'out>, scope: OptScopeId) -> Term<'out> {
         let id = self.new_term_var_id(ty, scope);
-        self.alloc.mkt_ivar(id)
+        self.alloc.mkt_ivar(id, TERM_SOURCE_NONE)
     }
 
     pub fn new_term_var_of_type(&mut self, ty: Term<'out>) -> Term<'out> {
@@ -160,14 +160,14 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
     pub fn new_term_var(&mut self) -> (Term<'out>, Term<'out>) {
         let l = self.new_level_var();
-        let tyty = self.alloc.mkt_sort(l);
+        let tyty = self.alloc.mkt_sort(l, TERM_SOURCE_NONE);
         let ty = self.new_term_var_core(tyty, self.lctx.current());
         (self.new_term_var_core(ty, self.lctx.current()), ty)
     }
 
     pub fn new_ty_var(&mut self) -> (Term<'out>, Level<'out>) {
         let l = self.new_level_var();
-        let ty = self.alloc.mkt_sort(l);
+        let ty = self.alloc.mkt_sort(l, TERM_SOURCE_NONE);
         (self.new_term_var_core(ty, self.lctx.current()), l)
     }
 
@@ -252,7 +252,7 @@ impl TermVarId {
 
         // abstract out `args`.
         for arg in args {
-            value = elab.lctx.abstract_lambda(value, *arg, elab.alloc);
+            value = elab.lctx.abstract_lambda(value, *arg, TERM_SOURCE_NONE, elab.alloc);
         }
 
         let Some(value) = elab.check_value_for_assign(value, self) else {

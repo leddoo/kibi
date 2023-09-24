@@ -12,7 +12,7 @@ sti::define_key!(pub, u32, ParseStringId);
 sti::define_key!(pub, u32, ParseNumberId);
 
 sti::define_key!(pub, u32, TokenId, rng: TokenRange);
-sti::define_key!(pub, u32, ItemId);
+sti::define_key!(pub, u32, ItemId, opt: OptItemId);
 sti::define_key!(pub, u32, StmtId);
 sti::define_key!(pub, u32, LevelId);
 sti::define_key!(pub, u32, ExprId, opt: OptExprId);

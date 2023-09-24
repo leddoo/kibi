@@ -141,7 +141,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 }
 
                 let id = self.lctx.push(b1.name, b1.ty, ScopeKind::Binder(b1.kind));
-                let local = self.alloc.mkt_local(id);
+                let local = self.alloc.mkt_local(id, TERM_SOURCE_NONE);
 
                 // value eq.
                 let val1 = b1.val.instantiate(local, self.alloc);

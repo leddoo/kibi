@@ -147,22 +147,22 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
                 // @complete: check indices are types.
                 let id = this.elab.lctx.push(pi.name, pi.ty, ScopeKind::Binder(pi.kind));
                 indices.push(id);
-                ty = pi.val.instantiate(this.alloc.mkt_local(id), this.alloc);
+                ty = pi.val.instantiate(this.alloc.mkt_local(id, TERM_SOURCE_NONE), this.alloc);
             }
 
-            let global = this.alloc.mkt_global(spec.symbol, this.level_params);
+            let global = this.alloc.mkt_global(spec.symbol, this.level_params, TERM_SOURCE_NONE);
 
             let mut global_params = global;
             for param in this.spec.params.iter().copied() {
-                global_params = this.alloc.mkt_apply(global_params, this.alloc.mkt_local(param));
+                global_params = this.alloc.mkt_apply(global_params, this.alloc.mkt_local(param, TERM_SOURCE_NONE), TERM_SOURCE_NONE);
             }
             let mut global_indices = global_params;
             for index in indices.iter().copied() {
-                global_indices = this.alloc.mkt_apply(global_indices, this.alloc.mkt_local(index));
+                global_indices = this.alloc.mkt_apply(global_indices, this.alloc.mkt_local(index, TERM_SOURCE_NONE), TERM_SOURCE_NONE);
             }
 
             for param in this.spec.params.iter().copied().rev() {
-                type_former = this.elab.lctx.abstract_forall(type_former, param, this.alloc);
+                type_former = this.elab.lctx.abstract_forall(type_former, param, TERM_SOURCE_NONE, this.alloc);
             }
             assert!(type_former.closed_no_local_no_ivar());
             type_formers.push(type_former);
@@ -269,7 +269,7 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
                         let id = this.elab.lctx.push(pi.name, pi.ty, ScopeKind::Binder(pi.kind));
                         args.push((id, None));
 
-                        ty = pi.val.instantiate(this.alloc.mkt_local(id), this.alloc);
+                        ty = pi.val.instantiate(this.alloc.mkt_local(id, TERM_SOURCE_NONE), this.alloc);
                     }
                 }
 
@@ -286,7 +286,7 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
                     (local == spec.local).then_some(this.type_global_param_apps[spec_idx])
                 });
                 for param in this.spec.params.iter().copied().rev() {
-                    ctor_type = this.elab.lctx.abstract_forall(ctor_type, param, this.alloc);
+                    ctor_type = this.elab.lctx.abstract_forall(ctor_type, param, TERM_SOURCE_NONE, this.alloc);
                 }
                 assert!(ctor_type.closed_no_local_no_ivar());
 
@@ -365,7 +365,7 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
                         .chain([r])
                     ).leak();
 
-                this.alloc.mkt_sort(r)
+                this.alloc.mkt_sort(r, TERM_SOURCE_NONE)
             }
             else { Term::SORT_0 };
 
@@ -375,10 +375,10 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
             let mp = this.type_global_index_apps[spec_idx];
 
             let mut m = elim_sort;
-            m = this.alloc.mkt_forall(BinderKind::Explicit, atoms::mp, mp, m);
+            m = this.alloc.mkt_forall(BinderKind::Explicit, atoms::mp, mp, m, TERM_SOURCE_NONE);
 
             for index in this.indices[spec_idx].iter().copied().rev() {
-                m = this.elab.lctx.abstract_forall(m, index, this.alloc);
+                m = this.elab.lctx.abstract_forall(m, index, TERM_SOURCE_NONE, this.alloc);
             }
 
             let name =
@@ -408,29 +408,29 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
             for (ctor_idx, ctor) in spec.ctors.iter().copied().enumerate() {
                 let info = &ctor_infos[ctor_idx];
 
-                let mut ctor_app = this.alloc.mkt_global(ctor.symbol, this.level_params);
+                let mut ctor_app = this.alloc.mkt_global(ctor.symbol, this.level_params, TERM_SOURCE_NONE);
                 for param in this.spec.params.iter().copied() {
-                    ctor_app = this.alloc.mkt_apply(ctor_app, this.alloc.mkt_local(param));
+                    ctor_app = this.alloc.mkt_apply(ctor_app, this.alloc.mkt_local(param, TERM_SOURCE_NONE), TERM_SOURCE_NONE);
                 }
                 for (arg, _) in info.args.iter().copied() {
-                    ctor_app = this.alloc.mkt_apply(ctor_app, this.alloc.mkt_local(arg));
+                    ctor_app = this.alloc.mkt_apply(ctor_app, this.alloc.mkt_local(arg, TERM_SOURCE_NONE), TERM_SOURCE_NONE);
                 }
 
-                let mut ret = this.alloc.mkt_local(m);
-                ret = this.alloc.mkt_apps(ret, info.indices);
-                ret = this.alloc.mkt_apply(ret, ctor_app);
+                let mut ret = this.alloc.mkt_local(m, TERM_SOURCE_NONE);
+                ret = this.alloc.mkt_apps(ret, info.indices, TERM_SOURCE_NONE);
+                ret = this.alloc.mkt_apply(ret, ctor_app, TERM_SOURCE_NONE);
 
                 let mut minor = ret;
                 for (arg, is_rec) in info.args.iter().copied().rev() {
                     if let Some(rec_arg) = is_rec {
-                        let mut rec_m = this.alloc.mkt_local(m);
-                        rec_m = this.alloc.mkt_apps(rec_m, rec_arg.indices);
-                        rec_m = this.alloc.mkt_apply(rec_m, this.alloc.mkt_local(arg));
+                        let mut rec_m = this.alloc.mkt_local(m, TERM_SOURCE_NONE);
+                        rec_m = this.alloc.mkt_apps(rec_m, rec_arg.indices, TERM_SOURCE_NONE);
+                        rec_m = this.alloc.mkt_apply(rec_m, this.alloc.mkt_local(arg, TERM_SOURCE_NONE), TERM_SOURCE_NONE);
 
-                        minor = this.alloc.mkt_forall(BinderKind::Explicit, Atom::NULL, rec_m, minor);
+                        minor = this.alloc.mkt_forall(BinderKind::Explicit, Atom::NULL, rec_m, minor, TERM_SOURCE_NONE);
                     }
                     // @todo: binder explicit.
-                    minor = this.elab.lctx.abstract_forall(minor, arg, this.alloc);
+                    minor = this.elab.lctx.abstract_forall(minor, arg, TERM_SOURCE_NONE, this.alloc);
                 }
 
                 // @temp: `m_{ctor.name}`.
@@ -447,29 +447,30 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
             let mut motive_pos = None;
             let mut elim_arg_kinds = Vec::new_in(this.temp);
 
-            let mut ret = this.alloc.mkt_local(motives[spec_idx]);
+            let mut ret = this.alloc.mkt_local(motives[spec_idx], TERM_SOURCE_NONE);
             for index in this.indices[spec_idx].iter().copied().rev() {
-                ret = this.alloc.mkt_apply(ret, this.alloc.mkt_local(index));
+                ret = this.alloc.mkt_apply(ret, this.alloc.mkt_local(index, TERM_SOURCE_NONE), TERM_SOURCE_NONE);
             }
 
             let mut ty =
                 this.alloc.mkt_forall(BinderKind::Explicit, atoms::mp,
                     this.type_global_index_apps[spec_idx],
-                    this.alloc.mkt_apply(ret, this.alloc.mkt_bound(BVar { offset: 0 })));
+                    this.alloc.mkt_apply(ret, this.alloc.mkt_bound(BVar { offset: 0 }, TERM_SOURCE_NONE), TERM_SOURCE_NONE),
+                    TERM_SOURCE_NONE);
             elim_arg_kinds.push(ElimArgKind::Target);
 
             for index in this.indices[spec_idx].iter().copied().rev() {
-                ty = this.elab.lctx.abstract_forall(ty, index, this.alloc);
+                ty = this.elab.lctx.abstract_forall(ty, index, TERM_SOURCE_NONE, this.alloc);
                 elim_arg_kinds.push(ElimArgKind::Target);
             }
 
             for minor in minors.iter().copied().rev() {
-                ty = this.elab.lctx.abstract_forall(ty, minor, this.alloc);
+                ty = this.elab.lctx.abstract_forall(ty, minor, TERM_SOURCE_NONE, this.alloc);
                 elim_arg_kinds.push(ElimArgKind::Postpone);
             }
 
             for (i, motive) in motives.iter().copied().enumerate().rev() {
-                ty = this.elab.lctx.abstract_forall(ty, motive, this.alloc);
+                ty = this.elab.lctx.abstract_forall(ty, motive, TERM_SOURCE_NONE, this.alloc);
                 if i == spec_idx {
                     motive_pos = Some(elim_arg_kinds.len());
                     elim_arg_kinds.push(ElimArgKind::Motive);
@@ -480,7 +481,7 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
             }
 
             for param in this.spec.params.iter().copied().rev() {
-                ty = this.elab.lctx.abstract_forall(ty, param, this.alloc);
+                ty = this.elab.lctx.abstract_forall(ty, param, TERM_SOURCE_NONE, this.alloc);
                 elim_arg_kinds.push(ElimArgKind::Postpone);
             }
 
@@ -507,53 +508,53 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
             let mut spec_rules = Vec::with_cap_in(this.alloc, ctor_infos.len());
             for (i, ctor_info) in ctor_infos.iter().enumerate() {
                 // comp_i = λ ps Ms ms as, ms_i as mvs
-                let mut comp_ret = this.alloc.mkt_local(minors[minors_offset + i]);
+                let mut comp_ret = this.alloc.mkt_local(minors[minors_offset + i], TERM_SOURCE_NONE);
 
                 // (ms_i as mvs)
                 for (arg, is_rec) in ctor_info.args.iter().copied() {
-                    comp_ret = this.alloc.mkt_apply(comp_ret, this.alloc.mkt_local(arg));
+                    comp_ret = this.alloc.mkt_apply(comp_ret, this.alloc.mkt_local(arg, TERM_SOURCE_NONE), TERM_SOURCE_NONE);
 
                     // mvs_j  = λ (rs :: Rs), rec_k ps Ms ms rxs (rarg_j rs)
                     if let Some(rec_arg) = is_rec {
                         let rec_k = this.spec.types[rec_arg.type_idx].rec_symbol;
 
                         // rec_k
-                        let mut rec_ret = this.alloc.mkt_global(rec_k, this.elim_levels);
+                        let mut rec_ret = this.alloc.mkt_global(rec_k, this.elim_levels, TERM_SOURCE_NONE);
 
                         // ps
                         for param in this.spec.params.iter().copied() {
-                            rec_ret = this.alloc.mkt_apply(rec_ret, this.alloc.mkt_local(param));
+                            rec_ret = this.alloc.mkt_apply(rec_ret, this.alloc.mkt_local(param, TERM_SOURCE_NONE), TERM_SOURCE_NONE);
                         }
 
                         // Ms
                         for motive in motives.iter().copied() {
-                            rec_ret = this.alloc.mkt_apply(rec_ret, this.alloc.mkt_local(motive));
+                            rec_ret = this.alloc.mkt_apply(rec_ret, this.alloc.mkt_local(motive, TERM_SOURCE_NONE), TERM_SOURCE_NONE);
                         }
 
                         // ms
                         for minor in minors.iter().copied() {
-                            rec_ret = this.alloc.mkt_apply(rec_ret, this.alloc.mkt_local(minor));
+                            rec_ret = this.alloc.mkt_apply(rec_ret, this.alloc.mkt_local(minor, TERM_SOURCE_NONE), TERM_SOURCE_NONE);
                         }
 
                         // rxs
                         for index in rec_arg.indices.iter().copied() {
-                            rec_ret = this.alloc.mkt_apply(rec_ret, index);
+                            rec_ret = this.alloc.mkt_apply(rec_ret, index, TERM_SOURCE_NONE);
                         }
 
                         // (rarg_j rs)
-                        let mut rec_val = this.alloc.mkt_local(arg);
+                        let mut rec_val = this.alloc.mkt_local(arg, TERM_SOURCE_NONE);
                         for arg in rec_arg.args.iter().copied() {
-                            rec_val = this.alloc.mkt_apply(rec_val, this.alloc.mkt_local(arg));
+                            rec_val = this.alloc.mkt_apply(rec_val, this.alloc.mkt_local(arg, TERM_SOURCE_NONE), TERM_SOURCE_NONE);
                         }
 
-                        rec_ret = this.alloc.mkt_apply(rec_ret, rec_val);
+                        rec_ret = this.alloc.mkt_apply(rec_ret, rec_val, TERM_SOURCE_NONE);
 
                         let mut rec_m = rec_ret;
                         for arg in rec_arg.args.iter().copied().rev() {
-                            rec_m = this.elab.lctx.abstract_lambda(rec_m, arg, this.alloc);
+                            rec_m = this.elab.lctx.abstract_lambda(rec_m, arg, TERM_SOURCE_NONE, this.alloc);
                         }
 
-                        comp_ret = this.alloc.mkt_apply(comp_ret, rec_m);
+                        comp_ret = this.alloc.mkt_apply(comp_ret, rec_m, TERM_SOURCE_NONE);
                     }
                 }
 
@@ -561,22 +562,22 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
 
                 // as
                 for (arg, _) in ctor_info.args.iter().copied().rev() {
-                    comp = this.elab.lctx.abstract_lambda(comp, arg, this.alloc);
+                    comp = this.elab.lctx.abstract_lambda(comp, arg, TERM_SOURCE_NONE, this.alloc);
                 }
 
                 // ms
                 for minor in minors.iter().copied().rev() {
-                    comp = this.elab.lctx.abstract_lambda(comp, minor, this.alloc);
+                    comp = this.elab.lctx.abstract_lambda(comp, minor, TERM_SOURCE_NONE, this.alloc);
                 }
 
                 // Ms
                 for motive in motives.iter().copied().rev() {
-                    comp = this.elab.lctx.abstract_lambda(comp, motive, this.alloc);
+                    comp = this.elab.lctx.abstract_lambda(comp, motive, TERM_SOURCE_NONE, this.alloc);
                 }
 
                 // ps
                 for param in this.spec.params.iter().copied().rev() {
-                    comp = this.elab.lctx.abstract_lambda(comp, param, this.alloc);
+                    comp = this.elab.lctx.abstract_lambda(comp, param, TERM_SOURCE_NONE, this.alloc);
                 }
 
                 assert!(comp.closed_no_local_no_ivar());

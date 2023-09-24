@@ -24,6 +24,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         let mut impl_args = Vec::new_in(&*temp);
 
+        let source = (self.item_id.some(), app_expr.some());
+
         let mut args = args.copy_it();
         let mut result    = func;
         let mut result_ty = func_ty;
@@ -76,19 +78,19 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 }
             };
 
-            result    = self.alloc.mkt_apply(result, arg);
+            result    = self.alloc.mkt_apply(result, arg, source);
             result_ty = pi.val.instantiate(arg, self.alloc);
         }
         if args.next().is_some() {
             self.error(app_expr, ElabError::TooManyArgs);
-            return self.mkt_ax_error_from_expected(expected_ty);
+            return self.mkt_ax_error_from_expected(expected_ty, source);
         }
 
         for (trayt, ivar) in impl_args.iter().copied() {
             if !self.resolve_impl(trayt, ivar) {
                 // @todo: better source, context.
                 self.error(app_expr, ElabError::TraitResolutionFailed { trayt });
-                return self.mkt_ax_error_from_expected(expected_ty);
+                return self.mkt_ax_error_from_expected(expected_ty, source);
             }
         }
 

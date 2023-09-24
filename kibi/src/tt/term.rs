@@ -13,6 +13,11 @@ pub type Term<'a> = impel::Term<'a>;
 sti::define_key!(pub, u32, TermVarId);
 
 
+pub type TermSource = (crate::ast::OptItemId, crate::ast::OptExprId);
+
+pub const TERM_SOURCE_NONE: TermSource = (crate::ast::OptItemId::NONE, crate::ast::OptExprId::NONE);
+
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TermKind {
     Sort,
@@ -100,8 +105,8 @@ impl<'a> Binder<'a> {
                 ty: new_ty, val: new_val,
             };
 
-            if t.is_forall() { alloc.mkt_forall_b(b) }
-            else             { alloc.mkt_lambda_b(b) }
+            if t.is_forall() { alloc.mkt_forall_b(b, t.source()) }
+            else             { alloc.mkt_lambda_b(b, t.source()) }
         }
         else { t }
     }
@@ -117,7 +122,7 @@ impl<'a> Let<'a> {
                 body: new_body,
             };
 
-            alloc.mkt_let_b(b)
+            alloc.mkt_let_b(b, t.source())
         }
         else { t }
     }
@@ -129,7 +134,7 @@ impl<'a> Apply<'a> {
         debug_assert!(t.is_apply());
 
         if !new_fun.ptr_eq(self.fun) || !new_arg.ptr_eq(self.arg) {
-            alloc.mkt_apply_a(Self { fun: new_fun, arg: new_arg })
+            alloc.mkt_apply_a(Self { fun: new_fun, arg: new_arg }, t.source())
         }
         else { t }
     }
@@ -339,7 +344,7 @@ impl<'a> Term<'a> {
 
             let bvar = at.try_bvar()?;
             debug_assert!(bvar.offset >= offset);
-            return Some(alloc.mkt_bound(BVar { offset: bvar.offset + delta }));
+            return Some(alloc.mkt_bound(BVar { offset: bvar.offset + delta }, at.source()));
         })
     }
 
@@ -350,7 +355,7 @@ impl<'a> Term<'a> {
             }
 
             let local = at.try_local()?;
-            (local == id).then(|| alloc.mkt_bound(BVar { offset }))
+            (local == id).then(|| alloc.mkt_bound(BVar { offset }, at.source()))
         })
     }
 
@@ -362,6 +367,7 @@ impl<'a> Term<'a> {
 
             let bvar = at.try_bvar()?;
             if bvar.offset == offset {
+                // @todo: update source?
                 if subst.closed() || offset == 0 { Some(subst) }
                 else { Some(subst.lift_loose_bvars(offset, alloc)) }
             }
@@ -375,7 +381,7 @@ impl<'a> Term<'a> {
         match self.data() {
             TermData::Sort(l) => {
                 if let Some(l) = f(l, alloc) {
-                    return Some(alloc.mkt_sort(l));
+                    return Some(alloc.mkt_sort(l, self.source()));
                 }
             }
 
@@ -401,7 +407,7 @@ impl<'a> Term<'a> {
                 if new_levels.len() != 0 {
                     debug_assert_eq!(new_levels.len(), g.levels.len());
                     let levels = new_levels.leak();
-                    return Some(alloc.mkt_global(g.id, levels));
+                    return Some(alloc.mkt_global(g.id, levels, self.source()));
                 }
             }
 
@@ -490,7 +496,7 @@ impl<'a> Term<'a> {
     pub fn replace_app_fun(self, new_fun: Term<'a>, alloc: &'a Arena) -> Term<'a> {
         if let Some(app) = self.try_apply() {
             let fun = app.fun.replace_app_fun(new_fun, alloc);
-            return alloc.mkt_apply(fun, app.arg);
+            return alloc.mkt_apply(fun, app.arg, self.source());
         }
         return new_fun;
     }
@@ -499,26 +505,26 @@ impl<'a> Term<'a> {
 
 
 pub trait TermAlloc {
-    fn mkt_sort<'a>(&'a self, level: Level<'a>) -> Term<'a>;
-    fn mkt_bound<'a>(&'a self, bvar: BVar) -> Term<'a>;
-    fn mkt_local<'a>(&'a self, id: ScopeId) -> Term<'a>;
-    fn mkt_global<'a>(&'a self, id: SymbolId, levels: LevelList<'a>) -> Term<'a>;
-    fn mkt_ivar<'a>(&'a self, id: TermVarId) -> Term<'a>;
-    fn mkt_forall_b<'a>(&'a self, binder: Binder<'a>) -> Term<'a>;
-    fn mkt_forall<'a>(&'a self, kind: BinderKind, name: Atom, ty: Term<'a>, ret: Term<'a>) -> Term<'a>;
-    fn mkt_lambda_b<'a>(&'a self, binder: Binder<'a>) -> Term<'a>;
-    fn mkt_lambda<'a>(&'a self, kind: BinderKind, name: Atom, ty: Term<'a>, val: Term<'a>) -> Term<'a>;
-    fn mkt_let_b<'a>(&'a self, binder: Let<'a>) -> Term<'a>;
-    fn mkt_let<'a>(&'a self, name: Atom, ty: Term<'a>, val: Term<'a>, body: Term<'a>) -> Term<'a>;
-    fn mkt_apply_a<'a>(&'a self, apply: Apply<'a>) -> Term<'a>;
-    fn mkt_apply<'a>(&'a self, fun: Term<'a>, arg: Term<'a>) -> Term<'a>;
-    fn mkt_apps<'a>(&'a self, fun: Term<'a>, args: &[Term<'a>]) -> Term<'a>;
+    fn mkt_sort<'a>(&'a self, level: Level<'a>, source: TermSource) -> Term<'a>;
+    fn mkt_bound<'a>(&'a self, bvar: BVar, source: TermSource) -> Term<'a>;
+    fn mkt_local<'a>(&'a self, id: ScopeId, source: TermSource) -> Term<'a>;
+    fn mkt_global<'a>(&'a self, id: SymbolId, levels: LevelList<'a>, source: TermSource) -> Term<'a>;
+    fn mkt_ivar<'a>(&'a self, id: TermVarId, source: TermSource) -> Term<'a>;
+    fn mkt_forall_b<'a>(&'a self, binder: Binder<'a>, source: TermSource) -> Term<'a>;
+    fn mkt_forall<'a>(&'a self, kind: BinderKind, name: Atom, ty: Term<'a>, ret: Term<'a>, source: TermSource) -> Term<'a>;
+    fn mkt_lambda_b<'a>(&'a self, binder: Binder<'a>, source: TermSource) -> Term<'a>;
+    fn mkt_lambda<'a>(&'a self, kind: BinderKind, name: Atom, ty: Term<'a>, val: Term<'a>, source: TermSource) -> Term<'a>;
+    fn mkt_let_b<'a>(&'a self, binder: Let<'a>, source: TermSource) -> Term<'a>;
+    fn mkt_let<'a>(&'a self, name: Atom, ty: Term<'a>, val: Term<'a>, body: Term<'a>, source: TermSource) -> Term<'a>;
+    fn mkt_apply_a<'a>(&'a self, apply: Apply<'a>, source: TermSource) -> Term<'a>;
+    fn mkt_apply<'a>(&'a self, fun: Term<'a>, arg: Term<'a>, source: TermSource) -> Term<'a>;
+    fn mkt_apps<'a>(&'a self, fun: Term<'a>, args: &[Term<'a>], source: TermSource) -> Term<'a>;
 
-    fn mkt_nat_val<'a>(&'a self, n: u32) -> Term<'a>;
-    fn mkt_ax_sorry<'a>(&'a self, l: Level<'a>, t: Term<'a>) -> Term<'a>;
-    fn mkt_ax_uninit<'a>(&'a self, l: Level<'a>, t: Term<'a>) -> Term<'a>;
-    fn mkt_ax_unreach<'a>(&'a self, l: Level<'a>, t: Term<'a>) -> Term<'a>;
-    fn mkt_ax_error<'a>(&'a self, l: Level<'a>, t: Term<'a>) -> Term<'a>;
+    fn mkt_nat_val<'a>(&'a self, n: u32, source: TermSource) -> Term<'a>;
+    fn mkt_ax_sorry<'a>(&'a self, l: Level<'a>, t: Term<'a>, source: TermSource) -> Term<'a>;
+    fn mkt_ax_uninit<'a>(&'a self, l: Level<'a>, t: Term<'a>, source: TermSource) -> Term<'a>;
+    fn mkt_ax_unreach<'a>(&'a self, l: Level<'a>, t: Term<'a>, source: TermSource) -> Term<'a>;
+    fn mkt_ax_error<'a>(&'a self, l: Level<'a>, t: Term<'a>, source: TermSource) -> Term<'a>;
 }
 
 
@@ -531,42 +537,48 @@ mod impel {
     #[derive(Debug)]
     struct Data<'a> {
         data: TermData<'a>,
+        source: TermSource,
         max_succ_bvar:  u32,
         max_succ_local: u32,
     }
 
 
     impl<'a> Term<'a> {
-        pub const SORT_0: Term<'static> = Term(&Data { data: TermData::Sort(Level::L0), max_succ_bvar: 0, max_succ_local: 0 });
-        pub const SORT_1: Term<'static> = Term(&Data { data: TermData::Sort(Level::L1), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const SORT_0: Term<'static> = Term(&Data { data: TermData::Sort(Level::L0), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const SORT_1: Term<'static> = Term(&Data { data: TermData::Sort(Level::L1), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
 
-        pub const NAT:      Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Nat,      levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
-        pub const NAT_ZERO: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Nat_zero, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
-        pub const NAT_SUCC: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Nat_succ, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const NAT:      Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Nat,      levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const NAT_ZERO: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Nat_zero, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const NAT_SUCC: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Nat_succ, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
 
-        pub const ADD_ADD: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Add_add, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const ADD_ADD: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Add_add, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
 
-        pub const UNIT: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Unit, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
-        pub const UNIT_MK: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Unit_mk, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const UNIT: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Unit, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const UNIT_MK: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Unit_mk, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
 
-        pub const BOOL:       Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Bool, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
-        pub const BOOL_FALSE: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Bool_false, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
-        pub const BOOL_TRUE:  Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Bool_true, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
-        pub const ITE:        Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ite, levels: &[] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const BOOL:       Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Bool, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const BOOL_FALSE: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Bool_false, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const BOOL_TRUE:  Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Bool_true, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const ITE:        Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ite, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
 
-        pub const AX_SORRY_0: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_sorry, levels: &[Level::L0] }), max_succ_bvar: 0, max_succ_local: 0 });
-        pub const AX_SORRY_1: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_sorry, levels: &[Level::L1] }), max_succ_bvar: 0, max_succ_local: 0 });
-        pub const AX_SORRY_2: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_sorry, levels: &[Level::L2] }), max_succ_bvar: 0, max_succ_local: 0 });
-        pub const AX_UNINIT_0: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_uninit, levels: &[Level::L0] }), max_succ_bvar: 0, max_succ_local: 0 });
-        pub const AX_UNINIT_1: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_uninit, levels: &[Level::L1] }), max_succ_bvar: 0, max_succ_local: 0 });
-        pub const AX_UNINIT_2: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_uninit, levels: &[Level::L2] }), max_succ_bvar: 0, max_succ_local: 0 });
-        pub const AX_UNREACH_0: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_unreach, levels: &[Level::L0] }), max_succ_bvar: 0, max_succ_local: 0 });
-        pub const AX_UNREACH_1: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_unreach, levels: &[Level::L1] }), max_succ_bvar: 0, max_succ_local: 0 });
-        pub const AX_UNREACH_2: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_unreach, levels: &[Level::L2] }), max_succ_bvar: 0, max_succ_local: 0 });
-        pub const AX_ERROR_0: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_error, levels: &[Level::L0] }), max_succ_bvar: 0, max_succ_local: 0 });
-        pub const AX_ERROR_1: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_error, levels: &[Level::L1] }), max_succ_bvar: 0, max_succ_local: 0 });
-        pub const AX_ERROR_2: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_error, levels: &[Level::L2] }), max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_SORRY_0: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_sorry, levels: &[Level::L0] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_SORRY_1: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_sorry, levels: &[Level::L1] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_SORRY_2: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_sorry, levels: &[Level::L2] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_UNINIT_0: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_uninit, levels: &[Level::L0] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_UNINIT_1: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_uninit, levels: &[Level::L1] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_UNINIT_2: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_uninit, levels: &[Level::L2] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_UNREACH_0: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_unreach, levels: &[Level::L0] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_UNREACH_1: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_unreach, levels: &[Level::L1] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_UNREACH_2: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_unreach, levels: &[Level::L2] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_ERROR_0: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_error, levels: &[Level::L0] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_ERROR_1: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_error, levels: &[Level::L1] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const AX_ERROR_2: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_error, levels: &[Level::L2] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
 
+
+        #[inline(always)]
+        pub fn source(self) -> TermSource {
+            self.0.source
+        }
 
         #[inline(always)]
         pub fn kind(self) -> TermKind {
@@ -649,54 +661,60 @@ mod impel {
 
     impl TermAlloc for Arena {
         #[inline(always)]
-        fn mkt_sort<'a>(&'a self, level: Level<'a>) -> Term<'a> {
+        fn mkt_sort<'a>(&'a self, level: Level<'a>, source: TermSource) -> Term<'a> {
             Term(self.alloc_new(Data {
                 data: TermData::Sort(level),
+                source,
                 max_succ_bvar: 0,
                 max_succ_local: 0,
             }))
         }
 
         #[inline(always)]
-        fn mkt_bound<'a>(&'a self, bvar: BVar) -> Term<'a> {
+        fn mkt_bound<'a>(&'a self, bvar: BVar, source: TermSource) -> Term<'a> {
             Term(self.alloc_new(Data {
                 data: TermData::Bound(bvar),
+                source,
                 max_succ_bvar: bvar.offset.saturating_add(1),
                 max_succ_local: 0,
             }))
         }
 
         #[inline(always)]
-        fn mkt_local<'a>(&'a self, id: ScopeId) -> Term<'a> {
+        fn mkt_local<'a>(&'a self, id: ScopeId, source: TermSource) -> Term<'a> {
             Term(self.alloc_new(Data {
                 data: TermData::Local(id),
+                source,
                 max_succ_bvar: 0,
                 max_succ_local: id.inner().saturating_add(1),
             }))
         }
 
         #[inline(always)]
-        fn mkt_global<'a>(&'a self, id: SymbolId, levels: LevelList<'a>) -> Term<'a> {
+        fn mkt_global<'a>(&'a self, id: SymbolId, levels: LevelList<'a>, source: TermSource) -> Term<'a> {
             Term(self.alloc_new(Data {
                 data: TermData::Global(Global { id, levels }),
+                source,
                 max_succ_bvar: 0,
                 max_succ_local: 0,
             }))
         }
 
         #[inline(always)]
-        fn mkt_ivar<'a>(&'a self, id: TermVarId) -> Term<'a> {
+        fn mkt_ivar<'a>(&'a self, id: TermVarId, source: TermSource) -> Term<'a> {
             Term(self.alloc_new(Data {
                 data: TermData::IVar(id),
+                source,
                 max_succ_bvar: 0,
                 max_succ_local: 0,
             }))
         }
 
         #[inline(always)]
-        fn mkt_forall_b<'a>(&'a self, binder: Binder<'a>) -> Term<'a> {
+        fn mkt_forall_b<'a>(&'a self, binder: Binder<'a>, source: TermSource) -> Term<'a> {
             Term(self.alloc_new(Data {
                 data: TermData::Forall(binder),
+                source,
                 max_succ_bvar:
                     binder.ty.0.max_succ_bvar.max(
                     binder.val.0.max_succ_bvar.saturating_sub(1)),
@@ -707,14 +725,15 @@ mod impel {
         }
 
         #[inline(always)]
-        fn mkt_forall<'a>(&'a self, kind: BinderKind, name: Atom, ty: Term<'a>, ret: Term<'a>) -> Term<'a> {
-            self.mkt_forall_b(Binder { kind, name, ty, val: ret })
+        fn mkt_forall<'a>(&'a self, kind: BinderKind, name: Atom, ty: Term<'a>, ret: Term<'a>, source: TermSource) -> Term<'a> {
+            self.mkt_forall_b(Binder { kind, name, ty, val: ret }, source)
         }
 
         #[inline(always)]
-        fn mkt_lambda_b<'a>(&'a self, binder: Binder<'a>) -> Term<'a> {
+        fn mkt_lambda_b<'a>(&'a self, binder: Binder<'a>, source: TermSource) -> Term<'a> {
             Term(self.alloc_new(Data {
                 data: TermData::Lambda(binder),
+                source,
                 max_succ_bvar:
                     binder.ty.0.max_succ_bvar.max(
                     binder.val.0.max_succ_bvar.saturating_sub(1)),
@@ -725,14 +744,15 @@ mod impel {
         }
 
         #[inline(always)]
-        fn mkt_lambda<'a>(&'a self, kind: BinderKind, name: Atom, ty: Term<'a>, val: Term<'a>) -> Term<'a> {
-            self.mkt_lambda_b(Binder { kind, name, ty, val })
+        fn mkt_lambda<'a>(&'a self, kind: BinderKind, name: Atom, ty: Term<'a>, val: Term<'a>, source: TermSource) -> Term<'a> {
+            self.mkt_lambda_b(Binder { kind, name, ty, val }, source)
         }
 
         #[inline(always)]
-        fn mkt_let_b<'a>(&'a self, binder: Let<'a>) -> Term<'a> {
+        fn mkt_let_b<'a>(&'a self, binder: Let<'a>, source: TermSource) -> Term<'a> {
             Term(self.alloc_new(Data {
                 data: TermData::Let(binder),
+                source,
                 max_succ_bvar:
                     binder.ty.0.max_succ_bvar.max(
                     binder.val.0.max_succ_bvar.max(
@@ -745,14 +765,15 @@ mod impel {
         }
 
         #[inline(always)]
-        fn mkt_let<'a>(&'a self, name: Atom, ty: Term<'a>, val: Term<'a>, body: Term<'a>) -> Term<'a> {
-            self.mkt_let_b(Let { name, ty, val, body })
+        fn mkt_let<'a>(&'a self, name: Atom, ty: Term<'a>, val: Term<'a>, body: Term<'a>, source: TermSource) -> Term<'a> {
+            self.mkt_let_b(Let { name, ty, val, body }, source)
         }
 
         #[inline(always)]
-        fn mkt_apply_a<'a>(&'a self, apply: Apply<'a>) -> Term<'a> {
+        fn mkt_apply_a<'a>(&'a self, apply: Apply<'a>, source: TermSource) -> Term<'a> {
             Term(self.alloc_new(Data {
                 data: TermData::Apply(apply),
+                source,
                 max_succ_bvar:
                     apply.fun.0.max_succ_bvar.max(
                     apply.arg.0.max_succ_bvar),
@@ -763,9 +784,10 @@ mod impel {
         }
 
         #[inline(always)]
-        fn mkt_apply<'a>(&'a self, fun: Term<'a>, arg: Term<'a>) -> Term<'a> {
+        fn mkt_apply<'a>(&'a self, fun: Term<'a>, arg: Term<'a>, source: TermSource) -> Term<'a> {
             Term(self.alloc_new(Data {
                 data: TermData::Apply(Apply { fun, arg }),
+                source,
                 max_succ_bvar:
                     fun.0.max_succ_bvar.max(
                     arg.0.max_succ_bvar),
@@ -776,60 +798,60 @@ mod impel {
         }
 
         #[inline(always)]
-        fn mkt_apps<'a>(&'a self, fun: Term<'a>, args: &[Term<'a>]) -> Term<'a> {
+        fn mkt_apps<'a>(&'a self, fun: Term<'a>, args: &[Term<'a>], source: TermSource) -> Term<'a> {
             let mut result = fun;
             for arg in args.iter().copied() {
-                result = self.mkt_apply(result, arg);
+                result = self.mkt_apply(result, arg, source);
             }
             return result;
         }
 
-        fn mkt_nat_val<'a>(&'a self, n: u32) -> Term<'a> {
+        fn mkt_nat_val<'a>(&'a self, n: u32, source: TermSource) -> Term<'a> {
             let mut result = Term::NAT_ZERO;
             for _ in 0..n {
-                result = self.mkt_apply(Term::NAT_SUCC, result);
+                result = self.mkt_apply(Term::NAT_SUCC, result, source);
             }
             return result;
         }
 
-        fn mkt_ax_sorry<'a>(&'a self, l: Level<'a>, t: Term<'a>) -> Term<'a> {
+        fn mkt_ax_sorry<'a>(&'a self, l: Level<'a>, t: Term<'a>, source: TermSource) -> Term<'a> {
             let f = match l.try_nat() {
                 Some(0) => Term::AX_SORRY_0,
                 Some(1) => Term::AX_SORRY_1,
                 Some(2) => Term::AX_SORRY_2,
-                _ => self.mkt_global(SymbolId::ax_sorry, &self.alloc_new([l])[..]),
+                _ => self.mkt_global(SymbolId::ax_sorry, &self.alloc_new([l])[..], source),
             };
-            self.mkt_apply(f, t)
+            self.mkt_apply(f, t, source)
         }
 
-        fn mkt_ax_uninit<'a>(&'a self, l: Level<'a>, t: Term<'a>) -> Term<'a> {
+        fn mkt_ax_uninit<'a>(&'a self, l: Level<'a>, t: Term<'a>, source: TermSource) -> Term<'a> {
             let f = match l.try_nat() {
                 Some(0) => Term::AX_UNINIT_0,
                 Some(1) => Term::AX_UNINIT_1,
                 Some(2) => Term::AX_UNINIT_2,
-                _ => self.mkt_global(SymbolId::ax_uninit, &self.alloc_new([l])[..]),
+                _ => self.mkt_global(SymbolId::ax_uninit, &self.alloc_new([l])[..], source),
             };
-            self.mkt_apply(f, t)
+            self.mkt_apply(f, t, source)
         }
 
-        fn mkt_ax_unreach<'a>(&'a self, l: Level<'a>, t: Term<'a>) -> Term<'a> {
+        fn mkt_ax_unreach<'a>(&'a self, l: Level<'a>, t: Term<'a>, source: TermSource) -> Term<'a> {
             let f = match l.try_nat() {
                 Some(0) => Term::AX_UNREACH_0,
                 Some(1) => Term::AX_UNREACH_1,
                 Some(2) => Term::AX_UNREACH_2,
-                _ => self.mkt_global(SymbolId::ax_unreach, &self.alloc_new([l])[..]),
+                _ => self.mkt_global(SymbolId::ax_unreach, &self.alloc_new([l])[..], source),
             };
-            self.mkt_apply(f, t)
+            self.mkt_apply(f, t, source)
         }
 
-        fn mkt_ax_error<'a>(&'a self, l: Level<'a>, t: Term<'a>) -> Term<'a> {
+        fn mkt_ax_error<'a>(&'a self, l: Level<'a>, t: Term<'a>, source: TermSource) -> Term<'a> {
             let f = match l.try_nat() {
                 Some(0) => Term::AX_ERROR_0,
                 Some(1) => Term::AX_ERROR_1,
                 Some(2) => Term::AX_ERROR_2,
-                _ => self.mkt_global(SymbolId::ax_error, &self.alloc_new([l])[..]),
+                _ => self.mkt_global(SymbolId::ax_error, &self.alloc_new([l])[..], source),
             };
-            self.mkt_apply(f, t)
+            self.mkt_apply(f, t, source)
         }
     }
 }

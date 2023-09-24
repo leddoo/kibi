@@ -17,6 +17,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         // @cleanup: dedup.
         if let Some(expected) = expected_ty {
+            let source = (self.item_id.some(), expr.some());
             if !self.ensure_def_eq(ty, expected) {
                 let expected = self.instantiate_term_vars(expected);
                 let ty       = self.instantiate_term_vars(ty);
@@ -28,7 +29,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     let found    = pp.pp_term(ty);
                     ElabError::TypeMismatch { expected, found }
                 });
-                return self.mkt_ax_error(expected);
+                return self.mkt_ax_error(expected, source);
             }
         }
 
@@ -91,6 +92,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     fn elab_expr_core(&mut self, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> (Term<'out>, Term<'out>) {
         //if let Some(ex) = expected_ty { eprintln!("expect: {}", self.pp(ex, 1000000)); }
 
+        let source = (self.item_id.some(), expr_id.some());
+
         let expr = self.parse.exprs[expr_id];
         match expr.kind {
             ExprKind::Hole => {
@@ -99,24 +102,24 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
             ExprKind::Ident(ident) => {
                 let result = self.elab_ident_or_path(expr_id, IdentOrPath::Ident(ident), &[]);
-                result.unwrap_or_else(|| self.mkt_ax_error_from_expected(expected_ty))
+                result.unwrap_or_else(|| self.mkt_ax_error_from_expected(expected_ty, source))
             }
 
             ExprKind::Path(path) => {
                 let result = self.elab_ident_or_path(expr_id, IdentOrPath::Path(path), &[]);
-                result.unwrap_or_else(|| self.mkt_ax_error_from_expected(expected_ty))
+                result.unwrap_or_else(|| self.mkt_ax_error_from_expected(expected_ty, source))
             }
 
             ExprKind::Levels(it) => {
                 let result = self.elab_ident_or_path(expr_id, it.symbol, it.levels);
-                result.unwrap_or_else(|| self.mkt_ax_error_from_expected(expected_ty))
+                result.unwrap_or_else(|| self.mkt_ax_error_from_expected(expected_ty, source))
             }
 
             ExprKind::Sort(l) => {
                 let l = self.elab_level(l);
                 let l = l.unwrap_or_else(|| self.new_level_var());
-                (self.alloc.mkt_sort(l),
-                 self.alloc.mkt_sort(l.succ(self.alloc)))
+                (self.alloc.mkt_sort(l, source),
+                 self.alloc.mkt_sort(l.succ(self.alloc), source))
             }
 
             ExprKind::Forall(it) => {
@@ -128,12 +131,12 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 for (id, _, l) in locals.iter().rev().copied() {
                     level = l.imax(level, self.alloc);
 
-                    result = self.mk_binder(result, id, true);
+                    result = self.mk_binder(result, id, true, source);
                     self.lctx.pop(id);
                 }
                 self.locals.truncate(self.locals.len() - locals.len());
 
-                (result, self.alloc.mkt_sort(level))
+                (result, self.alloc.mkt_sort(level, source))
             }
 
             ExprKind::Lambda(it) => {
@@ -147,7 +150,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                             if self.is_def_eq(ty, pi.ty) {
                                 expected_ty = Some(
                                     pi.val.instantiate(
-                                        self.alloc.mkt_local(id), self.alloc));
+                                        self.alloc.mkt_local(id, TERM_SOURCE_NONE), self.alloc));
                             }
                             else { expected_ty = None }
                         }
@@ -158,8 +161,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 let (mut result, mut result_ty) = self.elab_expr_checking_type(it.value, expected_ty);
 
                 for (id, _, _) in locals.iter().rev().copied() {
-                    result    = self.mk_binder(result,    id, false);
-                    result_ty = self.mk_binder(result_ty, id, true);
+                    result    = self.mk_binder(result,    id, false, source);
+                    result_ty = self.mk_binder(result_ty, id, true,  source);
                     self.lctx.pop(id);
                 }
                 self.locals.truncate(self.locals.len() - locals.len());
@@ -184,8 +187,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
                 let (body, body_ty) = self.elab_expr(it.body);
 
-                let result    = self.mk_let(body,    id, false);
-                let result_ty = self.mk_let(body_ty, id, true);
+                let result    = self.mk_let(body,    id, false, source);
+                let result_ty = self.mk_let(body_ty, id, true,  source);
                 self.lctx.pop(id);
                 self.locals.truncate(self.locals.len() - 1);
 
@@ -203,13 +206,14 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             ExprKind::Number(n) => {
                 let n = self.parse.numbers[n];
                 let n = u32::from_str_radix(n, 10).unwrap();
-                (self.alloc.mkt_nat_val(n), Term::NAT)
+                (self.alloc.mkt_nat_val(n, source), Term::NAT)
             }
 
             ExprKind::Eq(a, b) => {
                 let eq = self.alloc.mkt_global(
                     SymbolId::Eq,
-                    &self.alloc.alloc_new([self.new_level_var()])[..]);
+                    &self.alloc.alloc_new([self.new_level_var()])[..],
+                    source);
                 self.elab_app(expr_id, ExprOrTerm::Term(eq), &[a, b], expected_ty)
             }
 
@@ -233,25 +237,27 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     if !self.ensure_def_eq(result_ty, Term::UNIT) {
                         // @todo: type mismatch or special error.
                         self.error(expr_id, ElabError::TempArgFailed);
-                        return self.mkt_ax_error(Term::UNIT);
+                        return self.mkt_ax_error(result_ty, source);
                     }
                     Term::UNIT_MK
                 };
 
-                let result = self.alloc.mkt_apps(Term::ITE, &[ result_ty, cond, then, els ]);
+                let result = self.alloc.mkt_apps(Term::ITE, &[ result_ty, cond, then, els ], source);
                 (result, result_ty)
             }
 
             _ => {
                 //eprintln!("unimp expr kind {:?}", expr);
                 self.error(expr_id, ElabError::TempUnimplemented);
-                return self.mkt_ax_error_from_expected(expected_ty);
+                return self.mkt_ax_error_from_expected(expected_ty, source);
             }
         }
     }
 
 
     pub fn elab_ident_or_path(&mut self, expr_id: ExprId, name: IdentOrPath, levels: &[LevelId]) -> Option<(Term<'out>, Term<'out>)> {
+        let source = (self.item_id.some(), expr_id.some());
+
         let path = match &name {
             IdentOrPath::Ident(ident) => {
                 if let Some(local) = self.lookup_local(ident.value) {
@@ -264,7 +270,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     }
                     else {
                         let ty = self.lctx.lookup(local).ty;
-                        return Some((self.alloc.mkt_local(local), ty));
+                        return Some((self.alloc.mkt_local(local, source), ty));
                     }
                 }
                 else {
@@ -307,7 +313,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     ls.leak()
                 };
 
-                (self.alloc.mkt_global(symbol_id, levels),
+                (self.alloc.mkt_global(symbol_id, levels, source),
                  it.ty.instantiate_level_params(levels, self.alloc))
             }
 
@@ -335,7 +341,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     ls.leak()
                 };
 
-                (self.alloc.mkt_global(symbol_id, levels),
+                (self.alloc.mkt_global(symbol_id, levels, source),
                  it.ty.instantiate_level_params(levels, self.alloc))
             }
 
@@ -363,7 +369,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     ls.leak()
                 };
 
-                (self.alloc.mkt_global(symbol_id, levels),
+                (self.alloc.mkt_global(symbol_id, levels, source),
                  it.ty.instantiate_level_params(levels, self.alloc))
             }
         })

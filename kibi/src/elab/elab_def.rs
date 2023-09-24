@@ -28,7 +28,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         assert_eq!(self.locals.len(), locals.len());
         for l in self.locals.iter().copied().rev() {
-            ty = self.mk_binder(ty, l.id, true);
+            ty = self.mk_binder(ty, l.id, true, TERM_SOURCE_NONE);
         }
 
         if self.locals.len() == 0 {
@@ -121,7 +121,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 SymbolKind::Pending(None)).unwrap();
             aux_symbols.push(symbol);
 
-            let global = self.alloc.mkt_global(symbol, aux_level_args);
+            let global = self.alloc.mkt_global(symbol, aux_level_args, TERM_SOURCE_NONE);
             unsafe { aux.ivar.assign_core(global, self) }
         }
 
@@ -137,7 +137,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         for ivar in self.ivars.term_vars.range() {
             if ivar.value(self).is_none() {
                 had_unassigned_ivars = true;
-                let error = self.mkt_ax_error(ivar.ty(self)).0;
+                let error = self.mkt_ax_error(ivar.ty(self), TERM_SOURCE_NONE).0;
                 unsafe { ivar.assign_core(error, self) }
             }
         }
@@ -173,8 +173,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         assert_eq!(self.locals.len(), locals.len());
         for l in self.locals.iter().copied().rev() {
-            ty  = self.mk_binder(ty,  l.id, true);
-            val = self.mk_binder(val, l.id, false);
+            ty  = self.mk_binder(ty,  l.id, true,  TERM_SOURCE_NONE);
+            val = self.mk_binder(val, l.id, false, TERM_SOURCE_NONE);
         }
 
         if self.locals.len() == 0 {

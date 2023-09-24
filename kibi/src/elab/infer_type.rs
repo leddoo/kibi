@@ -9,7 +9,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         let result = match t.data() {
             TermData::Sort (l) => {
-                self.alloc.mkt_sort(l.succ(self.alloc))
+                self.alloc.mkt_sort(l.succ(self.alloc), TERM_SOURCE_NONE)
             }
 
             TermData::Bound (_) => {
@@ -50,30 +50,30 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 self.infer_type_as_sort(b.ty)?;
 
                 let id = self.lctx.push(b.name, b.ty, ScopeKind::Binder(b.kind));
-                let value = b.val.instantiate(self.alloc.mkt_local(id), self.alloc);
+                let value = b.val.instantiate(self.alloc.mkt_local(id, TERM_SOURCE_NONE), self.alloc);
 
                 let value_ty = self.infer_type(value)?;
                 self.lctx.pop(id);
 
-                self.alloc.mkt_forall(b.kind, b.name, b.ty, value_ty.abstracc(id, self.alloc))
+                self.alloc.mkt_forall(b.kind, b.name, b.ty, value_ty.abstracc(id, self.alloc), TERM_SOURCE_NONE)
             }
 
             TermData::Forall (b) => {
                 let param_level = self.infer_type_as_sort(b.ty)?;
 
                 let id = self.lctx.push(b.name, b.ty, ScopeKind::Binder(b.kind));
-                let value = b.val.instantiate(self.alloc.mkt_local(id), self.alloc);
+                let value = b.val.instantiate(self.alloc.mkt_local(id, TERM_SOURCE_NONE), self.alloc);
 
                 let value_level = self.infer_type_as_sort(value)?;
                 self.lctx.pop(id);
 
-                self.alloc.mkt_sort(param_level.imax(value_level, self.alloc))
+                self.alloc.mkt_sort(param_level.imax(value_level, self.alloc), TERM_SOURCE_NONE)
             }
 
             TermData::Let (b) => {
                 let id = self.lctx.push(b.name, b.ty, ScopeKind::Local(b.val));
 
-                let body = b.body.instantiate(self.alloc.mkt_local(id), self.alloc);
+                let body = b.body.instantiate(self.alloc.mkt_local(id, TERM_SOURCE_NONE), self.alloc);
 
                 let result = self.infer_type(body)?;
                 self.lctx.pop(id);

@@ -34,10 +34,10 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         let temp = ArenaPool::tls_get_rec();
 
         let mut motive = None;
-
         let mut targets = Vec::new_in(&*temp);
-
         let mut postponed = Vec::with_cap_in(&*temp, args.len());
+
+        let source = (self.item_id.some(), app_expr.some());
 
         // apply args to func.
         // create vars for motive and non-target args.
@@ -106,7 +106,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
             //println!("arg: {}", self.pp(arg, 80));
 
-            result     = self.alloc.mkt_apply(result, arg);
+            result     = self.alloc.mkt_apply(result, arg, source);
             result_ty  = pi.val.instantiate(arg, self.alloc);
             param_idx += 1;
         }
@@ -116,7 +116,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         let Some(motive) = motive else {
             // todo: uh, can this happen?
             eprintln!("no motive");
-            return (Some(self.mkt_ax_error(expected_ty)),);
+            return (Some(self.mkt_ax_error(expected_ty, source)),);
         };
 
         // add remaining locals to context.
@@ -126,7 +126,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             let id = self.lctx.push(pi.name, pi.ty, ScopeKind::Binder(pi.kind));
             rem_locals.push(id);
 
-            let local = self.alloc.mkt_local(id);
+            let local = self.alloc.mkt_local(id, TERM_SOURCE_NONE);
             if info.args[param_idx] == ElimArgKind::Target {
                 targets.push(local);
             }
@@ -148,10 +148,10 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 let Some(pi) = expected_ty.try_forall() else {
                     // @todo: better source, what went wrong here?
                     self.error(app_expr, ElabError::TempTBD);
-                    return (Some(self.mkt_ax_error(expected_ty)),);
+                    return (Some(self.mkt_ax_error(expected_ty, source)),);
                 };
 
-                expected_ty = pi.val.instantiate(self.alloc.mkt_local(rem), self.alloc);
+                expected_ty = pi.val.instantiate(self.alloc.mkt_local(rem, TERM_SOURCE_NONE), self.alloc);
             }
 
             self.lctx.current = old_scope;
@@ -166,11 +166,11 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             for arg in arg_iter.rev() {
                 let (arg, arg_ty) = self.elab_expr(arg);
 
-                result = self.alloc.mkt_apply(result, arg);
+                result = self.alloc.mkt_apply(result, arg, TERM_SOURCE_NONE);
 
                 let val = self.abstract_eq(expected_ty, arg);
                 expected_ty = self.alloc.mkt_forall(
-                    BinderKind::Explicit, Atom::NULL, arg_ty, val);
+                    BinderKind::Explicit, Atom::NULL, arg_ty, val, TERM_SOURCE_NONE);
             }
         }
         let result = result;
@@ -190,7 +190,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             let val = self.abstract_eq(motive_val, target);
             // @todo: use motive binder names.
             motive_val = self.alloc.mkt_lambda(
-                BinderKind::Explicit, Atom::NULL, target_ty, val);
+                BinderKind::Explicit, Atom::NULL, target_ty, val, source);
         }
 
         if 0==1 {
@@ -205,7 +205,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             eprintln!("motive failed");
             eprintln!("motive:     {}", self.pp(motive,     80));
             eprintln!("motive_val: {}", self.pp(motive_val, 80));
-            return (Some(self.mkt_ax_error(expected_ty)),);
+            return (Some(self.mkt_ax_error(expected_ty, source)),);
         }
 
         // elab remaining args.
@@ -216,7 +216,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             if !self.ensure_def_eq(var, arg) {
                 // @todo: context.
                 self.error(arg_expr, ElabError::TempArgFailed);
-                return (Some(self.mkt_ax_error(expected_ty)),);
+                return (Some(self.mkt_ax_error(expected_ty, source)),);
             }
         }
 

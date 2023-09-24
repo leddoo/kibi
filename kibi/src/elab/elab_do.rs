@@ -17,19 +17,21 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         let old_scope = self.lctx.current;
         let old_locals = self.locals.clone();
 
+        let source = (self.item_id.some(), expr_id.some());
+
         let result_ty = match expected_ty {
             Some(ex) => {
                 let ex = self.instantiate_term_vars(ex);
                 if ex.has_ivars() {
                     self.error(expr_id, ElabError::TempStr("expected type must not have ivars"));
-                    return self.mkt_ax_error_from_expected(expected_ty);
+                    return self.mkt_ax_error_from_expected(expected_ty, source);
                 }
                 ex
             }
 
             None => {
                 self.error(expr_id, ElabError::TempStr("expected type must be known"));
-                return self.mkt_ax_error_from_expected(expected_ty);
+                return self.mkt_ax_error_from_expected(expected_ty, source);
             }
         };
 
@@ -47,7 +49,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 let found    = pp.pp_term(ty);
                 ElabError::TypeMismatch { expected, found }
             });
-            return self.mkt_ax_error_from_expected(expected_ty);
+            return self.mkt_ax_error_from_expected(expected_ty, source);
         }
         this.end_jp(ret);
 
@@ -55,10 +57,10 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             if jp.reachable {
                 let mut ty = this.result_ty;
                 for local in jp.locals.copy_it().rev() {
-                    ty = this.mk_binder(ty, local, true);
+                    ty = this.mk_binder(ty, local, true, TERM_SOURCE_NONE);
                 }
                 for param in this.locals[..this.num_params].copy_it().rev() {
-                    ty = this.mk_binder(ty, param.id, true);
+                    ty = this.mk_binder(ty, param.id, true, TERM_SOURCE_NONE);
                 }
                 assert!(this.elab.ensure_def_eq(jp.ty, ty));
 
@@ -70,8 +72,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 });
             }
             else {
-                let ty  = this.elab.mkt_ax_unreach(Term::SORT_1);
-                let val = this.elab.mkt_ax_unreach(ty);
+                let ty  = this.elab.mkt_ax_unreach(Term::SORT_1, TERM_SOURCE_NONE);
+                let val = this.elab.mkt_ax_unreach(ty, TERM_SOURCE_NONE);
                 assert!(this.elab.ensure_def_eq(jp.ty,   ty));
                 assert!(this.elab.ensure_def_eq(jp.ivar, val));
             }
@@ -83,8 +85,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         this.elab.locals.extend_from_slice(&old_locals);
 
         let entry = this.jps[JoinPoint::ZERO].ivar;
-        let local_terms = Vec::from_iter(self.locals.copy_map_it(|local| self.alloc.mkt_local(local.id)));
-        let result = self.alloc.mkt_apps(entry, &local_terms);
+        let local_terms = Vec::from_iter(self.locals.copy_map_it(|local| self.alloc.mkt_local(local.id, source)));
+        let result = self.alloc.mkt_apps(entry, &local_terms, source);
         return (result, result_ty);
     }
 }
@@ -207,10 +209,10 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         assert!(target.arg_ty.is_some() == value.is_some());
 
         let locals = &self.locals[..self.num_params + target.locals.len()];
-        let locals = Vec::from_iter(locals.copy_map_it(|local| self.alloc.mkt_local(local.id)));
-        let result = self.alloc.mkt_apps(target.ivar, &locals);
+        let locals = Vec::from_iter(locals.copy_map_it(|local| self.alloc.mkt_local(local.id, TERM_SOURCE_NONE)));
+        let result = self.alloc.mkt_apps(target.ivar, &locals, TERM_SOURCE_NONE);
         if let Some(value) = value {
-            self.alloc.mkt_apply(result, value)
+            self.alloc.mkt_apply(result, value, TERM_SOURCE_NONE)
         }
         else { result }
     }
@@ -229,22 +231,22 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         for stmt in self.stmts.copy_it().rev() {
             match stmt {
                 Stmt::Local(id) => {
-                    value = self.elab.mk_let(value, id, false);
+                    value = self.elab.mk_let(value, id, false, TERM_SOURCE_NONE);
                     self.elab.lctx.pop(id);
                 }
 
                 Stmt::Term((term, ty)) => {
-                    value = self.elab.alloc.mkt_let(Atom::NULL, ty, term, value);
+                    value = self.elab.alloc.mkt_let(Atom::NULL, ty, term, value, TERM_SOURCE_NONE);
                 }
             }
         }
         self.stmts.clear();
 
         for local in entry.locals.copy_it().rev() {
-            value = self.elab.mk_binder(value, local, false);
+            value = self.elab.mk_binder(value, local, false, TERM_SOURCE_NONE);
         }
         for param in self.elab.locals[..self.num_params].copy_it().rev() {
-            value = self.elab.mk_binder(value, param.id, false);
+            value = self.elab.mk_binder(value, param.id, false, TERM_SOURCE_NONE);
         }
         entry.value = Some(value);
 
@@ -281,14 +283,14 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                             assert!(self.ensure_def_eq(result_ty, Term::UNIT));
                         }
                     }
-                    self.mkt_ax_unreach(result_ty)
+                    self.mkt_ax_unreach(result_ty, TERM_SOURCE_NONE)
                 }
                 else if self.ensure_def_eq(result_ty, Term::UNIT) {
                     Term::UNIT_MK
                 }
                 else {
                     self.error(expr_id, ElabError::TempStr("block end reachable, but type not unit"));
-                    self.mkt_ax_error(result_ty).0
+                    self.mkt_ax_error(result_ty, TERM_SOURCE_NONE).0
                 };
 
             let reachable = self.end_jp(self.mk_jump(jp, Some(jump_val)));
@@ -297,12 +299,12 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             let result_id = self.lctx.push(Atom::NULL, result_ty, ScopeKind::Binder(BinderKind::Explicit));
             self.jps[jp].locals.push(result_id);
 
-            return (self.alloc.mkt_local(result_id), result_ty);
+            return (self.alloc.mkt_local(result_id, TERM_SOURCE_NONE), result_ty);
         }
         else {
             if !self.jps[self.current_jp].reachable {
                 if let Some(expected) = expected_ty {
-                    return (self.mkt_ax_unreach(expected), expected);
+                    return (self.mkt_ax_unreach(expected, TERM_SOURCE_NONE), expected);
                 }
             }
             // type validated by caller.
@@ -334,7 +336,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                         self.elab_do_expr(val, Some(ty)).0
                     }
                     else {
-                        self.mkt_ax_uninit(ty)
+                        self.mkt_ax_uninit(ty, TERM_SOURCE_NONE)
                     };
 
 
@@ -421,6 +423,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         // ensure type.
         // @cleanup: dedup.
         if let Some(expected) = expected_ty {
+            let source = (self.item_id.some(), expr_id.some());
             if !self.ensure_def_eq(ty, expected) {
                 let expected = self.instantiate_term_vars(expected);
                 let ty       = self.instantiate_term_vars(ty);
@@ -432,7 +435,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     let found    = pp.pp_term(ty);
                     ElabError::TypeMismatch { expected, found }
                 });
-                return self.elab.mkt_ax_error(expected);
+                return self.elab.mkt_ax_error(expected, source);
             }
         }
 
@@ -444,13 +447,14 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
     }
 
     fn elab_do_expr_core(&mut self, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> (Term<'out>, Term<'out>) {
+        let source = (self.item_id.some(), expr_id.some());
         let expr = self.parse.exprs[expr_id];
         match expr.kind {
-            ExprKind::Error => self.mkt_ax_error_from_expected(expected_ty),
+            ExprKind::Error => self.mkt_ax_error_from_expected(expected_ty, source),
 
             ExprKind::Let(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do let"));
-                self.mkt_ax_error_from_expected(expected_ty)
+                self.mkt_ax_error_from_expected(expected_ty, source)
             }
 
             ExprKind::Parens(it) => {
@@ -459,38 +463,38 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
             ExprKind::Ref(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do ref"));
-                self.mkt_ax_error_from_expected(expected_ty)
+                self.mkt_ax_error_from_expected(expected_ty, source)
             }
 
             ExprKind::Deref(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do deref"));
-                self.mkt_ax_error_from_expected(expected_ty)
+                self.mkt_ax_error_from_expected(expected_ty, source)
             }
 
 
             ExprKind::Op1(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do op1"));
-                self.mkt_ax_error_from_expected(expected_ty)
+                self.mkt_ax_error_from_expected(expected_ty, source)
             }
 
             ExprKind::Op2(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do op2"));
-                self.mkt_ax_error_from_expected(expected_ty)
+                self.mkt_ax_error_from_expected(expected_ty, source)
             }
 
             ExprKind::Field(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do field"));
-                self.mkt_ax_error_from_expected(expected_ty)
+                self.mkt_ax_error_from_expected(expected_ty, source)
             }
 
             ExprKind::Index(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do index"));
-                self.mkt_ax_error_from_expected(expected_ty)
+                self.mkt_ax_error_from_expected(expected_ty, source)
             }
 
             ExprKind::Call(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do call"));
-                self.mkt_ax_error_from_expected(expected_ty)
+                self.mkt_ax_error_from_expected(expected_ty, source)
             }
 
             ExprKind::Do(it) => {
@@ -544,14 +548,14 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     let result_id = self.lctx.push(Atom::NULL, result_ty, ScopeKind::Binder(BinderKind::Explicit));
                     self.jps[jp].locals.push(result_id);
 
-                    return (self.alloc.mkt_local(result_id), result_ty);
+                    return (self.alloc.mkt_local(result_id, source), result_ty);
                 }
                 else {
                     let jp_unreach = self.new_jp_with_locals(None);
                     self.begin_jp(jp_unreach, false);
 
                     let expected = expected_ty.unwrap_or(Term::UNIT);
-                    return (self.mkt_ax_unreach(expected), expected);
+                    return (self.mkt_ax_unreach(expected, source), expected);
                 }
             }
 
@@ -576,7 +580,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     if it.label != atoms::_hole.some() {
                         self.error(expr_id, ElabError::TempStr("no break target"));
                     }
-                    return self.mkt_ax_error_from_expected(expected_ty);
+                    return self.mkt_ax_error_from_expected(expected_ty, source);
                 };
                 target.break_used = true;
                 let target = *target;
@@ -591,7 +595,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                         }
                         else {
                             self.error(expr_id, ElabError::TempStr("break needs value"));
-                            self.mkt_ax_error(expected).0
+                            self.mkt_ax_error(expected, source).0
                         }
                     };
 
@@ -609,7 +613,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                 self.begin_jp(jp_unreach, false);
 
                 let expected = expected_ty.unwrap_or(Term::UNIT);
-                (self.mkt_ax_unreach(expected), expected)
+                (self.mkt_ax_unreach(expected, source), expected)
             }
 
             ExprKind::Continue(label) => {
@@ -627,12 +631,12 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     self.begin_jp(jp_unreach, false);
 
                     let expected = expected_ty.unwrap_or(Term::UNIT);
-                    return (self.mkt_ax_unreach(expected), expected);
+                    return (self.mkt_ax_unreach(expected, source), expected);
                 }
                 if label != atoms::_hole.some() {
                     self.error(expr_id, ElabError::TempStr("no continue target found"));
                 }
-                return self.mkt_ax_error_from_expected(expected_ty);
+                return self.mkt_ax_error_from_expected(expected_ty, source);
             }
 
             ExprKind::ContinueElse(label) => {
@@ -651,17 +655,17 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                         self.begin_jp(jp_unreach, false);
 
                         let expected = expected_ty.unwrap_or(Term::UNIT);
-                        return (self.mkt_ax_unreach(expected), expected);
+                        return (self.mkt_ax_unreach(expected, source), expected);
                     }
                     else {
                         self.error(expr_id, ElabError::TempStr("do expr has no else"));
-                        return self.mkt_ax_error_from_expected(expected_ty);
+                        return self.mkt_ax_error_from_expected(expected_ty, source);
                     }
                 }
                 if label != atoms::_hole.some() {
                     self.error(expr_id, ElabError::TempStr("no continue else target found"));
                 }
-                return self.mkt_ax_error_from_expected(expected_ty);
+                return self.mkt_ax_error_from_expected(expected_ty, source);
             }
 
             ExprKind::Return(it) => {
@@ -682,12 +686,12 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                 self.begin_jp(jp_unreach, false);
 
                 let expected = expected_ty.unwrap_or(Term::UNIT);
-                (self.mkt_ax_unreach(expected), expected)
+                (self.mkt_ax_unreach(expected, source), expected)
             }
 
             ExprKind::TypeHint(_) => {
                 self.error(expr_id, ElabError::TempStr("unimp do type hint"));
-                self.mkt_ax_error_from_expected(expected_ty)
+                self.mkt_ax_error_from_expected(expected_ty, source)
             }
 
             // error.
@@ -696,7 +700,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             ExprKind::Lambda(_) |
             ExprKind::Eq(_, _) => {
                 self.error(expr_id, ElabError::TempStr("not supported in do"));
-                self.mkt_ax_error_from_expected(expected_ty)
+                self.mkt_ax_error_from_expected(expected_ty, source)
             }
 
             // expr flags are invalid.
@@ -719,6 +723,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
         let mut curr = expr_id;
         loop {
+            let source = (self.item_id.some(), curr.some());
             let expr = self.parse.exprs[curr];
             match expr.kind {
                 ExprKind::If(it) => {
@@ -738,7 +743,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                                 }
                                 else {
                                     self.error(curr, ElabError::TempStr("else is unit thing"));
-                                    self.mkt_ax_error(expected).0
+                                    self.mkt_ax_error(expected, source).0
                                 };
                             (after_jp, Some(jump_val))
                         }
@@ -750,7 +755,8 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                             self.result_ty,
                             cond,
                             self.mk_jump(then_jp, None),
-                            self.mk_jump(else_jp, else_arg)]));
+                            self.mk_jump(else_jp, else_arg),
+                        ], source));
 
                     self.begin_jp(then_jp, cond_reachable);
 
@@ -802,7 +808,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                                 }
                                 else {
                                     self.error(curr, ElabError::TempStr("else is unit thing"));
-                                    self.mkt_ax_error(expected).0
+                                    self.mkt_ax_error(expected, source).0
                                 };
                             (after_jp, Some(jump_val))
                         }
@@ -819,7 +825,8 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                             self.result_ty,
                             cond,
                             self.mk_jump(body_jp, None),
-                            self.mk_jump(else_jp, else_arg)]));
+                            self.mk_jump(else_jp, else_arg),
+                        ], source));
 
                     self.begin_jp(body_jp, cond_reachable);
 
@@ -866,7 +873,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             let result_id = self.lctx.push(Atom::NULL, result_ty, ScopeKind::Binder(BinderKind::Explicit));
             self.jps[after_jp].locals.push(result_id);
 
-            (self.alloc.mkt_local(result_id), result_ty)
+            (self.alloc.mkt_local(result_id, (self.item_id.some(), expr_id.some())), result_ty)
         }
         else { (Term::UNIT_MK, Term::UNIT) }
     }

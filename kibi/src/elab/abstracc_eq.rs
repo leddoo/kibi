@@ -22,7 +22,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             //if self.is_def_eq(at, pat) {
 
             if at.syntax_eq(pat) {
-                return Some(alloc.mkt_bound(BVar { offset }));
+                return Some(alloc.mkt_bound(BVar { offset }, at.source()));
             }
             None
         })

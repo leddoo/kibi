@@ -28,7 +28,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             scope = entry.parent;
 
             if entry.ty.syntax_eq(goal) {
-                let val = self.alloc.mkt_local(local);
+                let val = self.alloc.mkt_local(local, TERM_SOURCE_NONE);
                 if !self.ensure_def_eq(ivar, val) {
                     eprintln!("error: something went wrong");
                     return false;
@@ -63,7 +63,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 sub_ivars.push(ivar);
 
                 def_ty = pi.val.instantiate(ivar, self.alloc);
-                def_val = self.alloc.mkt_apply(def_val, ivar);
+                def_val = self.alloc.mkt_apply(def_val, ivar, TERM_SOURCE_NONE);
             }
 
             if sub_ivars.len() == 0 {

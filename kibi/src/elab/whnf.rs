@@ -131,7 +131,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     else { break }
                 }
 
-                self.alloc.mkt_apps(result, &args[i..])
+                self.alloc.mkt_apps(result, &args[i..], e.source())
             };
             return self.whnf_no_unfold(result);
         }
@@ -229,7 +229,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         let result = result.instantiate_level_params(global.levels, self.alloc);
 
-        let result = self.alloc.mkt_apps(result, app_args);
+        let result = self.alloc.mkt_apps(result, app_args, t.source());
 
         //println!("success? {}\n", self.pp(result, 80));
 
@@ -280,7 +280,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 let save = self.lctx.save();
 
                 let id = self.lctx.push(b.name, b.ty, ScopeKind::Binder(b.kind));
-                let val = b.val.instantiate(self.alloc.mkt_local(id), self.alloc);
+                let val = b.val.instantiate(self.alloc.mkt_local(id, TERM_SOURCE_NONE), self.alloc);
 
                 let new_val = self.reduce_ex(val, unfold);
                 let new_val = new_val.abstracc(id, self.alloc);
