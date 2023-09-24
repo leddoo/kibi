@@ -1,7 +1,9 @@
+use sti::arena::Arena;
 use sti::keyed::KVec;
 use sti::hash::HashMap;
 
 use crate::string_table::{Atom, atoms};
+use crate::diagnostics::{Diagnostic, Diagnostics, DiagnosticSource, DiagnosticKind, TyCkError};
 use crate::tt::*;
 use crate::tt::inductive::InductiveInfo;
 use crate::tt::tyck::TyCk;
@@ -152,8 +154,9 @@ impl<'a> Env<'a> {
     }
 
 
+    #[must_use]
     #[track_caller]
-    pub fn new_symbol(&mut self, parent: SymbolId, name: Atom, kind: SymbolKind<'a>) -> Option<SymbolId> {
+    pub fn new_symbol<'out>(&mut self, parent: SymbolId, name: Atom, kind: SymbolKind<'a>, alloc: &'out Arena, diagnostics: &mut Diagnostics<'out>) -> Option<SymbolId> {
         let mut predeclared = None;
         if let Some(symbol) = self.lookup(parent, name) {
             if matches!(self.symbols[symbol].kind, SymbolKind::Predeclared) {
@@ -170,25 +173,16 @@ impl<'a> Env<'a> {
 
             SymbolKind::Pending(Some(it)) |
             SymbolKind::Axiom(it) => {
-                let temp = sti::arena_pool::ArenaPool::tls_get_temp();
-                let mut lctx = LocalCtx::new();
-                let mut tc = TyCk::new(self, &mut lctx, it.num_levels, &*temp);
-                tc.check_is_type(it.ty).unwrap();
+                self.check_is_type(it.ty, it.num_levels, alloc, diagnostics)?;
             }
 
             SymbolKind::Def(it) => {
-                let temp = sti::arena_pool::ArenaPool::tls_get_temp();
-                let mut lctx = LocalCtx::new();
-                let mut tc = TyCk::new(self, &mut lctx, it.num_levels, &*temp);
-                tc.check_is_type(it.ty).unwrap();
-                tc.check_has_type(it.val, it.ty).unwrap();
+                self.check_is_type(it.ty, it.num_levels, alloc, diagnostics)?;
+                self.check_has_type(it.val, it.ty, it.num_levels, alloc, diagnostics)?;
             }
 
             SymbolKind::IndAxiom(it) => {
-                let temp = sti::arena_pool::ArenaPool::tls_get_temp();
-                let mut lctx = LocalCtx::new();
-                let mut tc = TyCk::new(self, &mut lctx, it.num_levels, &*temp);
-                tc.check_is_type(it.ty).unwrap()
+                self.check_is_type(it.ty, it.num_levels, alloc, diagnostics)?;
             }
         }
 
@@ -220,8 +214,9 @@ impl<'a> Env<'a> {
         p.children.get(&name).copied()
     }
 
+    #[must_use]
     #[track_caller]
-    pub fn resolve_pending(&mut self, id: SymbolId, kind: SymbolKind<'a>) {
+    pub fn resolve_pending<'out>(&mut self, id: SymbolId, kind: SymbolKind<'a>, alloc: &'out Arena, diagnostics: &mut Diagnostics<'out>) -> Option<()> {
         match &kind {
             SymbolKind::Root |
             SymbolKind::Predeclared |
@@ -229,24 +224,19 @@ impl<'a> Env<'a> {
             SymbolKind::Axiom(_) => unreachable!(),
 
             SymbolKind::Def(it) => {
-                let temp = sti::arena_pool::ArenaPool::tls_get_temp();
-                let mut lctx = LocalCtx::new();
-                let mut tc = TyCk::new(self, &mut lctx, it.num_levels, &*temp);
-                tc.check_is_type(it.ty).unwrap();
-                tc.check_has_type(it.val, it.ty).unwrap();
+                self.check_is_type(it.ty, it.num_levels, alloc, diagnostics)?;
+                self.check_has_type(it.val, it.ty, it.num_levels, alloc, diagnostics)?;
             }
 
             SymbolKind::IndAxiom(it) => {
-                let temp = sti::arena_pool::ArenaPool::tls_get_temp();
-                let mut lctx = LocalCtx::new();
-                let mut tc = TyCk::new(self, &mut lctx, it.num_levels, &*temp);
-                tc.check_is_type(it.ty).unwrap();
+                self.check_is_type(it.ty, it.num_levels, alloc, diagnostics)?;
             }
         }
 
         let symbol = &mut self.symbols[id];
         assert!(matches!(symbol.kind, SymbolKind::Pending(_)));
         symbol.kind = kind;
+        return Some(());
     }
 
     #[track_caller]
@@ -266,7 +256,8 @@ impl<'a> Env<'a> {
         symbol.kind = kind;
     }
 
-    pub fn validate_symbol(&mut self, id: SymbolId) {
+    #[must_use]
+    pub fn validate_symbol<'out>(&mut self, id: SymbolId, alloc: &'out Arena, diagnostics: &mut Diagnostics<'out>) -> Option<()> {
         match &self.symbols[id].kind {
             SymbolKind::Root |
             SymbolKind::Predeclared => unreachable!(),
@@ -275,27 +266,78 @@ impl<'a> Env<'a> {
 
             SymbolKind::Pending(Some(it)) |
             SymbolKind::Axiom(it) => {
-                let temp = sti::arena_pool::ArenaPool::tls_get_temp();
-                let mut lctx = LocalCtx::new();
-                let mut tc = TyCk::new(self, &mut lctx, it.num_levels, &*temp);
-                tc.check_is_type(it.ty).unwrap();
+                self.check_is_type(it.ty, it.num_levels, alloc, diagnostics)?;
             }
 
             SymbolKind::Def(it) => {
-                let temp = sti::arena_pool::ArenaPool::tls_get_temp();
-                let mut lctx = LocalCtx::new();
-                let mut tc = TyCk::new(self, &mut lctx, it.num_levels, &*temp);
-                tc.check_is_type(it.ty).unwrap();
-                tc.check_has_type(it.val, it.ty).unwrap();
+                self.check_is_type(it.ty, it.num_levels, alloc, diagnostics)?;
+                self.check_has_type(it.val, it.ty, it.num_levels, alloc, diagnostics)?;
             }
 
             SymbolKind::IndAxiom(it) => {
-                let temp = sti::arena_pool::ArenaPool::tls_get_temp();
-                let mut lctx = LocalCtx::new();
-                let mut tc = TyCk::new(self, &mut lctx, it.num_levels, &*temp);
-                tc.check_is_type(it.ty).unwrap()
+                self.check_is_type(it.ty, it.num_levels, alloc, diagnostics)?;
             }
         }
+        return Some(());
+    }
+
+
+    #[must_use]
+    fn check_is_type<'out>(&self, t: Term, num_levels: usize, alloc: &'out Arena, diagnostics: &mut Diagnostics<'out>) -> Option<()> {
+        let temp = sti::arena_pool::ArenaPool::tls_get_temp();
+        let mut lctx = LocalCtx::new();
+        let mut tc = TyCk::new(self, &mut lctx, num_levels, &*temp);
+        if let Err(e) = tc.check_is_type(t) {
+            Self::report_tyck_error(e, &lctx, alloc, diagnostics);
+            return None;
+        }
+        Some(())
+    }
+
+    #[must_use]
+    fn check_has_type<'out>(&self, t: Term, ty: Term, num_levels: usize, alloc: &'out Arena, diagnostics: &mut Diagnostics<'out>) -> Option<()> {
+        let temp = sti::arena_pool::ArenaPool::tls_get_temp();
+        let mut lctx = LocalCtx::new();
+        let mut tc = TyCk::new(self, &mut lctx, num_levels, &*temp);
+        if let Err(e) = tc.check_has_type(t, ty) {
+            Self::report_tyck_error(e, &lctx, alloc, diagnostics);
+            return None;
+        }
+        Some(())
+    }
+
+    fn report_tyck_error<'out>(e: tyck::Error, lctx: &LocalCtx, alloc: &'out Arena, diagnostics: &mut Diagnostics<'out>) {
+        let source = 
+            if let Some(expr_id) = e.at.source().to_option() {
+                DiagnosticSource::Expr(expr_id)
+            }
+            else { DiagnosticSource::Unknown };
+
+        use tyck::ErrorKind as EK;
+        let e = TyCkError {
+            lctx: lctx.clone_in(alloc),
+            err: tyck::Error {
+                at: e.at.clone_in(alloc),
+                kind: match e.kind {
+                    EK::LooseBVar => EK::LooseBVar,
+                    EK::LooseLocal => EK::LooseLocal,
+                    EK::TermIVar => EK::TermIVar,
+                    EK::GlobalNotReady => EK::GlobalNotReady,
+                    EK::GlobalLevelMismatch => EK::GlobalLevelMismatch,
+                    EK::TypeExpected { found } => EK::TypeExpected { found: found.clone_in(alloc) },
+                    EK::TypeInvalid { found, expected } => EK::TypeInvalid { found: found.clone_in(alloc), expected: expected.clone_in(alloc) },
+                    EK::LetValTypeInvalid { found } => EK::LetValTypeInvalid { found: found.clone_in(alloc) },
+                    EK::AppArgTypeInvalid { found, expected } => EK::AppArgTypeInvalid { found: found.clone_in(alloc), expected: expected.clone_in(alloc) },
+                    EK::LevelParamIndexInvalid => EK::LevelParamIndexInvalid,
+                    EK::LevelIVar => EK::LevelIVar,
+                },
+            },
+        };
+
+        diagnostics.push(Diagnostic {
+            source,
+            kind: DiagnosticKind::TyCkError(e),
+        });
     }
 }
 

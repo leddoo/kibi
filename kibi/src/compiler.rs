@@ -450,13 +450,13 @@ impl<'c> Inner<'c> {
             let parse_id = source.parse.unwrap();
             let parse = &self.parse_datas[parse_id].parse;
             for d in parse.diagnostics.diagnostics.iter() {
-                file_diagnostics.push(mk_file_diagnostic(d, source, parse, alloc));
+                file_diagnostics.push(self.mk_file_diagnostic(d, source, parse, alloc));
             }
 
             let elab_id = source.elab.unwrap();
             let elab = &self.elab_datas[elab_id].elab;
             for d in elab.diagnostics.diagnostics.iter() {
-                file_diagnostics.push(mk_file_diagnostic(d, source, parse, alloc));
+                file_diagnostics.push(self.mk_file_diagnostic(d, source, parse, alloc));
             }
 
             result.push(FileDiagnostics {
@@ -465,166 +465,205 @@ impl<'c> Inner<'c> {
             });
         }
         return result;
+    }
 
 
-        fn mk_file_diagnostic<'out>(d: &Diagnostic, source: &SourceData, parse: &Parse, alloc: &'out Arena) -> FileDiagnostic<'out> {
-            use crate::diagnostics::*;
+    fn mk_file_diagnostic<'out>(&self, d: &Diagnostic, source: &SourceData, parse: &Parse, alloc: &'out Arena) -> FileDiagnostic<'out> {
+        use crate::diagnostics::*;
 
-            let range = d.source.resolve_source_range(parse);
+        let range = d.source.resolve_source_range(parse);
 
-            let range = {
-                let code = &source.code;
-                // @temp: line table.
-                let mut line = 0;
-                let mut line_begin = 0;
-                let mut i = 0;
-                loop {
-                    while i < code.len() && code[i] != b'\n' {
-                        i += 1;
+        let range = {
+            let code = &source.code;
+            // @temp: line table.
+            let mut line = 0;
+            let mut line_begin = 0;
+            let mut i = 0;
+            loop {
+                while i < code.len() && code[i] != b'\n' {
+                    i += 1;
+                }
+                if range.begin as usize <= i {
+                    break;
+                }
+                if i < code.len() {
+                    i += 1;
+                    line += 1;
+                    line_begin = i;
+                }
+            }
+            let begin = UserSourcePos { line, col: range.begin - line_begin as u32 };
+            // @temp: line table.
+            let mut line = 0;
+            let mut line_begin = 0;
+            let mut i = 0;
+            loop {
+                while i < code.len() && code[i] != b'\n' {
+                    i += 1;
+                }
+                if range.end as usize <= i {
+                    break;
+                }
+                if i < code.len() {
+                    i += 1;
+                    line += 1;
+                    line_begin = i;
+                }
+            }
+            let end = UserSourcePos { line, col: range.end - line_begin as u32 };
+            UserSourceRange { begin, end }
+        };
+
+        let mut msg = String::new_in(alloc);
+        match &d.kind {
+            DiagnosticKind::ParseError(e) => {
+                match e {
+                    ParseError::Expected(what) => {
+                        sti::write!(&mut msg, "expected: {what}");
                     }
-                    if range.begin as usize <= i {
-                        break;
-                    }
-                    if i < code.len() {
-                        i += 1;
-                        line += 1;
-                        line_begin = i;
+
+                    ParseError::Unexpected(what) => {
+                        sti::write!(&mut msg, "unexpected: {what}");
                     }
                 }
-                let begin = UserSourcePos { line, col: range.begin - line_begin as u32 };
-                // @temp: line table.
-                let mut line = 0;
-                let mut line_begin = 0;
-                let mut i = 0;
-                loop {
-                    while i < code.len() && code[i] != b'\n' {
-                        i += 1;
+            }
+
+            DiagnosticKind::ElabError(e) => {
+                match e {
+                    ElabError::UnresolvedName (name) => {
+                        sti::write!(&mut msg, "unknown symbol {name:?}");
                     }
-                    if range.end as usize <= i {
-                        break;
+
+                    ElabError::UnresolvedLevel (name) => {
+                        sti::write!(&mut msg, "unknown level {name:?}");
                     }
-                    if i < code.len() {
-                        i += 1;
-                        line += 1;
-                        line_begin = i;
+
+                    ElabError::LevelCountMismatch { expected, found } => {
+                        sti::write!(&mut msg, "expected {expected} levels, found {found}");
                     }
-                }
-                let end = UserSourcePos { line, col: range.end - line_begin as u32 };
-                UserSourceRange { begin, end }
-            };
 
-            let mut msg = String::new_in(alloc);
-            match d.kind {
-                DiagnosticKind::ParseError(e) => {
-                    match e {
-                        ParseError::Expected(what) => {
-                            sti::write!(&mut msg, "expected: {what}");
-                        }
-
-                        ParseError::Unexpected(what) => {
-                            sti::write!(&mut msg, "unexpected: {what}");
-                        }
+                    ElabError::TypeMismatch { expected, found } => {
+                        let pp = crate::pp::PP::new(alloc);
+                        sti::write!(&mut msg, "expected ");
+                        pp.render(expected, 50).layout_into_string(&mut msg);
+                        sti::write!(&mut msg, ", found ");
+                        pp.render(found, 50).layout_into_string(&mut msg);
                     }
-                }
 
-                DiagnosticKind::ElabError(e) => {
-                    match e {
-                        ElabError::UnresolvedName (name) => {
-                            sti::write!(&mut msg, "unknown symbol {name:?}");
-                        }
+                    ElabError::TypeExpected { found } => {
+                        let pp = crate::pp::PP::new(alloc);
+                        sti::write!(&mut msg, "type expected, found ");
+                        pp.render(found, 50).layout_into_string(&mut msg);
+                    }
 
-                        ElabError::UnresolvedLevel (name) => {
-                            sti::write!(&mut msg, "unknown level {name:?}");
-                        }
+                    ElabError::TooManyArgs => {
+                        sti::write!(&mut msg, "too many args");
+                    }
 
-                        ElabError::LevelCountMismatch { expected, found } => {
-                            sti::write!(&mut msg, "expected {expected} levels, found {found}");
-                        }
+                    ElabError::UnassignedIvars => {
+                        sti::write!(&mut msg, "unassigned ivars");
+                    }
 
-                        ElabError::TypeMismatch { expected, found } => {
-                            let pp = crate::pp::PP::new(alloc);
-                            sti::write!(&mut msg, "expected ");
-                            pp.render(expected, 50).layout_into_string(&mut msg);
-                            sti::write!(&mut msg, ", found ");
-                            pp.render(found, 50).layout_into_string(&mut msg);
-                        }
+                    ElabError::TypeFormerHasIvars => {
+                        sti::write!(&mut msg, "type former has ivars");
+                    }
 
-                        ElabError::TypeExpected { found } => {
-                            let pp = crate::pp::PP::new(alloc);
-                            sti::write!(&mut msg, "type expected, found ");
-                            pp.render(found, 50).layout_into_string(&mut msg);
-                        }
+                    ElabError::CtorTypeHasIvars => {
+                        sti::write!(&mut msg, "ctor type has ivars");
+                    }
 
-                        ElabError::TooManyArgs => {
-                            sti::write!(&mut msg, "too many args");
-                        }
+                    ElabError::CtorNeedsTypeCauseIndices => {
+                        sti::write!(&mut msg, "ctor needs type, because type has indices");
+                    }
 
-                        ElabError::UnassignedIvars => {
-                            sti::write!(&mut msg, "unassigned ivars");
-                        }
+                    ElabError::CtorArgLevelTooLarge => {
+                        sti::write!(&mut msg, "arg level too large");
+                    }
 
-                        ElabError::TypeFormerHasIvars => {
-                            sti::write!(&mut msg, "type former has ivars");
-                        }
+                    ElabError::CtorInvalidRecursion => {
+                        sti::write!(&mut msg, "invalid recursion");
+                    }
 
-                        ElabError::CtorTypeHasIvars => {
-                            sti::write!(&mut msg, "ctor type has ivars");
-                        }
+                    ElabError::CtorRecArgUsed => {
+                        sti::write!(&mut msg, "recursive arg used");
+                    }
 
-                        ElabError::CtorNeedsTypeCauseIndices => {
-                            sti::write!(&mut msg, "ctor needs type, because type has indices");
-                        }
+                    ElabError::CtorNotRetSelf => {
+                        sti::write!(&mut msg, "ctor must return Self");
+                    }
 
-                        ElabError::CtorArgLevelTooLarge => {
-                            sti::write!(&mut msg, "arg level too large");
-                        }
+                    ElabError::TraitResolutionFailed { trayt } => {
+                        sti::write!(&mut msg, "trait resolution failed for trait {trayt:?}");
+                    }
 
-                        ElabError::CtorInvalidRecursion => {
-                            sti::write!(&mut msg, "invalid recursion");
-                        }
+                    ElabError::ImplTypeIsNotTrait => {
+                        sti::write!(&mut msg, "impl type is not a trait");
+                    }
 
-                        ElabError::CtorRecArgUsed => {
-                            sti::write!(&mut msg, "recursive arg used");
-                        }
+                    ElabError::TempTBD => {
+                        sti::write!(&mut msg, "(temp): not entirely sure what went wrong here");
+                    }
 
-                        ElabError::CtorNotRetSelf => {
-                            sti::write!(&mut msg, "ctor must return Self");
-                        }
+                    ElabError::TempArgFailed => {
+                        sti::write!(&mut msg, "(temp): arg failed");
+                    }
 
-                        ElabError::TraitResolutionFailed { trayt } => {
-                            sti::write!(&mut msg, "trait resolution failed for trait {trayt:?}");
-                        }
+                    ElabError::TempCtorArgLevelCouldBeTooLarge => {
+                        sti::write!(&mut msg, "(temp): maybe ctor arg level too large");
+                    }
 
-                        ElabError::ImplTypeIsNotTrait => {
-                            sti::write!(&mut msg, "impl type is not a trait");
-                        }
+                    ElabError::TempUnimplemented => {
+                        sti::write!(&mut msg, "(temp): unimplemented");
+                    }
 
-                        ElabError::TempTBD => {
-                            sti::write!(&mut msg, "(temp): not entirely sure what went wrong here");
-                        }
-
-                        ElabError::TempArgFailed => {
-                            sti::write!(&mut msg, "(temp): arg failed");
-                        }
-
-                        ElabError::TempCtorArgLevelCouldBeTooLarge => {
-                            sti::write!(&mut msg, "(temp): maybe ctor arg level too large");
-                        }
-
-                        ElabError::TempUnimplemented => {
-                            sti::write!(&mut msg, "(temp): unimplemented");
-                        }
-
-                        ElabError::TempStr(str) => {
-                            sti::write!(&mut msg, "(temp) msg: {}", str);
-                        }
+                    ElabError::TempStr(str) => {
+                        sti::write!(&mut msg, "(temp) msg: {}", str);
                     }
                 }
-            };
-            let message = msg.leak();
+            }
 
-            FileDiagnostic { range, message }
-        }
+            DiagnosticKind::TyCkError(e) => {
+                let elab = &self.elab_datas[source.elab.unwrap()];
+                let env = &elab.env;
+
+                let mut pp = crate::tt::TermPP::new(env, &self.strings, &e.lctx, alloc);
+
+                use crate::tt::tyck::ErrorKind as EK;
+                match e.err.kind {
+                    EK::LooseBVar => todo!(),
+                    EK::LooseLocal => todo!(),
+                    EK::TermIVar => todo!(),
+                    EK::GlobalNotReady => todo!(),
+                    EK::GlobalLevelMismatch => todo!(),
+                    EK::TypeExpected { found: _ } => todo!(),
+
+                    EK::TypeInvalid { found: _, expected: _ } => todo!(),
+
+                    EK::LetValTypeInvalid { found: _ } => todo!(),
+
+                    EK::AppArgTypeInvalid { found, expected } => {
+                        sti::write!(&mut msg, "[tyck type invalid] ");
+                        sti::write!(&mut msg, "expected ");
+                        let expected = pp.pp_term(expected);
+                        pp.render(expected, 50).layout_into_string(&mut msg);
+                        sti::write!(&mut msg, ", found ");
+                        let found = pp.pp_term(found);
+                        pp.render(found, 50).layout_into_string(&mut msg);
+                    }
+
+                    EK::LevelParamIndexInvalid => todo!(),
+
+                    EK::LevelIVar => todo!(),
+                }
+
+                sti::write!(&mut msg, " at:\n");
+                let at = pp.pp_term(e.err.at);
+                pp.render(at, 120).layout_into_string(&mut msg);
+            }
+        };
+        let message = msg.leak();
+
+        FileDiagnostic { range, message }
     }
 }
 

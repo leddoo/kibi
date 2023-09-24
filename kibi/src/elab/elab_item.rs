@@ -54,7 +54,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 spall::trace_scope!("kibi/elab/impl");
 
                 let (ty, val) = self.elab_def_core(item_id,
-                    it.levels, it.params, it.ty.some(), it.value);
+                    it.levels, it.params, it.ty.some(), it.value)?;
 
                 let trayt = ty.forall_ret().0.app_fun().0;
                 let mut is_trait = false;
@@ -69,7 +69,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                             num_levels: it.levels.len(),
                             ty,
                             val,
-                        })).unwrap();
+                        }), self.alloc, &mut self.elab.diagnostics).unwrap();
                         self.traits.add_impl(g.id, symbol);
                     }
                 }

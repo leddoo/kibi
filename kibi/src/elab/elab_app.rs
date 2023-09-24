@@ -24,7 +24,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         let mut impl_args = Vec::new_in(&*temp);
 
-        let source = (self.item_id.some(), app_expr.some());
+        let source = app_expr.some();
 
         let mut args = args.copy_it();
         let mut result    = func;

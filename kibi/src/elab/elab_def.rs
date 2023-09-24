@@ -72,13 +72,14 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             SymbolKind::Axiom(symbol::Axiom {
                 num_levels: axiom.levels.len(),
                 ty,
-            })
+            }),
+            self.alloc, &mut self.elab.diagnostics,
         )?;
 
         Some(symbol)
     }
 
-    pub fn elab_def_core(&mut self, item_id: ItemId, levels: &[Ident], params: &[ast::Binder], ty: OptExprId, value: ExprId) -> (Term<'out>, Term<'out>) {
+    pub fn elab_def_core(&mut self, item_id: ItemId, levels: &[Ident], params: &[ast::Binder], ty: OptExprId, value: ExprId) -> Option<(Term<'out>, Term<'out>)> {
         assert_eq!(self.locals.len(), 0);
         assert_eq!(self.level_params.len(), 0);
 
@@ -118,7 +119,9 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             let name = self.strings.insert(&name);
 
             let symbol = self.env.new_symbol(self.root_symbol, name,
-                SymbolKind::Pending(None)).unwrap();
+                SymbolKind::Pending(None),
+                self.alloc, &mut self.elab.diagnostics,
+            ).unwrap();
             aux_symbols.push(symbol);
 
             let global = self.alloc.mkt_global(symbol, aux_level_args, TERM_SOURCE_NONE);
@@ -165,7 +168,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         // validate aux symbols.
         for id in aux_symbols.copy_it() {
-            self.env.validate_symbol(id);
+            self.env.validate_symbol(id, self.alloc, &mut self.elab.diagnostics)?;
         }
 
 
@@ -212,7 +215,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         assert!(self.check_no_unassigned_variables(item_id.into()).is_some());
 
-        return (ty, val);
+        return Some((ty, val));
     }
 
     pub fn elab_def(&mut self, item_id: ItemId, def: &item::Def) -> Option<SymbolId> {
@@ -231,14 +234,15 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             }
         };
 
-        let (ty, val) = self.elab_def_core(item_id, def.levels, def.params, def.ty, def.value);
+        let (ty, val) = self.elab_def_core(item_id, def.levels, def.params, def.ty, def.value)?;
 
         let symbol = self.env.new_symbol(parent, name.value,
             SymbolKind::Def(symbol::Def {
                 num_levels: def.levels.len(),
                 ty,
                 val,
-            })
+            }),
+            self.alloc, &mut self.elab.diagnostics,
         )?;
 
         let none = self.elab.token_infos.insert(name.source, TokenInfo::Symbol(symbol));

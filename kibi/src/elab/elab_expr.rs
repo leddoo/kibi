@@ -17,7 +17,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         // @cleanup: dedup.
         if let Some(expected) = expected_ty {
-            let source = (self.item_id.some(), expr.some());
+            let source = expr.some();
             if !self.ensure_def_eq(ty, expected) {
                 let expected = self.instantiate_term_vars(expected);
                 let ty       = self.instantiate_term_vars(ty);
@@ -92,7 +92,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     fn elab_expr_core(&mut self, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> (Term<'out>, Term<'out>) {
         //if let Some(ex) = expected_ty { eprintln!("expect: {}", self.pp(ex, 1000000)); }
 
-        let source = (self.item_id.some(), expr_id.some());
+        let source = expr_id.some();
 
         let expr = self.parse.exprs[expr_id];
         match expr.kind {
@@ -256,7 +256,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
 
     pub fn elab_ident_or_path(&mut self, expr_id: ExprId, name: IdentOrPath, levels: &[LevelId]) -> Option<(Term<'out>, Term<'out>)> {
-        let source = (self.item_id.some(), expr_id.some());
+        let source = expr_id.some();
 
         let path = match &name {
             IdentOrPath::Ident(ident) => {

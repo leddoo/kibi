@@ -1,3 +1,4 @@
+use sti::traits::{FromIn, CopyIt};
 use sti::arena::Arena;
 use sti::vec::Vec;
 
@@ -13,9 +14,9 @@ pub type Term<'a> = impel::Term<'a>;
 sti::define_key!(pub, u32, TermVarId);
 
 
-pub type TermSource = (crate::ast::OptItemId, crate::ast::OptExprId);
+pub type TermSource = crate::ast::OptExprId;
 
-pub const TERM_SOURCE_NONE: TermSource = (crate::ast::OptItemId::NONE, crate::ast::OptExprId::NONE);
+pub const TERM_SOURCE_NONE: TermSource = crate::ast::OptExprId::NONE;
 
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -499,6 +500,36 @@ impl<'a> Term<'a> {
             return alloc.mkt_apply(fun, app.arg, self.source());
         }
         return new_fun;
+    }
+
+
+    pub fn clone_in<'out>(self, alloc: &'out Arena) -> Term<'out> {
+        let s = self.source();
+        match self.data() {
+            TermData::Sort(it) => alloc.mkt_sort(it.clone_in(alloc), s),
+
+            TermData::Bound(it) => alloc.mkt_bound(it, s),
+
+            TermData::Local(it) => alloc.mkt_local(it, s),
+
+            TermData::Global(it) =>
+                alloc.mkt_global(
+                    it.id, Vec::from_in(alloc, it.levels.copy_map_it(|l| l.clone_in(alloc))).leak(), s),
+
+            TermData::IVar(it) => alloc.mkt_ivar(it, s),
+
+            TermData::Forall(it) =>
+                alloc.mkt_forall(it.kind, it.name, it.ty.clone_in(alloc), it.val.clone_in(alloc), s),
+
+            TermData::Lambda(it) =>
+                alloc.mkt_lambda(it.kind, it.name, it.ty.clone_in(alloc), it.val.clone_in(alloc), s),
+
+            TermData::Let(it) =>
+                alloc.mkt_let(it.name, it.ty.clone_in(alloc), it.val.clone_in(alloc), it.body.clone_in(alloc), s),
+
+            TermData::Apply(it) =>
+                alloc.mkt_apply(it.fun.clone_in(alloc), it.arg.clone_in(alloc), s),
+        }
     }
 }
 

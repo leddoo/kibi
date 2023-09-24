@@ -17,7 +17,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         let old_scope = self.lctx.current;
         let old_locals = self.locals.clone();
 
-        let source = (self.item_id.some(), expr_id.some());
+        let source = expr_id.some();
 
         let result_ty = match expected_ty {
             Some(ex) => {
@@ -423,7 +423,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         // ensure type.
         // @cleanup: dedup.
         if let Some(expected) = expected_ty {
-            let source = (self.item_id.some(), expr_id.some());
+            let source = expr_id.some();
             if !self.ensure_def_eq(ty, expected) {
                 let expected = self.instantiate_term_vars(expected);
                 let ty       = self.instantiate_term_vars(ty);
@@ -447,7 +447,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
     }
 
     fn elab_do_expr_core(&mut self, expr_id: ExprId, expected_ty: Option<Term<'out>>) -> (Term<'out>, Term<'out>) {
-        let source = (self.item_id.some(), expr_id.some());
+        let source = expr_id.some();
         let expr = self.parse.exprs[expr_id];
         match expr.kind {
             ExprKind::Error => self.mkt_ax_error_from_expected(expected_ty, source),
@@ -723,7 +723,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
         let mut curr = expr_id;
         loop {
-            let source = (self.item_id.some(), curr.some());
+            let source = curr.some();
             let expr = self.parse.exprs[curr];
             match expr.kind {
                 ExprKind::If(it) => {
@@ -873,7 +873,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             let result_id = self.lctx.push(Atom::NULL, result_ty, ScopeKind::Binder(BinderKind::Explicit));
             self.jps[after_jp].locals.push(result_id);
 
-            (self.alloc.mkt_local(result_id, (self.item_id.some(), expr_id.some())), result_ty)
+            (self.alloc.mkt_local(result_id, expr_id.some()), result_ty)
         }
         else { (Term::UNIT_MK, Term::UNIT) }
     }

@@ -209,5 +209,25 @@ impl<'a> LocalCtx<'a> {
         self.scopes.inner_mut_unck().truncate(save.num_scopes);
         self.current = save.current;
     }
+
+
+    pub fn clone_in<'out>(&self, alloc: &'out Arena) -> LocalCtx<'out> {
+        let mut scopes = KVec::with_cap(self.scopes.len());
+        for (_, scope) in self.scopes.iter() {
+            scopes.push(Scope {
+                parent: scope.parent,
+                name:   scope.name,
+                ty:     scope.ty.clone_in(alloc),
+                kind: match scope.kind {
+                    ScopeKind::Binder(it) => ScopeKind::Binder(it),
+                    ScopeKind::Local(it)  => ScopeKind::Local(it.clone_in(alloc)),
+                },
+            });
+        }
+        LocalCtx {
+            scopes,
+            current: self.current,
+        }
+    }
 }
 

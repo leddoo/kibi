@@ -37,7 +37,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         let mut targets = Vec::new_in(&*temp);
         let mut postponed = Vec::with_cap_in(&*temp, args.len());
 
-        let source = (self.item_id.some(), app_expr.some());
+        let source = app_expr.some();
 
         // apply args to func.
         // create vars for motive and non-target args.
@@ -163,11 +163,14 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         if arg_iter.len() > 0 {
             debug_assert!(rem_locals.len() == 0);
 
-            for arg in arg_iter.rev() {
+            let mut args = Vec::with_cap_in(&*temp, arg_iter.len());
+            for arg in arg_iter {
                 let (arg, arg_ty) = self.elab_expr(arg);
+                result = self.alloc.mkt_apply(result, arg, source);
+                args.push((arg, arg_ty));
+            }
 
-                result = self.alloc.mkt_apply(result, arg, TERM_SOURCE_NONE);
-
+            for (arg, arg_ty) in args.copy_it().rev() {
                 let val = self.abstract_eq(expected_ty, arg);
                 expected_ty = self.alloc.mkt_forall(
                     BinderKind::Explicit, Atom::NULL, arg_ty, val, TERM_SOURCE_NONE);

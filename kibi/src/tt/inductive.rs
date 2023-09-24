@@ -618,7 +618,7 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
                 num_levels: this.level_params.len(),
                 ty: type_formers[spec_idx],
                 mutual_infos: infos,
-            }));
+            }), this.alloc, &mut this.elab.elab.diagnostics)?;
 
             for (ctor_idx, ctor) in spec.ctors.iter().enumerate() {
                 this.elab.env.resolve_pending(ctor.symbol, SymbolKind::IndAxiom(IndAxiom {
@@ -627,7 +627,7 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
                     num_levels: this.level_params.len(),
                     ty: ctor_types[ctor_idx],
                     mutual_infos: infos,
-                }));
+                }), this.alloc, &mut this.elab.elab.diagnostics)?;
             }
 
             this.elab.env.resolve_pending(spec.rec_symbol, SymbolKind::IndAxiom(IndAxiom {
@@ -636,7 +636,7 @@ impl<'me, 'temp, 'c, 'out> Check<'me, 'temp, 'c, 'out> {
                 num_levels: this.elim_levels.len(),
                 ty: elim_types[spec_idx],
                 mutual_infos: infos,
-            }));
+            }), this.alloc, &mut this.elab.elab.diagnostics)?;
         }
 
         Some(())

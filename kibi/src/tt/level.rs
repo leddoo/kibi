@@ -290,6 +290,19 @@ impl<'a> Level<'a> {
         });
         (!result.ptr_eq(self)).then_some(result)
     }
+
+
+    pub fn clone_in<'out>(self, alloc: &'out Arena) -> Level<'out> {
+        if let Some(n) = self.try_nat() { return alloc.mkl_nat(n) };
+        match self.data() {
+            LevelData::Zero      => alloc.mkl_zero(),
+            LevelData::Succ(it)  => alloc.mkl_succ(it.clone_in(alloc)),
+            LevelData::Max(it)   => alloc.mkl_max(it.lhs.clone_in(alloc), it.rhs.clone_in(alloc)),
+            LevelData::IMax(it)  => alloc.mkl_imax(it.lhs.clone_in(alloc), it.rhs.clone_in(alloc)),
+            LevelData::Param(it) => alloc.mkl_param(it.name, it.index),
+            LevelData::IVar(it)  => alloc.mkl_ivar(it),
+        }
+    }
 }
 
 

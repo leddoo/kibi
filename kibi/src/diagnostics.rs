@@ -1,6 +1,7 @@
 use sti::vec::Vec;
 
 use crate::ast::{ParseRange, TokenId, TokenRange, ItemId, StmtId, LevelId, ExprId, SourceRange};
+use crate::tt;
 use crate::env::SymbolId;
 use crate::parser::Parse;
 use crate::pp::DocRef;
@@ -11,7 +12,7 @@ pub struct Diagnostics<'a> {
 }
 
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct Diagnostic<'a> {
     pub source: DiagnosticSource,
     pub kind: DiagnosticKind<'a>,
@@ -26,12 +27,14 @@ pub enum DiagnosticSource {
     Stmt(StmtId),
     Level(LevelId),
     Expr(ExprId),
+    Unknown, // @temp: tyck errors should fall back to itemid.
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub enum DiagnosticKind<'a> {
     ParseError(ParseError<'a>),
     ElabError(ElabError<'a>),
+    TyCkError(TyCkError<'a>),
 }
 
 
@@ -69,6 +72,12 @@ pub enum ElabError<'a> {
     TempStr(&'a str),
 }
 
+#[derive(Debug)]
+pub struct TyCkError<'a> {
+    pub lctx: tt::LocalCtx<'a>,
+    pub err:  tt::tyck::Error<'a>,
+}
+
 
 impl<'a> Diagnostics<'a> {
     #[inline(always)]
@@ -94,6 +103,7 @@ impl DiagnosticSource {
             DS::Stmt(it)  => parse.resolve_token_range(parse.stmts[it].source),
             DS::Level(it) => parse.resolve_token_range(parse.levels[it].source),
             DS::Expr(it)  => parse.resolve_token_range(parse.exprs[it].source),
+            DS::Unknown => SourceRange { begin: 0, end: 0 },
         }
     }
 }

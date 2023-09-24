@@ -16,8 +16,7 @@
 
 
 - todo:
-    - better printing for tyck failures.
-        - don't unwrap.
+    - okay, i think we need to address the tech debt...
     - use tyck for inductive.
     - brck.
         - region inference.
