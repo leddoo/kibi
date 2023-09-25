@@ -60,6 +60,11 @@
 
 - elab elim: don't option of option.
 
+- better term sources.
+    - tactics can also be a term source.
+
+- use `with_ivar_scope` for elab def.
+
 
 
 ### lsp:

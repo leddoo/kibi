@@ -6,7 +6,7 @@ use sti::string::String;
 
 use crate::string_table::{StringTable, Atom};
 use crate::diagnostics::*;
-use crate::ast::{TokenId, ItemId, ExprId};
+use crate::ast::{TokenId, ItemId, ExprId, TacticId};
 use crate::parser::Parse;
 use crate::tt::{self, ScopeId, LocalCtx};
 use crate::env::*;
@@ -16,9 +16,10 @@ use crate::traits::Traits;
 pub struct Elab<'a> {
     pub diagnostics: Diagnostics<'a>,
     pub token_infos: HashMap<TokenId, TokenInfo>,
-    pub item_infos: KVec<ItemId, Option<ItemInfo<'a>>>,
-    pub item_ctxs:  KVec<ItemId, Option<ItemCtx<'a>>>,
-    pub expr_infos: KVec<ExprId, Option<ExprInfo<'a>>>,
+    pub item_infos:   KVec<ItemId,   Option<ItemInfo<'a>>>,
+    pub item_ctxs:    KVec<ItemId,   Option<ItemCtx<'a>>>,
+    pub expr_infos:   KVec<ExprId,   Option<ExprInfo<'a>>>,
+    pub tactic_infos: KVec<TacticId, Option<TacticInfo<'a>>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -45,6 +46,11 @@ pub struct ExprInfo<'a> {
     pub ty:   tt::Term<'a>,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum TacticInfo<'a> {
+    Term(tt::Term<'a>),
+}
+
 
 pub fn elab_file<'out>(
     parse: &Parse,
@@ -67,6 +73,9 @@ pub fn elab_file<'out>(
             locals: Vec::new(),
             level_params: Vec::new(),
             ivars: ivars::IVarCtx::new(),
+            had_unassigned_ivars: false,
+            goals: Vec::new(),
+            current_goal: 0,
             aux_defs: Vec::new(),
         };
 
@@ -105,6 +114,10 @@ pub struct Elaborator<'me, 'c, 'out> {
     locals: Vec<Local>,
 
     ivars: ivars::IVarCtx<'out>,
+    had_unassigned_ivars: bool,
+
+    goals: Vec<crate::tt::TermVarId>,
+    current_goal: usize,
 
     aux_defs: Vec<AuxDef<'out>>,
 }
@@ -141,6 +154,7 @@ mod elab_inductive;
 mod elab_item;
 mod elab_do;
 mod impls;
+mod tactic;
 
 
 pub enum ExprOrTerm<'a> {
@@ -204,6 +218,18 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             let (t, l) = self.new_ty_var();
             (self.alloc.mkt_ax_error(l, t, source), t)
         }
+    }
+
+    #[inline]
+    fn with_saved_goals<R, F: FnOnce(&mut Self) -> R>(&mut self, f: F) -> R {
+        let save = (self.goals.len(), self.current_goal);
+        self.current_goal = self.goals.len();
+
+        let result = f(self);
+
+        self.goals.truncate(save.0);
+        self.current_goal = save.1;
+        return result;
     }
 
     // @mega@temp below this line.

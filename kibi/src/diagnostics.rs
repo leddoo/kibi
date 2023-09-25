@@ -1,6 +1,6 @@
 use sti::vec::Vec;
 
-use crate::ast::{ParseRange, TokenId, TokenRange, ItemId, StmtId, LevelId, ExprId, SourceRange};
+use crate::ast::{ParseRange, TokenId, TokenRange, ItemId, StmtId, LevelId, ExprId, SourceRange, TacticId};
 use crate::tt;
 use crate::env::SymbolId;
 use crate::parser::Parse;
@@ -27,6 +27,7 @@ pub enum DiagnosticSource {
     Stmt(StmtId),
     Level(LevelId),
     Expr(ExprId),
+    Tactic(TacticId),
     Unknown, // @temp: tyck errors should fall back to itemid.
 }
 
@@ -101,10 +102,11 @@ impl DiagnosticSource {
             DS::ParseRange(it) => parse.resolve_parse_range(it),
             DS::Token(it)      => parse.resolve_token_range(TokenRange::from_key(it)),
             DS::TokenRange(it) => parse.resolve_token_range(it),
-            DS::Item(it)  => parse.resolve_token_range(parse.items[it].source),
-            DS::Stmt(it)  => parse.resolve_token_range(parse.stmts[it].source),
-            DS::Level(it) => parse.resolve_token_range(parse.levels[it].source),
-            DS::Expr(it)  => parse.resolve_token_range(parse.exprs[it].source),
+            DS::Item(it)   => parse.resolve_token_range(parse.items[it].source),
+            DS::Stmt(it)   => parse.resolve_token_range(parse.stmts[it].source),
+            DS::Level(it)  => parse.resolve_token_range(parse.levels[it].source),
+            DS::Expr(it)   => parse.resolve_token_range(parse.exprs[it].source),
+            DS::Tactic(it) => parse.resolve_token_range(parse.tactics[it].source),
             DS::Unknown => SourceRange { begin: 0, end: 0 },
         }
     }
@@ -118,4 +120,5 @@ impl Into<DiagnosticSource> for ItemId     { #[inline(always)] fn into(self) -> 
 impl Into<DiagnosticSource> for StmtId     { #[inline(always)] fn into(self) -> DiagnosticSource { DiagnosticSource::Stmt(self)       } }
 impl Into<DiagnosticSource> for LevelId    { #[inline(always)] fn into(self) -> DiagnosticSource { DiagnosticSource::Level(self)      } }
 impl Into<DiagnosticSource> for ExprId     { #[inline(always)] fn into(self) -> DiagnosticSource { DiagnosticSource::Expr(self)       } }
+impl Into<DiagnosticSource> for TacticId   { #[inline(always)] fn into(self) -> DiagnosticSource { DiagnosticSource::Tactic(self)       } }
 

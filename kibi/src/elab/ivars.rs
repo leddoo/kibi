@@ -1,5 +1,7 @@
+use sti::keyed::KRange;
+
 use crate::tt::*;
-use local_ctx::OptScopeId;
+use crate::tt::local_ctx::OptScopeId;
 
 use super::*;
 
@@ -178,6 +180,32 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
     pub fn instantiate_term_vars(&self, t: Term<'out>) -> Term<'out> {
         self.ivars.instantiate_term_vars(t, self.alloc)
+    }
+
+
+    #[inline]
+    pub fn with_ivar_scope<R, F: FnOnce(&mut Self) -> R>(&mut self, f: F) -> R {
+        let old_levels = self.ivars.level_vars.next_key();
+        let old_terms  = self.ivars.term_vars.next_key();
+
+        let result = f(self);
+
+        for l in KRange::new(old_levels, self.ivars.level_vars.next_key()) {
+            if self.ivars.level_vars[l].value.is_none() {
+                self.had_unassigned_ivars = true;
+                unsafe { l.assign_core(tt::Level::L1, self) }
+            }
+        }
+
+        for t in KRange::new(old_terms, self.ivars.term_vars.next_key()) {
+            if self.ivars.term_vars[t].value.is_none() {
+                self.had_unassigned_ivars = true;
+                let error = self.mkt_ax_error(t.ty(self), TERM_SOURCE_NONE).0;
+                unsafe { t.assign_core(error, self) }
+            }
+        }
+
+        return result;
     }
 }
 

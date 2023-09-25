@@ -1,8 +1,8 @@
 
 - road map:
+    - unordered decls & incr.
     - references.
     - bori.
-    - unordered decls & incr.
     - allocation.
     - modules.
     - nat literals.
@@ -14,6 +14,9 @@
 
 
 - todo:
+    - address the tech debt.
+        - unordered decls, postpone, incr, so we have no excuse to accumulate any more debt.
+
     - brck.
         - summarize baby steps article.
         - plan impl. what data from `elab_do`/`tyck` do we need?

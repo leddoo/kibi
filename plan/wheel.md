@@ -29,13 +29,18 @@
 
 
 - todo:
-    - elab tactics.
-        - how do we know which ivars belong to the current `by`?
-        - require expected type.
+    - tactic info.
+        - always include goal.
+    - implement tactics.
+        - goal.
+        - rewrite.
 
 
 - backlog:
     - tactics:
+        - refl.
+        - assumption.
+        - exact.
         - print.
         - reduce.
         - unfold.

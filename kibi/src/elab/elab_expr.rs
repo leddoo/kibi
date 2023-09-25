@@ -194,6 +194,15 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
                 (result, result_ty)
             }
+
+            ExprKind::By(it) => {
+                let Some(expected) = expected_ty else {
+                    self.error(expr_id, ElabError::TempStr("expected type must be known"));
+                    return self.mkt_ax_error_from_expected(expected_ty, expr_id.some());
+                };
+
+                self.elab_by(it, expected)
+            }
             
             ExprKind::Parens(it) => {
                 return self.elab_expr_ex(it, expected_ty);

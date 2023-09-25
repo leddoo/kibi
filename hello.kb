@@ -139,10 +139,10 @@ def Nat::add_right_comm (a b k: Nat): (k + a) + b = (k + b) + a
 
 
 def Nat::add_left_cancel (a b k: Nat): k + a = k + b -> a = b
-    := ax_sorry(_)
+    := ax_sorry()
 
 def Nat::add_right_cancel (a b k: Nat): a + k = b + k -> a = b
-    := ax_sorry(_)
+    := ax_sorry()
 
 
 
@@ -263,8 +263,8 @@ reduce double(7)
 reduce double(Pair::mk(1, 2))
 
 
-def Nat::add_left_comm2 (a b k: Nat): a + (b + k) = b + (a + k)
-    := by {
+def Nat::add_left_comm2 (a b k: Nat): a + (b + k) = b + (a + k) :=
+    by {
         goal;
         sorry;
     }

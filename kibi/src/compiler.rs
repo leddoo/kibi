@@ -245,9 +245,10 @@ impl<'c> Inner<'c> {
         let mut elab = Elab {
             diagnostics: Diagnostics::new(),
             token_infos: HashMap::new(),
-            item_infos: KVec::new(),
-            item_ctxs:  KVec::new(),
-            expr_infos: KVec::new(),
+            item_infos:   KVec::new(),
+            item_ctxs:    KVec::new(),
+            expr_infos:   KVec::new(),
+            tactic_infos: KVec::new(),
         };
         let mut env = Env::new();
         let mut traits = Traits::new();
