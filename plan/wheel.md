@@ -29,11 +29,9 @@
 
 
 - todo:
-    - tactic info.
-        - always include goal.
     - implement tactics.
-        - goal.
         - rewrite.
+    - delab.
 
 
 - backlog:

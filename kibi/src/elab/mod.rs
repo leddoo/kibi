@@ -47,7 +47,14 @@ pub struct ExprInfo<'a> {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum TacticInfo<'a> {
+pub struct TacticInfo<'a> {
+    pub goal: tt::Term<'a>,
+    pub kind: TacticInfoKind<'a>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum TacticInfoKind<'a> {
+    None,
     Term(tt::Term<'a>),
 }
 
@@ -61,6 +68,7 @@ pub fn elab_file<'out>(
     *elab.item_infos.inner_mut_unck() = Vec::from_fn(|| None, parse.items.len());
     *elab.item_ctxs.inner_mut_unck()  = Vec::from_fn(|| None, parse.items.len());
     *elab.expr_infos.inner_mut_unck() = Vec::from_value(None, parse.exprs.len());
+    *elab.tactic_infos.inner_mut_unck() = Vec::from_value(None, parse.tactics.len());
 
     for item_id in parse.root_items.iter().copied() {
         let mut elaborator = Elaborator {

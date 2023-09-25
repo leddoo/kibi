@@ -871,6 +871,7 @@ impl<'c> Inner<'c> {
                         ExprKind::Bool(_) => None,
                         ExprKind::Number(_) => None,
                         ExprKind::String(_) => None,
+
                         ExprKind::Parens(it) => hit_test_ast(it.into(), pos, parse),
 
                         ExprKind::Forall(it) |
@@ -884,18 +885,45 @@ impl<'c> Inner<'c> {
                             hit_test_ast(it.val.into(), pos, parse).or_else(||
                             hit_test_ast(it.body.into(), pos, parse))),
 
+                        ExprKind::By(it) => {
+                            let mut result = None;
+                            for id in it.copy_it() {
+                                if let Some(hit) = hit_test_ast(id.into(), pos, parse) {
+                                    result = Some(hit);
+                                    break;
+                                }
+                            }
+                            result
+                        }
+
+                        ExprKind::Ref(it) =>
+                            hit_test_ast(it.expr.into(), pos, parse),
+
+                        ExprKind::Deref(it) =>
+                            hit_test_ast(it.into(), pos, parse),
+
                         ExprKind::Eq(lhs, rhs) =>
                             hit_test_ast(lhs.into(), pos, parse).or_else(||
                             hit_test_ast(rhs.into(), pos, parse)),
+
+                        ExprKind::Op1(it) =>
+                            hit_test_ast(it.expr.into(), pos, parse),
+
+                        ExprKind::Op2(it) =>
+                            hit_test_ast(it.lhs.into(), pos, parse).or_else(||
+                            hit_test_ast(it.rhs.into(), pos, parse)),
+
+                        ExprKind::Field(it) =>
+                            hit_test_ast(it.base.into(), pos, parse),
+
+                        ExprKind::Index(it) =>
+                            hit_test_ast(it.base.into(), pos, parse).or_else(||
+                            hit_test_ast(it.index.into(), pos, parse)),
 
                         ExprKind::Call(it) =>
                             hit_test_ast(it.func.into(), pos, parse).or_else(||
                             it.args.copy_it().find_map(|arg|
                                 hit_test_ast(arg.into(), pos, parse))),
-
-                        ExprKind::Op2(it) =>
-                            hit_test_ast(it.lhs.into(), pos, parse).or_else(||
-                            hit_test_ast(it.rhs.into(), pos, parse)),
 
                         ExprKind::Do(it) => {
                             let mut result = None;
@@ -914,18 +942,38 @@ impl<'c> Inner<'c> {
                             it.els.to_option().and_then(|els|
                                 hit_test_ast(els.into(), pos, parse)))),
 
+                        ExprKind::While(it) =>
+                            hit_test_ast(it.cond.into(), pos, parse).or_else(||
+                            hit_test_ast(it.body.into(), pos, parse).or_else(||
+                            it.els.to_option().and_then(|els|
+                                hit_test_ast(els.into(), pos, parse)))),
+
+                        ExprKind::Loop(it) => {
+                            let mut result = None;
+                            for stmt in it.stmts.copy_it() {
+                                if let Some(hit) = hit_test_ast(stmt.into(), pos, parse) {
+                                    result = Some(hit);
+                                    break;
+                                }
+                            }
+                            result
+                        }
+
                         ExprKind::Break(it) =>
                             it.value.to_option().and_then(|value|
                                 hit_test_ast(value.into(), pos, parse)),
+
+                        ExprKind::Continue(_) => None,
+
+                        ExprKind::ContinueElse(_) => None,
 
                         ExprKind::Return(it) =>
                             it.to_option().and_then(|value|
                                 hit_test_ast(value.into(), pos, parse)),
 
-                        _ => {
-                            eprintln!("unimp! {expr:?}");
-                            None
-                        }
+                        ExprKind::TypeHint(it) =>
+                            hit_test_ast(it.expr.into(), pos, parse).or_else(||
+                            hit_test_ast(it.ty.into(), pos, parse)),
                     };
                     Some(hit.unwrap_or(id.into()))
                 }
@@ -1035,7 +1083,29 @@ impl<'c> Inner<'c> {
                     }
                 }
 
-                AstId::Tactic(_) => {}
+                AstId::Tactic(id) => {
+                    if let Some(info) = elab.tactic_infos[id] {
+                        let mut pp = crate::tt::TermPP::new(&elab_data.env, &self.strings, &ctx.local_ctx, alloc);
+
+                        sti::write!(&mut buf, "goal: ");
+                        let goal = ctx.ivar_ctx.instantiate_term_vars(info.goal, alloc);
+                        let goal = pp.pp_term(goal);
+                        let goal = pp.render(goal, 60);
+                        goal.layout_into_string(&mut buf);
+
+                        match info.kind {
+                            elab::TacticInfoKind::None => (),
+
+                            elab::TacticInfoKind::Term(term) => {
+                                sti::write!(&mut buf, "\nterm: ");
+                                let term = ctx.ivar_ctx.instantiate_term_vars(term, alloc);
+                                let term = pp.pp_term(term);
+                                let term = pp.render(term, 60);
+                                term.layout_into_string(&mut buf);
+                            }
+                        }
+                    }
+                }
             }
 
             if buf.len() > 0 {

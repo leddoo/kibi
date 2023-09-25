@@ -26,18 +26,20 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
     fn elab_tactic(&mut self, tactic_id: TacticId) -> Option<()> {
         let tactic = &self.parse.tactics[tactic_id];
-        match tactic.kind {
-            TacticKind::Error => Some(()),
+        let (goal, info) = match tactic.kind {
+            TacticKind::Error => return Some(()),
 
             TacticKind::Goal => {
-                Some(())
+                let goal = self.next_goal(tactic_id)?.1;
+                self.current_goal -= 1;
+                (goal, TacticInfoKind::None)
             }
 
             TacticKind::Sorry => {
                 let (goal, ty) = self.next_goal(tactic_id)?;
                 let sorry = self.mkt_ax_sorry(ty, TERM_SOURCE_NONE);
                 assert!(goal.assign(&[], sorry, self).unwrap());
-                Some(())
+                (ty, TacticInfoKind::Term(sorry))
             }
 
             TacticKind::Assumption => todo!(),
@@ -50,9 +52,14 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 let (goal, ty) = self.next_goal(tactic_id)?;
                 let value = self.elab_by(it, ty).0;
                 assert!(goal.assign(&[], value, self).unwrap());
-                Some(())
+                (ty, TacticInfoKind::Term(value))
             }
-        }
+        };
+
+        debug_assert!(self.elab.tactic_infos[tactic_id].is_none());
+        self.elab.tactic_infos[tactic_id] = Some(TacticInfo { goal, kind: info });
+
+        Some(())
     }
 
     #[inline]
