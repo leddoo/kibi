@@ -1,11 +1,9 @@
 
 - road map:
-    - do.
     - references.
     - bori.
+    - unordered decls & incr.
     - allocation.
-    - unordered decls.
-    - incremental.
     - modules.
     - nat literals.
     - `Of_Nat` and default impls.
@@ -16,16 +14,10 @@
 
 
 - todo:
-    - okay, i think we need to address the tech debt...
-    - use tyck for inductive.
     - brck.
-        - region inference.
-            - how to handle annotations?
-            - how to handle join points, do they use region params?
-            - or do we infer regions just before brck?
-        - check.
-            - liveness & stuff.
-        - variance.
+        - summarize baby steps article.
+        - plan impl. what data from `elab_do`/`tyck` do we need?
+    - variance.
     - partial functions.
         - we kinda need something to prevent proofs from
           being abused to elide calls to effectful functions.
@@ -40,19 +32,6 @@
               but that would again be covered by disallowing reasoning
               about impure functions.
     - `fn`.
-
-    - uninit dependent vars on assign.
-        - track deps using temp arena & vec for each var.
-        - also need to remove deps, hmm.
-        - don't keep uninit, if not used.
-        - hmm, we don't really want to uninit, unless we need to
-          cause you should be able to use the old value to derive
-          a new proof.
-        - maybe also easy to rewrite stuff that uses bool vars?
-    - oh ja, `bite`.
-    - generate warnings for unreachable code.
-    - fix congr-arg let foo := 42 crash.
-    - begin test suite.
 
 
 ### issues:

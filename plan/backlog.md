@@ -31,6 +31,20 @@
 - sti
     - `HashMap::insert_new`.
 
+- uninit dependent vars on assign.
+    - track deps using temp arena & vec for each var.
+    - also need to remove deps, hmm.
+    - don't keep uninit, if not used.
+    - hmm, we don't really want to uninit, unless we need to
+      cause you should be able to use the old value to derive
+      a new proof.
+    - maybe also easy to rewrite stuff that uses bool vars?
+- oh ja, `bite`.
+- generate warnings for unreachable code.
+- fix congr-arg let foo := 42 crash.
+- begin test suite.
+
+
 
 
 ### cleanup:
@@ -160,7 +174,6 @@
         - lambda type check.
     - kernel type checker.
         - use for inductive.
-        - env does type check before insertion.
     - level elab: use `.imax` & friends.
     - constant approx.
     - proper `abstract_def_eq`.

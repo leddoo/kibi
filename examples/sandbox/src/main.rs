@@ -17,8 +17,8 @@ fn main() {
             (path, code)
         }
         else {
-            //("hello.kb", &include_bytes!("../../../hello.kb")[..])
-            ("sb.kb", &include_bytes!("../../../sb.kb")[..])
+            ("hello.kb", &include_bytes!("../../../hello.kb")[..])
+            //("sb.kb", &include_bytes!("../../../sb.kb")[..])
         }
     };
 

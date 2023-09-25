@@ -1,3 +1,9 @@
+axiom ax_sorry.{t}<T: Sort(t)>: T
+axiom ax_uninit.{t}<T: Sort(t)>: T
+axiom ax_unreach.{t}<T: Sort(t)>: T
+axiom ax_error.{t}<T: Sort(t)>: T
+
+
 inductive False: Prop {
 }
 
@@ -53,8 +59,6 @@ reduce 1 + 2
 
 def quick_maffs: 2 + 2 = 4 := Eq::refl()
 
-
-axiom ax_sorry.{l} (T: Sort(l)): T
 
 
 def Not (P: Prop): Prop := P -> False
@@ -259,4 +263,7 @@ reduce double(7)
 reduce double(Pair::mk(1, 2))
 
 
+def Nat::add_left_comm2 (a b k: Nat): a + (b + k) = b + (a + k)
+    := by {
+    }
 
