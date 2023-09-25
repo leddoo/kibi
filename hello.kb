@@ -31,9 +31,9 @@ inductive Exists.{t} (T: Sort(t), P: T -> Prop): Prop {
     mk (value: T, h: P(value));
 }
 
-inductive Subtype.{t} <T: Sort(t)> (P: T -> Prop): Sort(max(1, t)) {
-    mk (value: T, h: P(value));
-}
+--inductive Subtype.{t} <T: Sort(t)> (P: T -> Prop): Sort(max(1, t)) {
+--    mk (value: T, h: P(value));
+--}
 
 
 trait inductive Add (A B: Type): Sort(2) {
@@ -63,6 +63,9 @@ def quick_maffs: 2 + 2 = 4 := Eq::refl()
 
 def Not (P: Prop): Prop := P -> False
 
+
+def Eq::nd_rec.{t, r} <T: Sort(t), a: T, M: (Pi(b: T) -> Sort(r))> (m_refl: M(a)) <b: T> (mp: a = b): M(b) :=
+    Eq::rec(m_refl, mp)
 
 def Eq::symm.{t} <T: Sort(t), a b: T>: a = b -> b = a :=
     lam heq => Eq::rec(Eq::refl(), heq)
@@ -265,7 +268,14 @@ reduce double(Pair::mk(1, 2))
 
 def Nat::add_left_comm2 (a b k: Nat): a + (b + k) = b + (a + k) :=
     by {
-        sorry;
+        goal;
+        rw <- Nat::add_assoc;
+        goal;
+        rw Nat::add_comm(a, b);
+        goal;
+        rw Nat::add_assoc;
+        goal;
+        refl;
     }
 
 

@@ -209,6 +209,9 @@ impl<'me, 'c, 'i, 'out> Tokenizer<'me, 'c, 'i, 'out> {
                     if self.reader.consume_if_eq(&b'=') {
                         TokenKind::Le
                     }
+                    else if self.reader.consume_if_eq(&b'-') {
+                        TokenKind::LeftArrow
+                    }
                     else { TokenKind::Lt }
                 }
 
@@ -1129,7 +1132,16 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
             let at = self.expect_ident()?;
             match at.value {
                 atoms::goal => TacticKind::Goal,
+
                 atoms::sorry => TacticKind::Sorry,
+
+                atoms::refl => TacticKind::Refl,
+
+                atoms::rw => {
+                    let symm = self.consume_if_eq(TokenKind::LeftArrow);
+                    let with = self.parse_expr(this_parent)?.0;
+                    TacticKind::Rewrite(tactic::Rewrite { symm, with })
+                }
 
                 _ => {
                     self.parse.diagnostics.push(

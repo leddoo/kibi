@@ -299,8 +299,10 @@ impl TermVarId {
             eprintln!("type check failed");
             let var_ty   = elab.instantiate_term_vars(var_ty);
             let value_ty = elab.instantiate_term_vars(value_ty);
-            eprintln!("{}", elab.pp(var_ty,   80));
-            eprintln!("{}", elab.pp(value_ty, 80));
+            let var_ty   = elab.reduce_ex(var_ty, false);
+            let value_ty = elab.reduce_ex(value_ty, false);
+            eprintln!("expected: {}", elab.pp(var_ty,   80));
+            eprintln!("found:    {}", elab.pp(value_ty, 80));
             return Some(false);
         }
 

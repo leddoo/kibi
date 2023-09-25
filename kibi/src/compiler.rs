@@ -396,6 +396,7 @@ impl<'c> Inner<'c> {
                     T::ColonColon => TokenClass::Punctuation,
                     T::ColonEq => TokenClass::Punctuation,
                     T::Arrow => TokenClass::Punctuation,
+                    T::LeftArrow => TokenClass::Punctuation,
                     T::FatArrow => TokenClass::Punctuation,
                     T::Add => TokenClass::Operator,
                     T::AddAssign => TokenClass::Operator,

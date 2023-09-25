@@ -130,7 +130,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
 
         // assign unassigned ivars.
-        let mut had_unassigned_ivars = false;
+        let mut had_unassigned_ivars = self.had_unassigned_ivars;
         for ivar in self.ivars.level_vars.range() {
             if ivar.value(self).is_none() {
                 had_unassigned_ivars = true;

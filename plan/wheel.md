@@ -29,14 +29,22 @@
 
 
 - todo:
-    - implement tactics.
-        - rewrite.
+    - hacky add/eq pp.
     - delab.
+        - "source info".
+        - don't pp in elab.
+        - add & eq.
+        - hide implicit params.
+            - well, we need infer type...
+            - thinking use type checker, but without validation.
+            - hmm, but that doesn't support ivars.
+            - yikes.
+            - well, elab it is. whatever it takes.
+              we'll need to figure something out to make that less horrible after the jam.
 
 
 - backlog:
     - tactics:
-        - refl.
         - assumption.
         - exact.
         - print.

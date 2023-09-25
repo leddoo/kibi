@@ -46,23 +46,27 @@ impl SymbolId {
     pub const Nat_zero: SymbolId = SymbolId(2);
     pub const Nat_succ: SymbolId = SymbolId(3);
 
-    pub const Eq: SymbolId = SymbolId(4);
+    pub const Eq:        SymbolId = SymbolId(4);
+    pub const Eq_refl:   SymbolId = SymbolId(5);
+    pub const Eq_rec:    SymbolId = SymbolId(6);
+    pub const Eq_nd_rec: SymbolId = SymbolId(7);
+    pub const Eq_symm:   SymbolId = SymbolId(8);
 
-    pub const Add: SymbolId = SymbolId(5);
-    pub const Add_add: SymbolId = SymbolId(6);
+    pub const Add:     SymbolId = SymbolId(9);
+    pub const Add_add: SymbolId = SymbolId(10);
 
-    pub const Unit: SymbolId = SymbolId(7);
-    pub const Unit_mk: SymbolId = SymbolId(8);
+    pub const Unit:    SymbolId = SymbolId(11);
+    pub const Unit_mk: SymbolId = SymbolId(12);
 
-    pub const Bool: SymbolId = SymbolId(9);
-    pub const Bool_false: SymbolId = SymbolId(10);
-    pub const Bool_true: SymbolId = SymbolId(11);
-    pub const ite: SymbolId = SymbolId(12);
+    pub const Bool:       SymbolId = SymbolId(13);
+    pub const Bool_false: SymbolId = SymbolId(14);
+    pub const Bool_true:  SymbolId = SymbolId(15);
+    pub const ite:        SymbolId = SymbolId(16);
 
-    pub const ax_sorry: SymbolId = SymbolId(13);
-    pub const ax_uninit: SymbolId = SymbolId(14);
-    pub const ax_unreach: SymbolId = SymbolId(15);
-    pub const ax_error: SymbolId = SymbolId(16);
+    pub const ax_sorry:   SymbolId = SymbolId(17);
+    pub const ax_uninit:  SymbolId = SymbolId(18);
+    pub const ax_unreach: SymbolId = SymbolId(19);
+    pub const ax_error:   SymbolId = SymbolId(20);
 }
 
 
@@ -118,7 +122,11 @@ impl<'a> Env<'a> {
         env.predeclare(SymbolId::Nat, atoms::zero, SymbolId::Nat_zero);
         env.predeclare(SymbolId::Nat, atoms::succ, SymbolId::Nat_succ);
 
-        env.predeclare(SymbolId::ROOT, atoms::Eq, SymbolId::Eq);
+        env.predeclare(SymbolId::ROOT, atoms::Eq,     SymbolId::Eq);
+        env.predeclare(SymbolId::Eq,   atoms::refl,    SymbolId::Eq_refl);
+        env.predeclare(SymbolId::Eq,   atoms::rec,    SymbolId::Eq_rec);
+        env.predeclare(SymbolId::Eq,   atoms::nd_rec, SymbolId::Eq_nd_rec);
+        env.predeclare(SymbolId::Eq,   atoms::symm,   SymbolId::Eq_symm);
 
         env.predeclare(SymbolId::ROOT, atoms::Add, SymbolId::Add);
         env.predeclare(SymbolId::Add, atoms::add, SymbolId::Add_add);

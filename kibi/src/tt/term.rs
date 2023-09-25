@@ -182,6 +182,21 @@ impl<'a> Term<'a> {
 
 
     #[inline(always)]
+    pub fn is_eq(self) -> bool { if let Some(g) = self.try_global() { g.id == SymbolId::Eq } else { false } }
+
+    #[inline(always)]
+    pub fn try_eq_app(self) -> Option<[Term<'a>; 3]> {
+        let app3 = self.try_apply()?;
+        let app2 = app3.fun.try_apply()?;
+        let app1 = app2.fun.try_apply()?;
+        if app1.fun.is_eq() {
+            return Some([app1.arg, app2.arg, app3.arg]);
+        }
+        None
+    }
+
+
+    #[inline(always)]
     pub fn syntax_eq(self, other: Term) -> bool {
         if self.ptr_eq(other) {
             return true;

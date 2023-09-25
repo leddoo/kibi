@@ -177,6 +177,7 @@ pub enum TokenKind {
     ColonEq,
 
     Arrow,
+    LeftArrow,
     FatArrow,
 
     Ampersand,
@@ -262,6 +263,7 @@ impl TokenKind {
             TokenKind::ColonColon |
             TokenKind::ColonEq |
             TokenKind::Arrow |
+            TokenKind::LeftArrow |
             TokenKind::FatArrow |
             TokenKind::Add |
             TokenKind::AddAssign |
@@ -334,6 +336,7 @@ impl TokenKind {
             TokenKind::ColonColon => "'::'",
             TokenKind::ColonEq => "':='",
             TokenKind::Arrow => "'->'",
+            TokenKind::LeftArrow => "'<-'",
             TokenKind::FatArrow => "'=>'",
             TokenKind::Ampersand => "'&'",
             TokenKind::Add => "'+'",
@@ -817,7 +820,7 @@ pub enum TacticKind<'a> {
 }
 
 
-mod tactic {
+pub mod tactic {
     use super::*;
 
 

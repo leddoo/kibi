@@ -55,6 +55,8 @@ impl<'a> StringTable<'a> {
             (atoms::goal, "goal"), (atoms::sorry, "sorry"),
             (atoms::assumption, "assumption"), (atoms::rw, "rw"),
             (atoms::rewrite, "rewrite"), (atoms::by, "by"),
+            (atoms::nd_rec, "nd_rec"),
+            (atoms::symm, "symm"),
         ];
 
         for (atom, string) in init.iter().copied() {
@@ -139,6 +141,8 @@ pub mod atoms {
     pub const rw:           Atom = Atom(42);
     pub const rewrite:      Atom = Atom(43);
     pub const by:           Atom = Atom(44);
+    pub const nd_rec:       Atom = Atom(45);
+    pub const symm:         Atom = Atom(46);
 }
 
 
