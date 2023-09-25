@@ -186,11 +186,28 @@ impl<'a> Term<'a> {
 
     #[inline(always)]
     pub fn try_eq_app(self) -> Option<[Term<'a>; 3]> {
-        let app3 = self.try_apply()?;
-        let app2 = app3.fun.try_apply()?;
-        let app1 = app2.fun.try_apply()?;
+        let app3 = self.try_apply()?;     // T
+        let app2 = app3.fun.try_apply()?; // a
+        let app1 = app2.fun.try_apply()?; // b
         if app1.fun.is_eq() {
             return Some([app1.arg, app2.arg, app3.arg]);
+        }
+        None
+    }
+
+
+    #[inline(always)]
+    pub fn is_add_add(self) -> bool { if let Some(g) = self.try_global() { g.id == SymbolId::Add_add } else { false } }
+
+    #[inline(always)]
+    pub fn try_add_add_app(self) -> Option<[Term<'a>; 5]> {
+        let app5 = self.try_apply()?;     // A
+        let app4 = app5.fun.try_apply()?; // B
+        let app3 = app4.fun.try_apply()?; // inst
+        let app2 = app3.fun.try_apply()?; // a
+        let app1 = app2.fun.try_apply()?; // b
+        if app1.fun.is_add_add() {
+            return Some([app1.arg, app2.arg, app3.arg, app4.arg, app5.arg]);
         }
         None
     }

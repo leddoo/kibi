@@ -224,6 +224,22 @@ impl<'me, 'a> TermPP<'me, 'a> {
                     }
                 }
 
+                if let Some([_, lhs, rhs]) = t.try_eq_app() {
+                    let lhs = self.pp_term(lhs);
+                    let rhs = self.pp_term(rhs);
+                    return self.pp.cats(&[lhs, self.pp.text(" = "), rhs]);
+                }
+
+                if let Some([_, _, _, lhs, rhs]) = t.try_add_add_app() {
+                    let lhs = self.pp_term(lhs);
+                    let rhs = self.pp_term(rhs);
+                    return self.pp.cats(&[
+                        self.pp.text("("),
+                        lhs, self.pp.text(" + "), rhs,
+                        self.pp.text(")"),
+                    ]);
+                }
+
                 let (fun_term, fun, args) = self.pp_apply(&app);
 
                 let needs_parens = match fun_term.data() {

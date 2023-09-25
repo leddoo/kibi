@@ -29,7 +29,6 @@
 
 
 - todo:
-    - hacky add/eq pp.
     - delab.
         - "source info".
         - don't pp in elab.

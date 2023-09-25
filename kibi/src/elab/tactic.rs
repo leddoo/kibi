@@ -67,7 +67,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     return Some(());
                 }
 
-                return Some(());
+                (ty, TacticInfoKind::Term(value))
             }
 
             // @todo: avoid double errors.
@@ -152,7 +152,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 self.goals.push(rest_id);
                 self.goals.extend_from_slice(&old_goals);
 
-                return Some(());
+                (goal_ty, TacticInfoKind::Term(value))
             }
 
             TacticKind::By(it) => {
