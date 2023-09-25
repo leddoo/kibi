@@ -265,5 +265,7 @@ reduce double(Pair::mk(1, 2))
 
 def Nat::add_left_comm2 (a b k: Nat): a + (b + k) = b + (a + k)
     := by {
+        goal;
+        sorry;
     }
 

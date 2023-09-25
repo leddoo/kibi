@@ -42,6 +42,8 @@ pub enum DiagnosticKind<'a> {
 pub enum ParseError<'a> {
     Expected(&'a str),
     Unexpected(&'a str),
+
+    TempStr(&'a str),
 }
 
 

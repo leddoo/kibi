@@ -16,6 +16,7 @@ sti::define_key!(pub, u32, ItemId, opt: OptItemId);
 sti::define_key!(pub, u32, StmtId);
 sti::define_key!(pub, u32, LevelId);
 sti::define_key!(pub, u32, ExprId, opt: OptExprId);
+sti::define_key!(pub, u32, TacticId);
 
 
 #[derive(Clone, Copy, Debug)]
@@ -24,14 +25,16 @@ pub enum AstId {
     Stmt(StmtId),
     Level(LevelId),
     Expr(ExprId),
+    Tactic(TacticId),
 }
 
 pub type AstParent = Option<AstId>;
 
-impl Into<AstId> for ItemId  { #[inline(always)] fn into(self) -> AstId { AstId::Item(self) } }
-impl Into<AstId> for StmtId  { #[inline(always)] fn into(self) -> AstId { AstId::Stmt(self) } }
-impl Into<AstId> for LevelId { #[inline(always)] fn into(self) -> AstId { AstId::Level(self) } }
-impl Into<AstId> for ExprId  { #[inline(always)] fn into(self) -> AstId { AstId::Expr(self) } }
+impl Into<AstId> for ItemId   { #[inline(always)] fn into(self) -> AstId { AstId::Item(self) } }
+impl Into<AstId> for StmtId   { #[inline(always)] fn into(self) -> AstId { AstId::Stmt(self) } }
+impl Into<AstId> for LevelId  { #[inline(always)] fn into(self) -> AstId { AstId::Level(self) } }
+impl Into<AstId> for ExprId   { #[inline(always)] fn into(self) -> AstId { AstId::Expr(self) } }
+impl Into<AstId> for TacticId { #[inline(always)] fn into(self) -> AstId { AstId::Tactic(self) } }
 
 
 #[derive(Clone, Copy, Debug)]
@@ -144,6 +147,8 @@ pub enum TokenKind {
     KwLet, KwVar,
     KwIn,
 
+    KwBy,
+
     KwDo,
     KwIf,
     KwThen,
@@ -214,6 +219,7 @@ impl TokenKind {
             TokenKind::KwLam |
             TokenKind::KwPi |
             TokenKind::KwLet |
+            TokenKind::KwBy |
             TokenKind::KwDo |
             TokenKind::KwIf |
             TokenKind::KwWhile |
@@ -301,6 +307,7 @@ impl TokenKind {
             TokenKind::KwLet => "'let'",
             TokenKind::KwVar => "'var'",
             TokenKind::KwIn => "'in'",
+            TokenKind::KwBy => "'by'",
             TokenKind::KwDo => "'do'",
             TokenKind::KwIf => "'if'",
             TokenKind::KwThen => "'then'",
@@ -482,6 +489,8 @@ pub enum ExprKind<'a> {
     Forall(expr::Binder<'a>),
     Lambda(expr::Binder<'a>),
     Let(expr::Let),
+
+    By(TacticList<'a>),
 
     Bool(bool),
     Number(ParseNumberId),
@@ -775,6 +784,48 @@ pub mod adt {
     }
 
     pub type CtorList<'a> = &'a [Ctor<'a>];
+}
+
+
+
+//
+// tactics
+//
+
+pub type TacticList<'a> = &'a [TacticId];
+
+#[derive(Clone, Copy, Debug)]
+pub struct Tactic<'a> {
+    pub parent: AstParent,
+    pub source: TokenRange,
+
+    pub kind: TacticKind<'a>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum TacticKind<'a> {
+    Error,
+
+    Goal,
+
+    Sorry,
+    Assumption,
+    Refl,
+    Rewrite(tactic::Rewrite),
+
+    By(TacticList<'a>),
+}
+
+
+mod tactic {
+    use super::*;
+
+
+    #[derive(Clone, Copy, Debug)]
+    pub struct Rewrite {
+        pub symm: bool,
+        pub with: ExprId,
+    }
 }
 
 

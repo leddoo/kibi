@@ -29,14 +29,16 @@
 
 
 - todo:
-    - parse tactics.
-        - for now, fixed set, parse at parse time to keep `Parse` situation simple.
-          elab doesn't support multiple `Parse`s atm.
-        - for now: `rw`, `exact`, `apply`.
-        - later: `cases`, `induction`.
-        - also for now, `goal`, cause we don't have the panel yet.
     - elab tactics.
-        - hope we won't need postponing.
+        - how do we know which ivars belong to the current `by`?
         - require expected type.
-        - just do the thing.
+
+
+- backlog:
+    - tactics:
+        - print.
+        - reduce.
+        - unfold.
+        - induction.
+        - cases.
 

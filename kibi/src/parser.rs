@@ -20,10 +20,11 @@ pub struct Parse<'a> {
     pub strings: KVec<ParseStringId, &'a str>,
     pub tokens:  KVec<TokenId, Token>,
 
-    pub items:  KVec<ItemId,  Item<'a>>,
-    pub stmts:  KVec<StmtId,  Stmt>,
-    pub levels: KVec<LevelId, Level>,
-    pub exprs:  KVec<ExprId,  Expr<'a>>,
+    pub items:   KVec<ItemId,   Item<'a>>,
+    pub stmts:   KVec<StmtId,   Stmt>,
+    pub levels:  KVec<LevelId,  Level>,
+    pub exprs:   KVec<ExprId,   Expr<'a>>,
+    pub tactics: KVec<TacticId, Tactic<'a>>,
 
     pub root_items: Vec<ItemId>,
 }
@@ -297,6 +298,8 @@ impl<'me, 'c, 'i, 'out> Tokenizer<'me, 'c, 'i, 'out> {
                     "let" => TokenKind::KwLet,
                     "var" => TokenKind::KwVar,
                     "in" => TokenKind::KwIn,
+
+                    "by" => TokenKind::KwBy,
 
                     "do" => TokenKind::KwDo,
                     "if" => TokenKind::KwIf,
@@ -831,6 +834,19 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                 }
 
 
+                TokenKind::KwBy => {
+                    self.expect(TokenKind::LCurly)?;
+
+                    let tactics = self.sep_all_by(TokenKind::Semicolon, TokenKind::RCurly, |this|
+                        this.parse_tactic(this_parent))?;
+
+                    // @todo: flags of exprs in tactics? @by_no_flags
+                    let flags = ExprFlags::new();
+
+                    (ExprKind::By(tactics), flags)
+                }
+
+
                 TokenKind::Bool(value) =>
                     (ExprKind::Bool(value), ExprFlags::new()),
 
@@ -1089,6 +1105,49 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
         }
 
         Some((result.unwrap(), result_flags))
+    }
+
+
+    fn parse_tactic(&mut self, parent: AstParent) -> Option<TacticId> {
+        let source_begin = self.current_token_id();
+
+        let this_tactic = self.parse.tactics.push(Tactic {
+            parent,
+            source: TokenRange::ZERO,
+            kind: TacticKind::Error,
+        });
+        let this_parent = Some(AstId::Tactic(this_tactic));
+
+        let kind = 'kind: {
+            if self.consume_if_eq(TokenKind::KwBy) {
+                self.expect(TokenKind::LCurly)?;
+                let tactics = self.sep_all_by(TokenKind::Semicolon, TokenKind::RCurly, |this|
+                    this.parse_tactic(this_parent))?;
+                break 'kind TacticKind::By(tactics);
+            }
+
+            let at = self.expect_ident()?;
+            match at.value {
+                atoms::goal => TacticKind::Goal,
+                atoms::sorry => TacticKind::Sorry,
+
+                _ => {
+                    self.parse.diagnostics.push(
+                        Diagnostic {
+                            source: DiagnosticSource::TokenRange(TokenRange::from_key(source_begin)),
+                            kind: DiagnosticKind::ParseError(ParseError::TempStr("unknown tactic")),
+                        });
+                    return None;
+                }
+            }
+        };
+
+        let source = self.token_range_from(source_begin);
+        let this = &mut self.parse.tactics[this_tactic];
+        this.source = source;
+        this.kind = kind;
+
+        Some(this_tactic)
     }
 
 

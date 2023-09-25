@@ -52,6 +52,9 @@ impl<'a> StringTable<'a> {
             (atoms::ax_unreach, "ax_unreach"),
             (atoms::ax_error, "ax_error"),
             (atoms::jp, "jp"),
+            (atoms::goal, "goal"), (atoms::sorry, "sorry"),
+            (atoms::assumption, "assumption"), (atoms::rw, "rw"),
+            (atoms::rewrite, "rewrite"), (atoms::by, "by"),
         ];
 
         for (atom, string) in init.iter().copied() {
@@ -130,6 +133,12 @@ pub mod atoms {
     pub const ax_unreach:   Atom = Atom(36);
     pub const ax_error:     Atom = Atom(37);
     pub const jp:           Atom = Atom(38);
+    pub const goal:         Atom = Atom(39);
+    pub const sorry:        Atom = Atom(40);
+    pub const assumption:   Atom = Atom(41);
+    pub const rw:           Atom = Atom(42);
+    pub const rewrite:      Atom = Atom(43);
+    pub const by:           Atom = Atom(44);
 }
 
 

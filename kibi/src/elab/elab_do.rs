@@ -712,6 +712,9 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             ExprKind::Bool(_) |
             ExprKind::Number(_) |
             ExprKind::String(_) => unreachable!(),
+
+            // @by_no_flags
+            ExprKind::By(_) => unreachable!(),
         }
     }
 

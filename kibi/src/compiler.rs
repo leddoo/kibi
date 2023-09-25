@@ -230,10 +230,11 @@ impl<'c> Inner<'c> {
             numbers: KVec::new(),
             strings: KVec::new(),
             tokens:  KVec::new(),
-            items:  KVec::new(),
-            stmts:  KVec::new(),
-            levels: KVec::new(),
-            exprs:  KVec::new(),
+            items:   KVec::new(),
+            stmts:   KVec::new(),
+            levels:  KVec::new(),
+            exprs:   KVec::new(),
+            tactics: KVec::new(),
             root_items: Vec::new(),
         };
         parser::parse_file(&source.code, &mut parse, &mut self.strings, &parse_arena);
@@ -366,6 +367,7 @@ impl<'c> Inner<'c> {
                     T::KwLet => TokenClass::Keyword,
                     T::KwVar => TokenClass::Keyword,
                     T::KwIn => TokenClass::Keyword,
+                    T::KwBy => TokenClass::Keyword,
                     T::KwDo => TokenClass::Keyword,
                     T::KwIf => TokenClass::Keyword,
                     T::KwThen => TokenClass::Keyword,
@@ -524,6 +526,10 @@ impl<'c> Inner<'c> {
 
                     ParseError::Unexpected(what) => {
                         sti::write!(&mut msg, "unexpected: {what}");
+                    }
+
+                    ParseError::TempStr(str) => {
+                        sti::write!(&mut msg, "(temp) msg: {}", str);
                     }
                 }
             }
@@ -768,7 +774,7 @@ impl<'c> Inner<'c> {
         }}
 
 
-        use crate::ast::{ItemKind, StmtKind, LevelKind, ExprKind, Binder, expr::Block};
+        use crate::ast::{ItemKind, StmtKind, LevelKind, ExprKind, TacticKind, Binder};
 
         // @cleanup: visit children.
         fn hit_test_ast(node: AstId, pos: TokenId, parse: &Parse) -> Option<AstId> {
@@ -890,8 +896,16 @@ impl<'c> Inner<'c> {
                             hit_test_ast(it.lhs.into(), pos, parse).or_else(||
                             hit_test_ast(it.rhs.into(), pos, parse)),
 
-                        ExprKind::Do(it) =>
-                            hit_test_block(it, pos, parse),
+                        ExprKind::Do(it) => {
+                            let mut result = None;
+                            for stmt in it.stmts.copy_it() {
+                                if let Some(hit) = hit_test_ast(stmt.into(), pos, parse) {
+                                    result = Some(hit);
+                                    break;
+                                }
+                            }
+                            result
+                        }
 
                         ExprKind::If(it) =>
                             hit_test_ast(it.cond.into(), pos, parse).or_else(||
@@ -914,6 +928,35 @@ impl<'c> Inner<'c> {
                     };
                     Some(hit.unwrap_or(id.into()))
                 }
+
+                AstId::Tactic(id) => {
+                    let tactic = parse.tactics[id];
+                    if !tactic.source.contains(pos) { return None }
+
+                    let hit = match tactic.kind {
+                        TacticKind::Error => None,
+
+                        TacticKind::Goal => None,
+                        TacticKind::Sorry => None,
+                        TacticKind::Assumption => None,
+                        TacticKind::Refl => None,
+
+                        TacticKind::Rewrite(it) =>
+                            hit_test_ast(it.with.into(), pos, parse),
+
+                        TacticKind::By(it) => {
+                            let mut result = None;
+                            for id in it.copy_it() {
+                                if let Some(hit) = hit_test_ast(id.into(), pos, parse) {
+                                    result = Some(hit);
+                                    break;
+                                }
+                            }
+                            result
+                        }
+                    };
+                    Some(hit.unwrap_or(id.into()))
+                }
             }
         }
 
@@ -927,15 +970,6 @@ impl<'c> Inner<'c> {
                 };
                 if hit.is_some() {
                     return hit;
-                }
-            }
-            None
-        }
-
-        fn hit_test_block(block: Block, pos: TokenId, parse: &Parse) -> Option<AstId> {
-            for stmt in block.stmts.copy_it() {
-                if let Some(hit) = hit_test_ast(stmt.into(), pos, parse) {
-                    return Some(hit);
                 }
             }
             None
@@ -999,6 +1033,8 @@ impl<'c> Inner<'c> {
                         }
                     }
                 }
+
+                AstId::Tactic(_) => {}
             }
 
             if buf.len() > 0 {
