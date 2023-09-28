@@ -10,25 +10,15 @@
     - so mostly lean's pa, but with a focus on interaction in the proof state panel.
     - delab control.
 
-- prereqs:
-    - tactics & `by`.
-    - a better delab.
-        - configurable, granular level of detail.
-        - "source info" for interaction.
-        - support for operators.
-
-- non-prereqs:
-    - prelude. we can just use hello.kb.
-
-
-- plan:
-    - mon: tactics.
-    - new delab.
-    - tue: proof state panel.
-    - wed: interactivity.
-
 
 - todo:
+    - info panel.
+        - proper request:
+            - uri.
+            - position.
+            - width.
+        - respond to size changes.
+    - the `Add::R` issue.
     - delab.
         - "source info".
         - don't pp in elab.
@@ -51,4 +41,8 @@
         - unfold.
         - induction.
         - cases.
+    - a better delab.
+        - configurable, granular level of detail.
+        - "source info" for interaction.
+        - support for operators.
 

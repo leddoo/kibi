@@ -316,7 +316,7 @@ impl<'a> core::fmt::Display for Value<'a> {
 
                 Value::Array(values) => {
                     if values.len() == 0 {
-                        return write!(f, "{{}}");
+                        return write!(f, "[]");
                     }
 
                     write!(f, "[")?;

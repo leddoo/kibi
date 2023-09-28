@@ -276,6 +276,11 @@ impl Lsp {
                 return true;
             }
 
+            "kibi/info_panel" => {
+                self.send_response(id, Ok(json::Value::Array(&["hey".into(), (id as f64).into()])));
+                return true;
+            }
+
             _ => {
                 _ = writeln!(self.log, "[warn]: request not supported {method:?}");
                 return true;
