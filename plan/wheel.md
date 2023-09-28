@@ -13,8 +13,8 @@
 
 - todo:
     - info panel.
-        - local context.
-        - all goals.
+        - `unfold <local>`.
+        - `exists_elim <local>`.
         - inner window size?
     - the `Add::R` issue.
     - delab.

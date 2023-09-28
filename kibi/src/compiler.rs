@@ -810,17 +810,11 @@ impl<'c> Inner<'c> {
                 if let Some(info) = elab.tactic_infos[id] {
                     let mut pp = crate::tt::TermPP::new(&elab_data.env, &self.strings, &ctx.local_ctx, alloc);
 
-                    sti::write!(&mut buf, "goal: ");
-                    let goal = ctx.ivar_ctx.instantiate_term_vars(info.goal, alloc);
-                    let goal = pp.pp_term(goal);
-                    let goal = pp.render(goal, 60);
-                    goal.layout_into_string(&mut buf);
-
                     match info.kind {
                         elab::TacticInfoKind::None => (),
 
                         elab::TacticInfoKind::Term(term) => {
-                            sti::write!(&mut buf, "\nterm: ");
+                            sti::write!(&mut buf, "term: ");
                             let term = ctx.ivar_ctx.instantiate_term_vars(term, alloc);
                             let term = pp.pp_term(term);
                             let term = pp.render(term, 60);
@@ -886,15 +880,39 @@ impl<'c> Inner<'c> {
 
                 let mut pp = crate::tt::TermPP::new(&elab_data.env, &self.strings, &ctx.local_ctx, alloc);
 
-                let mut buf = String::with_cap_in(alloc, 128);
-                let goal = ctx.ivar_ctx.instantiate_term_vars(info.goal, alloc);
-                let goal = pp.pp_term(goal);
-                let goal = pp.cats(&[
-                    pp.group(pp.cat(pp.text("goal:"), pp.line_or_sp())),
-                    goal,
-                ]);
-                let goal = pp.render(goal, width as i32);
-                goal.layout_into_string(&mut buf);
+                let mut buf = String::with_cap_in(alloc, 1024);
+
+                // locals
+                let mut locals = Vec::new_in(alloc);
+                let mut scope = info.scope;
+                while let Some(id) = scope.to_option() {
+                    let entry = ctx.local_ctx.lookup(id);
+                    locals.push(entry);
+                    scope = entry.parent;
+                }
+                for local in locals.copy_it().rev() {
+                    let ty = ctx.ivar_ctx.instantiate_term_vars(local.ty, alloc);
+                    let ty = pp.pp_term(ty);
+                    let local = pp.cat(
+                        pp.text(sti::format_in!(alloc, "{}: ",
+                            &self.strings[local.name]).leak()),
+                        ty);
+                    let local = pp.render(local, width as i32);
+                    local.layout_into_string(&mut buf);
+                    buf.push_char('\n');
+                }
+                if locals.len() > 0 {
+                    buf.push_char('\n');
+                }
+
+                for goal in info.goals.copy_it() {
+                    let goal = ctx.ivar_ctx.instantiate_term_vars(goal, alloc);
+                    let goal = pp.pp_term(goal);
+                    let goal = pp.cat(pp.text("goal: "), goal);
+                    let goal = pp.render(goal, width as i32);
+                    goal.layout_into_string(&mut buf);
+                    buf.push_char('\n');
+                }
                 let buf = buf.leak();
 
                 // this is kinda dumb. whatever.

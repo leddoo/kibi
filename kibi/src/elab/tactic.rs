@@ -33,20 +33,30 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     }
 
     fn elab_tactic(&mut self, tactic_id: TacticId) -> Option<()> {
+        let scope = self.lctx.current;
+
+        // @todo: persistent list.
+        let mut goals = Vec::with_cap_in(self.alloc, self.goals.len() - self.current_goal);
+        for goal in &self.goals[self.current_goal..] {
+            if goal.value(self).is_none() {
+                goals.push(goal.ty(self));
+            }
+        }
+        let goals = goals.leak();
+
         let tactic = &self.parse.tactics[tactic_id];
-        let (goal, info) = match tactic.kind {
+        let info = match tactic.kind {
             TacticKind::Error => return Some(()),
 
             TacticKind::Goal => {
-                let goal = self.peek_goal(tactic_id)?.1;
-                (goal, TacticInfoKind::None)
+                TacticInfoKind::None
             }
 
             TacticKind::Sorry => {
                 let (goal, ty) = self.next_goal(tactic_id)?;
                 let sorry = self.mkt_ax_sorry(ty, TERM_SOURCE_NONE);
                 self.assign_goal(goal, sorry);
-                (ty, TacticInfoKind::Term(sorry))
+                TacticInfoKind::Term(sorry)
             }
 
             TacticKind::Assumption => todo!(),
@@ -74,7 +84,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     return Some(());
                 }
 
-                (ty, TacticInfoKind::Term(value))
+                TacticInfoKind::Term(value)
             }
 
             // @todo: avoid double errors.
@@ -156,14 +166,14 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 self.goals.push(rest_id);
                 self.goals.extend_from_slice(&old_goals);
 
-                (goal_ty, TacticInfoKind::Term(value))
+                TacticInfoKind::Term(value)
             }
 
             TacticKind::By(it) => {
                 let (goal, ty) = self.next_goal(tactic_id)?;
                 let value = self.elab_by(it, ty).0;
                 self.assign_goal(goal, value);
-                (ty, TacticInfoKind::Term(value))
+                TacticInfoKind::Term(value)
             }
 
             TacticKind::Intro(name) => {
@@ -185,12 +195,12 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
                 self.goals[self.current_goal] = new_goal;
 
-                (goal_ty, TacticInfoKind::Term(value))
+                TacticInfoKind::Term(value)
             }
         };
 
         debug_assert!(self.elab.tactic_infos[tactic_id].is_none());
-        self.elab.tactic_infos[tactic_id] = Some(TacticInfo { goal, kind: info });
+        self.elab.tactic_infos[tactic_id] = Some(TacticInfo { scope, goals, kind: info });
 
         Some(())
     }

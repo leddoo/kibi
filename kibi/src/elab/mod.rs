@@ -8,7 +8,7 @@ use crate::string_table::{StringTable, Atom};
 use crate::diagnostics::*;
 use crate::ast::{TokenId, ItemId, ExprId, TacticId};
 use crate::parser::Parse;
-use crate::tt::{self, ScopeId, LocalCtx};
+use crate::tt::{self, ScopeId, OptScopeId, LocalCtx};
 use crate::env::*;
 use crate::traits::Traits;
 
@@ -48,7 +48,8 @@ pub struct ExprInfo<'a> {
 
 #[derive(Clone, Copy, Debug)]
 pub struct TacticInfo<'a> {
-    pub goal: tt::Term<'a>,
+    pub scope: OptScopeId,
+    pub goals: &'a [tt::Term<'a>],
     pub kind: TacticInfoKind<'a>,
 }
 
