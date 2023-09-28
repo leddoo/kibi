@@ -1148,6 +1148,15 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     TacticKind::Intro(name)
                 }
 
+                atoms::unfold => {
+                    let at =
+                        if self.consume_if_eq(TokenKind::Ident(atoms::at)) {
+                            Some(self.expect_ident()?)
+                        }
+                        else { None };
+                    TacticKind::Unfold(at)
+                }
+
                 _ => {
                     self.parse.diagnostics.push(
                         Diagnostic {

@@ -266,6 +266,7 @@ reduce double(7)
 reduce double(Pair::mk(1, 2))
 
 
+
 def Nat::add_left_comm2 (a b k: Nat): a + (b + k) = b + (a + k) :=
     by {
         rw <- Nat::add_assoc;
@@ -276,6 +277,7 @@ def Nat::add_left_comm2 (a b k: Nat): a + (b + k) = b + (a + k) :=
 
 def Nat::not_lt_zero2 (n: Nat): Not(Nat::Lt(n, 0)) :=
     by {
+        unfold;
         intro hlt;
         sorry;
     }

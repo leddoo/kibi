@@ -144,6 +144,19 @@ impl<'me, 'a> TermPP<'me, 'a> {
             }
 
             TermData::Forall(b) => {
+                if b.val.closed() {
+                    let ty  = self.pp_term(b.ty);
+                    let val = self.pp_term(b.val);
+                    return self.pp.group(self.pp.cats(&[
+                        ty,
+                        self.pp.group(self.pp.indent(2, self.pp.cats(&[
+                            self.pp.line_or_sp(),
+                            self.pp.text("-> "),
+                            val,
+                        ]))),
+                    ]))
+                }
+
                 let name = if b.name == Atom::NULL { atoms::_hole } else { b.name };
                 let ty  = self.pp_term(b.ty);
                 let val = self.pp_term(b.val);
@@ -233,9 +246,10 @@ impl<'me, 'a> TermPP<'me, 'a> {
                     let rhs = self.pp_term(rhs);
                     return self.pp.cats(&[
                         lhs,
+                        // todo: indent.
                         self.pp.group(self.pp.cats(&[
                             self.pp.line_or_sp(),
-                            self.pp.text(" = "),
+                            self.pp.text("= "),
                             rhs,
                         ])),
                     ]);
@@ -247,6 +261,7 @@ impl<'me, 'a> TermPP<'me, 'a> {
                     return self.pp.cats(&[
                         self.pp.text("("),
                         lhs,
+                        // todo: indent.
                         self.pp.group(self.pp.cats(&[
                             self.pp.line_or_sp(),
                             self.pp.text("+ "),

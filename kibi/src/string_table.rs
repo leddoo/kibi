@@ -58,6 +58,8 @@ impl<'a> StringTable<'a> {
             (atoms::nd_rec, "nd_rec"),
             (atoms::symm, "symm"),
             (atoms::intro, "intro"),
+            (atoms::unfold, "unfold"),
+            (atoms::at, "at"),
         ];
 
         for (atom, string) in init.iter().copied() {
@@ -145,6 +147,8 @@ pub mod atoms {
     pub const nd_rec:       Atom = Atom(45);
     pub const symm:         Atom = Atom(46);
     pub const intro:        Atom = Atom(47);
+    pub const unfold:       Atom = Atom(48);
+    pub const at:           Atom = Atom(49);
 }
 
 

@@ -413,10 +413,21 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         Some(symbol_id)
     }
 
+    #[inline]
     pub fn lookup_local(&self, name: Atom) -> Option<ScopeId> {
-        for l in self.locals.iter().rev().copied() {
+        for l in self.locals.copy_it().rev() {
             if l.name == name {
                 return Some(l.id);
+            }
+        }
+        None
+    }
+
+    #[inline]
+    pub fn lookup_local_idx(&self, name: Atom) -> Option<(ScopeId, usize)> {
+        for (i, l) in self.locals.copy_it().enumerate().rev() {
+            if l.name == name {
+                return Some((l.id, i));
             }
         }
         None

@@ -816,6 +816,7 @@ pub enum TacticKind<'a> {
     Refl,
     Rewrite(tactic::Rewrite),
     Intro(Ident),
+    Unfold(Option<Ident>),
 
     By(TacticList<'a>),
 }

@@ -48,7 +48,7 @@ pub struct ExprInfo<'a> {
 
 #[derive(Clone, Copy, Debug)]
 pub struct TacticInfo<'a> {
-    pub scope: OptScopeId,
+    pub locals: &'a [ScopeId],
     pub goals: &'a [tt::Term<'a>],
     pub kind: TacticInfoKind<'a>,
 }

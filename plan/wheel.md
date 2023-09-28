@@ -12,8 +12,8 @@
 
 
 - todo:
+    - when/how to abstract locals?
     - info panel.
-        - `unfold <local>`.
         - `exists_elim <local>`.
         - inner window size?
     - the `Add::R` issue.

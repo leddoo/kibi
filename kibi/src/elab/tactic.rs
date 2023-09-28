@@ -1,4 +1,4 @@
-use sti::traits::CopyIt;
+use sti::traits::{CopyIt, FromIn};
 use sti::arena_pool::ArenaPool;
 
 use crate::ast::{TacticId, TacticKind};
@@ -26,14 +26,17 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             })
         });
 
+        let value = ivar.value(self).unwrap();
+
         self.locals.truncate(old_locals);
         self.lctx.current = old_scope;
 
-        (ivar.value(self).unwrap(), expected_ty)
+        (value, expected_ty)
     }
 
     fn elab_tactic(&mut self, tactic_id: TacticId) -> Option<()> {
-        let scope = self.lctx.current;
+        // @todo: persistent list or something.
+        let locals = Vec::from_in(self.alloc, self.locals.copy_map_it(|local| local.id)).leak();
 
         // @todo: persistent list.
         let mut goals = Vec::with_cap_in(self.alloc, self.goals.len() - self.current_goal);
@@ -160,9 +163,9 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 let remaining = collect_ivars(value, &*temp);
 
                 // add to goals.
-                let old_goals = Vec::from_slice_in(&*temp, &self.goals[self.current_goal..]);
+                let old_goals = Vec::from_slice_in(&*temp, &self.goals[self.current_goal+1..]);
                 self.goals.truncate(self.current_goal);
-                self.goals.extend_from_slice(&remaining);
+                self.goals.extend(remaining.copy_it().filter(|id| *id != rest_id));
                 self.goals.push(rest_id);
                 self.goals.extend_from_slice(&old_goals);
 
@@ -197,10 +200,78 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
                 TacticInfoKind::Term(value)
             }
+
+            TacticKind::Unfold(at) => {
+                fn unfold<'out>(this: &Elaborator<'_, '_, 'out>, ty: Term<'out>) -> Option<Term<'out>> {
+                    let temp = ArenaPool::tls_get_temp();
+                    let (fun, args) = ty.app_args(&*temp);
+
+                    let g = fun.try_global()?;
+
+                    let symbol = this.env.symbol(g.id);
+                    let SymbolKind::Def(def) = symbol.kind else {
+                        return None
+                    };
+
+                    let mut result = def.val.instantiate_level_params(g.levels, this.alloc);
+                    let mut i = 0;
+                    while i < args.len() {
+                        let Some(b) = result.try_lambda() else { break };
+                        result = b.val.instantiate(args[i], this.alloc);
+                        i += 1;
+                    }
+
+                    return Some(this.alloc.mkt_apps(result, &args[i..], TERM_SOURCE_NONE));
+                }
+
+                let (goal, goal_ty) = self.peek_goal(tactic_id)?;
+
+                if let Some(name) = at {
+                    let Some((local, idx)) = self.lookup_local_idx(name.value) else {
+                        self.error(tactic_id, ElabError::TempStr("local not found"));
+                        return Some(());
+                    };
+
+                    let entry = self.lctx.lookup(local);
+                    let Some(new_ty) = unfold(self, entry.ty) else {
+                        self.error(tactic_id, ElabError::TempStr("type is not a definition"));
+                        return Some(());
+                    };
+
+                    let let_value = self.alloc.mkt_local(local, TERM_SOURCE_NONE);
+                    let id = self.lctx.push(name.value, new_ty, ScopeKind::Local(let_value));
+
+                    // @todo: rewrite all goals?
+                    // or can this be done some other way?
+                    // technically, we don't even have to modify the locals/goals.
+                    let new_goal = self.new_term_var_id(goal_ty, self.lctx.current);
+
+                    let value = self.alloc.mkt_let(name.value, new_ty, let_value,
+                        self.alloc.mkt_ivar(new_goal, TERM_SOURCE_NONE), TERM_SOURCE_NONE);
+                    self.assign_goal(goal, value);
+
+                    self.locals[idx].id = id;
+
+                    TacticInfoKind::None
+                }
+                else {
+                    let Some(new_ty) = unfold(self, goal_ty) else {
+                        self.error(tactic_id, ElabError::TempStr("goal is not a definition"));
+                        return Some(());
+                    };
+
+                    let new_goal = self.new_term_var_id(new_ty, self.lctx.current);
+                    self.assign_goal(goal, self.alloc.mkt_ivar(new_goal, TERM_SOURCE_NONE));
+
+                    self.goals[self.current_goal] = new_goal;
+
+                    TacticInfoKind::None
+                }
+            }
         };
 
         debug_assert!(self.elab.tactic_infos[tactic_id].is_none());
-        self.elab.tactic_infos[tactic_id] = Some(TacticInfo { scope, goals, kind: info });
+        self.elab.tactic_infos[tactic_id] = Some(TacticInfo { locals, goals, kind: info });
 
         Some(())
     }

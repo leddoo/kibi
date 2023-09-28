@@ -883,14 +883,8 @@ impl<'c> Inner<'c> {
                 let mut buf = String::with_cap_in(alloc, 1024);
 
                 // locals
-                let mut locals = Vec::new_in(alloc);
-                let mut scope = info.scope;
-                while let Some(id) = scope.to_option() {
-                    let entry = ctx.local_ctx.lookup(id);
-                    locals.push(entry);
-                    scope = entry.parent;
-                }
-                for local in locals.copy_it().rev() {
+                for local in info.locals.copy_it() {
+                    let local = ctx.local_ctx.lookup(local);
                     let ty = ctx.ivar_ctx.instantiate_term_vars(local.ty, alloc);
                     let ty = pp.pp_term(ty);
                     let local = pp.cat(
@@ -901,7 +895,7 @@ impl<'c> Inner<'c> {
                     local.layout_into_string(&mut buf);
                     buf.push_char('\n');
                 }
-                if locals.len() > 0 {
+                if info.locals.len() > 0 {
                     buf.push_char('\n');
                 }
 
@@ -1197,6 +1191,8 @@ fn hit_test_ast(node: AstId, pos: TokenId, parse: &Parse) -> Option<AstId> {
                 }
 
                 TacticKind::Intro(_) => None,
+
+                TacticKind::Unfold(_) => None,
             };
             Some(hit.unwrap_or(id.into()))
         }
