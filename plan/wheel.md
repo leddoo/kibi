@@ -13,10 +13,7 @@
 
 - todo:
     - info panel.
-        - proper request:
-            - uri.
-            - position.
-            - width.
+        - populate info panel.
         - respond to size changes.
     - the `Add::R` issue.
     - delab.

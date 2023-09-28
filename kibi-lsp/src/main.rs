@@ -277,7 +277,29 @@ impl Lsp {
             }
 
             "kibi/info_panel" => {
-                self.send_response(id, Ok(json::Value::Array(&["hey".into(), (id as f64).into()])));
+                let doc = params["textDocument"];
+                let path = doc["uri"].as_string();
+
+                let pos = params["position"];
+                let line = pos["line"].as_number() as u32;
+                let col  = pos["character"].as_number() as u32;
+
+                let width = params["width"].as_number() as u32;
+
+                let temp = unsafe { ArenaPool::tls_get_scoped(&[]) };
+                let panel = self.compiler.query_info_panel(path, line, col, width, &*temp);
+
+                let mut encoded = String::with_cap_in(&*temp, (width as usize)*panel.lines.len());
+                sti::write!(&mut encoded, "{{\"lines\":[");
+                for (i, line) in panel.lines.iter().enumerate() {
+                    if i != 0 { sti::write!(&mut encoded, ",") }
+                    sti::write!(&mut encoded, "{:?}", line);
+                }
+                sti::write!(&mut encoded, "]}}");
+
+
+                self.send_response(id, Ok(json::Value::Encoded(&encoded)));
+
                 return true;
             }
 

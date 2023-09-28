@@ -125,6 +125,11 @@ impl Compiler {
         spall::trace_scope!("kibi/query_hover_info");
         self.inner.query_hover_info(path, line, col, alloc)
     }
+
+    pub fn query_info_panel<'out>(&mut self, path: &str, line: u32, col: u32, width: u32, alloc: &'out Arena) -> InfoPanel<'out> {
+        spall::trace_scope!("kibi/query_info_panel");
+        self.inner.query_info_panel(path, line, col, width, alloc)
+    }
 }
 
 impl<'c> Inner<'c> {
@@ -1116,6 +1121,42 @@ impl<'c> Inner<'c> {
         }
 
         return Vec::new();
+    }
+}
+
+
+pub struct InfoPanel<'a> {
+    pub lines: &'a [&'a str],
+}
+
+impl<'c> Inner<'c> {
+    pub fn query_info_panel<'out>(&mut self, path: &str, line: u32, col: u32, width: u32, alloc: &'out Arena) -> InfoPanel<'out> {
+        self.update();
+
+        let Some(source_id) = self.path_to_source.get(path).copied() else {
+            // @todo: diagnostic.
+            return InfoPanel {
+                lines: alloc.alloc_new([
+                    sti::format_in!(alloc, "invalid uri {:?}", path).leak(),
+                ]),
+            };
+        };
+
+        let source = &self.source_datas[self.sources[source_id].unwrap()];
+        debug_assert!(!source.dirty);
+
+        let parse = &self.parse_datas[source.parse.unwrap()].parse;
+        debug_assert_eq!(parse.source_range.begin, 0);
+        debug_assert_eq!(parse.source_range.end,   source.code.len() as u32);
+
+        let elab_data = &self.elab_datas[source.elab.unwrap()];
+        let elab = &elab_data.elab;
+
+        InfoPanel {
+            lines: alloc.alloc_new([
+                sti::format_in!(alloc, "info panel for {:?}@{}:{}", path, line, col).leak()
+            ]),
+        }
     }
 }
 
