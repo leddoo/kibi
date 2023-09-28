@@ -12,7 +12,7 @@ use sti::hash::HashMap;
 
 use crate::string_table::{StringTable, Atom};
 use crate::diagnostics::{Diagnostics, Diagnostic};
-use crate::ast::{SourceId, SourceRange, UserSourcePos, UserSourceRange, TokenId, AstId};
+use crate::ast::{SourceId, SourceRange, UserSourcePos, UserSourceRange, TokenId, AstId, ItemId};
 use crate::parser::{self, Parse};
 use crate::env::{Env, SymbolId};
 use crate::traits::Traits;
@@ -706,42 +706,7 @@ impl<'c> Inner<'c> {
         let elab = &elab_data.elab;
 
 
-        // convert to offset.
-        // @temp line table.
-        let mut lines_i = 0;
-        let code = &*source.code;
-        let mut lines = core::iter::from_fn(|| {
-            let start = lines_i;
-            while lines_i < code.len() {
-                if code[lines_i] == b'\n' {
-                    lines_i += 1;
-                    return Some(lines_i - start);
-                }
-                lines_i += 1;
-            }
-            None
-        });
-        let mut offset = col;
-        for _ in 0..line {
-            let Some(len) = lines.next() else {
-                // @todo: diagnostic.
-                return Vec::new();
-            };
-            offset += len as u32;
-        }
-
-        // find token.
-        let mut token_id = None.into();
-        let mut is_hit = false;
-        for (id, token) in parse.tokens.iter() {
-            if offset < token.source.end {
-                token_id = id.some();
-                is_hit = offset >= token.source.begin;
-                break;
-            }
-        }
-        let Some(token_id) = token_id.to_option() else {
-            // @todo: diagnostic.
+        let Some((token_id, is_hit)) = hit_test_token(line, col, source, parse) else {
             return Vec::new();
         };
 
@@ -780,347 +745,96 @@ impl<'c> Inner<'c> {
             return sti::vec![HoverInfo { lang: Some("kibi"), content: buf.leak() }];
         }}
 
+        let Some((hit_item, hit)) = hit_test_items(token_id, parse) else {
+            return Vec::new();
+        };
+        let Some(ctx) = &elab.item_ctxs[hit_item] else {
+            return Vec::new();
+        };
 
-        use crate::ast::{ItemKind, StmtKind, LevelKind, ExprKind, TacticKind, Binder};
-
-        // @cleanup: visit children.
-        fn hit_test_ast(node: AstId, pos: TokenId, parse: &Parse) -> Option<AstId> {
-            match node {
-                AstId::Item(id) => {
-                    let item = &parse.items[id];
-                    if !item.source.contains(pos) { return None }
-
-                    let hit = match &item.kind {
-                        ItemKind::Error => None,
-
-                        ItemKind::Axiom(it) =>
-                            hit_test_binders(it.params, pos, parse).or_else(||
-                            hit_test_ast(it.ty.into(), pos, parse)),
-
-                        ItemKind::Def(it) =>
-                            hit_test_binders(it.params, pos, parse).or_else(||
-                            it.ty.to_option().and_then(|ty|
-                                hit_test_ast(ty.into(), pos, parse))).or_else(||
-                            hit_test_ast(it.value.into(), pos, parse)),
-
-                        ItemKind::Reduce(it) =>
-                            hit_test_ast((*it).into(), pos, parse),
-
-                        ItemKind::Inductive(_) =>
-                            None,
-
-                        ItemKind::Trait(_) =>
-                            None,
-
-                        ItemKind::Impl(_) =>
-                            None,
-                    };
-                    Some(hit.unwrap_or(id.into()))
-                }
-
-                AstId::Stmt(id) => {
-                    let stmt = parse.stmts[id];
-                    if !stmt.source.contains(pos) { return None }
-
-                    let hit = match stmt.kind {
-                        StmtKind::Error => None,
-
-                        StmtKind::Let(it) =>
-                            it.ty.to_option().and_then(|ty|
-                                hit_test_ast(ty.into(), pos, parse)).or_else(||
-                            it.val.to_option().and_then(|val|
-                                hit_test_ast(val.into(), pos, parse))),
-
-                        StmtKind::Assign(lhs, rhs) =>
-                            hit_test_ast(lhs.into(), pos, parse).or_else(||
-                            hit_test_ast(rhs.into(), pos, parse)),
-
-                        StmtKind::Expr(it) =>
-                            hit_test_ast(it.into(), pos, parse)
-                    };
-                    Some(hit.unwrap_or(id.into()))
-                }
-
-                AstId::Level(id) => {
-                    let level = parse.levels[id];
-                    if !level.source.contains(pos) { return None }
-
-                    let hit = match level.kind {
-                        LevelKind::Error => None,
-                        LevelKind::Hole => None,
-                        LevelKind::Ident(_) => None,
-                        LevelKind::Nat(_) => None,
-
-                        LevelKind::Add((lhs, _)) =>
-                            hit_test_ast(lhs.into(), pos, parse),
-
-                        LevelKind::Max((lhs, rhs)) |
-                        LevelKind::IMax((lhs, rhs)) =>
-                            hit_test_ast(lhs.into(), pos, parse).or_else(||
-                            hit_test_ast(rhs.into(), pos, parse)),
-                    };
-                    Some(hit.unwrap_or(id.into()))
-                }
-
-                AstId::Expr(id) => {
-                    let expr = parse.exprs[id];
-                    if !expr.source.contains(pos) { return None }
-
-                    let hit = match expr.kind {
-                        ExprKind::Error => None,
-                        ExprKind::Hole => None,
-                        ExprKind::Ident(_) => None,
-                        ExprKind::DotIdent(_) => None,
-                        ExprKind::Path(_) => None,
-                        ExprKind::Levels(_) => None,
-                        ExprKind::Sort(_) => None,
-                        ExprKind::Bool(_) => None,
-                        ExprKind::Number(_) => None,
-                        ExprKind::String(_) => None,
-
-                        ExprKind::Parens(it) => hit_test_ast(it.into(), pos, parse),
-
-                        ExprKind::Forall(it) |
-                        ExprKind::Lambda(it) =>
-                            hit_test_binders(it.binders, pos, parse).or_else(||
-                            hit_test_ast(it.value.into(), pos, parse)),
-
-                        ExprKind::Let(it) =>
-                            it.ty.to_option().and_then(|ty|
-                                hit_test_ast(ty.into(), pos, parse)).or_else(||
-                            hit_test_ast(it.val.into(), pos, parse).or_else(||
-                            hit_test_ast(it.body.into(), pos, parse))),
-
-                        ExprKind::By(it) => {
-                            let mut result = None;
-                            for id in it.copy_it() {
-                                if let Some(hit) = hit_test_ast(id.into(), pos, parse) {
-                                    result = Some(hit);
-                                    break;
-                                }
-                            }
-                            result
-                        }
-
-                        ExprKind::Ref(it) =>
-                            hit_test_ast(it.expr.into(), pos, parse),
-
-                        ExprKind::Deref(it) =>
-                            hit_test_ast(it.into(), pos, parse),
-
-                        ExprKind::Eq(lhs, rhs) =>
-                            hit_test_ast(lhs.into(), pos, parse).or_else(||
-                            hit_test_ast(rhs.into(), pos, parse)),
-
-                        ExprKind::Op1(it) =>
-                            hit_test_ast(it.expr.into(), pos, parse),
-
-                        ExprKind::Op2(it) =>
-                            hit_test_ast(it.lhs.into(), pos, parse).or_else(||
-                            hit_test_ast(it.rhs.into(), pos, parse)),
-
-                        ExprKind::Field(it) =>
-                            hit_test_ast(it.base.into(), pos, parse),
-
-                        ExprKind::Index(it) =>
-                            hit_test_ast(it.base.into(), pos, parse).or_else(||
-                            hit_test_ast(it.index.into(), pos, parse)),
-
-                        ExprKind::Call(it) =>
-                            hit_test_ast(it.func.into(), pos, parse).or_else(||
-                            it.args.copy_it().find_map(|arg|
-                                hit_test_ast(arg.into(), pos, parse))),
-
-                        ExprKind::Do(it) => {
-                            let mut result = None;
-                            for stmt in it.stmts.copy_it() {
-                                if let Some(hit) = hit_test_ast(stmt.into(), pos, parse) {
-                                    result = Some(hit);
-                                    break;
-                                }
-                            }
-                            result
-                        }
-
-                        ExprKind::If(it) =>
-                            hit_test_ast(it.cond.into(), pos, parse).or_else(||
-                            hit_test_ast(it.then.into(), pos, parse).or_else(||
-                            it.els.to_option().and_then(|els|
-                                hit_test_ast(els.into(), pos, parse)))),
-
-                        ExprKind::While(it) =>
-                            hit_test_ast(it.cond.into(), pos, parse).or_else(||
-                            hit_test_ast(it.body.into(), pos, parse).or_else(||
-                            it.els.to_option().and_then(|els|
-                                hit_test_ast(els.into(), pos, parse)))),
-
-                        ExprKind::Loop(it) => {
-                            let mut result = None;
-                            for stmt in it.stmts.copy_it() {
-                                if let Some(hit) = hit_test_ast(stmt.into(), pos, parse) {
-                                    result = Some(hit);
-                                    break;
-                                }
-                            }
-                            result
-                        }
-
-                        ExprKind::Break(it) =>
-                            it.value.to_option().and_then(|value|
-                                hit_test_ast(value.into(), pos, parse)),
-
-                        ExprKind::Continue(_) => None,
-
-                        ExprKind::ContinueElse(_) => None,
-
-                        ExprKind::Return(it) =>
-                            it.to_option().and_then(|value|
-                                hit_test_ast(value.into(), pos, parse)),
-
-                        ExprKind::TypeHint(it) =>
-                            hit_test_ast(it.expr.into(), pos, parse).or_else(||
-                            hit_test_ast(it.ty.into(), pos, parse)),
-                    };
-                    Some(hit.unwrap_or(id.into()))
-                }
-
-                AstId::Tactic(id) => {
-                    let tactic = parse.tactics[id];
-                    if !tactic.source.contains(pos) { return None }
-
-                    let hit = match tactic.kind {
-                        TacticKind::Error => None,
-
-                        TacticKind::Goal => None,
-                        TacticKind::Sorry => None,
-                        TacticKind::Assumption => None,
-                        TacticKind::Refl => None,
-
-                        TacticKind::Rewrite(it) =>
-                            hit_test_ast(it.with.into(), pos, parse),
-
-                        TacticKind::By(it) => {
-                            let mut result = None;
-                            for id in it.copy_it() {
-                                if let Some(hit) = hit_test_ast(id.into(), pos, parse) {
-                                    result = Some(hit);
-                                    break;
-                                }
-                            }
-                            result
-                        }
-                    };
-                    Some(hit.unwrap_or(id.into()))
-                }
-            }
-        }
-
-        fn hit_test_binders(binders: &[Binder], pos: TokenId, parse: &Parse) -> Option<AstId> {
-            for binder in binders {
-                let hit = match binder {
-                    Binder::Ident(_) => None,
-
-                    Binder::Typed(it) =>
-                        hit_test_ast(it.ty.into(), pos, parse)
-                };
-                if hit.is_some() {
-                    return hit;
-                }
-            }
-            None
-        }
-
-        for item in parse.root_items.copy_it() {
-            let Some(ctx) = &elab.item_ctxs[item] else { continue };
-
-            let Some(hit) = hit_test_ast(item.into(), token_id, parse) else { continue };
-
-            let mut buf = String::new_in(alloc);
-            match hit {
-                AstId::Item(id) => {
-                    if let Some(info) = elab.item_infos[id] {
-                        match info {
-                            elab::ItemInfo::Symbol(_) => (),
-                            elab::ItemInfo::Reduce(value) => {
-                                let mut pp = crate::tt::TermPP::new(&elab_data.env, &self.strings, &ctx.local_ctx, alloc);
-                                let v = ctx.ivar_ctx.instantiate_term_vars(value, alloc);
-                                let v = pp.pp_term(v);
-                                let v = pp.render(v, 50);
-                                v.layout_into_string(&mut buf);
-                            }
-                        }
-                    }
-                }
-
-                AstId::Stmt(_) => (),
-
-                AstId::Level(_) => (),
-
-                AstId::Expr(id) => {
-                    if let Some(info) = elab.expr_infos[id] {
-                        let term_begin = buf.len();
-                        let mut pp = crate::tt::TermPP::new(&elab_data.env, &self.strings, &ctx.local_ctx, alloc);
-                        let term = ctx.ivar_ctx.instantiate_term_vars(info.term, alloc);
-                        let term = pp.pp_term(term);
-                        let term = pp.render(term, 50);
-                        term.layout_into_string(&mut buf);
-
-                        if buf.len() - term_begin > 40 {
-                            sti::write!(&mut buf, "\n");
-                        }
-                        sti::write!(&mut buf, ": ");
-
-                        let ty = ctx.ivar_ctx.instantiate_term_vars(info.ty, alloc);
-                        let ty = pp.pp_term(ty);
-                        let ty = pp.render(ty, 50);
-                        ty.layout_into_string(&mut buf);
-
-                        // @todo: keep?
-                        if let Some(local) = info.term.try_local() {
-                            let entry = ctx.local_ctx.lookup(local);
-                            if let crate::tt::ScopeKind::Local(val) = entry.kind {
-                                sti::write!(&mut buf, " := ");
-                                let val = ctx.ivar_ctx.instantiate_term_vars(val, alloc);
-                                let val = pp.pp_term(val);
-                                let val = pp.render(val, 50);
-                                val.layout_into_string(&mut buf);
-                            }
-                        }
-                    }
-                }
-
-                AstId::Tactic(id) => {
-                    if let Some(info) = elab.tactic_infos[id] {
-                        let mut pp = crate::tt::TermPP::new(&elab_data.env, &self.strings, &ctx.local_ctx, alloc);
-
-                        sti::write!(&mut buf, "goal: ");
-                        let goal = ctx.ivar_ctx.instantiate_term_vars(info.goal, alloc);
-                        let goal = pp.pp_term(goal);
-                        let goal = pp.render(goal, 60);
-                        goal.layout_into_string(&mut buf);
-
-                        match info.kind {
-                            elab::TacticInfoKind::None => (),
-
-                            elab::TacticInfoKind::Term(term) => {
-                                sti::write!(&mut buf, "\nterm: ");
-                                let term = ctx.ivar_ctx.instantiate_term_vars(term, alloc);
-                                let term = pp.pp_term(term);
-                                let term = pp.render(term, 60);
-                                term.layout_into_string(&mut buf);
-                            }
+        let mut buf = String::new_in(alloc);
+        match hit {
+            AstId::Item(id) => {
+                if let Some(info) = elab.item_infos[id] {
+                    match info {
+                        elab::ItemInfo::Symbol(_) => (),
+                        elab::ItemInfo::Reduce(value) => {
+                            let mut pp = crate::tt::TermPP::new(&elab_data.env, &self.strings, &ctx.local_ctx, alloc);
+                            let v = ctx.ivar_ctx.instantiate_term_vars(value, alloc);
+                            let v = pp.pp_term(v);
+                            let v = pp.render(v, 50);
+                            v.layout_into_string(&mut buf);
                         }
                     }
                 }
             }
 
-            if buf.len() > 0 {
-                return sti::vec![HoverInfo { lang: Some("kibi"), content: buf.leak() }];
+            AstId::Stmt(_) => (),
+
+            AstId::Level(_) => (),
+
+            AstId::Expr(id) => {
+                if let Some(info) = elab.expr_infos[id] {
+                    let term_begin = buf.len();
+                    let mut pp = crate::tt::TermPP::new(&elab_data.env, &self.strings, &ctx.local_ctx, alloc);
+                    let term = ctx.ivar_ctx.instantiate_term_vars(info.term, alloc);
+                    let term = pp.pp_term(term);
+                    let term = pp.render(term, 50);
+                    term.layout_into_string(&mut buf);
+
+                    if buf.len() - term_begin > 40 {
+                        sti::write!(&mut buf, "\n");
+                    }
+                    sti::write!(&mut buf, ": ");
+
+                    let ty = ctx.ivar_ctx.instantiate_term_vars(info.ty, alloc);
+                    let ty = pp.pp_term(ty);
+                    let ty = pp.render(ty, 50);
+                    ty.layout_into_string(&mut buf);
+
+                    // @todo: keep?
+                    if let Some(local) = info.term.try_local() {
+                        let entry = ctx.local_ctx.lookup(local);
+                        if let crate::tt::ScopeKind::Local(val) = entry.kind {
+                            sti::write!(&mut buf, " := ");
+                            let val = ctx.ivar_ctx.instantiate_term_vars(val, alloc);
+                            let val = pp.pp_term(val);
+                            let val = pp.render(val, 50);
+                            val.layout_into_string(&mut buf);
+                        }
+                    }
+                }
             }
-            else { return Vec::new() }
+
+            AstId::Tactic(id) => {
+                if let Some(info) = elab.tactic_infos[id] {
+                    let mut pp = crate::tt::TermPP::new(&elab_data.env, &self.strings, &ctx.local_ctx, alloc);
+
+                    sti::write!(&mut buf, "goal: ");
+                    let goal = ctx.ivar_ctx.instantiate_term_vars(info.goal, alloc);
+                    let goal = pp.pp_term(goal);
+                    let goal = pp.render(goal, 60);
+                    goal.layout_into_string(&mut buf);
+
+                    match info.kind {
+                        elab::TacticInfoKind::None => (),
+
+                        elab::TacticInfoKind::Term(term) => {
+                            sti::write!(&mut buf, "\nterm: ");
+                            let term = ctx.ivar_ctx.instantiate_term_vars(term, alloc);
+                            let term = pp.pp_term(term);
+                            let term = pp.render(term, 60);
+                            term.layout_into_string(&mut buf);
+                        }
+                    }
+                }
+            }
         }
 
-        return Vec::new();
+        if buf.len() > 0 {
+            return sti::vec![HoverInfo { lang: Some("kibi"), content: buf.leak() }];
+        }
+        else { return Vec::new() }
     }
 }
 
@@ -1134,7 +848,6 @@ impl<'c> Inner<'c> {
         self.update();
 
         let Some(source_id) = self.path_to_source.get(path).copied() else {
-            // @todo: diagnostic.
             return InfoPanel {
                 lines: alloc.alloc_new([
                     sti::format_in!(alloc, "invalid uri {:?}", path).leak(),
@@ -1152,11 +865,346 @@ impl<'c> Inner<'c> {
         let elab_data = &self.elab_datas[source.elab.unwrap()];
         let elab = &elab_data.elab;
 
-        InfoPanel {
-            lines: alloc.alloc_new([
-                sti::format_in!(alloc, "info panel for {:?}@{}:{}", path, line, col).leak()
-            ]),
+
+        let Some((hit_token, _)) = hit_test_token(line, col, source, parse) else {
+            return InfoPanel { lines: &[] };
+        };
+        let Some((hit_item, hit)) = hit_test_items(hit_token, parse) else {
+            return InfoPanel { lines: &[] };
+        };
+        let Some(ctx) = &elab.item_ctxs[hit_item] else {
+            return InfoPanel { lines: &[] };
+        };
+
+        match hit {
+            AstId::Tactic(it) => {
+                let Some(info) = &elab.tactic_infos[it] else {
+                    return InfoPanel { lines: &[] };
+                };
+
+                let mut lines = Vec::with_cap_in(alloc, 32);
+
+                let mut pp = crate::tt::TermPP::new(&elab_data.env, &self.strings, &ctx.local_ctx, alloc);
+
+                let mut buf = String::with_cap_in(alloc, 128);
+                let goal = ctx.ivar_ctx.instantiate_term_vars(info.goal, alloc);
+                let goal = pp.pp_term(goal);
+                let goal = pp.cats(&[
+                    pp.group(pp.cat(pp.text("goal:"), pp.line_or_sp())),
+                    goal,
+                ]);
+                let goal = pp.render(goal, width as i32);
+                goal.layout_into_string(&mut buf);
+                let buf = buf.leak();
+
+                // this is kinda dumb. whatever.
+                for line in buf.lines() {
+                    lines.push(line);
+                }
+
+                InfoPanel { lines: lines.leak() }
+            }
+
+            _ => {
+                InfoPanel { lines: &[] }
+            }
         }
     }
 }
+
+
+
+use crate::ast::{ItemKind, StmtKind, LevelKind, ExprKind, TacticKind, Binder};
+
+fn hit_test_token(line: u32, col: u32, source: &SourceData, parse: &Parse) -> Option<(TokenId, bool)> {
+    // convert to offset.
+    // @temp line table.
+    let mut lines_i = 0;
+    let code = &*source.code;
+    let mut lines = core::iter::from_fn(|| {
+        let start = lines_i;
+        while lines_i < code.len() {
+            if code[lines_i] == b'\n' {
+                lines_i += 1;
+                return Some(lines_i - start);
+            }
+            lines_i += 1;
+        }
+        None
+    });
+    let mut offset = col;
+    for _ in 0..line {
+        let Some(len) = lines.next() else {
+            // error?
+            return None;
+        };
+        offset += len as u32;
+    }
+
+    // find token.
+    for (id, token) in parse.tokens.iter() {
+        if offset < token.source.end {
+            let is_hit = offset >= token.source.begin;
+            return Some((id, is_hit));
+        }
+    }
+    return None;
+}
+
+// @cleanup: visit children.
+fn hit_test_ast(node: AstId, pos: TokenId, parse: &Parse) -> Option<AstId> {
+    match node {
+        AstId::Item(id) => {
+            let item = &parse.items[id];
+            if !item.source.contains(pos) { return None }
+
+            let hit = match &item.kind {
+                ItemKind::Error => None,
+
+                ItemKind::Axiom(it) =>
+                    hit_test_binders(it.params, pos, parse).or_else(||
+                    hit_test_ast(it.ty.into(), pos, parse)),
+
+                ItemKind::Def(it) =>
+                    hit_test_binders(it.params, pos, parse).or_else(||
+                    it.ty.to_option().and_then(|ty|
+                        hit_test_ast(ty.into(), pos, parse))).or_else(||
+                    hit_test_ast(it.value.into(), pos, parse)),
+
+                ItemKind::Reduce(it) =>
+                    hit_test_ast((*it).into(), pos, parse),
+
+                ItemKind::Inductive(_) =>
+                    None,
+
+                ItemKind::Trait(_) =>
+                    None,
+
+                ItemKind::Impl(_) =>
+                    None,
+            };
+            Some(hit.unwrap_or(id.into()))
+        }
+
+        AstId::Stmt(id) => {
+            let stmt = parse.stmts[id];
+            if !stmt.source.contains(pos) { return None }
+
+            let hit = match stmt.kind {
+                StmtKind::Error => None,
+
+                StmtKind::Let(it) =>
+                    it.ty.to_option().and_then(|ty|
+                        hit_test_ast(ty.into(), pos, parse)).or_else(||
+                    it.val.to_option().and_then(|val|
+                        hit_test_ast(val.into(), pos, parse))),
+
+                StmtKind::Assign(lhs, rhs) =>
+                    hit_test_ast(lhs.into(), pos, parse).or_else(||
+                    hit_test_ast(rhs.into(), pos, parse)),
+
+                StmtKind::Expr(it) =>
+                    hit_test_ast(it.into(), pos, parse)
+            };
+            Some(hit.unwrap_or(id.into()))
+        }
+
+        AstId::Level(id) => {
+            let level = parse.levels[id];
+            if !level.source.contains(pos) { return None }
+
+            let hit = match level.kind {
+                LevelKind::Error => None,
+                LevelKind::Hole => None,
+                LevelKind::Ident(_) => None,
+                LevelKind::Nat(_) => None,
+
+                LevelKind::Add((lhs, _)) =>
+                    hit_test_ast(lhs.into(), pos, parse),
+
+                LevelKind::Max((lhs, rhs)) |
+                LevelKind::IMax((lhs, rhs)) =>
+                    hit_test_ast(lhs.into(), pos, parse).or_else(||
+                    hit_test_ast(rhs.into(), pos, parse)),
+            };
+            Some(hit.unwrap_or(id.into()))
+        }
+
+        AstId::Expr(id) => {
+            let expr = parse.exprs[id];
+            if !expr.source.contains(pos) { return None }
+
+            let hit = match expr.kind {
+                ExprKind::Error => None,
+                ExprKind::Hole => None,
+                ExprKind::Ident(_) => None,
+                ExprKind::DotIdent(_) => None,
+                ExprKind::Path(_) => None,
+                ExprKind::Levels(_) => None,
+                ExprKind::Sort(_) => None,
+                ExprKind::Bool(_) => None,
+                ExprKind::Number(_) => None,
+                ExprKind::String(_) => None,
+
+                ExprKind::Parens(it) => hit_test_ast(it.into(), pos, parse),
+
+                ExprKind::Forall(it) |
+                ExprKind::Lambda(it) =>
+                    hit_test_binders(it.binders, pos, parse).or_else(||
+                    hit_test_ast(it.value.into(), pos, parse)),
+
+                ExprKind::Let(it) =>
+                    it.ty.to_option().and_then(|ty|
+                        hit_test_ast(ty.into(), pos, parse)).or_else(||
+                    hit_test_ast(it.val.into(), pos, parse).or_else(||
+                    hit_test_ast(it.body.into(), pos, parse))),
+
+                ExprKind::By(it) => {
+                    let mut result = None;
+                    for id in it.copy_it() {
+                        if let Some(hit) = hit_test_ast(id.into(), pos, parse) {
+                            result = Some(hit);
+                            break;
+                        }
+                    }
+                    result
+                }
+
+                ExprKind::Ref(it) =>
+                    hit_test_ast(it.expr.into(), pos, parse),
+
+                ExprKind::Deref(it) =>
+                    hit_test_ast(it.into(), pos, parse),
+
+                ExprKind::Eq(lhs, rhs) =>
+                    hit_test_ast(lhs.into(), pos, parse).or_else(||
+                    hit_test_ast(rhs.into(), pos, parse)),
+
+                ExprKind::Op1(it) =>
+                    hit_test_ast(it.expr.into(), pos, parse),
+
+                ExprKind::Op2(it) =>
+                    hit_test_ast(it.lhs.into(), pos, parse).or_else(||
+                    hit_test_ast(it.rhs.into(), pos, parse)),
+
+                ExprKind::Field(it) =>
+                    hit_test_ast(it.base.into(), pos, parse),
+
+                ExprKind::Index(it) =>
+                    hit_test_ast(it.base.into(), pos, parse).or_else(||
+                    hit_test_ast(it.index.into(), pos, parse)),
+
+                ExprKind::Call(it) =>
+                    hit_test_ast(it.func.into(), pos, parse).or_else(||
+                    it.args.copy_it().find_map(|arg|
+                        hit_test_ast(arg.into(), pos, parse))),
+
+                ExprKind::Do(it) => {
+                    let mut result = None;
+                    for stmt in it.stmts.copy_it() {
+                        if let Some(hit) = hit_test_ast(stmt.into(), pos, parse) {
+                            result = Some(hit);
+                            break;
+                        }
+                    }
+                    result
+                }
+
+                ExprKind::If(it) =>
+                    hit_test_ast(it.cond.into(), pos, parse).or_else(||
+                    hit_test_ast(it.then.into(), pos, parse).or_else(||
+                    it.els.to_option().and_then(|els|
+                        hit_test_ast(els.into(), pos, parse)))),
+
+                ExprKind::While(it) =>
+                    hit_test_ast(it.cond.into(), pos, parse).or_else(||
+                    hit_test_ast(it.body.into(), pos, parse).or_else(||
+                    it.els.to_option().and_then(|els|
+                        hit_test_ast(els.into(), pos, parse)))),
+
+                ExprKind::Loop(it) => {
+                    let mut result = None;
+                    for stmt in it.stmts.copy_it() {
+                        if let Some(hit) = hit_test_ast(stmt.into(), pos, parse) {
+                            result = Some(hit);
+                            break;
+                        }
+                    }
+                    result
+                }
+
+                ExprKind::Break(it) =>
+                    it.value.to_option().and_then(|value|
+                        hit_test_ast(value.into(), pos, parse)),
+
+                ExprKind::Continue(_) => None,
+
+                ExprKind::ContinueElse(_) => None,
+
+                ExprKind::Return(it) =>
+                    it.to_option().and_then(|value|
+                        hit_test_ast(value.into(), pos, parse)),
+
+                ExprKind::TypeHint(it) =>
+                    hit_test_ast(it.expr.into(), pos, parse).or_else(||
+                    hit_test_ast(it.ty.into(), pos, parse)),
+            };
+            Some(hit.unwrap_or(id.into()))
+        }
+
+        AstId::Tactic(id) => {
+            let tactic = parse.tactics[id];
+            if !tactic.source.contains(pos) { return None }
+
+            let hit = match tactic.kind {
+                TacticKind::Error => None,
+
+                TacticKind::Goal => None,
+                TacticKind::Sorry => None,
+                TacticKind::Assumption => None,
+                TacticKind::Refl => None,
+
+                TacticKind::Rewrite(it) =>
+                    hit_test_ast(it.with.into(), pos, parse),
+
+                TacticKind::By(it) => {
+                    let mut result = None;
+                    for id in it.copy_it() {
+                        if let Some(hit) = hit_test_ast(id.into(), pos, parse) {
+                            result = Some(hit);
+                            break;
+                        }
+                    }
+                    result
+                }
+            };
+            Some(hit.unwrap_or(id.into()))
+        }
+    }
+}
+
+fn hit_test_binders(binders: &[Binder], pos: TokenId, parse: &Parse) -> Option<AstId> {
+    for binder in binders {
+        let hit = match binder {
+            Binder::Ident(_) => None,
+
+            Binder::Typed(it) =>
+                hit_test_ast(it.ty.into(), pos, parse)
+        };
+        if hit.is_some() {
+            return hit;
+        }
+    }
+    None
+}
+
+fn hit_test_items(pos: TokenId, parse: &Parse) -> Option<(ItemId, AstId)> {
+    for item in parse.root_items.copy_it() {
+        if let Some(hit) = hit_test_ast(item.into(), pos, parse) {
+            return Some((item, hit));
+        }
+    }
+    None
+}
+
 

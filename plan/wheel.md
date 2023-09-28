@@ -13,8 +13,10 @@
 
 - todo:
     - info panel.
-        - populate info panel.
-        - respond to size changes.
+        - `intro`.
+        - local context.
+        - all goals.
+        - inner window size?
     - the `Add::R` issue.
     - delab.
         - "source info".

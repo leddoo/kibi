@@ -44,6 +44,9 @@ local function update_info_panel()
         return
     end
 
+    if not info_panel_buffer then
+        return
+    end
     if not vim.api.nvim_buf_is_valid(info_panel_buffer) then
         vim.api.nvim_del_autocmd(info_panel_autocmd)
         info_panel_window = nil
@@ -55,7 +58,7 @@ local function update_info_panel()
     end
 
     local params = vim.lsp.util.make_position_params(info_panel_code_window)
-    params.width = vim.api.nvim_win_get_width(info_panel_code_window)
+    params.width = vim.api.nvim_win_get_width(info_panel_window)
     client.request("kibi/info_panel", params, function(err, result)
         if err or not vim.api.nvim_buf_is_valid(info_panel_buffer) then
             return
