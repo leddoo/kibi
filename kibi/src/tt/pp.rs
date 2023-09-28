@@ -105,6 +105,10 @@ impl<'me, 'a> TermPP<'me, 'a> {
             }
 
             TermData::Global(g) => {
+                if g.id == SymbolId::Nat_zero {
+                    return self.pp.text("0")
+                }
+
                 let symbol = self.env.symbol(g.id);
 
                 let mut name = self.pp.text(self.alloc_atom(symbol.name));

@@ -274,4 +274,10 @@ def Nat::add_left_comm2 (a b k: Nat): a + (b + k) = b + (a + k) :=
         refl;
     }
 
+def Nat::not_lt_zero2 (n: Nat): Not(Nat::Lt(n, 0)) :=
+    by {
+        intro hlt;
+        sorry;
+    }
+
 

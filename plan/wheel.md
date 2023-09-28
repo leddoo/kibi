@@ -13,7 +13,6 @@
 
 - todo:
     - info panel.
-        - `intro`.
         - local context.
         - all goals.
         - inner window size?

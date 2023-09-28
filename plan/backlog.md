@@ -76,6 +76,8 @@
 
 ### language features:
 
+- `by` for all tactics -> for newly crated sub-goals.
+
 - allocation:
     - `Unique(r, T)`.
     - figure out allocation pointer invariants.

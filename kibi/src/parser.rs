@@ -1143,6 +1143,11 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     TacticKind::Rewrite(tactic::Rewrite { symm, with })
                 }
 
+                atoms::intro => {
+                    let name = self.expect_ident()?;
+                    TacticKind::Intro(name)
+                }
+
                 _ => {
                     self.parse.diagnostics.push(
                         Diagnostic {

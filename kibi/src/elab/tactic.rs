@@ -8,6 +8,9 @@ use super::*;
 
 impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     pub fn elab_by(&mut self, tactics: &[TacticId], expected_ty: Term<'out>) -> (Term<'out>, Term<'out>) {
+        let old_locals = self.locals.len();
+        let old_scope  = self.lctx.current;
+
         let ivar = self.with_saved_goals(|this| {
             this.with_ivar_scope(|this| {
                 let ivar = this.new_term_var_id(expected_ty, this.lctx.current);
@@ -22,6 +25,10 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 ivar
             })
         });
+
+        self.locals.truncate(old_locals);
+        self.lctx.current = old_scope;
+
         (ivar.value(self).unwrap(), expected_ty)
     }
 
@@ -38,7 +45,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             TacticKind::Sorry => {
                 let (goal, ty) = self.next_goal(tactic_id)?;
                 let sorry = self.mkt_ax_sorry(ty, TERM_SOURCE_NONE);
-                assert!(goal.assign(&[], sorry, self).unwrap());
+                self.assign_goal(goal, sorry);
                 (ty, TacticInfoKind::Term(sorry))
             }
 
@@ -72,7 +79,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
             // @todo: avoid double errors.
             TacticKind::Rewrite(it) => {
-                let (goal_ivar, goal_ty) = self.peek_goal(tactic_id)?;
+                let (goal, goal_ty) = self.peek_goal(tactic_id)?;
 
                 let (mut thm, mut thm_ty) = self.elab_expr(it.with);
                 while let Some(pi) = self.whnf_forall(thm_ty) {
@@ -108,7 +115,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
                 let rest_id = self.new_term_var_id(
                     goal_abst.instantiate(lhs, self.alloc),
-                    goal_ivar.scope(self));
+                    goal.scope(self));
                 let rest = self.alloc.mkt_ivar(rest_id, TERM_SOURCE_NONE);
 
                 let l_t = self.infer_type_as_sort(t).unwrap();
@@ -136,10 +143,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
                 let value = self.instantiate_term_vars(value);
                 //println!("value: {}", self.pp(value, 150));
-
-                if goal_ivar.assign(&[], value, self) != Some(true) {
-                    assert!(false);
-                }
+                self.assign_goal(goal, value);
 
                 // collect remaining ivars (goals).
                 let temp = ArenaPool::tls_get_temp();
@@ -158,8 +162,30 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             TacticKind::By(it) => {
                 let (goal, ty) = self.next_goal(tactic_id)?;
                 let value = self.elab_by(it, ty).0;
-                assert!(goal.assign(&[], value, self).unwrap());
+                self.assign_goal(goal, value);
                 (ty, TacticInfoKind::Term(value))
+            }
+
+            TacticKind::Intro(name) => {
+                let (goal, goal_ty) = self.peek_goal(tactic_id)?;
+                let Some(pi) = self.whnf_forall(goal_ty) else {
+                    self.error(tactic_id, ElabError::TempStr("expected type is not a function"));
+                    return Some(());
+                };
+
+                let id = self.lctx.push(name.value, pi.ty, ScopeKind::Binder(pi.kind));
+                self.locals.push(Local { name: name.value, id, mutable: false });
+
+                let new_ty = pi.val.instantiate(self.alloc.mkt_local(id, TERM_SOURCE_NONE), self.alloc);
+                let new_goal = self.new_term_var_id(new_ty, self.lctx.current);
+
+                let value = self.alloc.mkt_lambda(pi.kind, name.value, pi.ty,
+                    self.alloc.mkt_ivar(new_goal, TERM_SOURCE_NONE), TERM_SOURCE_NONE);
+                self.assign_goal(goal, value);
+
+                self.goals[self.current_goal] = new_goal;
+
+                (goal_ty, TacticInfoKind::Term(value))
             }
         };
 
@@ -191,6 +217,21 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             self.current_goal -= 1;
         }
         return result;
+    }
+
+    #[inline]
+    fn assign_goal(&mut self, goal: TermVarId, value: Term<'out>) {
+        #[cfg(debug_assertions)] {
+            let old_assignment_gen = self.ivars.assignment_gen;
+            let goal_ty = goal.ty(self);
+            let value_ty = self.infer_type(value).unwrap();
+            if !self.ensure_def_eq(value_ty, goal_ty) {
+                assert!(false);
+            }
+            assert_eq!(self.ivars.assignment_gen, old_assignment_gen);
+        }
+
+        unsafe { goal.assign_core(value, self) }
     }
 }
 

@@ -1177,6 +1177,8 @@ fn hit_test_ast(node: AstId, pos: TokenId, parse: &Parse) -> Option<AstId> {
                     }
                     result
                 }
+
+                TacticKind::Intro(_) => None,
             };
             Some(hit.unwrap_or(id.into()))
         }

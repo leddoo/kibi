@@ -266,7 +266,6 @@ impl TermVarId {
         debug_assert!(self.value(elab).is_none());
         debug_assert!(value.closed());
         debug_assert!(elab.lctx.all_locals_in_scope(value, self.scope(elab)));
-        debug_assert!(elab.all_term_vars_in_scope(value, self.scope(elab)));
         let var = &mut elab.ivars.term_vars[self];
         var.value = Some(value);
         var.assignment_gen = elab.ivars.assignment_gen;
@@ -306,8 +305,7 @@ impl TermVarId {
             return Some(false);
         }
 
-        //println!("{:?} := {}", self, elab.pp(value, 80));
-
+        debug_assert!(elab.all_term_vars_in_scope(value, self.scope(elab)));
         unsafe { self.assign_core(value, elab) }
         return Some(true);
     }
