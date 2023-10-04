@@ -16,6 +16,7 @@
     - info panel.
         - `exists_elim <local>`.
         - inner window size?
+            - `vim.api.nvim_call_function("getwininfo", {winid=...})`
     - the `Add::R` issue.
     - delab.
         - "source info".

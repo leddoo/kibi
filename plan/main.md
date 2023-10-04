@@ -13,13 +13,17 @@
     - crates.
 
 
+- brck:
+    - during tyck:
+        - compute (base) subsets.
+        - compute invalidates.
+        - generate bbir.
+    - compute region liveness.
+    - detect errors.
+
 - todo:
     - address the tech debt.
         - unordered decls, postpone, incr, so we have no excuse to accumulate any more debt.
-
-    - brck.
-        - summarize baby steps article.
-        - plan impl. what data from `elab_do`/`tyck` do we need?
     - variance.
     - partial functions.
         - we kinda need something to prevent proofs from
@@ -43,6 +47,8 @@
     - aka the associated type blowup.
     - aka this needs fixing.
     - consider `TermKind::Proj`.
+        - yeah, seems good.
+        - figure out where to reduce projections.
     - we need something that reduces these terms asap.
     - in general, we don't want to reduce asap, cause it can make it harder
       to understand where terms came from.

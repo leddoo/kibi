@@ -399,11 +399,13 @@ reduce Result::and_then(Result::and_then(Result::and_then(Result::and_then(Resul
 --  ()
 
 
-axiom Region: Type
+axiom Region: Prop
 
 axiom Region::local(id: Nat): Region
 axiom Region::array_field(array: Region, index: Nat): Region
 
+
+axiom Ref_Tag: Type
 
 inductive Ref_Kind {
     mut;
@@ -412,8 +414,7 @@ inductive Ref_Kind {
 }
 
 inductive Ref(r: Region, kind: Ref_Kind, T: Type) {
-    mk (tag: Tag, addr: Nat);
-    -- todo: the tag needs to be opaque, so we can't derive equality.
+    mk (tag: Ref_Tag, addr: Nat);
     -- todo: trait for metadata.
     -- todo: `addr: NonZeroUsize`.
 }
@@ -423,8 +424,6 @@ def Ref::addr<r: Region, kind: Ref_Kind, T: Type>(self: Ref(r, kind, T)): Nat :=
 
 axiom Ref::from_local(id: Nat, kind: Ref_Kind, T: Type): Ref(Region::local(id), kind, T)
 axiom Ref::from_ref<r: Region, kind1: Ref_Kind, T: Type>(ref: Ref(r, kind1, T), kind2: Ref_Kind): Ref(r, kind2, T)
-
-axiom Ref::cast_region<r1: Region, kind: Ref_Kind, T: Type>(ref: Ref(r1, kind, T), r2: Region): Ref(r2, kind, T)
 
 axiom Ref::read<r: Region, kind: Ref_Kind, T: Type>(ref: Ref(r, kind, T)): T
 axiom Ref::write<r: Region, T: Type>(ref: Ref(r, Ref_Kind::mut, T), value: T): Ref::read(ref) = value
