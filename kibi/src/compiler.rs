@@ -1193,6 +1193,10 @@ fn hit_test_ast(node: AstId, pos: TokenId, parse: &Parse) -> Option<AstId> {
                 TacticKind::Intro(_) => None,
 
                 TacticKind::Unfold(_) => None,
+
+                TacticKind::Exact(it) => hit_test_ast(it.into(), pos, parse),
+
+                TacticKind::Apply(it) => hit_test_ast(it.into(), pos, parse),
             };
             Some(hit.unwrap_or(id.into()))
         }

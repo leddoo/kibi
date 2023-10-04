@@ -8,7 +8,7 @@ use crate::string_table::{StringTable, Atom};
 use crate::diagnostics::*;
 use crate::ast::{TokenId, ItemId, ExprId, TacticId};
 use crate::parser::Parse;
-use crate::tt::{self, ScopeId, OptScopeId, LocalCtx};
+use crate::tt::{self, ScopeId, LocalCtx};
 use crate::env::*;
 use crate::traits::Traits;
 

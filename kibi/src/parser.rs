@@ -1157,6 +1157,16 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                     TacticKind::Unfold(at)
                 }
 
+                atoms::exact => {
+                    let expr = self.parse_expr(this_parent)?.0;
+                    TacticKind::Exact(expr)
+                }
+
+                atoms::apply => {
+                    let expr = self.parse_expr(this_parent)?.0;
+                    TacticKind::Apply(expr)
+                }
+
                 _ => {
                     self.parse.diagnostics.push(
                         Diagnostic {

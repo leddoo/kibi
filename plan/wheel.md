@@ -18,6 +18,7 @@
         - inner window size?
             - `vim.api.nvim_call_function("getwininfo", {winid=...})`
     - the `Add::R` issue.
+    - `rw` doesn't find `Nat::add_succ` in `Nat::succ((k + a)) = (Nat::succ(k) + b) -> a = b`
     - delab.
         - "source info".
         - don't pp in elab.

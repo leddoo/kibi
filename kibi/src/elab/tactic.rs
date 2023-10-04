@@ -268,6 +268,46 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     TacticInfoKind::None
                 }
             }
+
+            TacticKind::Exact(expr) => {
+                let (goal, ty) = self.next_goal(tactic_id)?;
+
+                let (value, _) = self.elab_expr_checking_type(expr, Some(ty));
+                self.assign_goal(goal, value);
+
+                TacticInfoKind::Term(value)
+            }
+
+            TacticKind::Apply(func) => {
+                let (goal, goal_ty) = self.peek_goal(tactic_id)?;
+
+                let (mut value, mut value_ty) = self.elab_expr(func);
+
+                let temp = ArenaPool::tls_get_temp();
+                let mut remaining = Vec::new_in(&*temp);
+                while !self.is_def_eq(value_ty, goal_ty) {
+                    let Some(pi) = self.whnf_forall(value_ty) else {
+                        self.error(func, ElabError::TempStr("function does not return goal"));
+                        return Some(());
+                    };
+
+                    let arg = self.new_term_var_id(pi.ty, self.lctx.current);
+                    remaining.push(arg);
+                    let arg = self.alloc.mkt_ivar(arg, TERM_SOURCE_NONE);
+                    value = self.alloc.mkt_apply(value, arg, TERM_SOURCE_NONE);
+                    value_ty = pi.val.instantiate(arg, self.alloc);
+                }
+
+                self.assign_goal(goal, value);
+
+                // add remaining goals.
+                let old_goals = Vec::from_slice_in(&*temp, &self.goals[self.current_goal+1..]);
+                self.goals.truncate(self.current_goal);
+                self.goals.extend_from_slice(&remaining);
+                self.goals.extend_from_slice(&old_goals);
+
+                TacticInfoKind::Term(value)
+            }
         };
 
         debug_assert!(self.elab.tactic_infos[tactic_id].is_none());

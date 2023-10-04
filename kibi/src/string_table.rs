@@ -60,6 +60,8 @@ impl<'a> StringTable<'a> {
             (atoms::intro, "intro"),
             (atoms::unfold, "unfold"),
             (atoms::at, "at"),
+            (atoms::exact, "exact"),
+            (atoms::apply, "apply"),
         ];
 
         for (atom, string) in init.iter().copied() {
@@ -149,6 +151,8 @@ pub mod atoms {
     pub const intro:        Atom = Atom(47);
     pub const unfold:       Atom = Atom(48);
     pub const at:           Atom = Atom(49);
+    pub const exact:        Atom = Atom(50);
+    pub const apply:        Atom = Atom(51);
 }
 
 
