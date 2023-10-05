@@ -126,7 +126,7 @@ pub mod symbol {
     #[derive(Clone, Copy, Debug)]
     pub struct DefKindAux<'a> {
         pub parent: SymbolId,
-        pub param_vids: Option<&'a [LocalVarId]>,
+        pub param_vids: Option<&'a [OptLocalVarId]>,
     }
 
 

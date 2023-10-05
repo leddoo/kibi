@@ -162,8 +162,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             unsafe { self.env.resolve_pending_unck(symbol, SymbolKind::Def(symbol::Def {
                 kind: symbol::DefKind::Aux(symbol::DefKindAux {
                     parent: symbol_id,
-                    // @temp
-                    param_vids: None,
+                    param_vids: aux.param_vids,
                 }),
                 num_levels: self.level_params.len(),
                 ty,

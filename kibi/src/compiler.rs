@@ -796,8 +796,9 @@ impl<'c> Inner<'c> {
                                     let val = pp.render(val, 50);
                                     val.layout_into_string(&mut buf);
 
+                                    use crate::env::symbol::DefKind;
                                     match it.kind {
-                                        crate::env::symbol::DefKind::Primary(it) => {
+                                        DefKind::Primary(it) => {
                                             if it.num_local_vars > 0 {
                                                 sti::write!(&mut buf, "\n\nnum local vars: {}", it.num_local_vars);
                                             }
@@ -806,6 +807,8 @@ impl<'c> Inner<'c> {
                                                 for aux_def in it.aux_defs.copy_it() {
                                                     let symbol = elab_data.env.symbol(aux_def);
                                                     let SymbolKind::Def(it) = symbol.kind else { unreachable!() };
+                                                    let DefKind::Aux(aux) = it.kind else { unreachable!() };
+
                                                     sti::write!(&mut buf, "\n\ndef {}: ", &self.strings[symbol.name]);
                                                     let mut pp = crate::tt::TermPP::new(&elab_data.env, &self.strings, &ctx.local_ctx, alloc);
                                                     let ty = pp.pp_term(it.ty);
@@ -813,6 +816,20 @@ impl<'c> Inner<'c> {
                                                     ty.layout_into_string(&mut buf);
 
                                                     sti::write!(&mut buf, " :=\n  ");
+                                                    if let Some(vids) = aux.param_vids {
+                                                        sti::write!(&mut buf, "-- var ids [");
+                                                        for (i, vid) in vids.copy_it().enumerate() {
+                                                            if i != 0 { sti::write!(&mut buf, ", ") }
+
+                                                            if let Some(vid) = vid.to_option() {
+                                                                sti::write!(&mut buf, "{}", vid.inner());
+                                                            }
+                                                            else {
+                                                                sti::write!(&mut buf, "-");
+                                                            }
+                                                        }
+                                                        sti::write!(&mut buf, "]\n  ");
+                                                    }
                                                     let val = pp.pp_term(it.val);
                                                     let val = pp.indent(2, val);
                                                     let val = pp.render(val, 50);
@@ -821,8 +838,11 @@ impl<'c> Inner<'c> {
                                             }
                                         }
 
-                                        crate::env::symbol::DefKind::Aux(_) => {
+                                        DefKind::Aux(it) => {
                                             sti::write!(&mut buf, "\n\naux def of <tbd>");
+                                            if let Some(vids) = it.param_vids {
+                                                sti::write!(&mut buf, "\nparam vars: {:?}", vids);
+                                            }
                                         }
                                     }
                                 }

@@ -147,6 +147,7 @@ struct AuxDef<'a> {
     ivar: tt::TermVarId,
     ty:    tt::Term<'a>,
     value: tt::Term<'a>,
+    param_vids: Option<&'a [tt::OptLocalVarId]>,
 }
 
 

@@ -14,8 +14,6 @@
 
 
 - brck:
-    - elab:
-        - aux def param vids.
     - during tyck:
         - compute region subsets.
         - compute cfg.
