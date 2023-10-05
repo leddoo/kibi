@@ -13,6 +13,8 @@ pub type Term<'a> = impel::Term<'a>;
 
 sti::define_key!(pub, u32, TermVarId);
 
+sti::define_key!(pub, u32, LocalVarId, opt: OptLocalVarId);
+
 
 pub type TermSource = crate::ast::OptExprId;
 
@@ -83,6 +85,7 @@ pub struct Binder<'a> {
 #[derive(Clone, Copy, Debug)]
 pub struct Let<'a> {
     pub name: Atom,
+    pub vid:  OptLocalVarId,
     pub ty:   Term<'a>,
     pub val:  Term<'a>,
     pub body: Term<'a>,
@@ -118,7 +121,7 @@ impl<'a> Let<'a> {
     pub fn update(&self, t: Term<'a>, alloc: &'a Arena, new_ty: Term<'a>, new_val: Term<'a>, new_body: Term<'a>) -> Term<'a> {
         if !new_ty.ptr_eq(self.ty) || !new_val.ptr_eq(self.val) || !new_body.ptr_eq(self.body) {
             let b = Self {
-                name: self.name,
+                name: self.name, vid: self.vid,
                 ty: new_ty, val: new_val,
                 body: new_body,
             };
@@ -557,7 +560,7 @@ impl<'a> Term<'a> {
                 alloc.mkt_lambda(it.kind, it.name, it.ty.clone_in(alloc), it.val.clone_in(alloc), s),
 
             TermData::Let(it) =>
-                alloc.mkt_let(it.name, it.ty.clone_in(alloc), it.val.clone_in(alloc), it.body.clone_in(alloc), s),
+                alloc.mkt_let(it.name, it.vid, it.ty.clone_in(alloc), it.val.clone_in(alloc), it.body.clone_in(alloc), s),
 
             TermData::Apply(it) =>
                 alloc.mkt_apply(it.fun.clone_in(alloc), it.arg.clone_in(alloc), s),
@@ -578,7 +581,7 @@ pub trait TermAlloc {
     fn mkt_lambda_b<'a>(&'a self, binder: Binder<'a>, source: TermSource) -> Term<'a>;
     fn mkt_lambda<'a>(&'a self, kind: BinderKind, name: Atom, ty: Term<'a>, val: Term<'a>, source: TermSource) -> Term<'a>;
     fn mkt_let_b<'a>(&'a self, binder: Let<'a>, source: TermSource) -> Term<'a>;
-    fn mkt_let<'a>(&'a self, name: Atom, ty: Term<'a>, val: Term<'a>, body: Term<'a>, source: TermSource) -> Term<'a>;
+    fn mkt_let<'a>(&'a self, name: Atom, vid: OptLocalVarId, ty: Term<'a>, val: Term<'a>, body: Term<'a>, source: TermSource) -> Term<'a>;
     fn mkt_apply_a<'a>(&'a self, apply: Apply<'a>, source: TermSource) -> Term<'a>;
     fn mkt_apply<'a>(&'a self, fun: Term<'a>, arg: Term<'a>, source: TermSource) -> Term<'a>;
     fn mkt_apps<'a>(&'a self, fun: Term<'a>, args: &[Term<'a>], source: TermSource) -> Term<'a>;
@@ -828,8 +831,8 @@ mod impel {
         }
 
         #[inline(always)]
-        fn mkt_let<'a>(&'a self, name: Atom, ty: Term<'a>, val: Term<'a>, body: Term<'a>, source: TermSource) -> Term<'a> {
-            self.mkt_let_b(Let { name, ty, val, body }, source)
+        fn mkt_let<'a>(&'a self, name: Atom, vid: OptLocalVarId, ty: Term<'a>, val: Term<'a>, body: Term<'a>, source: TermSource) -> Term<'a> {
+            self.mkt_let_b(Let { name, vid, ty, val, body }, source)
         }
 
         #[inline(always)]

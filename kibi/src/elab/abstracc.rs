@@ -80,7 +80,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         else         { self.alloc.mkt_lambda(kind, entry.name, ty, val, source) }
     }
 
-    pub fn mk_let(&self, body: Term<'out>, id: ScopeId, discard_unused: bool, source: TermSource) -> Term<'out> {
+    pub fn mk_let(&self, body: Term<'out>, id: ScopeId, vid: OptLocalVarId, discard_unused: bool, source: TermSource) -> Term<'out> {
         if discard_unused && body.closed() {
             return body;
         }
@@ -94,7 +94,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         let ty  = self.instantiate_term_vars(entry.ty);
         let val = self.instantiate_term_vars(val);
-        self.alloc.mkt_let(entry.name, ty, val, body, source)
+        self.alloc.mkt_let(entry.name, vid, ty, val, body, source)
     }
 }
 

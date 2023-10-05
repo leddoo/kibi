@@ -60,7 +60,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     ty = this.mk_binder(ty, local, true, TERM_SOURCE_NONE);
                 }
                 for param in this.locals[..this.num_params].copy_it().rev() {
-                    ty = this.mk_binder(ty, param.id, true, TERM_SOURCE_NONE);
+                    ty = this.mk_binder(ty, param.lid, true, TERM_SOURCE_NONE);
                 }
                 assert!(this.elab.ensure_def_eq(jp.ty, ty));
 
@@ -85,7 +85,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         this.elab.locals.extend_from_slice(&old_locals);
 
         let entry = this.jps[JoinPoint::ZERO].ivar;
-        let local_terms = Vec::from_iter(self.locals.copy_map_it(|local| self.alloc.mkt_local(local.id, source)));
+        let local_terms = Vec::from_iter(self.locals.copy_map_it(|local| self.alloc.mkt_local(local.lid, source)));
         let result = self.alloc.mkt_apps(entry, &local_terms, source);
         return (result, result_ty);
     }
@@ -133,7 +133,7 @@ struct JoinPointData<'a> {
 
 #[derive(Clone, Copy)]
 enum Stmt<'out> {
-    Local(ScopeId),
+    Local((ScopeId, LocalVarId)),
     Term((Term<'out>, Term<'out>)),
 }
 
@@ -173,7 +173,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
     fn new_jp_with_locals(&mut self, arg_ty: Option<Term<'out>>) -> JoinPoint {
         let locals = &self.elab.locals[self.num_params..];
-        let locals = Vec::from_iter(locals.copy_map_it(|l| l.id));
+        let locals = Vec::from_iter(locals.copy_map_it(|l| l.lid));
         self.new_jp(locals, arg_ty)
     }
 
@@ -198,7 +198,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
             let local = &mut self.elab.locals[self.num_params + i];
             assert_eq!(local.name, entry.name);
-            local.id = *id;
+            local.lid = *id;
         }
 
         self.current_jp = jp;
@@ -209,7 +209,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         assert!(target.arg_ty.is_some() == value.is_some());
 
         let locals = &self.locals[..self.num_params + target.locals.len()];
-        let locals = Vec::from_iter(locals.copy_map_it(|local| self.alloc.mkt_local(local.id, TERM_SOURCE_NONE)));
+        let locals = Vec::from_iter(locals.copy_map_it(|local| self.alloc.mkt_local(local.lid, TERM_SOURCE_NONE)));
         let result = self.alloc.mkt_apps(target.ivar, &locals, TERM_SOURCE_NONE);
         if let Some(value) = value {
             self.alloc.mkt_apply(result, value, TERM_SOURCE_NONE)
@@ -230,13 +230,13 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         let mut value = ret;
         for stmt in self.stmts.copy_it().rev() {
             match stmt {
-                Stmt::Local(id) => {
-                    value = self.elab.mk_let(value, id, false, TERM_SOURCE_NONE);
-                    self.elab.lctx.pop(id);
+                Stmt::Local((lid, vid)) => {
+                    value = self.elab.mk_let(value, lid, vid.some(), false, TERM_SOURCE_NONE);
+                    self.elab.lctx.pop(lid);
                 }
 
                 Stmt::Term((term, ty)) => {
-                    value = self.elab.alloc.mkt_let(Atom::NULL, ty, term, value, TERM_SOURCE_NONE);
+                    value = self.elab.alloc.mkt_let(Atom::NULL, None.into(), ty, term, value, TERM_SOURCE_NONE);
                 }
             }
         }
@@ -246,7 +246,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             value = self.elab.mk_binder(value, local, false, TERM_SOURCE_NONE);
         }
         for param in self.elab.locals[..self.num_params].copy_it().rev() {
-            value = self.elab.mk_binder(value, param.id, false, TERM_SOURCE_NONE);
+            value = self.elab.mk_binder(value, param.lid, false, TERM_SOURCE_NONE);
         }
         entry.value = Some(value);
 
@@ -342,10 +342,11 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
                     // create local.
                     let name = it.name.value.to_option().unwrap_or(Atom::NULL);
-                    let id = self.lctx.push(name, ty, ScopeKind::Local(val));
-                    self.locals.push(Local { name, id, mutable: it.is_var });
+                    let lid = self.lctx.push(name, ty, ScopeKind::Local(val));
+                    let vid = self.next_local_var_id();
+                    self.locals.push(Local { name, lid, vid: vid.some(), mutable: it.is_var });
 
-                    self.stmts.push(Stmt::Local(id));
+                    self.stmts.push(Stmt::Local((lid, vid)));
                 }
 
                 StmtKind::Assign(lhs, rhs) => {
@@ -359,28 +360,28 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     let mut local = None;
                     for (index, l) in self.locals.copy_it().enumerate().rev() {
                         if l.name == ident.value {
-                            local = Some((index, l.id, l.mutable));
+                            local = Some((index, l.lid, l.vid, l.mutable));
                             break;
                         }
                     }
-                    let Some((index, id, mutable)) = local else {
+                    let Some((index, lid, vid, mutable)) = local else {
                         self.elab.error(ident.source, ElabError::UnresolvedName(
                             self.elab.alloc.alloc_str(&self.strings[ident.value])));
                         continue;
                     };
 
-                    let ty = self.lctx.lookup(id).ty;
+                    let ty = self.lctx.lookup(lid).ty;
                     let (value, _) = self.elab_do_expr(rhs, Some(ty));
 
-                    if !mutable {
+                    if !mutable || vid.is_none() {
                         self.elab.error(ident.source, ElabError::TempStr("variable not assignable"));
                     }
                     else {
                         // create new local.
-                        let new_id = self.lctx.push(ident.value, ty, ScopeKind::Local(value));
-                        self.locals[index].id = new_id;
+                        let new_lid = self.lctx.push(ident.value, ty, ScopeKind::Local(value));
+                        self.locals[index].lid = new_lid;
 
-                        self.stmts.push(Stmt::Local(new_id));
+                        self.stmts.push(Stmt::Local((new_lid, vid.unwrap())));
                     }
                 }
 

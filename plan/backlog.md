@@ -29,6 +29,7 @@
     - `vfs::mem`, `vfs::std`.
 
 - sti
+    - `KVec::clear`.
     - `HashMap::insert_new`.
 
 - uninit dependent vars on assign.

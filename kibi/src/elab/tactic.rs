@@ -36,7 +36,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
     fn elab_tactic(&mut self, tactic_id: TacticId) -> Option<()> {
         // @todo: persistent list or something.
-        let locals = Vec::from_in(self.alloc, self.locals.copy_map_it(|local| local.id)).leak();
+        let locals = Vec::from_in(self.alloc, self.locals.copy_map_it(|local| local.lid)).leak();
 
         // @todo: persistent list.
         let mut goals = Vec::with_cap_in(self.alloc, self.goals.len() - self.current_goal);
@@ -187,7 +187,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 };
 
                 let id = self.lctx.push(name.value, pi.ty, ScopeKind::Binder(pi.kind));
-                self.locals.push(Local { name: name.value, id, mutable: false });
+                self.locals.push(Local { name: name.value, lid: id, vid: None.into(), mutable: false });
 
                 let new_ty = pi.val.instantiate(self.alloc.mkt_local(id, TERM_SOURCE_NONE), self.alloc);
                 let new_goal = self.new_term_var_id(new_ty, self.lctx.current);
@@ -246,11 +246,11 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     // technically, we don't even have to modify the locals/goals.
                     let new_goal = self.new_term_var_id(goal_ty, self.lctx.current);
 
-                    let value = self.alloc.mkt_let(name.value, new_ty, let_value,
+                    let value = self.alloc.mkt_let(name.value, None.into(), new_ty, let_value,
                         self.alloc.mkt_ivar(new_goal, TERM_SOURCE_NONE), TERM_SOURCE_NONE);
                     self.assign_goal(goal, value);
 
-                    self.locals[idx].id = id;
+                    self.locals[idx].lid = id;
 
                     TacticInfoKind::None
                 }

@@ -198,12 +198,18 @@ impl<'me, 'a> TermPP<'me, 'a> {
 
             TermData::Let(b) => {
                 let name = if b.name == Atom::NULL { atoms::_hole } else { b.name };
+                let vid =
+                    if let Some(vid) = b.vid.to_option() {
+                        // @temp: temp fmt.
+                        self.pp.text(self.pp.alloc_str(&format!("({})", vid.inner())))
+                    }
+                    else { self.pp.nil() };
                 let ty   = self.pp_term(b.ty);
                 let val  = self.pp_term(b.val);
                 let body = self.pp_term(b.body);
                 self.pp.group(self.pp.cats(&[
                     self.pp.text("let "),
-                    self.pp.text(self.alloc_atom(name)),
+                    self.pp.text(self.alloc_atom(name)), vid,
                     self.pp.text(": "),
                     self.pp.group(self.pp.indent(2, self.pp.cats(&[
                         self.pp.line(),

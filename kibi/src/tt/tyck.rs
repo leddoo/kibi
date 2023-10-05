@@ -149,7 +149,7 @@ impl<'me, 'out> TyCk<'me, 'out> {
                 let id = self.lctx.push(it.name, ty, ScopeKind::Local(it.val));
                 let body = it.body.instantiate(self.alloc.mkt_local(id, TERM_SOURCE_NONE), self.alloc);
                 let res = self.infer_type(body)?;
-                let res = self.lctx.abstract_let(res, id, true, TERM_SOURCE_NONE, self.alloc);
+                let res = self.lctx.abstract_let(res, id, it.vid, true, TERM_SOURCE_NONE, self.alloc);
                 self.lctx.pop(id);
 
                 res

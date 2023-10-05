@@ -15,18 +15,10 @@
 
 - brck:
     - elab:
-        - assignment marker.
-            - how to handle paths?
-                - `x := 42` -> `let x: Nat := assign_local(0, Nat, 42)`
-                    - hmm, that does cause quite a bit of bloat.
-                - `*x := 42` -> `let _: Eq(Ref::read(x), 42) := Ref::write(x, 42)`.
-                - `x[3] := 42` -> `let x: [Nat; n] := assign_local(0, [Nat; n], Array::assign(x, 3, 42)`.
-                - yeah, i think `let` should have an `OptDoLocalId`.
-            - todo:
-                - `OptDoLocalId`.
         - ref & deref.
             - `Ref::read` and `Ref::write` (no `Ref::pwrite` yet).
         - store aux defs on `symbol::Def`.
+        - store local vids for jp defs.
     - during tyck:
         - compute region subsets.
         - compute cfg.

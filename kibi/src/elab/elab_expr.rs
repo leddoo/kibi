@@ -180,15 +180,15 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
                 let name = it.name.value.to_option().unwrap_or(Atom::NULL);
                 let id = self.lctx.push(name, ty, ScopeKind::Local(val));
-                self.locals.push(Local { name, id, mutable: false });
+                self.locals.push(Local { name, lid: id, vid: None.into(), mutable: false });
 
                 let none = self.elab.token_infos.insert(it.name.source, TokenInfo::Local(self.item_id, id));
                 debug_assert!(none.is_none());
 
                 let (body, body_ty) = self.elab_expr(it.body);
 
-                let result    = self.mk_let(body,    id, false, source);
-                let result_ty = self.mk_let(body_ty, id, true,  source);
+                let result    = self.mk_let(body,    id, None.into(), false, source);
+                let result_ty = self.mk_let(body_ty, id, None.into(), true,  source);
                 self.lctx.pop(id);
                 self.locals.truncate(self.locals.len() - 1);
 
@@ -417,7 +417,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     pub fn lookup_local(&self, name: Atom) -> Option<ScopeId> {
         for l in self.locals.copy_it().rev() {
             if l.name == name {
-                return Some(l.id);
+                return Some(l.lid);
             }
         }
         None
@@ -427,7 +427,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     pub fn lookup_local_idx(&self, name: Atom) -> Option<(ScopeId, usize)> {
         for (i, l) in self.locals.copy_it().enumerate().rev() {
             if l.name == name {
-                return Some((l.id, i));
+                return Some((l.lid, i));
             }
         }
         None

@@ -81,6 +81,7 @@ pub fn elab_file<'out>(
             root_symbol: SymbolId::ROOT,
             lctx: LocalCtx::new(),
             locals: Vec::new(),
+            next_local_var_id: tt::LocalVarId::ZERO,
             level_params: Vec::new(),
             ivars: ivars::IVarCtx::new(),
             had_unassigned_ivars: false,
@@ -122,11 +123,12 @@ pub struct Elaborator<'me, 'c, 'out> {
     // @temp: @inductive_uses_elab.
     pub(crate) lctx: LocalCtx<'out>,
     locals: Vec<Local>,
+    next_local_var_id: tt::LocalVarId,
 
     ivars: ivars::IVarCtx<'out>,
     had_unassigned_ivars: bool,
 
-    goals: Vec<crate::tt::TermVarId>,
+    goals: Vec<tt::TermVarId>,
     current_goal: usize,
 
     aux_defs: Vec<AuxDef<'out>>,
@@ -135,7 +137,8 @@ pub struct Elaborator<'me, 'c, 'out> {
 #[derive(Clone, Copy, Debug)]
 struct Local {
     name: Atom,
-    id: ScopeId,
+    lid: ScopeId,
+    vid: tt::OptLocalVarId,
     mutable: bool,
 }
 
@@ -173,6 +176,14 @@ pub enum ExprOrTerm<'a> {
 }
 
 impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
+    #[inline]
+    pub fn next_local_var_id(&mut self) -> tt::LocalVarId {
+        use sti::keyed::Key;
+        let result = self.next_local_var_id;
+        self.next_local_var_id = result.add(1).unwrap();
+        return result;
+    }
+
     #[inline]
     pub fn error(&mut self, source: impl Into<DiagnosticSource>, error: ElabError<'out>) {
         self.elab.diagnostics.push(

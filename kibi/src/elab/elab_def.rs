@@ -28,7 +28,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         assert_eq!(self.locals.len(), locals.len());
         for l in self.locals.iter().copied().rev() {
-            ty = self.mk_binder(ty, l.id, true, TERM_SOURCE_NONE);
+            ty = self.mk_binder(ty, l.lid, true, TERM_SOURCE_NONE);
         }
 
         if self.locals.len() == 0 {
@@ -176,8 +176,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         assert_eq!(self.locals.len(), locals.len());
         for l in self.locals.iter().copied().rev() {
-            ty  = self.mk_binder(ty,  l.id, true,  TERM_SOURCE_NONE);
-            val = self.mk_binder(val, l.id, false, TERM_SOURCE_NONE);
+            ty  = self.mk_binder(ty,  l.lid, true,  TERM_SOURCE_NONE);
+            val = self.mk_binder(val, l.lid, false, TERM_SOURCE_NONE);
         }
 
         if self.locals.len() == 0 {
