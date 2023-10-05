@@ -758,12 +758,46 @@ impl<'c> Inner<'c> {
                 if let Some(info) = elab.item_infos[id] {
                     match info {
                         elab::ItemInfo::Symbol(_) => (),
+
                         elab::ItemInfo::Reduce(value) => {
                             let mut pp = crate::tt::TermPP::new(&elab_data.env, &self.strings, &ctx.local_ctx, alloc);
                             let v = ctx.ivar_ctx.instantiate_term_vars(value, alloc);
                             let v = pp.pp_term(v);
                             let v = pp.render(v, 50);
                             v.layout_into_string(&mut buf);
+                        }
+
+                        elab::ItemInfo::Print(symbol_id) => {
+                            use crate::env::SymbolKind;
+                            let symbol = elab_data.env.symbol(symbol_id);
+                            match symbol.kind {
+                                SymbolKind::Root => (),
+                                SymbolKind::Predeclared => (),
+                                SymbolKind::Pending(_) => (),
+
+                                SymbolKind::Axiom(it) => {
+                                    sti::write!(&mut buf, "axiom {}: ", &self.strings[symbol.name]);
+                                    let mut pp = crate::tt::TermPP::new(&elab_data.env, &self.strings, &ctx.local_ctx, alloc);
+                                    let ty = pp.pp_term(it.ty);
+                                    let ty = pp.render(ty, 50);
+                                    ty.layout_into_string(&mut buf);
+                                }
+
+                                SymbolKind::Def(it) => {
+                                    sti::write!(&mut buf, "def {}: ", &self.strings[symbol.name]);
+                                    let mut pp = crate::tt::TermPP::new(&elab_data.env, &self.strings, &ctx.local_ctx, alloc);
+                                    let ty = pp.pp_term(it.ty);
+                                    let ty = pp.render(ty, 50);
+                                    ty.layout_into_string(&mut buf);
+                                    sti::write!(&mut buf, " :=\n  ");
+                                    let val = pp.pp_term(it.val);
+                                    let val = pp.indent(2, val);
+                                    let val = pp.render(val, 50);
+                                    val.layout_into_string(&mut buf);
+                                }
+
+                                SymbolKind::IndAxiom(_) => todo!(),
+                            }
                         }
                     }
                 }
@@ -986,14 +1020,13 @@ fn hit_test_ast(node: AstId, pos: TokenId, parse: &Parse) -> Option<AstId> {
                 ItemKind::Reduce(it) =>
                     hit_test_ast((*it).into(), pos, parse),
 
-                ItemKind::Inductive(_) =>
-                    None,
+                ItemKind::Print(_) => None,
 
-                ItemKind::Trait(_) =>
-                    None,
+                ItemKind::Inductive(_) => None,
 
-                ItemKind::Impl(_) =>
-                    None,
+                ItemKind::Trait(_) => None,
+
+                ItemKind::Impl(_) => None,
             };
             Some(hit.unwrap_or(id.into()))
         }

@@ -50,8 +50,27 @@ requires(R, L, Q) :- requires(R, L, P), cfg_edge(P, Q), region_live_at(R, Q).
 loan_live_at(L, P) :- requires(R, L, P).
 
 
+-- loan liveness 2:
+-- this one makes more sense, intuitively.
+-- should be implied by the other one.
+-- and for ssa, could be equivalent, not sure.
+
+.decl requires(R:region, L:loan)
+-- from borrow.
+requires(R, L) :- create_ref(R, L, P).
+-- from subset.
+requires(R2, L) :- requires(R1, L), subset(R1, R2).
+
+.decl loan_live_at(L:loan, P:point)
+loan_live_at(L, P) :- requires(R, L), region_live_at(R, P).
+
+
 -- error:
 
+-- accessing a local invalidates any loans derived from that local.
+-- this includes `&*foo`.
+-- and it should probably be transitive? cause of the stack behavior.
+-- but gotta be careful with loops, though liveness might handle that.
 .decl invalidates(P:point, L:loan)
 .input invalidates
 

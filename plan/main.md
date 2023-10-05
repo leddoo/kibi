@@ -14,13 +14,28 @@
 
 
 - brck:
-    - elab ref & deref.
+    - elab:
+        - assignment marker.
+            - how to handle paths?
+                - `x := 42` -> `let x: Nat := assign_local(0, Nat, 42)`
+                    - hmm, that does cause quite a bit of bloat.
+                - `*x := 42` -> `let _: Eq(Ref::read(x), 42) := Ref::write(x, 42)`.
+                - `x[3] := 42` -> `let x: [Nat; n] := assign_local(0, [Nat; n], Array::assign(x, 3, 42)`.
+                - yeah, i think `let` should have an `OptDoLocalId`.
+            - todo:
+                - `OptDoLocalId`.
+        - ref & deref.
+            - `Ref::read` and `Ref::write` (no `Ref::pwrite` yet).
+        - store aux defs on `symbol::Def`.
     - during tyck:
-        - compute (base) subsets.
-        - compute invalidates.
+        - compute region subsets.
+        - compute cfg.
+        - compute liveness.
         - generate bbir.
-    - compute region liveness.
-    - detect errors.
+    - do the thing:
+        - thinking compute subsets & liveness.
+        - then walk ir. if node "invalidates" loans,
+          check that live regions don't require those loans.
 
 - todo:
     - address the tech debt.

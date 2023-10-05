@@ -1,4 +1,4 @@
-use crate::ast::{ItemId, ItemKind, item};
+use crate::ast::{ItemId, ItemKind, item, IdentOrPath};
 
 use super::*;
 
@@ -25,6 +25,18 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 let (term, _) = self.elab_expr(*it);
                 let r = self.reduce(term);
                 ItemInfo::Reduce(r)
+            }
+
+            ItemKind::Print(it) => {
+                spall::trace_scope!("kibi/elab/print");
+
+                let path = match it {
+                    IdentOrPath::Ident(ident) => core::slice::from_ref(ident),
+                    IdentOrPath::Path(path) => path.parts,
+                };
+
+                let symbol_id = self.elab_path(path)?;
+                ItemInfo::Print(symbol_id)
             }
 
             ItemKind::Inductive(it) => {

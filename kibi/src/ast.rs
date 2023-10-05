@@ -383,6 +383,7 @@ pub enum ItemKind<'a> {
     Axiom(item::Axiom<'a>),
     Def(item::Def<'a>),
     Reduce(ExprId),
+    Print(IdentOrPath<'a>),
     Inductive(adt::Inductive<'a>),
     Trait(item::Trait<'a>),
     Impl(item::Impl<'a>),

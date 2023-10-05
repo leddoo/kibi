@@ -478,6 +478,12 @@ impl<'me, 'c, 'out> Parser<'me, 'c, 'out> {
                 ItemKind::Reduce(expr)
             }
 
+            TokenKind::Ident(atoms::print) => {
+                let ident = self.expect_ident()?;
+                let path = self.parse_ident_or_path(ident)?;
+                ItemKind::Print(path)
+            }
+
             _ => {
                 self.error_unexpected(at, source_begin);
                 return None;

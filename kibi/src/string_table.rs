@@ -62,6 +62,7 @@ impl<'a> StringTable<'a> {
             (atoms::at, "at"),
             (atoms::exact, "exact"),
             (atoms::apply, "apply"),
+            (atoms::print, "print"),
         ];
 
         for (atom, string) in init.iter().copied() {
@@ -153,6 +154,7 @@ pub mod atoms {
     pub const at:           Atom = Atom(49);
     pub const exact:        Atom = Atom(50);
     pub const apply:        Atom = Atom(51);
+    pub const print:        Atom = Atom(52);
 }
 
 

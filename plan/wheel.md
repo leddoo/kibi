@@ -12,6 +12,10 @@
 
 
 - todo:
+    - append only goals.
+    - option to solve sub-goals in a `{}`.
+    - unfold as no-op.
+        - only include in tactic info, somehow.
     - when/how to abstract locals?
     - info panel.
         - `exists_elim <local>`.

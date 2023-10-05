@@ -32,6 +32,7 @@ pub enum TokenInfo {
 pub enum ItemInfo<'a> {
     Symbol(SymbolId),
     Reduce(tt::Term<'a>),
+    Print(SymbolId),
 }
 
 #[derive(Debug)]
