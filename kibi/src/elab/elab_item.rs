@@ -65,7 +65,9 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             ItemKind::Impl(it) => {
                 spall::trace_scope!("kibi/elab/impl");
 
-                let (ty, val) = self.elab_def_core(item_id,
+                let symbol_id = self.env.reserve_id();
+
+                let (ty, _) = self.elab_def_core(symbol_id, item_id,
                     it.levels, it.params, it.ty.some(), it.value)?;
 
                 let trayt = ty.forall_ret().0.app_fun().0;
@@ -77,12 +79,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                         let impls = self.traits.impls(g.id);
                         // @speed: arena.
                         let name = self.strings.insert(&format!("impl_{}", impls.len()));
-                        let symbol = self.env.new_symbol(g.id, name, SymbolKind::Def(symbol::Def {
-                            num_levels: it.levels.len(),
-                            ty,
-                            val,
-                        }), self.alloc, &mut self.elab.diagnostics).unwrap();
-                        self.traits.add_impl(g.id, symbol);
+                        self.env.attach_id(symbol_id, g.id, name)?;
+                        self.traits.add_impl(g.id, symbol_id);
                     }
                 }
                 if !is_trait {

@@ -15,10 +15,9 @@
 
 - brck:
     - elab:
+        - aux def param vids.
         - ref & deref.
             - `Ref::read` and `Ref::write` (no `Ref::pwrite` yet).
-        - store aux defs on `symbol::Def`.
-        - store local vids for jp defs.
     - during tyck:
         - compute region subsets.
         - compute cfg.

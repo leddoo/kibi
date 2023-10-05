@@ -86,12 +86,33 @@ pub mod symbol {
         pub ty: Term<'a>,
     }
 
+
     #[derive(Clone, Copy, Debug)]
     pub struct Def<'a> {
+        pub kind: DefKind<'a>,
         pub num_levels: usize,
         pub ty:  Term<'a>,
         pub val: Term<'a>,
     }
+
+    #[derive(Clone, Copy, Debug)]
+    pub enum DefKind<'a> {
+        Primary(DefKindPrimary<'a>),
+        Aux(DefKindAux<'a>),
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    pub struct DefKindPrimary<'a> {
+        pub aux_defs: &'a [SymbolId],
+        pub num_local_vars: usize,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    pub struct DefKindAux<'a> {
+        pub parent: SymbolId,
+        pub param_vids: Option<&'a [LocalVarId]>,
+    }
+
 
     #[derive(Clone, Copy, Debug)]
     pub struct IndAxiom<'a> {
@@ -170,6 +191,7 @@ impl<'a> Env<'a> {
             if matches!(self.symbols[symbol].kind, SymbolKind::Predeclared) {
                 predeclared = Some(symbol);
             }
+            // @todo: error.
             else { return None }
         }
 
@@ -264,6 +286,35 @@ impl<'a> Env<'a> {
         symbol.kind = kind;
     }
 
+    pub fn reserve_id(&mut self) -> SymbolId {
+        self.symbols.push(Symbol {
+            parent: SymbolId::MAX,
+            kind: SymbolKind::Pending(None),
+            name: Atom::NULL,
+            children: HashMap::new(),
+        })
+    }
+
+    #[must_use]
+    pub fn attach_id(&mut self, id: SymbolId, parent: SymbolId, name: Atom) -> Option<()> {
+        if self.symbols[id].parent != SymbolId::MAX { panic!("id already attached"); }
+
+        let p = &mut self.symbols[parent];
+        // @speed: try_insert_new.
+        if p.children.get(&name).is_some() {
+            // @todo: error.
+            return None;
+        }
+        p.children.insert(name, id);
+
+        let s = &mut self.symbols[id];
+        s.parent = parent;
+        s.name = name;
+
+        Some(())
+    }
+
+
     #[must_use]
     pub fn validate_symbol<'out>(&mut self, id: SymbolId, alloc: &'out Arena, diagnostics: &mut Diagnostics<'out>) -> Option<()> {
         match &self.symbols[id].kind {
@@ -288,7 +339,6 @@ impl<'a> Env<'a> {
         }
         return Some(());
     }
-
 
     #[must_use]
     fn check_is_type<'out>(&self, t: Term, num_levels: usize, alloc: &'out Arena, diagnostics: &mut Diagnostics<'out>) -> Option<()> {

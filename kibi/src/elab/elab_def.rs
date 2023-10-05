@@ -79,7 +79,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         Some(symbol)
     }
 
-    pub fn elab_def_core(&mut self, item_id: ItemId, levels: &[Ident], params: &[ast::Binder], ty: OptExprId, value: ExprId) -> Option<(Term<'out>, Term<'out>)> {
+    pub fn elab_def_core(&mut self, symbol_id: SymbolId, item_id: ItemId, levels: &[Ident], params: &[ast::Binder], ty: OptExprId, value: ExprId) -> Option<(Term<'out>, Term<'out>)> {
         assert_eq!(self.locals.len(), 0);
         assert_eq!(self.level_params.len(), 0);
 
@@ -110,15 +110,15 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         }
 
         // declare aux defs.
-        let mut aux_symbols = Vec::with_cap(self.aux_defs.len());
+        let mut aux_symbols = Vec::with_cap_in(self.alloc, self.aux_defs.len());
         let aux_defs = self.aux_defs.take();
         for aux in aux_defs.iter() {
             // @temp: arena; in current item; count from 1 maybe.
-            let n = self.env.symbol(self.root_symbol).children.len();
+            let n = self.env.symbol(symbol_id).children.len();
             let name = format!("{}_{n}", &self.strings[aux.name]);
             let name = self.strings.insert(&name);
 
-            let symbol = self.env.new_symbol(self.root_symbol, name,
+            let symbol = self.env.new_symbol(symbol_id, name,
                 SymbolKind::Pending(None),
                 self.alloc, &mut self.elab.diagnostics,
             ).unwrap();
@@ -160,6 +160,11 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
             // validated below, cause cycles.
             unsafe { self.env.resolve_pending_unck(symbol, SymbolKind::Def(symbol::Def {
+                kind: symbol::DefKind::Aux(symbol::DefKindAux {
+                    parent: symbol_id,
+                    // @temp
+                    param_vids: None,
+                }),
                 num_levels: self.level_params.len(),
                 ty,
                 val,
@@ -215,6 +220,16 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         assert!(self.check_no_unassigned_variables(item_id.into()).is_some());
 
+        self.env.resolve_pending(symbol_id, SymbolKind::Def(symbol::Def {
+            kind: symbol::DefKind::Primary(symbol::DefKindPrimary {
+                num_local_vars: self.next_local_var_id.inner() as usize,
+                aux_defs: aux_symbols.leak(),
+            }),
+            num_levels: self.level_params.len(),
+            ty,
+            val,
+        }), self.alloc, &mut self.elab.diagnostics)?;
+
         return Some((ty, val));
     }
 
@@ -234,21 +249,17 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             }
         };
 
-        let (ty, val) = self.elab_def_core(item_id, def.levels, def.params, def.ty, def.value)?;
+        let symbol_id = self.env.new_symbol(
+            parent, name.value,
+            SymbolKind::Pending(None),
+            self.alloc, &mut self.elab.diagnostics)?;
 
-        let symbol = self.env.new_symbol(parent, name.value,
-            SymbolKind::Def(symbol::Def {
-                num_levels: def.levels.len(),
-                ty,
-                val,
-            }),
-            self.alloc, &mut self.elab.diagnostics,
-        )?;
+        self.elab_def_core(symbol_id, item_id, def.levels, def.params, def.ty, def.value)?;
 
-        let none = self.elab.token_infos.insert(name.source, TokenInfo::Symbol(symbol));
+        let none = self.elab.token_infos.insert(name.source, TokenInfo::Symbol(symbol_id));
         debug_assert!(none.is_none());
 
-        Some(symbol)
+        Some(symbol_id)
     }
 }
 

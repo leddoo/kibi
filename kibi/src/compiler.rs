@@ -789,11 +789,42 @@ impl<'c> Inner<'c> {
                                     let ty = pp.pp_term(it.ty);
                                     let ty = pp.render(ty, 50);
                                     ty.layout_into_string(&mut buf);
+
                                     sti::write!(&mut buf, " :=\n  ");
                                     let val = pp.pp_term(it.val);
                                     let val = pp.indent(2, val);
                                     let val = pp.render(val, 50);
                                     val.layout_into_string(&mut buf);
+
+                                    match it.kind {
+                                        crate::env::symbol::DefKind::Primary(it) => {
+                                            if it.num_local_vars > 0 {
+                                                sti::write!(&mut buf, "\n\nnum local vars: {}", it.num_local_vars);
+                                            }
+
+                                            if it.aux_defs.len() > 0 {
+                                                for aux_def in it.aux_defs.copy_it() {
+                                                    let symbol = elab_data.env.symbol(aux_def);
+                                                    let SymbolKind::Def(it) = symbol.kind else { unreachable!() };
+                                                    sti::write!(&mut buf, "\n\ndef {}: ", &self.strings[symbol.name]);
+                                                    let mut pp = crate::tt::TermPP::new(&elab_data.env, &self.strings, &ctx.local_ctx, alloc);
+                                                    let ty = pp.pp_term(it.ty);
+                                                    let ty = pp.render(ty, 50);
+                                                    ty.layout_into_string(&mut buf);
+
+                                                    sti::write!(&mut buf, " :=\n  ");
+                                                    let val = pp.pp_term(it.val);
+                                                    let val = pp.indent(2, val);
+                                                    let val = pp.render(val, 50);
+                                                    val.layout_into_string(&mut buf);
+                                                }
+                                            }
+                                        }
+
+                                        crate::env::symbol::DefKind::Aux(_) => {
+                                            sti::write!(&mut buf, "\n\naux def of <tbd>");
+                                        }
+                                    }
                                 }
 
                                 SymbolKind::IndAxiom(_) => todo!(),
