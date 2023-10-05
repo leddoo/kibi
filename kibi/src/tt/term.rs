@@ -591,6 +591,26 @@ pub trait TermAlloc {
     fn mkt_ax_uninit<'a>(&'a self, l: Level<'a>, t: Term<'a>, source: TermSource) -> Term<'a>;
     fn mkt_ax_unreach<'a>(&'a self, l: Level<'a>, t: Term<'a>, source: TermSource) -> Term<'a>;
     fn mkt_ax_error<'a>(&'a self, l: Level<'a>, t: Term<'a>, source: TermSource) -> Term<'a>;
+
+    fn mkt_ref<'a>(&'a self, region: Term<'a>, kind: Term<'a>, ty: Term<'a>, source: TermSource) -> Term<'a> {
+        self.mkt_apps(Term::Ref, &[region, kind, ty], source)
+    }
+
+    fn mkt_ref_from_value<'a>(&'a self, kind: Term<'a>, ty: Term<'a>, value: Term<'a>, source: TermSource) -> Term<'a> {
+        self.mkt_apps(Term::Ref_from_value, &[kind, ty, value], source)
+    }
+
+    fn mkt_ref_read<'a>(&'a self, region: Term<'a>, kind: Term<'a>, ty: Term<'a>, reff: Term<'a>, source: TermSource) -> Term<'a> {
+        self.mkt_apps(Term::Ref_read, &[region, kind, ty, reff], source)
+    }
+
+    fn mkt_ref_write<'a>(&'a self, region: Term<'a>, ty: Term<'a>, reff: Term<'a>, value: Term<'a>, source: TermSource) -> Term<'a> {
+        self.mkt_apps(Term::Ref_write, &[region, ty, reff, value], source)
+    }
+
+    fn mkt_ref_pwrite<'a>(&'a self, region: Term<'a>, ty: Term<'a>, reff: Term<'a>, value: Term<'a>, source: TermSource) -> Term<'a> {
+        self.mkt_apps(Term::Ref_pwrite, &[region, ty, reff, value], source)
+    }
 }
 
 
@@ -609,6 +629,7 @@ mod impel {
     }
 
 
+    #[allow(non_upper_case_globals)]
     impl<'a> Term<'a> {
         pub const SORT_0: Term<'static> = Term(&Data { data: TermData::Sort(Level::L0), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
         pub const SORT_1: Term<'static> = Term(&Data { data: TermData::Sort(Level::L1), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
@@ -640,7 +661,36 @@ mod impel {
         pub const AX_ERROR_1: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_error, levels: &[Level::L1] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
         pub const AX_ERROR_2: Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::ax_error, levels: &[Level::L2] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
 
+        pub const Region:           Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Region, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const Region_infer:     Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Region_infer, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const Region_local:     Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Region_local, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const Ref_Tag:          Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Ref_Tag, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const Ref_Kind:         Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Ref_Kind, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const Ref_Kind_mut:     Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Ref_Kind_mut, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const Ref_Kind_shr:     Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Ref_Kind_shr, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const Ref_Kind_const:   Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Ref_Kind_const, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const Ref:              Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Ref, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const Ref_from_value:   Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Ref_from_value, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const Ref_from_local:   Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Ref_from_local, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const Ref_from_ref:     Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Ref_from_ref, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const Ref_read:         Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Ref_read, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const Ref_write:        Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Ref_write, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+        pub const Ref_pwrite:       Term<'static> = Term(&Data { data: TermData::Global(Global { id: SymbolId::Ref_pwrite, levels: &[] }), source: TERM_SOURCE_NONE, max_succ_bvar: 0, max_succ_local: 0 });
+    }
 
+    impl Into<Term<'static>> for crate::ast::expr::RefKind {
+        #[inline(always)]
+        fn into(self) -> Term<'static> {
+            use crate::ast::expr::RefKind;
+            match self {
+                RefKind::Mut    => Term::Ref_Kind_mut,
+                RefKind::Shared => Term::Ref_Kind_shr,
+                RefKind::Const  => Term::Ref_Kind_const,
+            }
+        }
+    }
+
+    impl<'a> Term<'a> {
         #[inline(always)]
         pub fn source(self) -> TermSource {
             self.0.source

@@ -218,6 +218,24 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 (self.alloc.mkt_nat_val(n, source), Term::NAT)
             }
 
+            ExprKind::Ref(it) => {
+                // @todo: use expected type.
+                let (value, ty) = self.elab_expr(it.expr);
+                (self.alloc.mkt_ref_from_value(it.kind.into(), ty, value, source),
+                 self.alloc.mkt_ref(Term::Region_infer, it.kind.into(), ty, source))
+            }
+
+            ExprKind::Deref(it) => {
+                let region = Term::Region_infer;
+                let kind = self.new_term_var_of_type(Term::Ref_Kind);
+                let ty = expected_ty.unwrap_or_else(|| self.new_ty_var().0);
+                let expected = self.alloc.mkt_ref(region, kind, ty, source);
+                let reff = self.elab_expr_checking_type(it, Some(expected)).0;
+
+                let value = self.alloc.mkt_ref_read(region, kind, ty, reff, source);
+                (value, ty)
+            }
+
             ExprKind::Eq(a, b) => {
                 let eq = self.alloc.mkt_global(
                     SymbolId::Eq,
@@ -256,7 +274,6 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             }
 
             _ => {
-                //eprintln!("unimp expr kind {:?}", expr);
                 self.error(expr_id, ElabError::TempUnimplemented);
                 return self.mkt_ax_error_from_expected(expected_ty, source);
             }

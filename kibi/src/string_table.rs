@@ -63,6 +63,13 @@ impl<'a> StringTable<'a> {
             (atoms::exact, "exact"),
             (atoms::apply, "apply"),
             (atoms::print, "print"),
+            (atoms::Region, "Region"), (atoms::infer, "infer"), (atoms::local, "local"),
+            (atoms::Ref_Tag, "Ref_Tag"),
+            (atoms::Ref_Kind, "Ref_Kind"),
+            (atoms::Ref, "Ref"),
+            (atoms::from_value, "from_value"),
+            (atoms::from_local, "from_local"), (atoms::from_ref, "from_ref"),
+            (atoms::read, "read"), (atoms::write, "write"), (atoms::pwrite, "pwrite"),
         ];
 
         for (atom, string) in init.iter().copied() {
@@ -155,6 +162,18 @@ pub mod atoms {
     pub const exact:        Atom = Atom(50);
     pub const apply:        Atom = Atom(51);
     pub const print:        Atom = Atom(52);
+    pub const Region:       Atom = Atom(53);
+    pub const infer:        Atom = Atom(54);
+    pub const local:        Atom = Atom(55);
+    pub const Ref_Tag:      Atom = Atom(56);
+    pub const Ref_Kind:     Atom = Atom(57);
+    pub const Ref:          Atom = Atom(58);
+    pub const from_value:   Atom = Atom(59);
+    pub const from_local:   Atom = Atom(60);
+    pub const from_ref:     Atom = Atom(61);
+    pub const read:         Atom = Atom(62);
+    pub const write:        Atom = Atom(63);
+    pub const pwrite:       Atom = Atom(64);
 }
 
 

@@ -351,38 +351,49 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
                 StmtKind::Assign(lhs, rhs) => {
                     let lhs_expr = self.parse.exprs[lhs];
-                    let ExprKind::Ident(ident) = lhs_expr.kind else {
-                        self.error(lhs, ElabError::TempStr("invalid assign lhs"));
-                        continue;
-                    };
+                    if let ExprKind::Ident(ident) = lhs_expr.kind {
+                        // find local.
+                        let mut local = None;
+                        for (index, l) in self.locals.copy_it().enumerate().rev() {
+                            if l.name == ident.value {
+                                local = Some((index, l.lid, l.vid, l.mutable));
+                                break;
+                            }
+                        }
+                        let Some((index, lid, vid, mutable)) = local else {
+                            self.elab.error(ident.source, ElabError::UnresolvedName(
+                                self.elab.alloc.alloc_str(&self.strings[ident.value])));
+                            continue;
+                        };
 
-                    // find local.
-                    let mut local = None;
-                    for (index, l) in self.locals.copy_it().enumerate().rev() {
-                        if l.name == ident.value {
-                            local = Some((index, l.lid, l.vid, l.mutable));
-                            break;
+                        let ty = self.lctx.lookup(lid).ty;
+                        let value = self.elab_do_expr(rhs, Some(ty)).0;
+
+                        if !mutable || vid.is_none() {
+                            self.elab.error(ident.source, ElabError::TempStr("variable not assignable"));
+                        }
+                        else {
+                            // create new local.
+                            let new_lid = self.lctx.push(ident.value, ty, ScopeKind::Local(value));
+                            self.locals[index].lid = new_lid;
+
+                            self.stmts.push(Stmt::Local((new_lid, vid.unwrap())));
                         }
                     }
-                    let Some((index, lid, vid, mutable)) = local else {
-                        self.elab.error(ident.source, ElabError::UnresolvedName(
-                            self.elab.alloc.alloc_str(&self.strings[ident.value])));
-                        continue;
-                    };
+                    else if let ExprKind::Deref(it) = lhs_expr.kind {
+                        let region = Term::Region_infer;
+                        let kind = Term::Ref_Kind_mut;
+                        let ty = self.new_ty_var().0;
+                        let expected = self.alloc.mkt_ref(region, kind, ty, TERM_SOURCE_NONE); // @temp: source
+                        let reff = self.elab_expr_checking_type(it, Some(expected)).0;
 
-                    let ty = self.lctx.lookup(lid).ty;
-                    let (value, _) = self.elab_do_expr(rhs, Some(ty));
-
-                    if !mutable || vid.is_none() {
-                        self.elab.error(ident.source, ElabError::TempStr("variable not assignable"));
+                        let value = self.elab_do_expr(rhs, Some(ty)).0;
+                        let write = self.alloc.mkt_ref_write(region, ty, reff, value, TERM_SOURCE_NONE); // @temp: source
+                        self.stmts.push(Stmt::Term((write, Term::UNIT)));
                     }
                     else {
-                        // create new local.
-                        let new_lid = self.lctx.push(ident.value, ty, ScopeKind::Local(value));
-                        self.locals[index].lid = new_lid;
-
-                        self.stmts.push(Stmt::Local((new_lid, vid.unwrap())));
-                    }
+                        self.error(lhs, ElabError::TempStr("invalid assign lhs"));
+                    };
                 }
 
                 StmtKind::Expr(it) => {

@@ -67,6 +67,22 @@ impl SymbolId {
     pub const ax_uninit:  SymbolId = SymbolId(18);
     pub const ax_unreach: SymbolId = SymbolId(19);
     pub const ax_error:   SymbolId = SymbolId(20);
+
+    pub const Region:           SymbolId = SymbolId(21);
+    pub const Region_infer:     SymbolId = SymbolId(22);
+    pub const Region_local:     SymbolId = SymbolId(23);
+    pub const Ref_Tag:          SymbolId = SymbolId(24);
+    pub const Ref_Kind:         SymbolId = SymbolId(25);
+    pub const Ref_Kind_mut:     SymbolId = SymbolId(26);
+    pub const Ref_Kind_shr:     SymbolId = SymbolId(27);
+    pub const Ref_Kind_const:   SymbolId = SymbolId(28);
+    pub const Ref:              SymbolId = SymbolId(29);
+    pub const Ref_from_value:   SymbolId = SymbolId(30);
+    pub const Ref_from_local:   SymbolId = SymbolId(31);
+    pub const Ref_from_ref:     SymbolId = SymbolId(32);
+    pub const Ref_read:         SymbolId = SymbolId(33);
+    pub const Ref_write:        SymbolId = SymbolId(34);
+    pub const Ref_pwrite:       SymbolId = SymbolId(35);
 }
 
 
@@ -164,6 +180,25 @@ impl<'a> Env<'a> {
         env.predeclare(SymbolId::ROOT, atoms::ax_uninit, SymbolId::ax_uninit);
         env.predeclare(SymbolId::ROOT, atoms::ax_unreach, SymbolId::ax_unreach);
         env.predeclare(SymbolId::ROOT, atoms::ax_error, SymbolId::ax_error);
+
+        env.predeclare(SymbolId::ROOT, atoms::Region, SymbolId::Region);
+        env.predeclare(SymbolId::Region, atoms::infer, SymbolId::Region_infer);
+        env.predeclare(SymbolId::Region, atoms::local, SymbolId::Region_local);
+
+        env.predeclare(SymbolId::ROOT, atoms::Ref_Tag, SymbolId::Ref_Tag);
+
+        env.predeclare(SymbolId::ROOT, atoms::Ref_Kind, SymbolId::Ref_Kind);
+        env.predeclare(SymbolId::Ref_Kind, atoms::_mut, SymbolId::Ref_Kind_mut);
+        env.predeclare(SymbolId::Ref_Kind, atoms::shr, SymbolId::Ref_Kind_shr);
+        env.predeclare(SymbolId::Ref_Kind, atoms::_const, SymbolId::Ref_Kind_const);
+
+        env.predeclare(SymbolId::ROOT, atoms::Ref, SymbolId::Ref);
+        env.predeclare(SymbolId::Ref, atoms::from_value, SymbolId::Ref_from_value);
+        env.predeclare(SymbolId::Ref, atoms::from_local, SymbolId::Ref_from_local);
+        env.predeclare(SymbolId::Ref, atoms::from_ref, SymbolId::Ref_from_ref);
+        env.predeclare(SymbolId::Ref, atoms::read, SymbolId::Ref_read);
+        env.predeclare(SymbolId::Ref, atoms::write, SymbolId::Ref_write);
+        env.predeclare(SymbolId::Ref, atoms::pwrite, SymbolId::Ref_pwrite);
 
         return env
     }

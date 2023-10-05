@@ -16,8 +16,6 @@
 - brck:
     - elab:
         - aux def param vids.
-        - ref & deref.
-            - `Ref::read` and `Ref::write` (no `Ref::pwrite` yet).
     - during tyck:
         - compute region subsets.
         - compute cfg.

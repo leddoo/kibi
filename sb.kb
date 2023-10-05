@@ -401,6 +401,7 @@ reduce Result::and_then(Result::and_then(Result::and_then(Result::and_then(Resul
 
 axiom Region: Prop
 
+axiom Region::infer: Region
 axiom Region::local(id: Nat): Region
 axiom Region::array_field(array: Region, index: Nat): Region
 
@@ -422,11 +423,13 @@ inductive Ref(r: Region, kind: Ref_Kind, T: Type) {
 def Ref::addr<r: Region, kind: Ref_Kind, T: Type>(self: Ref(r, kind, T)): Nat :=
     Ref::rec(lam tag addr => addr, self)
 
+axiom Ref::from_value(kind: Ref_Kind, T: Type, value: T): Ref(Region::infer, kind, T)
 axiom Ref::from_local(id: Nat, kind: Ref_Kind, T: Type): Ref(Region::local(id), kind, T)
 axiom Ref::from_ref<r: Region, kind1: Ref_Kind, T: Type>(ref: Ref(r, kind1, T), kind2: Ref_Kind): Ref(r, kind2, T)
 
 axiom Ref::read<r: Region, kind: Ref_Kind, T: Type>(ref: Ref(r, kind, T)): T
-axiom Ref::write<r: Region, T: Type>(ref: Ref(r, Ref_Kind::mut, T), value: T): Ref::read(ref) = value
+axiom Ref::write<r: Region, T: Type>(ref: Ref(r, Ref_Kind::mut, T), value: T): Unit
+axiom Ref::pwrite<r: Region, T: Type>(ref: Ref(r, Ref_Kind::mut, T), value: T): Ref::read(ref) = value
 
 
 -- thinking model this as a `&mut` in SB.
@@ -750,5 +753,7 @@ def brck_basic: Unit := do {
     *r1 := 69;
     *r2;
 }
+
+print brck_basic
 
 
