@@ -226,13 +226,12 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             }
 
             ExprKind::Deref(it) => {
-                let region = Term::Region_infer;
                 let kind = self.new_term_var_of_type(Term::Ref_Kind);
                 let ty = expected_ty.unwrap_or_else(|| self.new_ty_var().0);
-                let expected = self.alloc.mkt_ref(region, kind, ty, source);
+                let expected = self.alloc.mkt_ref(Term::Region_infer, kind, ty, source);
                 let reff = self.elab_expr_checking_type(it, Some(expected)).0;
 
-                let value = self.alloc.mkt_ref_read(region, kind, ty, reff, source);
+                let value = self.alloc.mkt_ref_read(kind, ty, reff, source);
                 (value, ty)
             }
 

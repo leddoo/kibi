@@ -46,6 +46,24 @@
 - begin test suite.
 
 
+- bugs:
+    - "unassigned ivars": `def brck_1: Nat := do {
+        var a := 42;
+        let b := 69;
+        var r := &a;
+        var i := 0;
+    }`
+    - "unassigned ivars": `def brck_2: Unit := do {
+        var v  := 42;
+        let r1 := &mut v;
+        let r2 := &mut *r1;
+        *r1 := 69; -- error.
+        return *r2;
+    }`
+    - `while bnot(Nat::beq(i, 2)) {};` errors with "too many args", when `bnot` undef.
+
+
+
 
 
 ### cleanup:
@@ -56,8 +74,6 @@
       need to break up exprs for do elab anyway, cos refs.
 
 - expect type def eq thing.
-
-- lctx: binder xor let.
 
 - elab elim: don't option of option.
 

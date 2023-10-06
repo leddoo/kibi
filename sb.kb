@@ -38,6 +38,8 @@ def Bool::no_confusion.{p} <P: Sort(p), a b: Bool>: a = b -> Bool::No_Confusion(
 def ite <T: Type> (cond: Bool) (on_true: T) (on_false: T): T
     := Bool::rec(on_false, on_true, cond)
 
+def bnot(self: Bool): Bool := Bool::rec(Bool::true, Bool::false, self)
+
 
 trait inductive Decidable (P: Prop) {
     is_false (h: P -> False);
@@ -427,9 +429,9 @@ axiom Ref::from_value(kind: Ref_Kind, T: Type, value: T): Ref(Region::infer, kin
 axiom Ref::from_local(id: Nat, kind: Ref_Kind, T: Type): Ref(Region::local(id), kind, T)
 axiom Ref::from_ref<r: Region, kind1: Ref_Kind, T: Type>(ref: Ref(r, kind1, T), kind2: Ref_Kind): Ref(r, kind2, T)
 
-axiom Ref::read<r: Region, kind: Ref_Kind, T: Type>(ref: Ref(r, kind, T)): T
-axiom Ref::write<r: Region, T: Type>(ref: Ref(r, Ref_Kind::mut, T), value: T): Unit
-axiom Ref::pwrite<r: Region, T: Type>(ref: Ref(r, Ref_Kind::mut, T), value: T): Ref::read(ref) = value
+axiom Ref::read<kind: Ref_Kind, T: Type>(ref: Ref(Region::infer, kind, T)): T
+axiom Ref::write<T: Type>(ref: Ref(Region::infer, Ref_Kind::mut, T), value: T): Unit
+axiom Ref::pwrite<T: Type>(ref: Ref(Region::infer, Ref_Kind::mut, T), value: T): Ref::read(ref) = value
 
 
 -- thinking model this as a `&mut` in SB.
@@ -746,14 +748,83 @@ def do_levels.{a}(A: Sort(a), a b: A): A := do {
 reduce do_levels(Nat, 42, 69)
 
 
-def brck_basic: Unit := do {
+def brck_1: Nat := do {
+    var a := 42;
+    var b := 72;
+    var r := &b;
+    b := 69;
+    r := &a;
+    a := 96; -- error.
+    return *r;
+}
+reduce brck_1
+
+def brck_2: Nat := do {
     var v  := 42;
     let r1 := &mut v;
     let r2 := &mut *r1;
-    *r1 := 69;
-    *r2;
+    *r1 := 69; -- error.
+    return *r2;
 }
+print brck_2
+reduce brck_2
 
-print brck_basic
+def brck_3: Nat := do {
+    var a := 72;
+    var b := 69;
+    var r := &b;
+    a := 42;
+    r := &a;
+    b := 96;
+    return *r;
+}
+print brck_3
+reduce brck_3
+
+def brck_4: Nat := do {
+    var a := 72;
+    var b := 69;
+    var r := &b;
+    a := 42;
+    if Bool::true { r := &a; };
+    b := 96; -- error.
+    return *r;
+}
+print brck_4
+reduce brck_4
+
+def brck_5: Nat := do {
+    var a := 72;
+    var b := 69;
+    var r := &b;
+    a := 42;
+    r := if Bool::true then &a else &b;
+    b := 96; -- error.
+    return *r;
+}
+reduce brck_5
+
+def brck_6: Nat := do {
+    var a := 72;
+    var b := 69;
+    var r1 := &b;
+    a := 42;
+    var r2 := &a;
+    b := 96;
+    return *r2;
+}
+reduce brck_6
+
+def brck_7: Nat := do {
+    var a := 72;
+    var b := 69;
+    var r1 := &b;
+    a := 42;
+    var r2 := &a;
+    b := 96;
+    *r1; -- error.
+    return *r2;
+}
+reduce brck_7
 
 

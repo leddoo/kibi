@@ -14,15 +14,45 @@
 
 
 - brck:
+    - bbir ds.
+        - statements:
+            - push const.
+            - read/write path.
+            - call function.
+            - create ref.
+        - terminators:
+            - ret.
+            - jump.
+            - branch.
     - during tyck:
+        - generate bbir.
+            - convert ref axioms.
+            - thinking keep ssa, but get/set for locals.
+            - simple stmt based, flatten call args.
+                - literal.
+                - call.
+                - terminators.
+        - collect loans.
         - compute region subsets.
+            - every reference local has a region.
+            - every `Ref::from_*` has a region.
+            - `Ref::from_value(Ref::read(r))` is equiv to `Ref::from_ref(r)`.
         - compute cfg.
         - compute liveness.
-        - generate bbir.
     - do the thing:
         - thinking compute subsets & liveness.
         - then walk ir. if node "invalidates" loans,
           check that live regions don't require those loans.
+    - mutability validation:
+        - during tyck. remove from elab-do.
+          cause we need to do `&mut x` `x mut` validation in tyck (for simplicity).
+          so we might as well validate assignments.
+        - `num_local_vars` -> `local_vars(metadata)`.
+    - uninit validation.
+    - local vars cleanup:
+        - consider: every local has a local var.
+        - make params local vars.
+    - properly handle dependent types.
 
 - todo:
     - address the tech debt.

@@ -386,14 +386,13 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                         }
                     }
                     else if let ExprKind::Deref(it) = lhs_expr.kind {
-                        let region = Term::Region_infer;
                         let kind = Term::Ref_Kind_mut;
                         let ty = self.new_ty_var().0;
-                        let expected = self.alloc.mkt_ref(region, kind, ty, TERM_SOURCE_NONE); // @temp: source
+                        let expected = self.alloc.mkt_ref(Term::Region_infer, kind, ty, TERM_SOURCE_NONE); // @temp: source
                         let reff = self.elab_expr_checking_type(it, Some(expected)).0;
 
                         let value = self.elab_do_expr(rhs, Some(ty)).0;
-                        let write = self.alloc.mkt_ref_write(region, ty, reff, value, TERM_SOURCE_NONE); // @temp: source
+                        let write = self.alloc.mkt_ref_write(ty, reff, value, TERM_SOURCE_NONE); // @temp: source
                         self.stmts.push(Stmt::Term((write, Term::UNIT)));
                     }
                     else {

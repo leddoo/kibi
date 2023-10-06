@@ -600,16 +600,16 @@ pub trait TermAlloc {
         self.mkt_apps(Term::Ref_from_value, &[kind, ty, value], source)
     }
 
-    fn mkt_ref_read<'a>(&'a self, region: Term<'a>, kind: Term<'a>, ty: Term<'a>, reff: Term<'a>, source: TermSource) -> Term<'a> {
-        self.mkt_apps(Term::Ref_read, &[region, kind, ty, reff], source)
+    fn mkt_ref_read<'a>(&'a self, kind: Term<'a>, ty: Term<'a>, reff: Term<'a>, source: TermSource) -> Term<'a> {
+        self.mkt_apps(Term::Ref_read, &[kind, ty, reff], source)
     }
 
-    fn mkt_ref_write<'a>(&'a self, region: Term<'a>, ty: Term<'a>, reff: Term<'a>, value: Term<'a>, source: TermSource) -> Term<'a> {
-        self.mkt_apps(Term::Ref_write, &[region, ty, reff, value], source)
+    fn mkt_ref_write<'a>(&'a self, ty: Term<'a>, reff: Term<'a>, value: Term<'a>, source: TermSource) -> Term<'a> {
+        self.mkt_apps(Term::Ref_write, &[ty, reff, value], source)
     }
 
-    fn mkt_ref_pwrite<'a>(&'a self, region: Term<'a>, ty: Term<'a>, reff: Term<'a>, value: Term<'a>, source: TermSource) -> Term<'a> {
-        self.mkt_apps(Term::Ref_pwrite, &[region, ty, reff, value], source)
+    fn mkt_ref_pwrite<'a>(&'a self, ty: Term<'a>, reff: Term<'a>, value: Term<'a>, source: TermSource) -> Term<'a> {
+        self.mkt_apps(Term::Ref_pwrite, &[ty, reff, value], source)
     }
 }
 
