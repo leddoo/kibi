@@ -222,17 +222,31 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         assert!(self.check_no_unassigned_variables(item_id.into()).is_some());
 
+        // @todo: sti KVec clone_in & leak. + from_in.
+        let local_vars = KSlice::new_unck(Vec::from_in(self.alloc,
+                self.local_vars.inner().copy_map_it(|local| {
+                    let ty = self.instantiate_term_vars(local.ty);
+                    assert!(ty.closed() && !ty.has_ivars());
+                    LocalVar {
+                        name: local.name,
+                        mutable: local.mutable,
+                        ty,
+                    }
+                })).leak());
+
         self.env.resolve_pending(symbol_id, SymbolKind::Def(symbol::Def {
             kind: symbol::DefKind::Primary(symbol::DefKindPrimary {
                 aux_defs: aux_symbols.leak(),
                 num_params,
-                // @todo: sti KVec clone_in & leak.
-                local_vars: KSlice::new_unck(self.local_vars.inner().clone_in(self.alloc).leak()),
+                local_vars,
             }),
             num_levels: self.level_params.len(),
             ty,
             val,
         }), self.alloc, &mut self.elab.diagnostics)?;
+
+
+        crate::bbir::build_def(symbol_id, self.env, self.strings, self.alloc);
 
         return Some((ty, val));
     }

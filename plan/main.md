@@ -15,12 +15,12 @@
 
 - brck:
     - todo:
-        - bring back param vids.
-        - collect jps.
-            - create bbs for jps.
-        - validate jps.
-            - ensure param & local types syntax-eq.
-        - `build_jp`.
+        - things to catch:
+            - ite.
+                - we kinda need to create some locals, huh.
+            - error, uninit, etc axioms.
+            - ref axioms.
+            - jps.
     - generate bbir.
         - next steps:
             - let's start with single jp, no params.
