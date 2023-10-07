@@ -5,6 +5,18 @@ use super::*;
 
 impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     pub fn infer_type(&mut self, t: Term<'out>) -> Option<Term<'out>> {
+        let save = self.lctx.save();
+        let result = self.infer_type_core(t);
+        self.lctx.restore(save);
+
+        #[cfg(debug_assertions)]
+        if let Some(result) = result {
+            assert!(self.lctx.all_locals_in_scope(result, self.lctx.current));
+        }
+        return result;
+    }
+
+    pub fn infer_type_core(&mut self, t: Term<'out>) -> Option<Term<'out>> {
         assert!(t.closed());
 
         let result = match t.data() {
@@ -52,7 +64,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 let id = self.lctx.push(b.name, b.ty, ScopeKind::Binder(b.kind));
                 let value = b.val.instantiate(self.alloc.mkt_local(id, TERM_SOURCE_NONE), self.alloc);
 
-                let value_ty = self.infer_type(value)?;
+                let value_ty = self.infer_type_core(value)?;
                 self.lctx.pop(id);
 
                 self.alloc.mkt_forall(b.kind, b.name, b.ty, value_ty.abstracc(id, self.alloc), TERM_SOURCE_NONE)
@@ -75,7 +87,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
                 let body = b.body.instantiate(self.alloc.mkt_local(id, TERM_SOURCE_NONE), self.alloc);
 
-                let result = self.infer_type(body)?;
+                let result = self.infer_type_core(body)?;
                 self.lctx.pop(id);
 
                 result

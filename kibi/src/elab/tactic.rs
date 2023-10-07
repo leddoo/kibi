@@ -8,7 +8,7 @@ use super::*;
 
 impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     pub fn elab_by(&mut self, tactics: &[TacticId], expected_ty: Term<'out>) -> (Term<'out>, Term<'out>) {
-        let old_locals = self.locals.len();
+        let old_locals = self.active_locals.len();
         let old_scope  = self.lctx.current;
 
         let ivar = self.with_saved_goals(|this| {
@@ -28,7 +28,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         let value = ivar.value(self).unwrap();
 
-        self.locals.truncate(old_locals);
+        self.active_locals.truncate(old_locals);
         self.lctx.current = old_scope;
 
         (value, expected_ty)
@@ -36,7 +36,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
     fn elab_tactic(&mut self, tactic_id: TacticId) -> Option<()> {
         // @todo: persistent list or something.
-        let locals = Vec::from_in(self.alloc, self.locals.copy_map_it(|local| local.lid)).leak();
+        let locals = Vec::from_in(self.alloc, self.active_locals.copy_map_it(|local| local.sid)).leak();
 
         // @todo: persistent list.
         let mut goals = Vec::with_cap_in(self.alloc, self.goals.len() - self.current_goal);
@@ -186,8 +186,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     return Some(());
                 };
 
-                let id = self.lctx.push(name.value, pi.ty, ScopeKind::Binder(pi.kind));
-                self.locals.push(Local { name: name.value, lid: id, vid: None.into(), mutable: false });
+                let id = self.new_scope(name.value, pi.ty, false, ScopeKind::Binder(pi.kind)).0;
 
                 let new_ty = pi.val.instantiate(self.alloc.mkt_local(id, TERM_SOURCE_NONE), self.alloc);
                 let new_goal = self.new_term_var_id(new_ty, self.lctx.current);
@@ -239,7 +238,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     };
 
                     let let_value = self.alloc.mkt_local(local, TERM_SOURCE_NONE);
-                    let id = self.lctx.push(name.value, new_ty, ScopeKind::Local(let_value));
+                    self.new_scope(name.value, new_ty, false, ScopeKind::Local(let_value));
+                    self.active_locals[idx] = self.active_locals.pop().unwrap();
 
                     // @todo: rewrite all goals?
                     // or can this be done some other way?
@@ -249,8 +249,6 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     let value = self.alloc.mkt_let(name.value, None.into(), new_ty, let_value,
                         self.alloc.mkt_ivar(new_goal, TERM_SOURCE_NONE), TERM_SOURCE_NONE);
                     self.assign_goal(goal, value);
-
-                    self.locals[idx].lid = id;
 
                     TacticInfoKind::None
                 }

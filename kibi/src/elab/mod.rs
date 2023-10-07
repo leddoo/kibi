@@ -80,8 +80,8 @@ pub fn elab_file<'out>(
             item_id,
             root_symbol: SymbolId::ROOT,
             lctx: LocalCtx::new(),
-            locals: Vec::new(),
-            next_local_var_id: tt::LocalVarId::ZERO,
+            active_locals: Vec::new(),
+            local_vars: KVec::new(),
             level_params: Vec::new(),
             ivars: ivars::IVarCtx::new(),
             had_unassigned_ivars: false,
@@ -122,8 +122,8 @@ pub struct Elaborator<'me, 'c, 'out> {
 
     // @temp: @inductive_uses_elab.
     pub(crate) lctx: LocalCtx<'out>,
-    locals: Vec<Local>,
-    next_local_var_id: tt::LocalVarId,
+    active_locals: Vec<ActiveLocal>,
+    local_vars: KVec<tt::LocalVarId, tt::LocalVar<'out>>,
 
     ivars: ivars::IVarCtx<'out>,
     had_unassigned_ivars: bool,
@@ -135,11 +135,10 @@ pub struct Elaborator<'me, 'c, 'out> {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct Local {
+struct ActiveLocal {
     name: Atom,
-    lid: ScopeId,
-    vid: tt::OptLocalVarId,
-    mutable: bool,
+    sid: ScopeId,
+    vid: tt::LocalVarId,
 }
 
 struct AuxDef<'a> {
@@ -147,7 +146,7 @@ struct AuxDef<'a> {
     ivar: tt::TermVarId,
     ty:    tt::Term<'a>,
     value: tt::Term<'a>,
-    param_vids: Option<&'a [tt::OptLocalVarId]>,
+    param_vids: &'a [tt::LocalVarId],
 }
 
 
@@ -177,12 +176,17 @@ pub enum ExprOrTerm<'a> {
 }
 
 impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
-    #[inline]
-    pub fn next_local_var_id(&mut self) -> tt::LocalVarId {
-        use sti::keyed::Key;
-        let result = self.next_local_var_id;
-        self.next_local_var_id = result.add(1).unwrap();
-        return result;
+    fn new_scope(&mut self, name: Atom, ty: tt::Term<'out>, mutable: bool, kind: tt::ScopeKind<'out>) -> (ScopeId, tt::LocalVarId) {
+        let sid = self.lctx.push(name, ty, kind);
+        let vid = self.local_vars.push(tt::LocalVar { name, mutable, ty });
+        self.active_locals.push(ActiveLocal { name, sid, vid });
+        return (sid, vid);
+    }
+
+    fn new_scope_of_var(&mut self, vid: tt::LocalVarId, ty: tt::Term<'out>, kind: tt::ScopeKind<'out>) -> ScopeId {
+        let name = self.local_vars[vid].name;
+        let sid = self.lctx.push(name, ty, kind);
+        return sid;
     }
 
     #[inline]
@@ -192,13 +196,6 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 source: source.into(),
                 kind: DiagnosticKind::ElabError(error),
             });
-    }
-
-    pub fn reset(&mut self) {
-        self.level_params.clear();
-        self.lctx.clear();
-        self.locals.clear();
-        self.ivars.clear();
     }
 
     #[inline(always)]
@@ -297,7 +294,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
 struct SavePoint {
     local_ctx: crate::tt::local_ctx::SavePoint,
-    num_locals: usize,
+    num_active_locals: usize,
+    num_local_vars: usize,
     ivar_ctx: ivars::SavePoint,
 }
 
@@ -305,14 +303,16 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     fn save(&self) -> SavePoint {
         SavePoint {
             local_ctx: self.lctx.save(),
-            num_locals: self.locals.len(),
+            num_active_locals: self.active_locals.len(),
+            num_local_vars: self.local_vars.len(),
             ivar_ctx: self.ivars.save(),
         }
     }
 
     fn restore(&mut self, save: SavePoint) {
         self.lctx.restore(save.local_ctx);
-        self.locals.truncate(save.num_locals);
+        self.active_locals.truncate(save.num_active_locals);
+        self.local_vars.truncate(save.num_local_vars);
         self.ivars.restore(save.ivar_ctx);
     }
 }

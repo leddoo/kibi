@@ -19,6 +19,13 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
     /// - assumes `a` and `b` are well typed.
     pub fn ensure_def_eq(&mut self, a: Term<'out>, b: Term<'out>) -> bool {
+        let save = self.lctx.save();
+        let result = self.ensure_def_eq_core(a, b);
+        self.lctx.restore(save);
+        return result;
+    }
+
+    fn ensure_def_eq_core(&mut self, a: Term<'out>, b: Term<'out>) -> bool {
         // @todo: optimize. (eg: unfold def w/ higher depth)
 
         //println!("{}\n=?=\n{}\n", self.pp(a, 80), self.pp(b, 80));
@@ -42,10 +49,10 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         // unfold defs & retry on change.
         if let Some(a) = self.unfold(a) {
-            return self.ensure_def_eq(a, b);
+            return self.ensure_def_eq_core(a, b);
         }
         if let Some(b) = self.unfold(b) {
-            return self.ensure_def_eq(a, b);
+            return self.ensure_def_eq_core(a, b);
         }
 
         // note: exprs are now in whnf.
@@ -54,7 +61,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         // app.
         if num_args1 > 0 && num_args1 == num_args2 {
-            if self.ensure_def_eq(fun1, fun2) && self.app_args_def_eq(a, b) {
+            if self.ensure_def_eq_core(fun1, fun2) && self.app_args_def_eq(a, b) {
                 return true;
             }
         }
@@ -64,7 +71,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         if let Some(l) = self.infer_type_as_sort(ta) {
             if l.is_zero() {
                 let tb = self.infer_type(b).unwrap();
-                if self.ensure_def_eq(ta, tb) {
+                if self.ensure_def_eq_core(ta, tb) {
                     return true;
                 }
             }
@@ -136,7 +143,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
             (Forall(b1), Forall(b2)) |
             (Lambda(b1), Lambda(b2)) => {
                 // param eq.
-                if !self.ensure_def_eq(b1.ty, b2.ty) {
+                if !self.ensure_def_eq_core(b1.ty, b2.ty) {
                     return Some(false);
                 }
 
@@ -146,7 +153,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 // value eq.
                 let val1 = b1.val.instantiate(local, self.alloc);
                 let val2 = b2.val.instantiate(local, self.alloc);
-                let result = self.ensure_def_eq(val1, val2);
+                let result = self.ensure_def_eq_core(val1, val2);
 
                 self.lctx.pop(id);
 
@@ -162,7 +169,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         let Some(a) = a.try_apply() else { return true };
         let Some(b) = b.try_apply() else { return true };
 
-        if !self.ensure_def_eq(a.arg, b.arg) {
+        if !self.ensure_def_eq_core(a.arg, b.arg) {
             return false;
         }
 

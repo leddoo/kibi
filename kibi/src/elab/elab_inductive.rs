@@ -9,7 +9,7 @@ use super::*;
 
 impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     pub fn elab_inductive(&mut self, item_id: ItemId, ind: &Inductive) -> Option<SymbolId> {
-        assert_eq!(self.locals.len(), 0);
+        assert_eq!(self.active_locals.len(), 0);
         assert_eq!(self.level_params.len(), 0);
 
         let temp = ArenaPool::tls_get_rec();
@@ -54,9 +54,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         // create a local for the inductive type,
         // for the idents in the ctors to bind to.
-        let ind_local_id =
-            self.lctx.push(ind.name.value, type_former, ScopeKind::Binder(BinderKind::Explicit));
-        self.locals.push(Local { name: ind.name.value, lid: ind_local_id, vid: None.into(), mutable: false });
+        let ind_local_id = self.new_scope(ind.name.value, type_former, false, ScopeKind::Binder(BinderKind::Explicit)).0;
 
         let ind_local = self.alloc.mkt_local(ind_local_id, TERM_SOURCE_NONE);
 
@@ -81,7 +79,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 ty = self.mk_binder(ty, arg, true, TERM_SOURCE_NONE);
                 self.lctx.pop(arg);
             }
-            self.locals.truncate(self.locals.len() - args.len());
+            self.active_locals.truncate(self.active_locals.len() - args.len());
 
 
             let ty = self.instantiate_term_vars(ty);

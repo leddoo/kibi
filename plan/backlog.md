@@ -82,6 +82,8 @@
 
 - use `with_ivar_scope` for elab def.
 
+- aux def kind.
+
 
 
 ### lsp:

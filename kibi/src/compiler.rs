@@ -799,8 +799,8 @@ impl<'c> Inner<'c> {
                                     use crate::env::symbol::DefKind;
                                     match it.kind {
                                         DefKind::Primary(it) => {
-                                            if it.num_local_vars > 0 {
-                                                sti::write!(&mut buf, "\n\nnum local vars: {}", it.num_local_vars);
+                                            if it.local_vars.len() > 0 {
+                                                sti::write!(&mut buf, "\n\nnum local vars: {}", it.local_vars.len());
                                             }
 
                                             if it.aux_defs.len() > 0 {
@@ -816,17 +816,11 @@ impl<'c> Inner<'c> {
                                                     ty.layout_into_string(&mut buf);
 
                                                     sti::write!(&mut buf, " :=\n  ");
-                                                    if let Some(vids) = aux.param_vids {
+                                                    if aux.param_vids.len() > 0 {
                                                         sti::write!(&mut buf, "-- var ids [");
-                                                        for (i, vid) in vids.copy_it().enumerate() {
+                                                        for (i, vid) in aux.param_vids.copy_it().enumerate() {
                                                             if i != 0 { sti::write!(&mut buf, ", ") }
-
-                                                            if let Some(vid) = vid.to_option() {
-                                                                sti::write!(&mut buf, "{}", vid.inner());
-                                                            }
-                                                            else {
-                                                                sti::write!(&mut buf, "-");
-                                                            }
+                                                            sti::write!(&mut buf, "{}", vid.inner());
                                                         }
                                                         sti::write!(&mut buf, "]\n  ");
                                                     }
@@ -838,11 +832,8 @@ impl<'c> Inner<'c> {
                                             }
                                         }
 
-                                        DefKind::Aux(it) => {
+                                        DefKind::Aux(_) => {
                                             sti::write!(&mut buf, "\n\naux def of <tbd>");
-                                            if let Some(vids) = it.param_vids {
-                                                sti::write!(&mut buf, "\nparam vars: {:?}", vids);
-                                            }
                                         }
                                     }
                                 }

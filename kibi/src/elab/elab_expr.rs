@@ -58,12 +58,12 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
     fn elab_expr_ex(&mut self, expr: ExprId, expected_ty: Option<Term<'out>>) -> (Term<'out>, Term<'out>) {
         #[cfg(debug_assertions)]
-        let old_num_locals = self.locals.len();
+        let old_num_locals = self.active_locals.len();
 
         let (term, ty) = self.elab_expr_core(expr, expected_ty);
 
         #[cfg(debug_assertions)]
-        if self.locals.len() != old_num_locals {
+        if self.active_locals.len() != old_num_locals {
             assert!(false);
         }
 
@@ -134,7 +134,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     result = self.mk_binder(result, id, true, source);
                     self.lctx.pop(id);
                 }
-                self.locals.truncate(self.locals.len() - locals.len());
+                self.active_locals.truncate(self.active_locals.len() - locals.len());
 
                 (result, self.alloc.mkt_sort(level, source))
             }
@@ -165,7 +165,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     result_ty = self.mk_binder(result_ty, id, true,  source);
                     self.lctx.pop(id);
                 }
-                self.locals.truncate(self.locals.len() - locals.len());
+                self.active_locals.truncate(self.active_locals.len() - locals.len());
 
                 (result, result_ty)
             }
@@ -179,18 +179,17 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 let val = self.elab_expr_checking_type(it.val, Some(ty)).0;
 
                 let name = it.name.value.to_option().unwrap_or(Atom::NULL);
-                let id = self.lctx.push(name, ty, ScopeKind::Local(val));
-                self.locals.push(Local { name, lid: id, vid: None.into(), mutable: false });
+                let (sid, vid) = self.new_scope(name, ty, false, ScopeKind::Local(val));
 
-                let none = self.elab.token_infos.insert(it.name.source, TokenInfo::Local(self.item_id, id));
+                let none = self.elab.token_infos.insert(it.name.source, TokenInfo::Local(self.item_id, sid));
                 debug_assert!(none.is_none());
 
                 let (body, body_ty) = self.elab_expr(it.body);
 
-                let result    = self.mk_let(body,    id, None.into(), false, source);
-                let result_ty = self.mk_let(body_ty, id, None.into(), true,  source);
-                self.lctx.pop(id);
-                self.locals.truncate(self.locals.len() - 1);
+                let result    = self.mk_let(body,    sid, vid.some(), false, source);
+                let result_ty = self.mk_let(body_ty, sid, vid.some(), true,  source);
+                self.lctx.pop(sid);
+                self.active_locals.truncate(self.active_locals.len() - 1);
 
                 (result, result_ty)
             }
@@ -431,9 +430,9 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
     #[inline]
     pub fn lookup_local(&self, name: Atom) -> Option<ScopeId> {
-        for l in self.locals.copy_it().rev() {
+        for l in self.active_locals.copy_it().rev() {
             if l.name == name {
-                return Some(l.lid);
+                return Some(l.sid);
             }
         }
         None
@@ -441,9 +440,9 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
     #[inline]
     pub fn lookup_local_idx(&self, name: Atom) -> Option<(ScopeId, usize)> {
-        for (i, l) in self.locals.copy_it().enumerate().rev() {
+        for (i, l) in self.active_locals.copy_it().enumerate().rev() {
             if l.name == name {
-                return Some((l.lid, i));
+                return Some((l.sid, i));
             }
         }
         None

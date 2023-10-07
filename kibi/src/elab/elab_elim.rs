@@ -120,6 +120,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         };
 
         // add remaining locals to context.
+        let lctx_save = self.lctx.save();
         let mut rem = result_ty;
         let mut rem_locals = Vec::new_in(&*temp);
         while let Some(pi) = rem.try_forall() {
@@ -196,6 +197,9 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 BinderKind::Explicit, Atom::NULL, target_ty, val, source);
         }
 
+        self.lctx.restore(lctx_save);
+        debug_assert!(self.lctx.all_locals_in_scope(motive_val, self.lctx.current));
+
         if 0==1 {
             let val = self.instantiate_term_vars(motive_val);
             eprintln!("motive: {}", self.pp(val, 80));
@@ -229,6 +233,9 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                 self.instantiate_term_vars(result_ty)
             }
             else { self.infer_type(result).unwrap() };
+
+        debug_assert!(self.lctx.all_locals_in_scope(result,     self.lctx.current));
+        debug_assert!(self.lctx.all_locals_in_scope(result_ty,  self.lctx.current));
 
         (Some((result, result_ty)),)
     }

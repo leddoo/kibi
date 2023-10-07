@@ -87,6 +87,8 @@ impl SymbolId {
 
 
 pub mod symbol {
+    use sti::keyed::KSlice;
+
     use super::*;
 
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -120,13 +122,14 @@ pub mod symbol {
     #[derive(Clone, Copy, Debug)]
     pub struct DefKindPrimary<'a> {
         pub aux_defs: &'a [SymbolId],
-        pub num_local_vars: usize,
+        pub num_params: usize,
+        pub local_vars: &'a KSlice<LocalVarId, LocalVar<'a>>,
     }
 
     #[derive(Clone, Copy, Debug)]
     pub struct DefKindAux<'a> {
         pub parent: SymbolId,
-        pub param_vids: Option<&'a [OptLocalVarId]>,
+        pub param_vids: &'a [LocalVarId],
     }
 
 

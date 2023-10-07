@@ -1,7 +1,7 @@
 
 - road map:
-    - unordered decls & incr.
     - references.
+    - unordered decls & incr.
     - bori.
     - allocation.
     - modules.
@@ -14,24 +14,35 @@
 
 
 - brck:
-    - bbir ds.
-        - statements:
-            - push const.
-            - read/write path.
-            - call function.
-            - create ref.
-        - terminators:
-            - ret.
-            - jump.
-            - branch.
+    - todo:
+        - bring back param vids.
+        - collect jps.
+            - create bbs for jps.
+        - validate jps.
+            - ensure param & local types syntax-eq.
+        - `build_jp`.
+    - generate bbir.
+        - next steps:
+            - let's start with single jp, no params.
+            - let's also not worry about regions during bbir building.
+            - but validate that jumps use proper locals.
+        - what are we stuck on?
+            - well, what needs to be done?
+                - fairly simple: convert terms to bbir.
+                - the tricky part is that we do kinda need tc, i think.
+                - cause we also need to know which values are types.
+                - but ig, we only need infer-type and whnf.
+                  for infer-type, we can just do an ad-hoc thing in the builder.
+                  for whnf, we should be able to abstract that.
+                  in fact, whnf is the same across elab, tc, and bc.
+                - thing is, we don't really wanna abstract again, like tc does.
+            - ok, so:
+                - once we need it, move whnf into a separate module.
+                - builder will have its own kind of local context.
+                  with info about params, mutability, type dependencies, etc.
+        - convert ref axioms.
+        - def metadata: `is_type`, `is_prop`.
     - during tyck:
-        - generate bbir.
-            - convert ref axioms.
-            - thinking keep ssa, but get/set for locals.
-            - simple stmt based, flatten call args.
-                - literal.
-                - call.
-                - terminators.
         - collect loans.
         - compute region subsets.
             - every reference local has a region.
@@ -49,9 +60,6 @@
           so we might as well validate assignments.
         - `num_local_vars` -> `local_vars(metadata)`.
     - uninit validation.
-    - local vars cleanup:
-        - consider: every local has a local var.
-        - make params local vars.
     - properly handle dependent types.
 
 - todo:

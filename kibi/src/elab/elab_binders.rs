@@ -16,8 +16,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
                     let (ty, l) = self.new_ty_var();
 
                     let name = ident.value.to_option().unwrap_or(Atom::NULL);
-                    let id = self.lctx.push(name, ty, tt::ScopeKind::Binder(tt::BinderKind::Explicit));
-                    self.locals.push(Local { name, lid: id, vid: None.into(), mutable: false });
+                    let id = self.new_scope(name, ty, false, tt::ScopeKind::Binder(tt::BinderKind::Explicit)).0;
                     locals.push((id, ty, l));
 
                     let none = self.elab.token_infos.insert(ident.source, TokenInfo::Local(self.item_id, id));
@@ -32,8 +31,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
                     for ident in b.names {
                         let name = ident.value.to_option().unwrap_or(Atom::NULL);
-                        let id = self.lctx.push(name, ty, tt::ScopeKind::Binder(kind));
-                        self.locals.push(Local { name, lid: id, vid: None.into(), mutable: false });
+                        let id = self.new_scope(name, ty, false, tt::ScopeKind::Binder(kind)).0;
                         locals.push((id, ty, l));
 
                         // @arrow_uses_null_ident

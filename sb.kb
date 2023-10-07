@@ -663,6 +663,7 @@ def fib_iter_basic(n: Nat): Nat := do {
     };
     return a;
 }
+print fib_iter_basic
 reduce fib_iter_basic(6)
 
 
@@ -757,6 +758,7 @@ def brck_1: Nat := do {
     a := 96; -- error.
     return *r;
 }
+print brck_1
 reduce brck_1
 
 def brck_2: Nat := do {
@@ -825,6 +827,7 @@ def brck_7: Nat := do {
     *r1; -- error.
     return *r2;
 }
+print brck_7
 reduce brck_7
 
 

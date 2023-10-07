@@ -9,17 +9,26 @@ pub use crate::env::SymbolId;
 pub use super::local_ctx::ScopeId;
 
 
-pub type Term<'a> = impel::Term<'a>;
 
 sti::define_key!(pub, u32, TermVarId);
 
+
 sti::define_key!(pub, u32, LocalVarId, opt: OptLocalVarId);
+
+#[derive(Clone, Copy, Debug)]
+pub struct LocalVar<'a> {
+    pub name: Atom,
+    pub mutable: bool,
+    pub ty: Term<'a>,
+}
 
 
 pub type TermSource = crate::ast::OptExprId;
 
 pub const TERM_SOURCE_NONE: TermSource = crate::ast::OptExprId::NONE;
 
+
+pub type Term<'a> = impel::Term<'a>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TermKind {

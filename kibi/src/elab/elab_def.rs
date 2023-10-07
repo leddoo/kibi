@@ -1,3 +1,4 @@
+use sti::keyed::KSlice;
 use sti::traits::{CopyIt, FromIn};
 use sti::arena_pool::ArenaPool;
 
@@ -12,7 +13,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         spall::trace_scope!("kibi/elab/axiom"; "{}",
             axiom.name.display(self.strings));
 
-        assert_eq!(self.locals.len(), 0);
+        assert_eq!(self.active_locals.len(), 0);
         assert_eq!(self.level_params.len(), 0);
 
         let temp = ArenaPool::tls_get_rec();
@@ -26,12 +27,12 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         // type.
         let mut ty = self.elab_expr_as_type(axiom.ty).0;
 
-        assert_eq!(self.locals.len(), locals.len());
-        for l in self.locals.iter().copied().rev() {
-            ty = self.mk_binder(ty, l.lid, true, TERM_SOURCE_NONE);
+        assert_eq!(self.active_locals.len(), locals.len());
+        for l in self.active_locals.iter().copied().rev() {
+            ty = self.mk_binder(ty, l.sid, true, TERM_SOURCE_NONE);
         }
 
-        if self.locals.len() == 0 {
+        if self.active_locals.len() == 0 {
             ty = self.instantiate_term_vars(ty);
         }
 
@@ -80,7 +81,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
     }
 
     pub fn elab_def_core(&mut self, symbol_id: SymbolId, item_id: ItemId, levels: &[Ident], params: &[ast::Binder], ty: OptExprId, value: ExprId) -> Option<(Term<'out>, Term<'out>)> {
-        assert_eq!(self.locals.len(), 0);
+        assert_eq!(self.active_locals.len(), 0);
         assert_eq!(self.level_params.len(), 0);
 
         let temp = ArenaPool::tls_get_rec();
@@ -90,6 +91,8 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         }
 
         let locals = self.elab_binders(params, &*temp);
+
+        let num_params = locals.len();
 
         // type.
         let ty =
@@ -178,13 +181,13 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         let mut ty = ty.unwrap_or(val_ty);
 
-        assert_eq!(self.locals.len(), locals.len());
-        for l in self.locals.iter().copied().rev() {
-            ty  = self.mk_binder(ty,  l.lid, true,  TERM_SOURCE_NONE);
-            val = self.mk_binder(val, l.lid, false, TERM_SOURCE_NONE);
+        assert_eq!(self.active_locals.len(), locals.len());
+        for l in self.active_locals.iter().copied().rev() {
+            ty  = self.mk_binder(ty,  l.sid, true,  TERM_SOURCE_NONE);
+            val = self.mk_binder(val, l.sid, false, TERM_SOURCE_NONE);
         }
 
-        if self.locals.len() == 0 {
+        if self.active_locals.len() == 0 {
             ty  = self.instantiate_term_vars(ty);
             val = self.instantiate_term_vars(val);
         }
@@ -221,8 +224,10 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
 
         self.env.resolve_pending(symbol_id, SymbolKind::Def(symbol::Def {
             kind: symbol::DefKind::Primary(symbol::DefKindPrimary {
-                num_local_vars: self.next_local_var_id.inner() as usize,
                 aux_defs: aux_symbols.leak(),
+                num_params,
+                // @todo: sti KVec clone_in & leak.
+                local_vars: KSlice::new_unck(self.local_vars.inner().clone_in(self.alloc).leak()),
             }),
             num_levels: self.level_params.len(),
             ty,
