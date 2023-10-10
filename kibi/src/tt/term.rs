@@ -192,6 +192,26 @@ impl<'a> Term<'a> {
     #[inline(always)]
     pub fn is_nat_succ(self) -> bool { if let Some(g) = self.try_global() { g.id == SymbolId::Nat_succ } else { false } }
 
+    // @temp: nat literals.
+    #[inline]
+    pub fn try_nat_val(self) -> Option<u32> {
+        let mut result = 0;
+        let mut curr = self;
+        loop {
+            if curr.is_nat_zero() {
+                return Some(result);
+            }
+
+            let app = curr.try_apply()?;
+            if !app.fun.is_nat_succ() {
+                return None;
+            }
+
+            result += 1;
+            curr = app.arg;
+        }
+    }
+
 
     #[inline(always)]
     pub fn is_eq(self) -> bool { if let Some(g) = self.try_global() { g.id == SymbolId::Eq } else { false } }
@@ -203,6 +223,18 @@ impl<'a> Term<'a> {
         let app1 = app2.fun.try_apply()?; // b
         if app1.fun.is_eq() {
             return Some([app1.arg, app2.arg, app3.arg]);
+        }
+        None
+    }
+
+    #[inline(always)]
+    pub fn is_ax_uninit(self) -> bool { if let Some(g) = self.try_global() { g.id == SymbolId::ax_uninit } else { false } }
+
+    #[inline(always)]
+    pub fn try_ax_uninit_app(self) -> Option<Term<'a>> {
+        let app = self.try_apply()?; // T
+        if app.fun.is_ax_uninit() {
+            return Some(app.arg);
         }
         None
     }

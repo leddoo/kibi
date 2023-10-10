@@ -23,6 +23,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         }
 
         let locals = self.elab_binders(axiom.params, &*temp);
+        let num_params = locals.len();
 
         // type.
         let mut ty = self.elab_expr_as_type(axiom.ty).0;
@@ -72,6 +73,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         let symbol = self.env.new_symbol(parent, name.value,
             SymbolKind::Axiom(symbol::Axiom {
                 num_levels: axiom.levels.len(),
+                num_params,
                 ty,
             }),
             self.alloc, &mut self.elab.diagnostics,
@@ -91,7 +93,6 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         }
 
         let locals = self.elab_binders(params, &*temp);
-
         let num_params = locals.len();
 
         // type.

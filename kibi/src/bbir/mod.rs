@@ -28,6 +28,7 @@ pub enum Stmt<'a> {
     Error,
     Pop,
     Const(Term<'a>),
+    ConstNat(u32),
     Ref(Path<'a>),
     Read(Path<'a>),
     Write(Path<'a>),

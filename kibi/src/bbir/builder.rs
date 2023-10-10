@@ -4,6 +4,7 @@ use sti::vec::Vec;
 use sti::keyed::{Key, KSlice};
 use sti::hash::HashMap;
 
+use crate::env::symbol;
 use crate::string_table::StringTable;
 use crate::tt::*;
 use crate::env::{Env, SymbolKind, symbol::DefKind};
@@ -21,6 +22,7 @@ fn pp(t: Term, env: &Env, strings: &StringTable, lctx: &LocalCtx) -> sti::string
 }
 
 
+// @todo: collect errors.
 pub fn build_def<'out>(id: SymbolId, env: &Env<'out>, strings: &StringTable, alloc: &'out Arena) -> Option<Function<'out>> {
     let symbol = env.symbol(id);
     let SymbolKind::Def(def) = symbol.kind else { unreachable!() };
@@ -74,9 +76,9 @@ pub fn build_def<'out>(id: SymbolId, env: &Env<'out>, strings: &StringTable, all
         this.jps.insert(aux_id, JoinPoint { bb, vars });
     }
 
-    // @speed: arena.
-    let entry_vars = Vec::from_in(this.temp, (0..def_data.num_params).map(LocalVarId::from_usize_unck));
-    //println!("building {}", pp(def.val, env, strings, &LocalCtx::new()));
+    let entry_vars = Vec::from_in(this.temp,
+        (0..def_data.num_params).map(LocalVarId::from_usize_unck));
+    println!("building {}", pp(def.val, env, strings, &LocalCtx::new()));
     this.build_jp(def.val, &entry_vars, BlockId::ENTRY);
 
     for aux_id in def_data.aux_defs.copy_it() {
@@ -84,11 +86,11 @@ pub fn build_def<'out>(id: SymbolId, env: &Env<'out>, strings: &StringTable, all
         let SymbolKind::Def(aux_def) = aux.kind else { unreachable!() };
 
         let jp = &this.jps[&aux_id];
-        //println!("building {}", pp(aux_def.val, env, strings, &LocalCtx::new()));
+        println!("building {}", pp(aux_def.val, env, strings, &LocalCtx::new()));
         this.build_jp(aux_def.val, jp.vars, jp.bb);
     }
 
-    //dbg!(&this.blocks);
+    dbg!(&this.blocks);
 
     None
 }
@@ -124,19 +126,61 @@ impl<'me, 'out> Builder<'me, 'out> {
         self.current_block = bb;
 
         let mut term = val;
+
+        // params.
         for _ in locals.copy_it() {
             let lam = term.try_lambda().unwrap();
             term = lam.val;
         }
-        self.build_term(term, true);
+
+        term = self.build_let_chain(term);
+
+        // terminator.
+        let (fun, args) = term.app_args(self.temp);
+        let terminator = 'terminator: {
+            if let Some(g) = fun.try_global() {
+                // jump.
+                if let Some(jp) = self.jps.get(&g.id) {
+                    // validate jp args (fn).
+                    break 'terminator Terminator::Jump { target: jp.bb };
+                }
+                // ite.
+                else if g.id == SymbolId::ite {
+                    // if jps, branch.
+                    // else, handled by `build_app`.
+                }
+            }
+
+            // return.
+            self.build_app(term, fun, &args);
+            Terminator::Return
+        };
+
+        let stmts = self.stmts.clone_in(self.alloc).leak();
+        self.stmts.clear();
+
+        let none = self.blocks[self.current_block].replace(Block { stmts, terminator });
+        assert!(none.is_none());
     }
 
-    fn build_term(&mut self, term: Term<'out>, is_tail: bool) {
-        let mut term = term;
+    // must produce exactly one value.
+    fn build_term(&mut self, term: Term<'out>) {
+        let term = self.build_let_chain(term);
 
-        // let chain.
+        let (fun, args) = term.app_args(self.temp);
+        self.build_app(term, fun, &args);
+    }
+
+    #[inline]
+    fn build_let_chain(&mut self, mut term: Term<'out>) -> Term<'out> {
         while let Some(it) = term.try_let() {
-            self.build_term(it.val, false);
+            term = it.body;
+
+            if it.val.try_ax_uninit_app().is_some() {
+                continue;
+            }
+
+            self.build_term(it.val);
 
             if let Some(vid) = it.vid.to_option() {
                 self.stmts.push(Stmt::Write(Path { base: vid, projs: &[] }));
@@ -144,46 +188,127 @@ impl<'me, 'out> Builder<'me, 'out> {
             else {
                 self.stmts.push(Stmt::Pop);
             }
-
-            term = it.body;
         }
+        return term;
+    }
 
-        let (fun, args) = term.app_args(self.temp);
+    // must produce exactly one value.
+    fn build_app(&mut self, term: Term<'out>, fun: Term<'out>, args: &[Term<'out>]) {
+        match fun.data() {
+            TermData::Sort(_) => {
+                assert_eq!(args.len(), 0);
+                self.stmts.push(Stmt::Const(fun));
+            }
 
-        if is_tail {
-            let terminator = 'terminator: {
-                if let Some(g) = fun.try_global() {
-                    // jump.
-                    if let Some(jp) = self.jps.get(&g.id) {
-                        // validate jp args (fn).
-                        break 'terminator Terminator::Jump { target: jp.bb };
+            TermData::Bound(_) => {
+                // check args.len = 0.
+                self.stmts.push(Stmt::Error);
+            }
+
+            TermData::Global(it) => {
+                assert!(self.jps.get(&it.id).is_none());
+
+                let symbol = self.env.symbol(it.id);
+
+                match symbol.kind {
+                    SymbolKind::Root |
+                    SymbolKind::Predeclared |
+                    SymbolKind::Pending(_) => unreachable!(),
+
+                    SymbolKind::Axiom(ax) => {
+                        if args.len() != ax.num_params {
+                            self.stmts.push(Stmt::Error);
+                            return;
+                        }
+
+                        match it.id {
+                            SymbolId::ax_sorry | SymbolId::ax_error => {
+                                self.stmts.push(Stmt::Error);
+                            }
+
+                            SymbolId::Ref => {
+                                // @todo.
+                                self.stmts.push(Stmt::Error);
+                            }
+
+                            SymbolId::Ref_from_value => {
+                                // @todo.
+                                //  - construct path.
+                                self.stmts.push(Stmt::Error);
+                            }
+
+                            SymbolId::Ref_read => {
+                                // @todo.
+                                //  - construct path, only support based on local for now.
+                                self.stmts.push(Stmt::Error);
+                            }
+
+                            SymbolId::Ref_write => {
+                                // @todo.
+                                //  - construct path, only support based on local for now.
+                                self.stmts.push(Stmt::Error);
+                            }
+
+                            SymbolId::ax_uninit | SymbolId::ax_unreach => {
+                                // technically `unreachable!()`, but the user
+                                // could have used these directly.
+                                self.stmts.push(Stmt::Error);
+                            }
+
+                            _ => {
+                                self.stmts.push(Stmt::Error);
+                            }
+                        }
                     }
-                    // ite.
-                    else if g.id == SymbolId::ite {
-                        // only if have jp args.
-                        // then also validate jp args.
-                        //return;
+
+                    SymbolKind::IndAxiom(_) => {
+                        if let Some(v) = term.try_nat_val() {
+                            self.stmts.push(Stmt::ConstNat(v));
+                            return;
+                        }
+
+                        // don't think we need num_params here.
+                        // thinking we only wanna support nat for now?
+                        // eventually, structs & stuff would prob be handled here.
+                        self.stmts.push(Stmt::Error);
+                    }
+
+                    SymbolKind::Def(def) => {
+                        let symbol::DefKind::Primary(data) = def.kind else {
+                            self.stmts.push(Stmt::Error);
+                            return;
+                        };
+
+                        if args.len() != data.num_params {
+                            self.stmts.push(Stmt::Error);
+                            return;
+                        }
+
+                        // todo: ite special case.
+
+                        // call.
+                        //  - build args.
+                        //  - make call.
+                        self.stmts.push(Stmt::Error);
                     }
                 }
 
-                // return.
-                self.build_app(fun, &args);
-                Terminator::Return
-            };
+            }
 
-            let stmts = self.stmts.clone_in(self.alloc).leak();
-            self.stmts.clear();
+            TermData::Forall(_) => {
+                assert_eq!(args.len(), 0);
+                self.stmts.push(Stmt::Const(fun));
+            }
 
-            let none = self.blocks[self.current_block].replace(Block { stmts, terminator });
-            assert!(none.is_none());
+            TermData::Lambda(_) => {
+                self.stmts.push(Stmt::Error);
+            }
+
+            TermData::Local(_) |
+            TermData::IVar(_) |
+            TermData::Let(_) |
+            TermData::Apply(_) => unreachable!(),
         }
-        else {
-            self.build_app(fun, &args);
-        }
-    }
-
-    fn build_app(&mut self, fun: Term<'out>, args: &[Term<'out>]) {
-        self.stmts.push(Stmt::Error);
     }
 }
 

@@ -101,6 +101,7 @@ pub mod symbol {
     #[derive(Clone, Copy, Debug)]
     pub struct Axiom<'a> {
         pub num_levels: usize,
+        pub num_params: usize,
         pub ty: Term<'a>,
     }
 
