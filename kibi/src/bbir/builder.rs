@@ -98,7 +98,10 @@ pub fn build_def<'out>(id: SymbolId, env: &Env<'out>, strings: &StringTable, all
         this.build_jp(aux_def.val, jp.vars, jp.bb);
     }
 
-    dbg!(&this.blocks);
+    // @todo: kvec display.
+    for (id, block) in this.blocks.iter() {
+        eprint!("{}:\n{}", id, block.unwrap());
+    }
     eprintln!();
 
     None
@@ -321,7 +324,10 @@ impl<'me, 'out> Builder<'me, 'out> {
                                     return;
                                 };
 
+                                self.build_term(args[2]);
+
                                 self.stmts.push(Stmt::Write(path));
+                                self.stmts.push(Stmt::ConstUnit);
                             }
 
                             SymbolId::ax_uninit | SymbolId::ax_unreach => {
