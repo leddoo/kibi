@@ -36,6 +36,11 @@ pub fn build_def<'out>(id: SymbolId, env: &Env<'out>, strings: &StringTable, all
         }
     }
 
+    let mut latest_var_vals = KVec::with_cap(def_data.local_vars.len());
+    for _ in 0..def_data.local_vars.len() {
+        latest_var_vals.push(u32::MAX);
+    }
+
     let temp = ArenaPool::tls_get_temp();
 
     let mut this = Builder {
@@ -45,6 +50,7 @@ pub fn build_def<'out>(id: SymbolId, env: &Env<'out>, strings: &StringTable, all
         vars: def_data.local_vars,
         jps: HashMap::with_cap(def_data.aux_defs.len()),
         locals: Vec::new(),
+        latest_var_vals,
         blocks: KVec::new(),
         stmts: Vec::new(),
         current_block: BlockId::ENTRY,
@@ -106,6 +112,7 @@ struct Builder<'me, 'out> {
     jps: HashMap<SymbolId, JoinPoint<'out>>,
 
     locals: Vec<OptLocalVarId>,
+    latest_var_vals: KVec<LocalVarId, u32>, // NonMaxU32.
 
     blocks: KVec<BlockId, Option<Block<'out>>>,
 
@@ -126,17 +133,23 @@ impl<'me, 'out> Builder<'me, 'out> {
     }
 
     fn build_jp(&mut self, val: Term<'out>, locals: &[LocalVarId], bb: BlockId) {
-        assert_eq!(self.locals.len(), 0);
         assert_eq!(self.stmts.len(), 0);
 
+        self.locals.clear();
         self.locals.extend(locals.copy_map_it(|l| l.some()));
+
+        for latest in self.latest_var_vals.inner_mut_unck().iter_mut() {
+            *latest = u32::MAX;
+        }
 
         self.current_block = bb;
 
         let mut term = val;
 
         // params.
-        for _ in locals.copy_it() {
+        for (i, param) in locals.copy_it().enumerate() {
+            self.latest_var_vals[param] = i as u32;
+
             let lam = term.try_lambda().unwrap();
             term = lam.val;
         }
@@ -149,13 +162,28 @@ impl<'me, 'out> Builder<'me, 'out> {
             if let Some(g) = fun.try_global() {
                 // jump.
                 if let Some(jp) = self.jps.get(&g.id) {
-                    // validate jp args (fn).
+                    self.check_jp_args(&args, jp.vars);
                     break 'terminator Terminator::Jump { target: jp.bb };
                 }
                 // ite.
-                else if g.id == SymbolId::ite {
-                    // if jps, branch.
-                    // else, handled by `build_app`.
+                else if g.id == SymbolId::ite && args.len() == 4 {
+                    let cond = args[1];
+                    let then = args[2];
+                    let els  = args[3];
+
+                    let (then, then_args) = then.app_args(self.temp);
+                    let (els,  els_args)  = els.app_args(self.temp);
+                    if let (Some(t), Some(e)) = (then.try_global(), els.try_global()) {
+                        if let (Some(t), Some(e)) = (self.jps.get(&t.id), self.jps.get(&e.id)) {
+                            let on_true  = t.bb;
+                            let on_false = e.bb;
+                            self.check_jp_args(&then_args, t.vars);
+                            self.check_jp_args(&els_args,  e.vars);
+
+                            self.build_term(cond);
+                            break 'terminator Terminator::Ite { on_true, on_false };
+                        }
+                    }
                 }
             }
 
@@ -190,6 +218,7 @@ impl<'me, 'out> Builder<'me, 'out> {
         while let Some(it) = term.try_let() {
             term = it.body;
 
+            let latest = self.locals.len() as u32;
             self.locals.push(it.vid);
 
             if it.val.try_ax_uninit_app().is_some() {
@@ -201,6 +230,7 @@ impl<'me, 'out> Builder<'me, 'out> {
             if let Some(vid) = it.vid.to_option() {
                 // @todo: validate type.
                 self.stmts.push(Stmt::Write(Path { base: vid, projs: &[] }));
+                self.latest_var_vals[vid] = latest;
             }
             else {
                 self.stmts.push(Stmt::Pop);
@@ -223,10 +253,15 @@ impl<'me, 'out> Builder<'me, 'out> {
                     return;
                 }
 
-                let Some(id) = self.locals.rev(it.offset as usize).to_option() else {
+                let Some((id, index)) = self.check_bvar(it) else {
                     self.stmts.push(Stmt::Error);
                     return;
                 };
+
+                if self.latest_var_vals[id] != index {
+                    self.stmts.push(Stmt::Error);
+                    return;
+                }
 
                 self.stmts.push(Stmt::Read(Path { base: id, projs: &[] }));
             }
@@ -376,6 +411,26 @@ impl<'me, 'out> Builder<'me, 'out> {
                     }
                 }
             }
+        }
+    }
+
+    fn check_bvar(&self, bvar: BVar) -> Option<(LocalVarId, u32)> {
+        assert!((bvar.offset as usize) < self.locals.len());
+        let index = self.locals.len()-1 - bvar.offset as usize;
+
+        let id = self.locals[index].to_option()?;
+        Some((id, index as u32))
+    }
+
+    fn check_jp_args(&self, args: &[Term], jp_locals: &[LocalVarId]) {
+        assert_eq!(args.len(), jp_locals.len());
+
+        for (i, arg) in args.copy_it().enumerate() {
+            let bvar = arg.try_bvar().unwrap();
+            let (id, index) = self.check_bvar(bvar).unwrap();
+            assert_eq!(id, jp_locals[i]);
+            dbg!((self.latest_var_vals[id], index));
+            assert_eq!(self.latest_var_vals[id], index);
         }
     }
 }

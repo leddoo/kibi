@@ -176,6 +176,17 @@ pub enum ExprOrTerm<'a> {
 }
 
 impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
+    fn new_local_var(&mut self, name: Atom, mutable: bool, ty: tt::Term<'out>) -> tt::LocalVarId {
+        self.local_vars.push(tt::LocalVar { name, mutable, ty })
+    }
+
+    fn new_scope_from_var(&mut self, vid: tt::LocalVarId, kind: tt::ScopeKind<'out>) -> (ScopeId, tt::LocalVarId) {
+        let entry = self.local_vars[vid];
+        let sid = self.lctx.push(entry.name, entry.ty, kind);
+        self.active_locals.push(ActiveLocal { name: entry.name, sid, vid });
+        return (sid, vid);
+    }
+
     fn new_scope(&mut self, name: Atom, ty: tt::Term<'out>, mutable: bool, kind: tt::ScopeKind<'out>) -> (ScopeId, tt::LocalVarId) {
         let sid = self.lctx.push(name, ty, kind);
         let vid = self.local_vars.push(tt::LocalVar { name, mutable, ty });
@@ -183,7 +194,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         return (sid, vid);
     }
 
-    fn new_scope_of_var(&mut self, vid: tt::LocalVarId, ty: tt::Term<'out>, kind: tt::ScopeKind<'out>) -> ScopeId {
+    fn new_scope_from_active_var(&mut self, vid: tt::LocalVarId, ty: tt::Term<'out>, kind: tt::ScopeKind<'out>) -> ScopeId {
         let name = self.local_vars[vid].name;
         let sid = self.lctx.push(name, ty, kind);
         return sid;

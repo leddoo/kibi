@@ -15,18 +15,14 @@
 
 - brck:
     - build basic bbir:
-        - ite & jp var validation.
+        - unit::mk.
         - stmt source info.
         - ite expr: make let binding, so we don't need to mess with vars.
     - compute region subset relation.
-    - mutability validation:
-        - during tyck. remove from elab-do.
-          cause we need to do `&mut x` `x mut` validation in tyck (for simplicity).
-          so we might as well validate assignments.
-        - `num_local_vars` -> `local_vars(metadata)`.
+    - mutability validation.
     - uninit validation.
-    - def metadata: `is_type`, `is_prop`.
     - properly handle dependent types.
+    - def metadata: `is_type`, `is_prop`.
     - sti rev better errors.
 
 - todo:

@@ -110,17 +110,16 @@ struct ElabDo<'me, 'e, 'c, 'out> {
 
     jps: KVec<JoinPoint, JoinPointData<'out>>,
 
-    jump_targets: Vec<JumpTarget<'out>>,
+    jump_targets: Vec<JumpTarget>,
 
     current_jp: JoinPoint,
     stmts: Vec<Stmt<'out>>,
 }
 
 #[derive(Clone, Copy)]
-struct JumpTarget<'a> {
+struct JumpTarget {
     label: OptAtom,
     break_jp: JoinPoint,
-    break_ty: Option<Term<'a>>,
     break_used: bool,
     continue_jp: OptJoinPoint,
     else_jp:     Option<OptJoinPoint>,
@@ -132,7 +131,7 @@ struct JoinPointData<'a> {
     // this is kinda scuffed:
     // the local for the arg is added by the caller after begin_jp.
     locals: Vec<(ScopeId, LocalVarId)>,
-    arg_ty: Option<Term<'a>>,
+    arg: OptLocalVarId,
     value: Option<Term<'a>>,
     reachable: bool,
 }
@@ -165,27 +164,28 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         return this;
     }
 
-    fn new_jp(&mut self, locals: Vec<(ScopeId, LocalVarId)>, arg_ty: Option<Term<'out>>) -> JoinPoint {
+    fn new_jp(&mut self, locals: Vec<(ScopeId, LocalVarId)>, arg: OptLocalVarId) -> JoinPoint {
         let (ivar, ty) = self.new_term_var();
         self.jps.push(JoinPointData { 
             ivar,
             ty,
             locals,
-            arg_ty,
+            arg,
             value: None,
             reachable: true,
         })
     }
 
     fn new_jp_with_locals(&mut self, arg_ty: Option<Term<'out>>) -> JoinPoint {
+        let arg = arg_ty.map(|ty| { self.new_local_var(Atom::NULL, false, ty) }).into();
         let locals = &self.elab.active_locals[self.num_params..];
         let locals = Vec::from_iter(locals.copy_map_it(|l| (l.sid, l.vid)));
-        self.new_jp(locals, arg_ty)
+        self.new_jp(locals, arg)
     }
 
-    fn new_jp_with_locals_of(&mut self, jp: JoinPoint, arg_ty: Option<Term<'out>>) -> JoinPoint {
+    fn new_jp_with_locals_of(&mut self, jp: JoinPoint) -> JoinPoint {
         let locals = self.jps[jp].locals.clone();
-        self.new_jp(locals, arg_ty)
+        self.new_jp(locals, None.into())
     }
 
     fn begin_jp(&mut self, jp: JoinPoint, reachable: bool) {
@@ -202,7 +202,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             let entry = self.elab.lctx.lookup(*sid);
             let name = entry.name;
             let ty = entry.ty;
-            *sid = self.elab.new_scope_of_var(*vid, ty, ScopeKind::Binder(BinderKind::Explicit));
+            *sid = self.elab.new_scope_from_active_var(*vid, ty, ScopeKind::Binder(BinderKind::Explicit));
             self.elab.active_locals.push(ActiveLocal { name, sid: *sid, vid: *vid });
         }
 
@@ -211,14 +211,23 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
 
     fn mk_jump(&self, jp: JoinPoint, value: Option<Term<'out>>) -> Term<'out> {
         let target = &self.jps[jp];
-        assert!(target.arg_ty.is_some() == value.is_some());
+        assert!(target.arg.is_some() == value.is_some());
 
         let locals = &self.active_locals[..self.num_params + target.locals.len()];
         let locals = Vec::from_iter(locals.copy_map_it(|local|
             self.alloc.mkt_local(local.sid, TERM_SOURCE_NONE)));
         let result = self.alloc.mkt_apps(target.ivar, &locals, TERM_SOURCE_NONE);
+
         if let Some(value) = value {
-            self.alloc.mkt_apply(result, value, TERM_SOURCE_NONE)
+            let vid = target.arg.unwrap();
+            let entry = self.local_vars[vid];
+            self.alloc.mkt_let(
+                entry.name, vid.some(),
+                entry.ty, value,
+                self.alloc.mkt_apply(result,
+                    self.alloc.mkt_bound(BVar { offset: 0 }, TERM_SOURCE_NONE),
+                    TERM_SOURCE_NONE),
+                TERM_SOURCE_NONE)
         }
         else { result }
     }
@@ -266,7 +275,6 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             self.jump_targets.push(JumpTarget {
                 label: block.label,
                 break_jp: jp,
-                break_ty: Some(expected),
                 break_used: false,
                 continue_jp: None.into(),
                 else_jp:     None.into(),
@@ -280,7 +288,8 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             let target = self.jump_targets.pop().unwrap();
             assert_eq!(target.break_jp, jp);
 
-            let result_ty = target.break_ty.unwrap();
+            let var = self.jps[jp].arg.unwrap();
+            let result_ty = self.local_vars[var].ty;
 
             let jump_val =
                 if !self.jps[self.current_jp].reachable {
@@ -302,7 +311,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
             let reachable = self.end_jp(self.mk_jump(jp, Some(jump_val)));
 
             self.begin_jp(jp, reachable || target.break_used);
-            let result_ids = self.new_scope(Atom::NULL, result_ty, false, ScopeKind::Binder(BinderKind::Explicit));
+            let result_ids = self.new_scope_from_var(var, ScopeKind::Binder(BinderKind::Explicit));
             self.jps[jp].locals.push(result_ids);
 
             return (self.alloc.mkt_local(result_ids.0, TERM_SOURCE_NONE), result_ty);
@@ -374,7 +383,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                         let value = self.elab_do_expr(rhs, Some(ty)).0;
 
                         // create new local.
-                        let new_sid = self.new_scope_of_var(vid, ty, ScopeKind::Local(value));
+                        let new_sid = self.new_scope_from_active_var(vid, ty, ScopeKind::Local(value));
                         self.active_locals[index].sid = new_sid;
 
                         self.stmts.push(Stmt::Local((new_sid, vid)));
@@ -528,7 +537,6 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     self.jump_targets.push(JumpTarget {
                         label: it.label,
                         break_jp: jp,
-                        break_ty: Some(expected),
                         break_used: false,
                         continue_jp: body_jp.some(),
                         else_jp:     None.into(),
@@ -545,7 +553,8 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     let target = self.jump_targets.pop().unwrap();
                     assert_eq!(target.break_jp, jp);
 
-                    let result_ty = target.break_ty.unwrap();
+                    let var = self.jps[jp].arg.unwrap();
+                    let result_ty = self.local_vars[var].ty;
                     if let Some(ivar) = result_ty.try_ivar() {
                         if ivar.value(self).is_none() {
                             assert!(self.ensure_def_eq(result_ty, Term::UNIT));
@@ -555,7 +564,7 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                     let after_reachable = body_reachable && target.break_used;
                     self.begin_jp(jp, after_reachable);
 
-                    let result_ids = self.new_scope(Atom::NULL, result_ty, false, ScopeKind::Binder(BinderKind::Explicit));
+                    let result_ids = self.new_scope_from_var(var, ScopeKind::Binder(BinderKind::Explicit));
                     self.jps[jp].locals.push(result_ids);
 
                     return (self.alloc.mkt_local(result_ids.0, source), result_ty);
@@ -595,7 +604,9 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                 target.break_used = true;
                 let target = *target;
 
-                if let Some(expected) = target.break_ty {
+                if let Some(var) = self.jps[target.break_jp].arg.to_option() {
+                    let expected = self.local_vars[var].ty;
+
                     let value = if let Some(value) = it.value.to_option() {
                         self.elab_do_expr(value, Some(expected)).0
                     }
@@ -742,10 +753,10 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                 ExprKind::If(it) => {
                     let (cond, _) = self.elab_do_expr(it.cond, Some(Term::BOOL));
 
-                    let then_jp = self.new_jp_with_locals_of(after_jp, None);
+                    let then_jp = self.new_jp_with_locals_of(after_jp);
 
                     let (else_jp, else_arg) = if it.els.is_some() {
-                        let else_jp = self.new_jp_with_locals_of(after_jp, None);
+                        let else_jp = self.new_jp_with_locals_of(after_jp);
                         (else_jp, None)
                     }
                     else {
@@ -777,7 +788,6 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                         self.jump_targets.push(JumpTarget {
                             label: it.label,
                             break_jp: after_jp,
-                            break_ty: expected_ty,
                             break_used: false,
                             continue_jp: None.into(),
                             else_jp: Some(if it.els.is_some() { else_jp.some() } else { None.into() }),
@@ -805,12 +815,12 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                 }
 
                 ExprKind::While(it) => {
-                    let head_jp = self.new_jp_with_locals_of(after_jp, None);
-                    let body_jp = self.new_jp_with_locals_of(after_jp, None);
+                    let head_jp = self.new_jp_with_locals_of(after_jp);
+                    let body_jp = self.new_jp_with_locals_of(after_jp);
 
                     // dedup?
                     let (else_jp, else_arg) = if it.els.is_some() {
-                        let else_jp = self.new_jp_with_locals_of(after_jp, None);
+                        let else_jp = self.new_jp_with_locals_of(after_jp);
                         (else_jp, None)
                     }
                     else {
@@ -847,7 +857,6 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
                         self.jump_targets.push(JumpTarget {
                             label: it.label,
                             break_jp: after_jp,
-                            break_ty: expected_ty,
                             break_used: false,
                             continue_jp: head_jp.some(),
                             else_jp: Some(if it.els.is_some() { else_jp.some() } else { None.into() }),
@@ -883,7 +892,8 @@ impl<'me, 'e, 'c, 'out> ElabDo<'me, 'e, 'c, 'out> {
         }
 
         if let Some(result_ty) = expected_ty {
-            let result_ids = self.new_scope(Atom::NULL, result_ty, false, ScopeKind::Binder(BinderKind::Explicit));
+            let var = self.jps[after_jp].arg.unwrap();
+            let result_ids = self.new_scope_from_var(var, ScopeKind::Binder(BinderKind::Explicit));
             self.jps[after_jp].locals.push(result_ids);
 
             (self.alloc.mkt_local(result_ids.0, expr_id.some()), result_ty)
