@@ -41,8 +41,10 @@ pub fn build_def<'out>(id: SymbolId, env: &Env<'out>, strings: &StringTable, all
     let mut this = Builder {
         alloc,
         env,
-        locals: def_data.local_vars,
+        strings,
+        vars: def_data.local_vars,
         jps: HashMap::with_cap(def_data.aux_defs.len()),
+        locals: Vec::new(),
         blocks: KVec::new(),
         stmts: Vec::new(),
         current_block: BlockId::ENTRY,
@@ -69,7 +71,7 @@ pub fn build_def<'out>(id: SymbolId, env: &Env<'out>, strings: &StringTable, all
         let mut ty = aux_def.ty;
         for vid in vars.copy_it() {
             let pi = ty.try_forall().unwrap();
-            assert!(pi.ty.syntax_eq(this.locals[vid].ty));
+            assert!(pi.ty.syntax_eq(this.vars[vid].ty));
             ty = pi.val;
         }
 
@@ -98,9 +100,12 @@ pub fn build_def<'out>(id: SymbolId, env: &Env<'out>, strings: &StringTable, all
 struct Builder<'me, 'out> {
     alloc: &'out Arena,
     env: &'me Env<'out>,
+    #[allow(dead_code)] strings: &'me StringTable<'me>,
 
-    locals: &'me KSlice<LocalVarId, LocalVar<'out>>,
+    vars: &'me KSlice<LocalVarId, LocalVar<'out>>,
     jps: HashMap<SymbolId, JoinPoint<'out>>,
+
+    locals: Vec<OptLocalVarId>,
 
     blocks: KVec<BlockId, Option<Block<'out>>>,
 
@@ -121,7 +126,10 @@ impl<'me, 'out> Builder<'me, 'out> {
     }
 
     fn build_jp(&mut self, val: Term<'out>, locals: &[LocalVarId], bb: BlockId) {
+        assert_eq!(self.locals.len(), 0);
         assert_eq!(self.stmts.len(), 0);
+
+        self.locals.extend(locals.copy_map_it(|l| l.some()));
 
         self.current_block = bb;
 
@@ -156,6 +164,8 @@ impl<'me, 'out> Builder<'me, 'out> {
             Terminator::Return
         };
 
+        self.locals.clear();
+
         let stmts = self.stmts.clone_in(self.alloc).leak();
         self.stmts.clear();
 
@@ -165,16 +175,22 @@ impl<'me, 'out> Builder<'me, 'out> {
 
     // must produce exactly one value.
     fn build_term(&mut self, term: Term<'out>) {
+        let old_num_locals = self.locals.len();
+
         let term = self.build_let_chain(term);
 
         let (fun, args) = term.app_args(self.temp);
         self.build_app(term, fun, &args);
+
+        self.locals.truncate(old_num_locals);
     }
 
     #[inline]
     fn build_let_chain(&mut self, mut term: Term<'out>) -> Term<'out> {
         while let Some(it) = term.try_let() {
             term = it.body;
+
+            self.locals.push(it.vid);
 
             if it.val.try_ax_uninit_app().is_some() {
                 continue;
@@ -183,6 +199,7 @@ impl<'me, 'out> Builder<'me, 'out> {
             self.build_term(it.val);
 
             if let Some(vid) = it.vid.to_option() {
+                // @todo: validate type.
                 self.stmts.push(Stmt::Write(Path { base: vid, projs: &[] }));
             }
             else {
@@ -200,9 +217,18 @@ impl<'me, 'out> Builder<'me, 'out> {
                 self.stmts.push(Stmt::Const(fun));
             }
 
-            TermData::Bound(_) => {
-                // check args.len = 0.
-                self.stmts.push(Stmt::Error);
+            TermData::Bound(it) => {
+                if args.len() != 0 {
+                    self.stmts.push(Stmt::Error);
+                    return;
+                }
+
+                let Some(id) = self.locals.rev(it.offset as usize).to_option() else {
+                    self.stmts.push(Stmt::Error);
+                    return;
+                };
+
+                self.stmts.push(Stmt::Read(Path { base: id, projs: &[] }));
             }
 
             TermData::Global(it) => {
@@ -227,26 +253,35 @@ impl<'me, 'out> Builder<'me, 'out> {
                             }
 
                             SymbolId::Ref => {
-                                // @todo.
+                                // @todo: const ig. similar to forall ~ handle locals.
                                 self.stmts.push(Stmt::Error);
                             }
 
                             SymbolId::Ref_from_value => {
-                                // @todo.
-                                //  - construct path.
-                                self.stmts.push(Stmt::Error);
+                                let Some(path) = self.build_path(args[2]) else {
+                                    self.stmts.push(Stmt::Error);
+                                    return;
+                                };
+
+                                self.stmts.push(Stmt::Ref(path));
                             }
 
                             SymbolId::Ref_read => {
-                                // @todo.
-                                //  - construct path, only support based on local for now.
-                                self.stmts.push(Stmt::Error);
+                                let Some(path) = self.build_path(args[2]) else {
+                                    self.stmts.push(Stmt::Error);
+                                    return;
+                                };
+
+                                self.stmts.push(Stmt::Read(path));
                             }
 
                             SymbolId::Ref_write => {
-                                // @todo.
-                                //  - construct path, only support based on local for now.
-                                self.stmts.push(Stmt::Error);
+                                let Some(path) = self.build_path(args[1]) else {
+                                    self.stmts.push(Stmt::Error);
+                                    return;
+                                };
+
+                                self.stmts.push(Stmt::Write(path));
                             }
 
                             SymbolId::ax_uninit | SymbolId::ax_unreach => {
@@ -297,7 +332,8 @@ impl<'me, 'out> Builder<'me, 'out> {
 
             TermData::Forall(_) => {
                 assert_eq!(args.len(), 0);
-                self.stmts.push(Stmt::Const(fun));
+                //self.stmts.push(Stmt::Const(fun));
+                self.stmts.push(Stmt::Error);
             }
 
             TermData::Lambda(_) => {
@@ -308,6 +344,38 @@ impl<'me, 'out> Builder<'me, 'out> {
             TermData::IVar(_) |
             TermData::Let(_) |
             TermData::Apply(_) => unreachable!(),
+        }
+    }
+
+    fn build_path(&mut self, path: Term) -> Option<Path<'out>> {
+        let mut projs = Vec::new_in(self.temp);
+        let mut path = path;
+        loop {
+            let (fun, args) = path.app_args(self.temp);
+
+            if let Some(bvar) = fun.try_bvar() {
+                if args.len() != 0 {
+                    return None;
+                }
+
+                let base = self.locals.rev(bvar.offset as usize).to_option()?;
+                projs.reverse();
+                let projs = projs.clone_in(self.alloc).leak();
+                return Some(Path { base, projs });
+            }
+            else if let Some(g) = fun.try_global() {
+                match g.id {
+                    SymbolId::Ref_read => {
+                        debug_assert_eq!(args.len(), 3);
+                        projs.push(Proj::Deref);
+                        path = args[2];
+                    }
+
+                    _ => {
+                        return None;
+                    }
+                }
+            }
         }
     }
 }

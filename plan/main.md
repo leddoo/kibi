@@ -16,7 +16,8 @@
 - brck:
     - build basic bbir:
         - ite & jp var validation.
-        - ref axioms & paths.
+        - stmt source info.
+        - ite expr: make let binding, so we don't need to mess with vars.
     - compute region subset relation.
     - mutability validation:
         - during tyck. remove from elab-do.
@@ -26,6 +27,7 @@
     - uninit validation.
     - def metadata: `is_type`, `is_prop`.
     - properly handle dependent types.
+    - sti rev better errors.
 
 - todo:
     - address the tech debt.
