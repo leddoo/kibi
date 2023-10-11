@@ -15,13 +15,12 @@
 
 - brck:
     - build basic bbir:
-        - unit::mk.
         - stmt source info.
-        - ite expr: make let binding, so we don't need to mess with vars.
     - compute region subset relation.
     - mutability validation.
     - uninit validation.
     - properly handle dependent types.
+    - ite expr: make let binding, so we don't need to mess with vars.
     - def metadata: `is_type`, `is_prop`.
     - sti rev better errors.
 

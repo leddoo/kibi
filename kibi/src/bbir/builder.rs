@@ -86,7 +86,7 @@ pub fn build_def<'out>(id: SymbolId, env: &Env<'out>, strings: &StringTable, all
 
     let entry_vars = Vec::from_in(this.temp,
         (0..def_data.num_params).map(LocalVarId::from_usize_unck));
-    println!("building {}", pp(def.val, env, strings, &LocalCtx::new()));
+    eprintln!("building {}", pp(def.val, env, strings, &LocalCtx::new()));
     this.build_jp(def.val, &entry_vars, BlockId::ENTRY);
 
     for aux_id in def_data.aux_defs.copy_it() {
@@ -94,11 +94,12 @@ pub fn build_def<'out>(id: SymbolId, env: &Env<'out>, strings: &StringTable, all
         let SymbolKind::Def(aux_def) = aux.kind else { unreachable!() };
 
         let jp = &this.jps[&aux_id];
-        println!("building {}", pp(aux_def.val, env, strings, &LocalCtx::new()));
+        eprintln!("building {}", pp(aux_def.val, env, strings, &LocalCtx::new()));
         this.build_jp(aux_def.val, jp.vars, jp.bb);
     }
 
     dbg!(&this.blocks);
+    eprintln!();
 
     None
 }
@@ -219,13 +220,17 @@ impl<'me, 'out> Builder<'me, 'out> {
             term = it.body;
 
             let latest = self.locals.len() as u32;
-            self.locals.push(it.vid);
 
             if it.val.try_ax_uninit_app().is_some() {
+                self.locals.push(it.vid);
+                if let Some(vid) = it.vid.to_option() {
+                    self.latest_var_vals[vid] = latest;
+                }
                 continue;
             }
 
             self.build_term(it.val);
+            self.locals.push(it.vid);
 
             if let Some(vid) = it.vid.to_option() {
                 // @todo: validate type.
@@ -289,11 +294,11 @@ impl<'me, 'out> Builder<'me, 'out> {
 
                             SymbolId::Ref => {
                                 // @todo: const ig. similar to forall ~ handle locals.
-                                self.stmts.push(Stmt::Error);
+                                self.stmts.push(Stmt::Axiom);
                             }
 
                             SymbolId::Ref_from_value => {
-                                let Some(path) = self.build_path(args[2]) else {
+                                let Some(path) = self.build_path(args[2], false) else {
                                     self.stmts.push(Stmt::Error);
                                     return;
                                 };
@@ -302,7 +307,7 @@ impl<'me, 'out> Builder<'me, 'out> {
                             }
 
                             SymbolId::Ref_read => {
-                                let Some(path) = self.build_path(args[2]) else {
+                                let Some(path) = self.build_path(args[2], true) else {
                                     self.stmts.push(Stmt::Error);
                                     return;
                                 };
@@ -311,7 +316,7 @@ impl<'me, 'out> Builder<'me, 'out> {
                             }
 
                             SymbolId::Ref_write => {
-                                let Some(path) = self.build_path(args[1]) else {
+                                let Some(path) = self.build_path(args[1], true) else {
                                     self.stmts.push(Stmt::Error);
                                     return;
                                 };
@@ -326,12 +331,24 @@ impl<'me, 'out> Builder<'me, 'out> {
                             }
 
                             _ => {
-                                self.stmts.push(Stmt::Error);
+                                self.stmts.push(Stmt::Axiom);
                             }
                         }
                     }
 
                     SymbolKind::IndAxiom(_) => {
+                        if it.id == SymbolId::Unit_mk {
+                            self.stmts.push(Stmt::ConstUnit);
+                            return;
+                        }
+                        if it.id == SymbolId::Bool_false {
+                            self.stmts.push(Stmt::ConstBool(false));
+                            return;
+                        }
+                        if it.id == SymbolId::Bool_true {
+                            self.stmts.push(Stmt::ConstBool(true));
+                            return;
+                        }
                         if let Some(v) = term.try_nat_val() {
                             self.stmts.push(Stmt::ConstNat(v));
                             return;
@@ -340,7 +357,7 @@ impl<'me, 'out> Builder<'me, 'out> {
                         // don't think we need num_params here.
                         // thinking we only wanna support nat for now?
                         // eventually, structs & stuff would prob be handled here.
-                        self.stmts.push(Stmt::Error);
+                        self.stmts.push(Stmt::Axiom);
                     }
 
                     SymbolKind::Def(def) => {
@@ -357,9 +374,10 @@ impl<'me, 'out> Builder<'me, 'out> {
                         // todo: ite special case.
 
                         // call.
-                        //  - build args.
-                        //  - make call.
-                        self.stmts.push(Stmt::Error);
+                        for arg in args.copy_it() {
+                            self.build_term(arg);
+                        }
+                        self.stmts.push(Stmt::Call { func: it.id, num_args: args.len() });
                     }
                 }
 
@@ -382,8 +400,12 @@ impl<'me, 'out> Builder<'me, 'out> {
         }
     }
 
-    fn build_path(&mut self, path: Term) -> Option<Path<'out>> {
+    fn build_path(&mut self, path: Term, add_deref: bool) -> Option<Path<'out>> {
         let mut projs = Vec::new_in(self.temp);
+        if add_deref {
+            projs.push(Proj::Deref);
+        }
+
         let mut path = path;
         loop {
             let (fun, args) = path.app_args(self.temp);
@@ -429,7 +451,6 @@ impl<'me, 'out> Builder<'me, 'out> {
             let bvar = arg.try_bvar().unwrap();
             let (id, index) = self.check_bvar(bvar).unwrap();
             assert_eq!(id, jp_locals[i]);
-            dbg!((self.latest_var_vals[id], index));
             assert_eq!(self.latest_var_vals[id], index);
         }
     }

@@ -1,6 +1,7 @@
 use sti::arena::Arena;
 use sti::keyed::KVec;
 
+use crate::env::SymbolId;
 use crate::tt::{Term, LocalVarId};
 
 
@@ -26,12 +27,16 @@ pub enum Proj {
 #[derive(Clone, Copy, Debug)]
 pub enum Stmt<'a> {
     Error,
+    Axiom, // @temp
     Pop,
     Const(Term<'a>),
+    ConstUnit,
+    ConstBool(bool),
     ConstNat(u32),
     Ref(Path<'a>),
     Read(Path<'a>),
     Write(Path<'a>),
+    Call { func: SymbolId, num_args: usize },
 }
 
 
