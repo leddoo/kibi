@@ -126,6 +126,7 @@ struct Builder<'me, 'out> {
     temp: &'me Arena,
 }
 
+#[derive(Clone, Copy)]
 struct JoinPoint<'a> {
     bb: BlockId,
     vars: &'a [LocalVarId],
@@ -165,8 +166,8 @@ impl<'me, 'out> Builder<'me, 'out> {
         let terminator = 'terminator: {
             if let Some(g) = fun.try_global() {
                 // jump.
-                if let Some(jp) = self.jps.get(&g.id) {
-                    self.check_jp_args(&args, jp.vars);
+                if let Some(jp) = self.jps.get(&g.id).copied() {
+                    self.check_jp_args_and_kill_vars(&args, jp.vars);
                     break 'terminator Terminator::Jump { target: jp.bb };
                 }
                 // ite.
@@ -178,14 +179,13 @@ impl<'me, 'out> Builder<'me, 'out> {
                     let (then, then_args) = then.app_args(self.temp);
                     let (els,  els_args)  = els.app_args(self.temp);
                     if let (Some(t), Some(e)) = (then.try_global(), els.try_global()) {
-                        if let (Some(t), Some(e)) = (self.jps.get(&t.id), self.jps.get(&e.id)) {
-                            let on_true  = t.bb;
-                            let on_false = e.bb;
-                            self.check_jp_args(&then_args, t.vars);
-                            self.check_jp_args(&els_args,  e.vars);
-
+                        if let (Some(t), Some(e)) = (self.jps.get(&t.id).copied(), self.jps.get(&e.id).copied()) {
                             self.build_term(cond);
-                            break 'terminator Terminator::Ite { on_true, on_false };
+
+                            self.check_jp_args_and_kill_vars(&then_args, t.vars);
+                            self.check_jp_args_eq(&els_args, &then_args);
+
+                            break 'terminator Terminator::Ite { on_true: t.bb, on_false: e.bb };
                         }
                     }
                 }
@@ -193,6 +193,10 @@ impl<'me, 'out> Builder<'me, 'out> {
 
             // return.
             self.build_app(term, fun, &args);
+            // kill remaining locals.
+            for (id, latest) in self.latest_var_vals.iter() {
+                if *latest != u32::MAX { self.stmts.push(Stmt::Dead(id)); }
+            }
             Terminator::Return
         };
 
@@ -450,14 +454,33 @@ impl<'me, 'out> Builder<'me, 'out> {
         Some((id, index as u32))
     }
 
-    fn check_jp_args(&self, args: &[Term], jp_locals: &[LocalVarId]) {
+    fn check_jp_args_and_kill_vars(&mut self, args: &[Term], jp_locals: &[LocalVarId]) {
         assert_eq!(args.len(), jp_locals.len());
 
+        let mut active_out = sti::vec_in!(self.temp, false; self.latest_var_vals.len());
         for (i, arg) in args.copy_it().enumerate() {
             let bvar = arg.try_bvar().unwrap();
             let (id, index) = self.check_bvar(bvar).unwrap();
             assert_eq!(id, jp_locals[i]);
             assert_eq!(self.latest_var_vals[id], index);
+            active_out[id.usize()] = true;
+        }
+
+        for (id, latest) in self.latest_var_vals.iter() {
+            let active_out = active_out[id.usize()];
+            if !active_out {
+                if *latest != u32::MAX {
+                    self.stmts.push(Stmt::Dead(id));
+                }
+            }
+            else { assert!(*latest != u32::MAX) };
+        }
+    }
+
+    fn check_jp_args_eq(&self, args: &[Term], ref_args: &[Term]) {
+        assert_eq!(args.len(), ref_args.len());
+        for (found, expected) in args.copy_it().zip(ref_args.copy_it()) {
+            assert!(found.syntax_eq(expected));
         }
     }
 }

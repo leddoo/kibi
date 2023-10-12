@@ -29,6 +29,7 @@ pub enum Stmt<'a> {
     Error,
     Axiom, // @temp
     Pop,
+    Dead(LocalVarId),
     Const(Term<'a>),
     ConstUnit,
     ConstBool(bool),
@@ -83,6 +84,7 @@ impl<'a> core::fmt::Display for Stmt<'a> {
             Stmt::Error => write!(f, "error"),
             Stmt::Axiom => write!(f, "axiom"),
             Stmt::Pop => write!(f, "pop"),
+            Stmt::Dead(it) => write!(f, "dead ${}", it.inner()),
             Stmt::Const(_) => write!(f, "const ?"),
             Stmt::ConstUnit => write!(f, "const ()"),
             Stmt::ConstBool(it) => write!(f, "const {it}"),

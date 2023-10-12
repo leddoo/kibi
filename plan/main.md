@@ -14,9 +14,14 @@
 
 
 - brck:
-    - build basic bbir:
-        - stmt source info.
     - compute region subset relation.
+        - in builder: store bb entry locals as id array.
+        - then in brck:
+            - create regions for bb entry locals and `Stmt::Ref`s.
+            - walk bbs, collect subset edges.
+            - fill subet bit matrix.
+    - compute liveness.
+    - stmt source info.
     - mutability validation.
     - uninit validation.
     - properly handle dependent types.
