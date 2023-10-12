@@ -1,6 +1,7 @@
 use sti::arena::Arena;
 use sti::keyed::KVec;
 
+use crate::bit_set::BitSet;
 use crate::env::SymbolId;
 use crate::tt::{Term, LocalVarId};
 
@@ -29,7 +30,6 @@ pub enum Stmt<'a> {
     Error,
     Axiom, // @temp
     Pop,
-    Dead(LocalVarId),
     Const(Term<'a>),
     ConstUnit,
     ConstBool(bool),
@@ -53,6 +53,9 @@ pub enum Terminator {
 pub struct Block<'a> {
     pub stmts: &'a [Stmt<'a>],
     pub terminator: Terminator,
+    pub vars_entry: BitSet<'a, LocalVarId>,
+    pub vars_exit:  BitSet<'a, LocalVarId>,
+    pub vars_dead:  BitSet<'a, LocalVarId>,
 }
 
 
@@ -84,7 +87,6 @@ impl<'a> core::fmt::Display for Stmt<'a> {
             Stmt::Error => write!(f, "error"),
             Stmt::Axiom => write!(f, "axiom"),
             Stmt::Pop => write!(f, "pop"),
-            Stmt::Dead(it) => write!(f, "dead ${}", it.inner()),
             Stmt::Const(_) => write!(f, "const ?"),
             Stmt::ConstUnit => write!(f, "const ()"),
             Stmt::ConstBool(it) => write!(f, "const {it}"),
@@ -114,8 +116,17 @@ impl core::fmt::Display for Terminator {
 
 impl<'a> core::fmt::Display for Block<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        if self.vars_entry.iter().next().is_some() {
+            writeln!(f, "  in: {}", self.vars_entry)?;
+        }
         for stmt in self.stmts {
             writeln!(f, "  {}", stmt)?;
+        }
+        if self.vars_dead.iter().next().is_some() {
+            writeln!(f, "  dead: {}", self.vars_dead)?;
+        }
+        if self.vars_exit.iter().next().is_some() {
+            writeln!(f, "  out: {}", self.vars_exit)?;
         }
         writeln!(f, "  {}", self.terminator)?;
         Ok(())

@@ -13,7 +13,7 @@ pub use super::local_ctx::ScopeId;
 sti::define_key!(pub, u32, TermVarId);
 
 
-sti::define_key!(pub, u32, LocalVarId, opt: OptLocalVarId);
+sti::define_key!(pub, u32, LocalVarId, opt: OptLocalVarId, dsp: "${}");
 
 #[derive(Clone, Copy, Debug)]
 pub struct LocalVar<'a> {

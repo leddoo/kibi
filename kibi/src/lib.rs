@@ -3,7 +3,7 @@ pub use sti;
 pub use spall;
 
 
-pub mod bits;
+pub mod bit_set;
 pub mod pp;
 pub mod string_table;
 pub mod ast;

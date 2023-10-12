@@ -9,12 +9,19 @@ pub struct BitSetImpl<'a, K: Key, const MUT: bool> {
     // invariant: bits[self.len..] = 0
     ptr: NonNull<u32>,
     len: usize,
-    phantom: PhantomData<(&'a u32, fn(K) -> bool)>,
+    phantom: PhantomData<(&'a u32, fn(K) -> K)>,
 }
 
 pub type BitSet<'a, K>    = BitSetImpl<'a, K, false>;
 pub type BitSetMut<'a, K> = BitSetImpl<'a, K, true>;
 
+
+impl<'a, K: Key> BitSet<'a, K> {
+    #[inline(always)]
+    pub fn from_iter<I: Iterator<Item = K>>(alloc: &'a Arena, len: usize, iter: I) -> BitSet<'a, K> {
+        BitSetMut::from_iter(alloc, len, iter).into()
+    }
+}
 
 impl<'a, K: Key> BitSetMut<'a, K> {
     pub fn new(alloc: &'a Arena, len: usize) -> BitSetMut<'a, K> {
@@ -24,6 +31,15 @@ impl<'a, K: Key> BitSetMut<'a, K> {
         let ptr = sti::alloc::alloc_array(alloc, size).unwrap();
         unsafe { core::ptr::write_bytes(ptr.as_ptr(), 0, size) };
         BitSetMut { ptr, len, phantom: PhantomData }
+    }
+
+    #[inline]
+    pub fn from_iter<I: Iterator<Item = K>>(alloc: &'a Arena, len: usize, iter: I) -> BitSetMut<'a, K> {
+        let mut this = Self::new(alloc, len);
+        for k in iter {
+            this.insert(k);
+        }
+        return this;
     }
 
     #[track_caller]
@@ -102,6 +118,37 @@ impl<'a, K: Key, const MUT: bool> BitSetImpl<'a, K, MUT> {
     }
 }
 
+
+impl<'a, K: Key + core::fmt::Debug, const MUT: bool> core::fmt::Debug for BitSetImpl<'a, K, MUT> {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        f.debug_set().entries(self.iter()).finish()
+    }
+}
+
+impl<'a, K: Key + core::fmt::Display, const MUT: bool> core::fmt::Display for BitSetImpl<'a, K, MUT> {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "{{")?;
+        for (i, k) in self.iter().enumerate() {
+            if i != 0 { write!(f, ", ")? }
+            write!(f, "{k}")?;
+        }
+        write!(f, "}}")
+    }
+}
+
+impl<'a, K: Key, const MUT: bool> Default for BitSetImpl<'a, K, MUT> {
+    #[inline(always)]
+    fn default() -> Self {
+        Self { ptr: NonNull::dangling(), len: 0, phantom: PhantomData }
+    }
+}
+
+impl<'a, K: Key> Into<BitSet<'a, K>> for BitSetMut<'a, K> {
+    #[inline(always)]
+    fn into(self) -> BitSet<'a, K> {
+        BitSet { ptr: self.ptr, len: self.len, phantom: PhantomData }
+    }
+}
 
 impl<'a, K: Key> Clone for BitSet<'a, K> {
     #[inline(always)]

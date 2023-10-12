@@ -15,9 +15,6 @@
 
 - brck:
     - compute region subset relation.
-        - in builder:
-            - store bb entry/exit locals as bitset.
-            - store dead on block as bitset.
         - then in brck:
             - create regions for bb entry locals and `Stmt::Ref`s.
             - walk bbs, collect subset edges.
