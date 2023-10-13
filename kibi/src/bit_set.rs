@@ -27,7 +27,7 @@ impl<'a, K: Key> BitSetMut<'a, K> {
     pub fn new(alloc: &'a Arena, len: usize) -> BitSetMut<'a, K> {
         assert!(K::from_usize(len).is_some());
 
-        let size = sti::num::ceil_to_multiple_pow2(len, 32);
+        let size = (len + 31) / 32;
         let ptr = sti::alloc::alloc_array(alloc, size).unwrap();
         unsafe { core::ptr::write_bytes(ptr.as_ptr(), 0, size) };
         BitSetMut { ptr, len, phantom: PhantomData }
@@ -63,33 +63,6 @@ impl<'a, K: Key> BitSetMut<'a, K> {
         let bit = k % 32;
         unsafe { *self.ptr.as_ptr().add(idx) &= !(1 << bit); }
     }
-
-    #[track_caller]
-    #[inline(always)]
-    pub fn union<const MUT: bool>(&mut self, other: &BitSetImpl<'a, K, MUT>) {
-        assert_eq!(self.len, other.len);
-        for i in 0..self.len { unsafe {
-            *self.ptr.as_ptr().add(i) |= other.ptr.as_ptr().add(i).read()
-        }}
-    }
-
-    #[track_caller]
-    #[inline(always)]
-    pub fn intersect<const MUT: bool>(&mut self, other: &BitSetImpl<'a, K, MUT>) {
-        assert_eq!(self.len, other.len);
-        for i in 0..self.len { unsafe {
-            *self.ptr.as_ptr().add(i) &= other.ptr.as_ptr().add(i).read()
-        }}
-    }
-
-    #[track_caller]
-    #[inline(always)]
-    pub fn minus<const MUT: bool>(&mut self, other: &BitSetImpl<'a, K, MUT>) {
-        assert_eq!(self.len, other.len);
-        for i in 0..self.len { unsafe {
-            *self.ptr.as_ptr().add(i) &= !other.ptr.as_ptr().add(i).read()
-        }}
-    }
 }
 
 impl<'a, K: Key, const MUT: bool> BitSetImpl<'a, K, MUT> {
@@ -106,14 +79,13 @@ impl<'a, K: Key, const MUT: bool> BitSetImpl<'a, K, MUT> {
 
         let idx = k / 32;
         let bit = k % 32;
-        let word = unsafe { self.ptr.as_ptr().add(idx).read() };
-        (word & (1 << bit)) != 0
+        unsafe { (*self.ptr.as_ptr().add(idx) & (1 << bit)) != 0}
     }
 
     #[track_caller]
     #[inline(always)]
     pub fn iter(&self) -> BitSetIter<K> {
-        let size = sti::num::ceil_to_multiple_pow2(self.len, 32);
+        let size = (self.len + 31) / 32;
         BitSetIter { set: self.borrow(), size, idx: 0, buffer: 0 }
     }
 }
@@ -200,11 +172,10 @@ mod tests {
 
     #[test]
     fn bitset_basic() {
-        let alloc = Arena::new();
-
         sti::define_key!(u32, K);
-
         fn k(i: usize) -> K { K::from_usize(i).unwrap() }
+
+        let alloc = Arena::new();
 
         let mut a = BitSetMut::new(&alloc, 72);
         for i in 0..72 {

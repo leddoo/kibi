@@ -20,6 +20,28 @@
             - walk bbs, collect subset edges.
             - fill subet bit matrix.
     - compute liveness.
+    - bbir validation.
+        - `out` is `in` of successors.
+        - `in` of entry is empty, `out` of `ret` block is empty.
+        - stack size is 0 on bb entry/exit.
+        - stack doesn't underflow.
+    - stuff:
+        - faster ivar assignment restore: linked list of latest assignment.
+          store head, then walk list and clear values until reach old head.
+          could combine with "assignment index" for inst cache.
+          though that would be linear again, so flush would prob be simpler.
+          well, flush is linear too, cause hash map, unless create new empty one.
+        - always gen jp for `do`, but only arg if not unit, otherwise return unitmk.
+        - incr:
+            - env proxy (or just change the env api),
+              separate functions for accessing type and value for more granularity.
+              add task to hash set on symbol.
+                - should prob just change env api. then lsp queries might also "just work".
+            - thinking do use generational indices and keep it simple.
+              so basically the current data structures but "mutable",
+              and custom/simple dependency tracking for state (env/traits/impls).
+            - might want some “env scope” object for imports,
+              or import set is part of cache key for queries.
     - stmt source info.
     - mutability validation.
     - uninit validation.

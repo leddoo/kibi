@@ -4,6 +4,7 @@ pub use spall;
 
 
 pub mod bit_set;
+pub mod bit_relation;
 pub mod pp;
 pub mod string_table;
 pub mod ast;
