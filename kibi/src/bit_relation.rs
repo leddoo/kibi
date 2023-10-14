@@ -129,12 +129,26 @@ impl<'a, K: Key, const MUT: bool> BitRelationImpl<'a, K, MUT> {
 }
 
 
+impl<'a, K: Key, const MUT: bool> Default for BitRelationImpl<'a, K, MUT> {
+    #[inline(always)]
+    fn default() -> Self {
+        Self { ptr: NonNull::dangling(), len: 0, phantom: PhantomData }
+    }
+}
+
 impl<'a, K: Key> Into<BitRelation<'a, K>> for BitRelationMut<'a, K> {
     #[inline(always)]
     fn into(self) -> BitRelation<'a, K> {
         BitRelation { ptr: self.ptr, len: self.len, phantom: PhantomData }
     }
 }
+
+impl<'a, K: Key> Clone for BitRelation<'a, K> {
+    #[inline(always)]
+    fn clone(&self) -> Self { *self }
+}
+
+impl<'a, K: Key> Copy for BitRelation<'a, K> {}
 
 
 

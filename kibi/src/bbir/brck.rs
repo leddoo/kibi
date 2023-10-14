@@ -3,6 +3,7 @@ use sti::arena_pool::ArenaPool;
 use sti::vec::Vec;
 use sti::keyed::{Key, KVec};
 
+use crate::bit_set::{BitSet, BitSetMut};
 use crate::bit_relation::BitRelation;
 use crate::string_table::StringTable;
 use crate::ast::expr::RefKind;
@@ -23,6 +24,7 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
         ref_infos: KVec::with_cap(func.vars.len()),
         block_infos: KVec::with_cap(func.blocks.len()),
         next_region: RegionId::ZERO,
+        region_subsets: BitRelation::default(),
     };
 
 
@@ -102,6 +104,8 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
 
         println!("{}:\n{}", bb, block);
 
+        assert_eq!(stack.len(), 0);
+
         // init latest var regions.
         // @todo: clear, resize.
         latest_var_regions.truncate(0);
@@ -157,7 +161,7 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
             for (i, var) in this.func.blocks[succ].vars_entry.iter().enumerate() {
                 let exit_regions = latest_var_regions[var];
                 let succ_regions = this.block_infos[succ].entry_regions[i];
-                debug_assert_eq!(exit_regions.len(), succ_regions.len());
+                assert_eq!(exit_regions.len(), succ_regions.len());
 
                 for (r1, r2) in exit_regions.copy_it().zip(succ_regions.copy_it()) {
                     subset_builder.push((r1, r2));
@@ -171,24 +175,138 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
             }
 
             Terminator::Ite { on_true, on_false } => {
+                stack.pop().unwrap();
+
                 add_succ_constraints(on_true);
                 add_succ_constraints(on_false);
             }
 
-            Terminator::Return => (),
+            Terminator::Return => {
+                stack.clear();
+            }
         }
     }
+    drop((stack, latest_var_regions));
     dbg!(&subset_builder);
-    let subsets = BitRelation::transitive_from(this.temp, this.next_region.usize(), &subset_builder);
+    this.region_subsets = BitRelation::transitive_from(this.temp, this.next_region.usize(), &subset_builder);
     eprint!("subsets: ");
     for i in 0..this.next_region.usize() {
         for j in 0..this.next_region.usize() {
-            if subsets.has(RegionId::from_usize_unck(i), RegionId::from_usize_unck(j)) {
+            if this.region_subsets.has(RegionId::from_usize_unck(i), RegionId::from_usize_unck(j)) {
                 eprint!("r{i}<:r{j}, ");
             }
         }
     }
     eprintln!();
+
+
+    // liveness.
+    #[derive(Debug)]
+    struct BlockLiveInfo<'a> {
+        succs: &'a [BlockId],
+        preds: Vec<BlockId, &'a Arena>,
+        gen:  BitSetMut<'a, LocalVarId>,
+        kill: BitSetMut<'a, LocalVarId>,
+        live_in:  BitSetMut<'a, LocalVarId>,
+        live_out: BitSetMut<'a, LocalVarId>,
+        queued: bool,
+    }
+    let mut blocks = KVec::with_cap(this.func.blocks.len());
+    for _ in 0..this.func.blocks.len() {
+        blocks.push(BlockLiveInfo {
+            succs: &[],
+            preds: Vec::with_cap_in(this.temp, 2),
+            gen:  BitSetMut::new(this.temp, this.func.vars.len()),
+            kill: BitSetMut::new(this.temp, this.func.vars.len()),
+            live_in:  BitSetMut::new(this.temp, this.func.vars.len()),
+            live_out: BitSetMut::new(this.temp, this.func.vars.len()),
+            queued: false,
+        });
+    }
+    for (bb, block) in this.func.blocks.iter() {
+        let info = &mut blocks[bb];
+
+        for stmt in block.stmts {
+            match *stmt {
+                Stmt::Error |
+                Stmt::Axiom |
+                Stmt::Const(_) |
+                Stmt::ConstUnit |
+                Stmt::ConstBool(_) |
+                Stmt::ConstNat(_) |
+                Stmt::Pop |
+                Stmt::Ref(_) |
+                Stmt::Call { func: _, num_args: _ } => (),
+
+                Stmt::Read(path) => {
+                    if path.projs.len() == 0 {
+                        if !info.kill.has(path.base) {
+                            info.gen.insert(path.base);
+                        }
+                    }
+                }
+
+                Stmt::Write(path) => {
+                    if path.projs.len() == 0 {
+                        info.kill.insert(path.base);
+                    }
+                }
+
+            }
+        }
+
+        match block.terminator {
+            Terminator::Jump { target } => {
+                info.succs = sti::vec_in!(this.temp; target).leak();
+                blocks[target].preds.push(bb);
+            }
+
+            Terminator::Ite { on_true, on_false } => {
+                info.succs = sti::vec_in!(this.temp; on_true, on_false).leak();
+                blocks[on_true].preds.push(bb);
+                blocks[on_false].preds.push(bb);
+            }
+
+            Terminator::Return => (),
+        };
+    }
+
+    let mut worklist = Vec::with_cap(this.func.blocks.len());
+    // @todo: sti kslice range, iter_mut.
+    // @speed: reverse post order. should be able to compute ad-hoc using cursor, queued & terminator match.
+    for (bb, _) in this.func.blocks.iter() {
+        let info = &mut blocks[bb];
+        info.live_in.assign(info.gen.borrow());
+        info.queued = true;
+        worklist.push(bb);
+    }
+
+    while let Some(bb) = worklist.pop() {
+        let block = &mut blocks[bb];
+        block.queued = false;
+
+        // propagate successor live_in.
+        let mut live_out = core::mem::take(&mut block.live_out);
+        for succ in block.succs.copy_it() {
+            live_out.union(blocks[succ].live_in.borrow());
+        }
+
+        let block = &mut blocks[bb];
+        block.live_out = live_out;
+        let changed =
+            block.live_in.diff_union(
+                block.live_out.borrow(), block.kill.borrow(),
+                block.gen.borrow());
+
+        if changed {
+            for pred in blocks[bb].preds.copy_it() {
+                if !blocks[pred].queued {
+                    worklist.push(pred);
+                }
+            }
+        }
+    }
+    dbg!(&blocks);
 
 
     Err(())
@@ -207,6 +325,8 @@ struct BrCk<'me, 'a> {
     ref_infos: KVec<LocalVarId, RefInfo>,
     block_infos: KVec<BlockId, BlockInfo<'me>>,
     next_region: RegionId,
+
+    region_subsets: BitRelation<'me, RegionId>,
 }
 
 

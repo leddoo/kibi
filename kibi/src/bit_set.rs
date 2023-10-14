@@ -63,6 +63,51 @@ impl<'a, K: Key> BitSetMut<'a, K> {
         let bit = k % 32;
         unsafe { *self.ptr.as_ptr().add(idx) &= !(1 << bit); }
     }
+
+    #[track_caller]
+    #[inline(always)]
+    pub fn assign(&mut self, other: BitSet<K>) {
+        assert_eq!(self.len, other.len);
+        let size = (self.len + 31) / 32;
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                other.ptr.as_ptr(),
+                self.ptr.as_ptr(),
+                size);
+        }
+    }
+
+    #[track_caller]
+    #[inline(always)]
+    pub fn union(&mut self, other: BitSet<K>) {
+        assert_eq!(self.len, other.len);
+        let size = (self.len + 31) / 32;
+        for i in 0..size { unsafe {
+            *self.ptr.as_ptr().add(i) |= *other.ptr.as_ptr().add(i)
+        }}
+    }
+
+    /// (a - b) U c
+    #[track_caller]
+    #[inline(always)]
+    pub fn diff_union(&mut self, a: BitSet<K>, b: BitSet<K>, c: BitSet<K>) -> bool {
+        assert_eq!(self.len, a.len);
+        assert_eq!(self.len, b.len);
+        assert_eq!(self.len, c.len);
+        let size = (self.len + 31) / 32;
+
+        let mut changed = false;
+        for i in 0..size { unsafe {
+            let dst = self.ptr.as_ptr().add(i);
+            let old = *dst;
+            let new =
+                  *a.ptr.as_ptr().add(i) & !*b.ptr.as_ptr().add(i)
+                | *c.ptr.as_ptr().add(i);
+            changed |= new != old;
+            *dst = new;
+        }}
+        return changed;
+    }
 }
 
 impl<'a, K: Key, const MUT: bool> BitSetImpl<'a, K, MUT> {
