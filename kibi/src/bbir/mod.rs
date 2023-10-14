@@ -1,9 +1,9 @@
 use sti::arena::Arena;
-use sti::keyed::KVec;
+use sti::keyed::{KVec, KSlice};
 
 use crate::bit_set::BitSet;
 use crate::env::SymbolId;
-use crate::tt::{Term, LocalVarId};
+use crate::tt::{Term, LocalVarId, LocalVar};
 
 
 sti::define_key!(pub, u32, BlockId, dsp: "bb{}");
@@ -59,13 +59,18 @@ pub struct Block<'a> {
 }
 
 
+#[derive(Clone, Copy, Debug)]
 pub struct Function<'a> {
-    pub blocks: KVec<BlockId, Block<'a>>,
+    pub vars:   &'a KSlice<LocalVarId, LocalVar<'a>>,
+    pub blocks: &'a KSlice<BlockId, Block<'a>>,
 }
 
 
 mod builder;
 pub use builder::build_def;
+
+mod brck;
+pub use brck::borrow_check;
 
 
 

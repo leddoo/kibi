@@ -247,7 +247,10 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         }), self.alloc, &mut self.elab.diagnostics)?;
 
 
-        crate::bbir::build_def(symbol_id, self.env, self.strings, self.alloc);
+        let func = crate::bbir::build_def(symbol_id, self.env, self.strings, self.alloc);
+        if let Some(func) = func {
+            _ = crate::bbir::borrow_check(func, self.env, self.strings, self.alloc);
+        }
 
         return Some((ty, val));
     }
@@ -256,7 +259,7 @@ impl<'me, 'c, 'out> Elaborator<'me, 'c, 'out> {
         spall::trace_scope!("kibi/elab/def"; "{}",
             def.name.display(self.strings));
 
-        //eprintln!("!!! {}", def.name.display(self.strings));
+        eprintln!("!!! {}", def.name.display(self.strings));
 
         let (parent, name) = match def.name {
             IdentOrPath::Ident(name) => (self.root_symbol, name),

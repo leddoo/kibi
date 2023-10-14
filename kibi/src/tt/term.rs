@@ -239,6 +239,21 @@ impl<'a> Term<'a> {
         None
     }
 
+    #[inline(always)]
+    pub fn is_ref(self) -> bool { if let Some(g) = self.try_global() { g.id == SymbolId::Ref } else { false } }
+
+    #[inline(always)]
+    pub fn try_ref_app(self) -> Option<[Term<'a>; 3]> {
+        let app3 = self.try_apply()?;     // r
+        let app2 = app3.fun.try_apply()?; // kind
+        let app1 = app2.fun.try_apply()?; // T
+        if app1.fun.is_ref() {
+            return Some([app1.arg, app2.arg, app3.arg]);
+        }
+        None
+    }
+
+
 
     #[inline(always)]
     pub fn is_add_add(self) -> bool { if let Some(g) = self.try_global() { g.id == SymbolId::Add_add } else { false } }

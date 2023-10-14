@@ -25,6 +25,8 @@ fn pp(t: Term, env: &Env, strings: &StringTable, lctx: &LocalCtx) -> sti::string
 
 // @todo: collect errors.
 pub fn build_def<'out>(id: SymbolId, env: &Env<'out>, strings: &StringTable, alloc: &'out Arena) -> Option<Function<'out>> {
+    spall::trace_scope!("kibi/bbir/build"; "{id:?}");
+
     let symbol = env.symbol(id);
     let SymbolKind::Def(def) = symbol.kind else { unreachable!() };
     let DefKind::Primary(def_data) = def.kind else { unreachable!() };
@@ -88,7 +90,6 @@ pub fn build_def<'out>(id: SymbolId, env: &Env<'out>, strings: &StringTable, all
 
     let entry_vars = Vec::from_in(this.temp,
         (0..def_data.num_params).map(LocalVarId::from_usize_unck));
-    eprintln!("building {}", pp(def.val, env, strings, &LocalCtx::new()));
     this.build_jp(def.val, &entry_vars, BlockId::ENTRY);
 
     for aux_id in def_data.aux_defs.copy_it() {
@@ -96,17 +97,17 @@ pub fn build_def<'out>(id: SymbolId, env: &Env<'out>, strings: &StringTable, all
         let SymbolKind::Def(aux_def) = aux.kind else { unreachable!() };
 
         let jp = &this.jps[&aux_id];
-        eprintln!("building {}", pp(aux_def.val, env, strings, &LocalCtx::new()));
         this.build_jp(aux_def.val, jp.vars, jp.bb);
     }
 
-    // @todo: kvec display.
-    for (id, block) in this.blocks.iter() {
-        eprint!("{}:\n{}", id, block.unwrap());
+    let mut blocks: KVec<BlockId, Block> = KVec::with_cap(this.blocks.len());
+    for (_, block) in this.blocks.iter() {
+        blocks.push(block.unwrap());
     }
-    eprintln!();
-
-    None
+    return Some(Function {
+        vars: this.vars,
+        blocks: KSlice::new_unck(blocks.into_inner().leak()),
+    });
 }
 
 struct Builder<'me, 'out> {
@@ -114,7 +115,7 @@ struct Builder<'me, 'out> {
     env: &'me Env<'out>,
     #[allow(dead_code)] strings: &'me StringTable<'me>,
 
-    vars: &'me KSlice<LocalVarId, LocalVar<'out>>,
+    vars: &'out KSlice<LocalVarId, LocalVar<'out>>,
     jps: HashMap<SymbolId, JoinPoint<'out>>,
 
     locals: Vec<OptLocalVarId>,

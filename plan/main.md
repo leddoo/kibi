@@ -15,11 +15,8 @@
 
 - brck:
     - compute region subset relation.
-        - then in brck:
-            - create regions for bb entry locals and `Stmt::Ref`s.
-            - walk bbs, collect subset edges.
-            - fill subet bit matrix.
     - compute liveness.
+    - do the brck thing.
     - bbir validation.
         - `out` is `in` of successors.
         - `in` of entry is empty, `out` of `ret` block is empty.
