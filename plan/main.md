@@ -14,7 +14,6 @@
 
 
 - brck:
-    - compute region subset relation.
     - compute liveness.
     - do the brck thing.
     - bbir validation.
