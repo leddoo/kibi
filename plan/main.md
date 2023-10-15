@@ -15,7 +15,6 @@
 
 - brck:
     - do the checks.
-        - compute live intervals.
     - move ref kind into term?
     - bbir validation.
         - `out` is `in` of successors.

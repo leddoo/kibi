@@ -834,12 +834,12 @@ def brck_8: Nat := do {
     var a := 72;
     var b := 69;
     var r := &mut b;
-    a := 42;
+    a := 96;
     if Bool::true { r := &mut a; };
     *r := 42;
     return a;
 }
-print brck_4
-reduce brck_4
+print brck_8
+reduce brck_8
 
 

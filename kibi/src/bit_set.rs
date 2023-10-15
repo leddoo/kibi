@@ -44,6 +44,13 @@ impl<'a, K: Key> BitSetMut<'a, K> {
 
     #[track_caller]
     #[inline(always)]
+    pub fn clear(&mut self) {
+        let size = (self.len + 31) / 32;
+        unsafe { core::ptr::write_bytes(self.ptr.as_ptr(), 0, size) };
+    }
+
+    #[track_caller]
+    #[inline(always)]
     pub fn insert(&mut self, k: K) {
         let k = k.usize();
         assert!(k < self.len);

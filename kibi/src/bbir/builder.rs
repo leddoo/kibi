@@ -56,7 +56,7 @@ pub fn build_def<'out>(id: SymbolId, env: &Env<'out>, strings: &StringTable, all
         latest_var_vals,
         blocks: KVec::new(),
         current_block: BlockId::ENTRY,
-        stmts: Vec::new(),
+        stmts: KVec::new(),
         block_vars_entry: BitSet::default(),
         temp: &*temp,
     };
@@ -124,7 +124,7 @@ struct Builder<'me, 'out> {
     blocks: KVec<BlockId, Option<Block<'out>>>,
 
     current_block: BlockId,
-    stmts: Vec<Stmt<'out>>,
+    stmts: KVec<StmtId, Stmt<'out>>,
     block_vars_entry: BitSet<'out, LocalVarId>,
 
     temp: &'me Arena,
@@ -212,8 +212,8 @@ impl<'me, 'out> Builder<'me, 'out> {
 
         self.locals.clear();
 
-        let stmts = self.stmts.clone_in(self.alloc).leak();
-        self.stmts.clear();
+        let stmts = KSlice::new_unck(self.stmts.inner().clone_in(self.alloc).leak());
+        self.stmts.truncate(0);
 
         let none = self.blocks[self.current_block].replace(Block {
             stmts,

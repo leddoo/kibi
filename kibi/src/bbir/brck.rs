@@ -1,4 +1,4 @@
-use sti::traits::CopyIt;
+use sti::traits::{CopyIt, FromIn};
 use sti::arena_pool::ArenaPool;
 use sti::vec::Vec;
 use sti::keyed::{Key, KVec};
@@ -77,7 +77,7 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
         //entry_regions.shrink_to_fit();
 
         let mut ref_regions = Vec::new_in(this.temp);
-        for stmt in block.stmts.copy_it() {
+        for stmt in block.stmts.inner().copy_it() {
             if let Stmt::Ref(loan) = stmt {
                 ref_regions.push(this.region_loans.push(Some(loan)));
             }
@@ -116,7 +116,7 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
         }
 
         let mut ref_region = 0;
-        for stmt in block.stmts.copy_it() {
+        for stmt in block.stmts.inner().copy_it() {
             match stmt {
                 Stmt::Error |
                 Stmt::Axiom |
@@ -211,6 +211,7 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
         kill: BitSetMut<'a, LocalVarId>,
         live_in:  BitSetMut<'a, LocalVarId>,
         live_out: BitSetMut<'a, LocalVarId>,
+        live_intervals: &'a KSlice<LocalVarId, &'a [(StmtId, StmtId)]>,
         queued: bool,
     }
     let mut blocks = KVec::with_cap(this.func.blocks.len());
@@ -222,14 +223,26 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
             kill: BitSetMut::new(this.temp, this.func.vars.len()),
             live_in:  BitSetMut::new(this.temp, this.func.vars.len()),
             live_out: BitSetMut::new(this.temp, this.func.vars.len()),
+            live_intervals: KSlice::new_unck(&[]),
             queued: false,
         });
+    }
+    let mut interval_builder = KVec::with_cap(this.func.vars.len());
+    let mut live_intervals = KVec::with_cap(this.func.vars.len());
+    for _ in 0..this.func.vars.len() {
+        interval_builder.push((StmtId::ZERO, StmtId::ZERO));
+        live_intervals.push(Vec::new_in(this.temp));
     }
     for (bb, block) in this.func.blocks.iter() {
         let info = &mut blocks[bb];
 
-        for stmt in block.stmts.copy_it() {
-            match stmt {
+        for i in interval_builder.range() {
+            interval_builder[i] = (StmtId::ZERO, StmtId::ZERO);
+            live_intervals[i].clear();
+        }
+
+        for (sid, stmt) in block.stmts.iter() {
+            match *stmt {
                 Stmt::Error |
                 Stmt::Axiom |
                 Stmt::Const(_) |
@@ -237,29 +250,46 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
                 Stmt::ConstBool(_) |
                 Stmt::ConstNat(_) |
                 Stmt::Pop |
-                Stmt::Ref(_) |
                 Stmt::Call { func: _, num_args: _ } => (),
 
+                Stmt::Ref(Loan { path, .. }) |
                 Stmt::Read(path) => {
                     if !info.kill.has(path.base) {
                         info.gen.insert(path.base);
                     }
+                    interval_builder[path.base].1 = sid;
                 }
 
                 Stmt::Write(path) => {
                     if path.projs.len() == 0 {
                         info.kill.insert(path.base);
+                        let interval = interval_builder[path.base];
+                        if interval.0 != interval.1 {
+                            live_intervals[path.base].push(interval);
+                        }
+                        interval_builder[path.base] = (sid, sid);
                     }
                     else {
-                        // need to read the local.
+                        // need to read the base.
                         if !info.kill.has(path.base) {
                             info.gen.insert(path.base);
                         }
+                        interval_builder[path.base].1 = sid;
                     }
                 }
-
             }
         }
+
+        for (id, interval) in interval_builder.iter() {
+            // @begin_eq_end_marks_last_write.
+            if interval.0 != interval.1 || interval.0 != StmtId::ZERO {
+                live_intervals[id].push(*interval);
+            }
+        }
+
+        info.live_intervals = KSlice::new_unck(Vec::from_in(this.temp,
+            live_intervals.inner().iter().map(|intervals|
+                &*intervals.clone_in(this.temp).leak())).leak());
 
         match block.terminator {
             Terminator::Jump { target } => {
@@ -316,17 +346,84 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
 
 
     // do the checking.
-    for (_, block) in this.func.blocks.iter() {
-        for stmt in block.stmts.copy_it() {
-            match stmt {
+    let mut stack: Vec<&[RegionId]> = Vec::with_cap(32);
+    let mut latest_var_regions = KVec::with_cap(this.func.vars.len());
+    let mut live_regions = BitSetMut::new(this.temp, this.region_loans.len());
+    let mut live_loans = Vec::with_cap(this.region_loans.len());
+    for (bb, block) in this.func.blocks.iter() {
+        let info = &this.block_infos[bb];
+        let live_info = &blocks[bb];
+
+        assert_eq!(stack.len(), 0);
+
+        // init latest var regions.
+        // @todo: clear, resize.
+        latest_var_regions.truncate(0);
+        for _ in 0..this.func.vars.len() {
+            latest_var_regions.push(&[][..]);
+        }
+        for (i, var) in block.vars_entry.iter().enumerate() {
+            latest_var_regions[var] = info.entry_regions[i];
+        }
+
+        eprintln!("-- {bb}");
+
+        let mut ref_region = 0;
+        for i in 0..=block.stmts.len() {
+            let sid = StmtId::from_usize_unck(i);
+
+            // update loans.
+            {
+                live_regions.clear();
+
+                for regions in stack.copy_it() {
+                    for r in regions.copy_it() {
+                        live_regions.insert(r);
+                    }
+                }
+
+                for (var, ranges) in live_info.live_intervals.iter() {
+                    for (begin, end) in ranges.copy_it() {
+                        // @begin_eq_end_marks_last_write.
+                        if sid >= begin && sid < end
+                        || sid > begin && begin == end && live_info.live_out.has(var) {
+                            for r in latest_var_regions[var].copy_it() {
+                                live_regions.insert(r);
+                            }
+                            break;
+                        }
+                    }
+                }
+
+                live_loans.clear();
+                for (r, loan) in this.region_loans.iter() {
+                    let Some(loan) = loan else { continue };
+                    for live in live_regions.iter() {
+                        // @todo: row iter? might be able to use bit set iter.
+                        if r == live || this.region_subsets.has(r, live) {
+                            live_loans.push(*loan);
+                        }
+                    }
+                }
+
+                dbg!((sid, &live_regions, &live_loans));
+            }
+
+            if i >= block.stmts.len() {
+                break;
+            }
+
+
+            // validate statement.
+            match block.stmts[sid] {
                 Stmt::Error |
                 Stmt::Axiom |
                 Stmt::Const(_) |
                 Stmt::ConstUnit |
                 Stmt::ConstBool(_) |
-                Stmt::ConstNat(_) => todo!(),
+                Stmt::ConstNat(_) => stack.push(&[][..]),
 
-                Stmt::Pop => todo!(),
+                Stmt::Pop => { stack.pop().unwrap(); }
 
                 Stmt::Ref(_) => {
                     // - check non-conflicting with live loans.
@@ -339,49 +436,54 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
                     //   but we'll prob want type info here eventually, for
                     //   bori dynamic type checking.
                     //   then we'd be able to do that check here.
-                    // - determine live loans:
-                    //      - determine live regions:
-                    //          - anything in the stack is live.
-                    //          - the latest regions of live variables are live.
-                    //              - right, we now need intra block variable liveness.
-                    //              - is a variable live, if a loan of it is live?
-                    //                and do we need to adjust liveness for that?
-                    //                thinking yes and no.
-                    //                cause for a loan to be live, a ref var needs to be live.
-                    //                which should mean, as long as we handle that locally,
-                    //                it should be fine.
-                    //              - how to determine live vars inside block?
-                    //                  - live in, of course.
-                    //                  - then writes kill.
-                    //                  - unless there's a read later,
-                    //                    or it's the last write & the var is live out.
-                    //                  - thinking we might want to generate live intervals
-                    //                    during initial kill/gen analysis.
-                    //                    so all the logic is in one place.
-                    //                    only extend live intervals until read, not pop,
-                    //                    "anything in stack is live" handles that.
-                    todo!();
+
+                    let regions = &info.ref_regions[ref_region];
+                    ref_region += 1;
+                    stack.push(core::slice::from_ref(regions));
                 }
 
                 Stmt::Read(_) => {
                     // - check non-conflicting with live loans.
                     //      - this should just be read access to all locations.
-                    todo!();
+
+                    // @todo: proper region.
+                    stack.push(&[][..]);
                 }
 
-                Stmt::Write(_) => {
+                Stmt::Write(path) => {
                     // - check non-conflicting with live loans.
                     //      - this should be the same as creating a `&mut`.
-                    todo!();
+
+                    let regions = stack.pop().unwrap();
+                    if path.projs.len() == 0 {
+                        latest_var_regions[path.base] = regions;
+                    }
                 }
 
-                Stmt::Call { func, num_args } => {
-                    todo!();
+                Stmt::Call { func: _, num_args } => {
+                    // @todo: pop_n?
+                    stack.truncate(stack.len() - num_args);
+                    stack.push(&[][..]);
                 }
             }
         }
 
+
         // validate dead.
+        // @todo.
+
+
+        match block.terminator {
+            Terminator::Jump { target: _ } => (),
+
+            Terminator::Ite { on_true: _, on_false: _ } => {
+                stack.pop().unwrap();
+            }
+
+            Terminator::Return => {
+                stack.clear();
+            }
+        }
     }
 
 

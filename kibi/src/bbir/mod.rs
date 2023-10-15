@@ -8,6 +8,7 @@ use crate::tt::{Term, LocalVarId, LocalVar};
 
 
 sti::define_key!(pub, u32, BlockId, dsp: "bb{}");
+sti::define_key!(pub, u32, StmtId, dsp: "s{}");
 
 impl BlockId {
     pub const ENTRY: BlockId = BlockId(0);
@@ -58,7 +59,7 @@ pub enum Terminator {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Block<'a> {
-    pub stmts: &'a [Stmt<'a>],
+    pub stmts: &'a KSlice<StmtId, Stmt<'a>>,
     pub terminator: Terminator,
     pub vars_entry: BitSet<'a, LocalVarId>,
     pub vars_exit:  BitSet<'a, LocalVarId>,
@@ -131,8 +132,8 @@ impl<'a> core::fmt::Display for Block<'a> {
         if self.vars_entry.iter().next().is_some() {
             writeln!(f, "  in: {}", self.vars_entry)?;
         }
-        for stmt in self.stmts {
-            writeln!(f, "  {}", stmt)?;
+        for (id, stmt) in self.stmts.iter() {
+            writeln!(f, "  {}: {}", id, stmt)?;
         }
         if self.vars_dead.iter().next().is_some() {
             writeln!(f, "  dead: {}", self.vars_dead)?;
