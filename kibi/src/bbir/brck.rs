@@ -385,8 +385,9 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
                 for (var, ranges) in live_info.live_intervals.iter() {
                     for (begin, end) in ranges.copy_it() {
                         // @begin_eq_end_marks_last_write.
-                        if sid >= begin && sid < end
-                        || sid > begin && begin == end && live_info.live_out.has(var) {
+                        if sid > begin && sid < end
+                        || sid > begin && begin == end && live_info.live_out.has(var)
+                        || begin == StmtId::ZERO && sid == begin && sid < end {
                             for r in latest_var_regions[var].copy_it() {
                                 live_regions.insert(r);
                             }
