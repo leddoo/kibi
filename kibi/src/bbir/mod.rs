@@ -2,6 +2,7 @@ use sti::arena::Arena;
 use sti::keyed::{KVec, KSlice};
 
 use crate::bit_set::BitSet;
+use crate::ast::expr::RefKind;
 use crate::env::SymbolId;
 use crate::tt::{Term, LocalVarId, LocalVar};
 
@@ -20,6 +21,12 @@ pub struct Path<'a> {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub struct Loan<'a> {
+    pub path: Path<'a>,
+    pub kind: RefKind,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub enum Proj {
     Deref,
 }
@@ -34,7 +41,7 @@ pub enum Stmt<'a> {
     ConstUnit,
     ConstBool(bool),
     ConstNat(u32),
-    Ref(Path<'a>),
+    Ref(Loan<'a>),
     Read(Path<'a>),
     Write(Path<'a>),
     Call { func: SymbolId, num_args: usize },
@@ -96,9 +103,9 @@ impl<'a> core::fmt::Display for Stmt<'a> {
             Stmt::ConstUnit => write!(f, "const ()"),
             Stmt::ConstBool(it) => write!(f, "const {it}"),
             Stmt::ConstNat(it) => write!(f, "const {it}"),
-            Stmt::Ref(it) => write!(f, "ref {it}"),
-            Stmt::Read(it) => write!(f, "read {it}"),
-            Stmt::Write(it) => write!(f, "write {it}"),
+            Stmt::Ref(Loan { path, kind }) => write!(f, "ref {kind} {path}"),
+            Stmt::Read(path) => write!(f, "read {path}"),
+            Stmt::Write(path) => write!(f, "write {path}"),
             Stmt::Call { func, num_args } => write!(f, "call {func:?}({num_args})"),
         }
     }

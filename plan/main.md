@@ -14,9 +14,9 @@
 
 
 - brck:
-    - compute region liveness.
-    - do the brck thing.
-        - collect loans (incl kind).
+    - do the checks.
+        - compute live intervals.
+    - move ref kind into term?
     - bbir validation.
         - `out` is `in` of successors.
         - `in` of entry is empty, `out` of `ret` block is empty.

@@ -3,7 +3,7 @@ use sti::arena_pool::ArenaPool;
 use sti::vec::Vec;
 use sti::keyed::{Key, KVec};
 
-use crate::bit_set::{BitSet, BitSetMut};
+use crate::bit_set::BitSetMut;
 use crate::bit_relation::BitRelation;
 use crate::string_table::StringTable;
 use crate::ast::expr::RefKind;
@@ -23,7 +23,7 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
         func,
         ref_infos: KVec::with_cap(func.vars.len()),
         block_infos: KVec::with_cap(func.blocks.len()),
-        next_region: RegionId::ZERO,
+        region_loans: KVec::new(),
         region_subsets: BitRelation::default(),
     };
 
@@ -69,8 +69,7 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
 
             let mut regions = Vec::with_cap_in(this.temp, info.num_regions as usize);
             for _ in 0..info.num_regions {
-                regions.push(this.next_region);
-                this.next_region = this.next_region.add(1).unwrap();
+                regions.push(this.region_loans.push(None));
             }
             entry_regions.push(&*regions.leak());
         }
@@ -78,10 +77,9 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
         //entry_regions.shrink_to_fit();
 
         let mut ref_regions = Vec::new_in(this.temp);
-        for stmt in block.stmts {
-            if let Stmt::Ref(_) = stmt {
-                ref_regions.push(&*sti::vec_in!(this.temp; this.next_region).leak());
-                this.next_region = this.next_region.add(1).unwrap();
+        for stmt in block.stmts.copy_it() {
+            if let Stmt::Ref(loan) = stmt {
+                ref_regions.push(this.region_loans.push(Some(loan)));
             }
         }
         // @todo: sti vec shrink to fit.
@@ -93,6 +91,7 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
         });
     }
     dbg!(&this.block_infos);
+    dbg!(&this.region_loans);
 
 
     // compute region subsets.
@@ -102,7 +101,7 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
     for (bb, block) in this.func.blocks.iter() {
         let info = &this.block_infos[bb];
 
-        println!("{}:\n{}", bb, block);
+        eprintln!("{}:\n{}", bb, block);
 
         assert_eq!(stack.len(), 0);
 
@@ -117,8 +116,8 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
         }
 
         let mut ref_region = 0;
-        for stmt in block.stmts {
-            match *stmt {
+        for stmt in block.stmts.copy_it() {
+            match stmt {
                 Stmt::Error |
                 Stmt::Axiom |
                 Stmt::Const(_) |
@@ -129,9 +128,9 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
                 Stmt::Pop => { stack.pop().unwrap(); }
 
                 Stmt::Ref(_) => {
-                    let regions = info.ref_regions[ref_region];
+                    let regions = &info.ref_regions[ref_region];
                     ref_region += 1;
-                    stack.push(regions);
+                    stack.push(core::slice::from_ref(regions));
                 }
 
                 Stmt::Read(path) => {
@@ -161,6 +160,9 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
             for (i, var) in this.func.blocks[succ].vars_entry.iter().enumerate() {
                 let exit_regions = latest_var_regions[var];
                 let succ_regions = this.block_infos[succ].entry_regions[i];
+                // @todo: this fails for `error`.
+                // don't think it can fail any other way, cause we do
+                // type syntax eq for assignments, iirc.
                 assert_eq!(exit_regions.len(), succ_regions.len());
 
                 for (r1, r2) in exit_regions.copy_it().zip(succ_regions.copy_it()) {
@@ -188,10 +190,10 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
     }
     drop((stack, latest_var_regions));
     dbg!(&subset_builder);
-    this.region_subsets = BitRelation::transitive_from(this.temp, this.next_region.usize(), &subset_builder);
+    this.region_subsets = BitRelation::transitive_from(this.temp, this.region_loans.len(), &subset_builder);
     eprint!("subsets: ");
-    for i in 0..this.next_region.usize() {
-        for j in 0..this.next_region.usize() {
+    for i in 0..this.region_loans.len() {
+        for j in 0..this.region_loans.len() {
             if this.region_subsets.has(RegionId::from_usize_unck(i), RegionId::from_usize_unck(j)) {
                 eprint!("r{i}<:r{j}, ");
             }
@@ -226,8 +228,8 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
     for (bb, block) in this.func.blocks.iter() {
         let info = &mut blocks[bb];
 
-        for stmt in block.stmts {
-            match *stmt {
+        for stmt in block.stmts.copy_it() {
+            match stmt {
                 Stmt::Error |
                 Stmt::Axiom |
                 Stmt::Const(_) |
@@ -239,16 +241,20 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
                 Stmt::Call { func: _, num_args: _ } => (),
 
                 Stmt::Read(path) => {
-                    if path.projs.len() == 0 {
-                        if !info.kill.has(path.base) {
-                            info.gen.insert(path.base);
-                        }
+                    if !info.kill.has(path.base) {
+                        info.gen.insert(path.base);
                     }
                 }
 
                 Stmt::Write(path) => {
                     if path.projs.len() == 0 {
                         info.kill.insert(path.base);
+                    }
+                    else {
+                        // need to read the local.
+                        if !info.kill.has(path.base) {
+                            info.gen.insert(path.base);
+                        }
                     }
                 }
 
@@ -309,6 +315,76 @@ pub fn borrow_check<'a>(func: Function<'a>, env: &Env<'a>, strings: &StringTable
     dbg!(&blocks);
 
 
+    // do the checking.
+    for (_, block) in this.func.blocks.iter() {
+        for stmt in block.stmts.copy_it() {
+            match stmt {
+                Stmt::Error |
+                Stmt::Axiom |
+                Stmt::Const(_) |
+                Stmt::ConstUnit |
+                Stmt::ConstBool(_) |
+                Stmt::ConstNat(_) => todo!(),
+
+                Stmt::Pop => todo!(),
+
+                Stmt::Ref(_) => {
+                    // - check non-conflicting with live loans.
+                    //      - for `ref ? x.*`, need read access for `x`.
+                    //        and `?` access to `x.*`.
+                    //      - for now, it should just be read access for all
+                    //        but the last location, which requires `kind` access.
+                    // - todo: need to validate "can create from" somewhere.
+                    //   which requires type info, which we don't have here rn.
+                    //   but we'll prob want type info here eventually, for
+                    //   bori dynamic type checking.
+                    //   then we'd be able to do that check here.
+                    // - determine live loans:
+                    //      - determine live regions:
+                    //          - anything in the stack is live.
+                    //          - the latest regions of live variables are live.
+                    //              - right, we now need intra block variable liveness.
+                    //              - is a variable live, if a loan of it is live?
+                    //                and do we need to adjust liveness for that?
+                    //                thinking yes and no.
+                    //                cause for a loan to be live, a ref var needs to be live.
+                    //                which should mean, as long as we handle that locally,
+                    //                it should be fine.
+                    //              - how to determine live vars inside block?
+                    //                  - live in, of course.
+                    //                  - then writes kill.
+                    //                  - unless there's a read later,
+                    //                    or it's the last write & the var is live out.
+                    //                  - thinking we might want to generate live intervals
+                    //                    during initial kill/gen analysis.
+                    //                    so all the logic is in one place.
+                    //                    only extend live intervals until read, not pop,
+                    //                    "anything in stack is live" handles that.
+                    todo!();
+                }
+
+                Stmt::Read(_) => {
+                    // - check non-conflicting with live loans.
+                    //      - this should just be read access to all locations.
+                    todo!();
+                }
+
+                Stmt::Write(_) => {
+                    // - check non-conflicting with live loans.
+                    //      - this should be the same as creating a `&mut`.
+                    todo!();
+                }
+
+                Stmt::Call { func, num_args } => {
+                    todo!();
+                }
+            }
+        }
+
+        // validate dead.
+    }
+
+
     Err(())
 }
 
@@ -324,8 +400,8 @@ struct BrCk<'me, 'a> {
 
     ref_infos: KVec<LocalVarId, RefInfo>,
     block_infos: KVec<BlockId, BlockInfo<'me>>,
-    next_region: RegionId,
 
+    region_loans: KVec<RegionId, Option<Loan<'a>>>,
     region_subsets: BitRelation<'me, RegionId>,
 }
 
@@ -342,7 +418,7 @@ sti::define_key!(u32, RegionId);
 #[derive(Debug)]
 struct BlockInfo<'a> {
     entry_regions: &'a [&'a [RegionId]],
-    ref_regions: &'a [&'a [RegionId]],
+    ref_regions: &'a [RegionId],
 }
 
 

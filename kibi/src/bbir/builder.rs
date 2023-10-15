@@ -324,7 +324,21 @@ impl<'me, 'out> Builder<'me, 'out> {
                                     return;
                                 };
 
-                                self.stmts.push(Stmt::Ref(path));
+                                let Some(kind) = args[0].try_global() else {
+                                    self.stmts.push(Stmt::Error);
+                                    return;
+                                };
+                                let kind = match kind.id {
+                                    SymbolId::Ref_Kind_mut   => RefKind::Mut,
+                                    SymbolId::Ref_Kind_shr   => RefKind::Shared,
+                                    SymbolId::Ref_Kind_const => RefKind::Const,
+                                    _ => {
+                                        self.stmts.push(Stmt::Error);
+                                        return;
+                                    }
+                                };
+
+                                self.stmts.push(Stmt::Ref(Loan { path, kind }));
                             }
 
                             SymbolId::Ref_read => {

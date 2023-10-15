@@ -568,6 +568,16 @@ pub mod expr {
         Const,
     }
 
+    impl core::fmt::Display for RefKind {
+        fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            match self {
+                RefKind::Mut    => write!(f, "mut"),
+                RefKind::Shared => write!(f, "shr"),
+                RefKind::Const  => write!(f, "const"),
+            }
+        }
+    }
+
     #[derive(Clone, Copy, Debug)]
     pub struct Ref {
         pub kind: RefKind,
