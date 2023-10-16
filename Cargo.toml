@@ -1,14 +1,16 @@
-[workspace]
+[package]
+name = "kibi"
+version = "0.1.0"
+edition = "2021"
 
+[workspace]
 members = [
-    "spall-rs",
-    "kibi",
-    "kibi-lsp",
-    "examples/sandbox",
+    "examples/*",
 ]
 
-default-members = ["examples/sandbox"]
 
+[dependencies]
+derive_more = "0.99.17"
 
 [profile.release]
 debug = true

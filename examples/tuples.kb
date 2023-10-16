@@ -1,0 +1,14 @@
+
+let t = (1, 2)
+println(t)
+
+
+var a = 1
+var b = 2
+print("a: "); print(a); print(", b: "); println(b)
+
+(a, b) = (b, a)
+
+print("a: "); print(a); print(", b: "); println(b)
+
+

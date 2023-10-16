@@ -1,0 +1,173 @@
+println("hello, weirdo")
+
+
+
+let a = 6
+let b = 9
+if a < b:
+    println(10*a + b)
+end
+
+
+
+do:
+    fn abc(a, b, c):
+        print("a: ")
+        print(a)
+        print(", c: ")
+        print(c)
+        println("")
+    end
+    abc(1, 2, 3)
+end
+
+
+
+var foo = 5
+foo += 3
+print("foo: ")
+println(foo)
+
+
+
+fn fib(n):
+    var a = 0
+    var b = 1
+    var i = 0
+    while i < n:
+        (a, b) = (b, a+b)
+        i += 1
+    end
+    return a
+end
+
+var i = 0
+while i < 15:
+    print("fib(")
+    print(i)
+    print(") = ")
+    println(fib(i))
+    i += 1
+end
+
+
+
+let list = [1, 5, 4, "hi", nil]
+list[5] := list[1] + list[2]    -- `list[5] = ...` would error.
+
+println(list[0])
+println(list[1])
+println(list[2])
+println(list[3])
+println(list[4])
+println(list[5])
+
+
+
+fn cycle():
+    var a = 1
+    var b = 2
+    var c = 3
+    var n = 0
+    while a < 3:
+        let d = a
+        a = b
+        b = c
+        c = d
+        n += 1
+    end
+    print(a)
+    print(b)
+    print(c)
+    print(" ")
+    println(n)
+end
+cycle()
+
+
+fn whiler():
+    print("whiler: ")
+    while true:
+        break
+        undefined()
+    end
+    print("1, ")
+
+    var running = true
+    'yee while running:
+        print("x, ")
+        while true:
+            print("y, ")
+            break
+        end
+        print("z, ")
+        running = false
+        while true:
+            continue 'yee
+            undefined()
+        end
+        undefined()
+    end
+    println("kk.")
+end
+whiler()
+
+fn doer():
+    print("doer: ")
+    do:
+        break
+        undefined()
+    end
+    print("1, ")
+
+    let a = do:
+        print("x, ")
+        break break 42
+        undefined()
+    end
+    print(a)
+    print(", ")
+
+    let b = do:
+        if a > 0:
+            do:
+                print("4, ")
+                break
+                undefined()
+            end
+            break 69
+        end
+        undefined()
+    end
+    print(b)
+    print(", ")
+
+    let c =
+        if b > 0 do:
+            print("c, ")
+            break 7
+            undefined()
+        else:
+            49
+        end
+    print(c)
+    print(", ")
+
+    let d = 'd do:
+        while true:
+            do:
+                break 'd 8
+                break
+                continue
+            end
+            undefined()
+        end
+    end
+    print(d)
+    print(", ")
+
+    println("kk.")
+end
+doer()
+
+
